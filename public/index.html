@@ -87,10 +87,12 @@
           <select id="language-select" title="Answer language"></select>
         </div>
 
-        <div class="select-wrap">
-          <label class="sr-only" for="model-select">Model</label>
-          <select id="model-select" title="Model"></select>
-        </div>
+        <button class="icon-btn" id="settings-open" type="button" aria-label="Settings" title="Settings">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+          </svg>
+        </button>
       </div>
     </header>
 
@@ -152,6 +154,109 @@
       </p>
     </div>
   </main>
+</div>
+
+<!-- ============ Settings ============ -->
+<div class="modal" id="settings" hidden>
+  <div class="modal-scrim" data-close-settings></div>
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <header class="modal-head">
+      <h2 id="settings-title">Settings</h2>
+      <button class="icon-btn" id="settings-close" type="button" aria-label="Close settings">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </header>
+
+    <div class="modal-body">
+      <section class="set-group">
+        <h3>Conversation</h3>
+
+        <div class="set-row">
+          <span class="set-label"><label for="set-language">Answer language</label></span>
+          <select id="set-language"></select>
+        </div>
+
+        <div class="set-row">
+          <span class="set-label">
+            <label for="set-model">Model</label>
+            <small id="set-model-hint">&nbsp;</small>
+          </span>
+          <select id="set-model"></select>
+        </div>
+
+        <div class="set-row">
+          <span class="set-label">
+            <label for="set-lowdata">Low-data mode</label>
+            <small>Short answers. Uses less airtime on 2G.</small>
+          </span>
+          <input type="checkbox" id="set-lowdata" class="switch" role="switch">
+        </div>
+      </section>
+
+      <section class="set-group">
+        <h3>Reading</h3>
+
+        <div class="set-row">
+          <span class="set-label">
+            <label id="set-size-label">Text size</label>
+            <small>Bigger letters are easier on the eyes.</small>
+          </span>
+          <div class="segmented" id="set-size" role="radiogroup" aria-labelledby="set-size-label">
+            <button type="button" role="radio" data-size="sm" aria-checked="false" aria-label="Small">A</button>
+            <button type="button" role="radio" data-size="md" aria-checked="true" aria-label="Normal">A</button>
+            <button type="button" role="radio" data-size="lg" aria-checked="false" aria-label="Large">A</button>
+          </div>
+        </div>
+
+        <div class="set-row">
+          <span class="set-label"><label id="set-theme-label">Appearance</label></span>
+          <div class="segmented" id="set-theme" role="radiogroup" aria-labelledby="set-theme-label">
+            <button type="button" role="radio" data-theme-opt="light" aria-checked="false">Light</button>
+            <button type="button" role="radio" data-theme-opt="dark" aria-checked="false">Dark</button>
+            <button type="button" role="radio" data-theme-opt="system" aria-checked="false">Phone</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="set-group">
+        <h3>Voice</h3>
+
+        <div class="set-row">
+          <span class="set-label">
+            <label for="set-autospeak">Read answers aloud</label>
+            <small>Grandpa speaks every answer, for anyone who reads slowly.</small>
+          </span>
+          <input type="checkbox" id="set-autospeak" class="switch" role="switch">
+        </div>
+
+        <div class="set-row">
+          <span class="set-label">
+            <label for="set-rate">Speaking speed</label>
+            <small id="set-rate-value">Normal</small>
+          </span>
+          <input type="range" id="set-rate" min="0.6" max="1.3" step="0.05" value="0.95">
+        </div>
+      </section>
+
+      <section class="set-group">
+        <h3>Your conversations</h3>
+        <p class="set-hint" id="set-count"></p>
+        <div class="set-actions">
+          <button type="button" class="set-btn" id="set-export">Download all</button>
+          <button type="button" class="set-btn danger" id="set-clear">Delete all</button>
+        </div>
+        <p class="set-hint">
+          Conversations are saved only in this browser — never on a server. If you are on a
+          shared phone, delete them when you finish.
+        </p>
+      </section>
+    </div>
+
+    <footer class="modal-foot">
+      <span>Grandpa AI · Tolbert Innovation Hub</span>
+      <a href="https://tolbertinnovationhub.org" target="_blank" rel="noopener noreferrer">tolbertinnovationhub.org</a>
+    </footer>
+  </div>
 </div>
 
 <!-- Shown only when the deployment sets ACCESS_CODE -->

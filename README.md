@@ -22,6 +22,11 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Cultural storytelling** | Proverbs, folktales and oral history — careful with sacred matters, and never inventing an attribution. |
 | **Low-data mode** | A real switch, not a label: answers are capped at 120 words and 300 tokens, with no headings or tables. The whole front end is dependency-free, so nothing is pulled from a CDN. |
 | **Conversation history** | Kept in the browser's `localStorage`, grouped by date, searchable, and never sent anywhere but to the model. |
+| **Settings panel** | Language, model, low-data, text size, appearance, voice and your saved data, in one place behind the gear. |
+| **Bigger text** | Three sizes. It moves the root font size, so the whole layout scales like browser zoom rather than only the letters — for older eyes and small phones. |
+| **Answers read aloud** | Turn on *Read answers aloud* and every reply is spoken, at a speed you choose, for anyone who reads slowly. |
+| **Download your conversations** | One button saves everything as a Markdown file — a student keeps their homework help, a farmer keeps the planting advice. |
+| **Delete everything** | Two taps clears all history. Grandpa AI is meant to run on shared phones, so leaving is as easy as arriving. |
 
 The assistant is told, in every conversation, not to invent local prices, school rules
 or clinic hours, and not to give a diagnosis, a legal ruling or a financial guarantee —
@@ -127,7 +132,7 @@ server/
 public/
   index.html    One page
   styles.css    Brand palette, light and dark, mobile-first breakpoints
-  app.js        State, streaming, voice, history
+  app.js        State, streaming, voice, history, settings
   markdown.js   Small Markdown renderer (escapes first, then adds markup)
   storage.js    localStorage for conversations and preferences
 render.yaml     Deploy blueprint — secrets are prompted for, never committed
@@ -161,6 +166,11 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
 - **Browser (Playwright)** — 34 checks: streaming display, Stop/Send swapping,
   regenerate, code copy, conversation naming, history, search, delete, dark mode,
   reload persistence, and mobile layout with no horizontal overflow.
+- **Settings (Playwright)** — 33 checks: opening and closing three ways, text size
+  moving the root size and surviving reload, the three-way theme, low-data staying
+  in step between the pill and the switch, language syncing both ways, the spoken
+  speed label, conversation counts, the download's name and contents, two-tap
+  delete, and the mobile sheet without horizontal overflow.
 - **Access gate** — 17 checks: requests refused with no code, a wrong code and a
   wrong code of the same length; accepted with the right one; `/api/title` gated
   too; the code absent from `/api/config`; and the browser flow through prompt,
