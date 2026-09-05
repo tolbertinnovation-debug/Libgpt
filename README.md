@@ -77,10 +77,42 @@ All of it is in `.env` (see `.env.example`):
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Point at a compatible gateway if you use one. |
 | `PORT` | `3000` | Port to listen on. |
 | `RATE_LIMIT_PER_MINUTE` | `30` | Requests allowed per IP per minute. `0` disables the limit. |
+| `ACCESS_CODE` | *(blank)* | When set, visitors must enter this code before they can chat. Leave blank locally; set it on any public address. |
 
 The model picker in the header offers GPT-4o mini, GPT-4o, GPT-4.1 mini and GPT-4.1.
 Your account still needs access to whichever one you pick; if it does not, the app
 says so in plain words rather than failing silently.
+
+---
+
+## Putting it online
+
+The app reads its key from the environment, so it deploys without a code change.
+A [Render](https://render.com) blueprint is included — connect the repo and Render
+fills in the build and start commands from `render.yaml`, then asks you for the two
+secrets.
+
+1. **New** → **Web Service**, connect this repository
+2. Render reads `render.yaml`; confirm the free plan
+3. It prompts for `OPENAI_API_KEY` — paste your key
+4. It prompts for `ACCESS_CODE` — choose a word to share with your users
+5. Deploy. You get a public `…onrender.com` address
+
+Railway and Fly.io work the same way: build with `npm install`, start with
+`npm start`, and set the same environment variables in their dashboard.
+
+### Set ACCESS_CODE on anything public
+
+A public URL spends real money — every message is billed to the key you configured,
+and the per-IP rate limit only slows a stranger down, it does not stop them. With
+`ACCESS_CODE` set, visitors see a code prompt before they can chat; the code is
+compared in constant time and never sent to the browser.
+
+It is a spending gate, not a login: everyone shares one code, and there are no
+accounts. Also set a monthly spend limit in the OpenAI dashboard as a backstop.
+
+The free Render tier sleeps when idle, so the first visit after a quiet spell takes
+about a minute to wake.
 
 ---
 
@@ -98,6 +130,7 @@ public/
   app.js        State, streaming, voice, history
   markdown.js   Small Markdown renderer (escapes first, then adds markup)
   storage.js    localStorage for conversations and preferences
+render.yaml     Deploy blueprint — secrets are prompted for, never committed
 ```
 
 **The API key never reaches the browser.** The page talks only to this server, which
@@ -128,6 +161,10 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
 - **Browser (Playwright)** — 34 checks: streaming display, Stop/Send swapping,
   regenerate, code copy, conversation naming, history, search, delete, dark mode,
   reload persistence, and mobile layout with no horizontal overflow.
+- **Access gate** — 17 checks: requests refused with no code, a wrong code and a
+  wrong code of the same length; accepted with the right one; `/api/title` gated
+  too; the code absent from `/api/config`; and the browser flow through prompt,
+  rejection, entry and reload.
 
 ---
 

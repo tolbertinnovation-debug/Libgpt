@@ -1,3 +1,4 @@
+import crypto from 'node:crypto';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
@@ -51,10 +52,38 @@ setInterval(() => {
   }
 }, WINDOW_MS).unref();
 
+// ---- optional access code -----------------------------------------------
+// A public URL spends real money on every message, so the deployment can be
+// put behind a shared code. Compared in constant time so the comparison
+// cannot be used to guess the code character by character.
+function codeMatches(given) {
+  if (!config.accessCode) return true;
+  if (typeof given !== 'string') return false;
+
+  const a = Buffer.from(given);
+  const b = Buffer.from(config.accessCode);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function requireAccess(req, res, next) {
+  if (!config.accessCode) return next();
+
+  if (codeMatches(req.get('x-access-code'))) return next();
+
+  res.status(401).json({ error: 'That access code is not right.', needsCode: true });
+}
+
+app.post('/api/verify', rateLimit, (req, res) => {
+  if (codeMatches(req.body?.code)) res.json({ ok: true });
+  else res.status(401).json({ error: 'That access code is not right.' });
+});
+
 // ---- config the browser is allowed to know ------------------------------
 app.get('/api/config', (_req, res) => {
   res.json({
     ready: Boolean(config.apiKey),
+    requiresCode: Boolean(config.accessCode),
     defaultModel: config.model,
     models: ALLOWED_MODELS,
     defaultPersona: DEFAULT_PERSONA,
@@ -97,7 +126,7 @@ function readConversation(body) {
 }
 
 // ---- streaming chat -----------------------------------------------------
-app.post('/api/chat', rateLimit, async (req, res) => {
+app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   let messages;
   try {
     messages = readConversation(req.body);
@@ -156,7 +185,7 @@ app.post('/api/chat', rateLimit, async (req, res) => {
 });
 
 // ---- conversation titles ------------------------------------------------
-app.post('/api/title', rateLimit, async (req, res) => {
+app.post('/api/title', rateLimit, requireAccess, async (req, res) => {
   const text = typeof req.body?.text === 'string' ? req.body.text.slice(0, 1_000) : '';
   if (!text.trim()) {
     res.status(400).json({ error: 'Nothing to name.' });
@@ -187,6 +216,7 @@ app.listen(config.port, () => {
   console.log(`  Powered by Tolbert Innovation Hub · Monrovia, Liberia\n`);
   console.log(`  Listening on ${where}`);
   console.log(`  Model: ${config.model}`);
+  if (config.accessCode) console.log('  Access code: on — visitors must enter it before chatting');
   if (!config.apiKey) {
     console.log(`\n  ⚠  No OPENAI_API_KEY found. Copy .env.example to .env and add your key,`);
     console.log(`     otherwise every message will come back with an error.\n`);

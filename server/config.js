@@ -12,6 +12,9 @@ export const config = {
   model: process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
   titleModel: process.env.OPENAI_TITLE_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
   rateLimitPerMinute: int(process.env.RATE_LIMIT_PER_MINUTE, 30),
+  // Optional gate. When set, visitors must enter this code before they can
+  // chat — the difference between a public URL and a public bill.
+  accessCode: process.env.ACCESS_CODE?.trim() || '',
 };
 
 // Models offered in the UI picker. The account still has to have access to

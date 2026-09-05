@@ -1,0 +1,32 @@
+# Render blueprint — https://render.com
+#
+# Render reads this when you connect the repo, so the build and start commands
+# are filled in for you. The two secrets are marked `sync: false`, which means
+# Render asks you for them in the dashboard instead of reading them from here.
+# Never put the real key in this file: it is committed to the repository.
+
+services:
+  - type: web
+    name: grandpa-ai
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      # Your OpenAI key. Render prompts for this — paste it in the dashboard.
+      - key: OPENAI_API_KEY
+        sync: false
+
+      # Shared code visitors must enter before they can chat. Strongly
+      # recommended on a public address: without it, anyone who finds the URL
+      # spends your OpenAI credit. Render prompts for this too.
+      - key: ACCESS_CODE
+        sync: false
+
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+
+      # The free plan is small; keep the per-visitor limit modest.
+      - key: RATE_LIMIT_PER_MINUTE
+        value: "15"

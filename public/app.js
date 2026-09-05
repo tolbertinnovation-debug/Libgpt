@@ -60,7 +60,39 @@ const el = {
   stop: $('stop-btn'),
   mic: $('mic-btn'),
   toast: $('toast'),
+  gate: $('gate'),
+  gateForm: $('gate-form'),
+  gateInput: $('gate-input'),
+  gateError: $('gate-error'),
+  gateSubmit: $('gate-submit'),
 };
+
+// The access code, when the deployment sets one. Kept per-browser so a visitor
+// enters it once; it is not a login, only a gate on who can spend the API key.
+const CODE_KEY = 'grandpa-ai:code';
+const readCode = () => {
+  try { return localStorage.getItem(CODE_KEY) || ''; } catch { return ''; }
+};
+const writeCode = (code) => {
+  try { if (code) localStorage.setItem(CODE_KEY, code); else localStorage.removeItem(CODE_KEY); }
+  catch { /* private window — the code just will not be remembered */ }
+};
+
+/** Headers for any request that spends money. */
+function apiHeaders() {
+  const headers = { 'Content-Type': 'application/json' };
+  const code = readCode();
+  if (code) headers['x-access-code'] = code;
+  return headers;
+}
+
+function showGate(message) {
+  el.gate.hidden = false;
+  el.gateError.hidden = !message;
+  if (message) el.gateError.textContent = message;
+  el.gateInput.value = '';
+  el.gateInput.focus();
+}
 
 const currentChat = () => state.chats.find((c) => c.id === state.currentId) || null;
 const persist = () => saveChats(state.chats);
@@ -306,7 +338,7 @@ async function streamReply(chat) {
   try {
     const response = await fetch('/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: apiHeaders(),
       signal: controller.signal,
       body: JSON.stringify({
         messages: chat.messages.map(({ role, content }) => ({ role, content })),
@@ -319,6 +351,12 @@ async function streamReply(chat) {
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
+      if (response.status === 401 && body.needsCode) {
+        writeCode('');
+        target.closest('.turn')?.remove();
+        showGate('That code is no longer valid. Enter it again.');
+        return;
+      }
       throw new Error(body.error || `Request failed (${response.status}).`);
     }
 
@@ -395,7 +433,7 @@ async function nameConversation(chat) {
   try {
     const response = await fetch('/api/title', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: apiHeaders(),
       body: JSON.stringify({ text: seed }),
     });
     if (!response.ok) return;
@@ -698,6 +736,35 @@ el.themeToggle.addEventListener('click', () => {
   applyTheme(next);
 });
 
+/* Access gate */
+el.gateForm.addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const code = el.gateInput.value.trim();
+  if (!code) return;
+
+  el.gateSubmit.disabled = true;
+  el.gateSubmit.textContent = 'Checking…';
+  try {
+    const response = await fetch('/api/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    });
+    if (response.ok) {
+      writeCode(code);
+      el.gate.hidden = true;
+      el.input.focus();
+    } else {
+      showGate('That code is not right. Try again.');
+    }
+  } catch {
+    showGate('Could not reach the server. Check your connection.');
+  } finally {
+    el.gateSubmit.disabled = false;
+    el.gateSubmit.textContent = 'Enter';
+  }
+});
+
 /* Mobile navigation */
 function openNav() {
   el.app.classList.add('nav-open');
@@ -745,6 +812,21 @@ async function boot() {
     state.ready = config.ready;
 
     if (!config.ready) el.banner.hidden = false;
+
+    if (config.requiresCode) {
+      const stored = readCode();
+      let valid = false;
+      if (stored) {
+        const check = await fetch('/api/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code: stored }),
+        }).catch(() => null);
+        valid = Boolean(check?.ok);
+        if (!valid) writeCode('');
+      }
+      if (!valid) showGate('');
+    }
 
     el.language.innerHTML = config.languages
       .map((l) => `<option value="${l.id}">${escapeHtml(l.label)}${
