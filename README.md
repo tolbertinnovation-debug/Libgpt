@@ -35,11 +35,33 @@ You need **Node.js 18.17 or newer** and an OpenAI API key.
 
 ```bash
 npm install
-cp .env.example .env      # then put your key in .env
+npm run setup     # asks for your key and writes .env for you
 npm start
 ```
 
 Open <http://localhost:3000>.
+
+`npm run setup` prompts for the key and saves it to `.env` — you never have to open
+a hidden file in an editor. **Nothing appears on screen while you paste the key**;
+that is deliberate, so it does not end up in your terminal scrollback. Press Enter
+when you have pasted it, and the script confirms with a masked version
+(`sk-proj************4f2a`). It writes the file as owner-read-only, and `.env` is
+already in `.gitignore`, so the key is not committed.
+
+Run it again any time to replace the key — your other settings are kept.
+
+<details>
+<summary>Prefer to do it by hand?</summary>
+
+```bash
+cp .env.example .env
+```
+
+Then open `.env` in any text editor and replace `sk-your-key-here` on the
+`OPENAI_API_KEY=` line with your key. The line should end up looking like
+`OPENAI_API_KEY=sk-proj-abc123...` — no quotes, no spaces around the `=`.
+
+</details>
 
 Without a key the app still loads and explains what is missing — it just cannot answer.
 

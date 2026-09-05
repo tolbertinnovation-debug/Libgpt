@@ -2,13 +2,14 @@
   "name": "grandpa-ai",
   "version": "1.0.0",
   "private": true,
-  "description": "Grandpa AI — African-centred conversational AI platform by Tolbert Innovation Hub. Claude-style chat interface powered by the OpenAI API.",
+  "description": "Grandpa AI \u2014 African-centred conversational AI platform by Tolbert Innovation Hub. Claude-style chat interface powered by the OpenAI API.",
   "type": "module",
   "main": "server/index.js",
   "engines": {
     "node": ">=18.17"
   },
   "scripts": {
+    "setup": "node scripts/setup.mjs",
     "start": "node server/index.js",
     "dev": "node --watch server/index.js"
   },
