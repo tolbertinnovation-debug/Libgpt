@@ -140,6 +140,9 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   const system = buildSystemPrompt({
     persona: req.body?.persona,
     language: req.body?.language,
+    speaker: req.body?.speaker,
+    tone: req.body?.tone,
+    userName: req.body?.userName,
     lowData,
   });
 

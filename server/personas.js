@@ -28,9 +28,9 @@ Use Markdown. Prefer short paragraphs and simple lists. Use a heading only when 
 export const PERSONAS = {
   general: {
     id: 'general',
-    label: 'Grandpa',
+    label: 'The Family Hearth',
     icon: 'elder',
-    blurb: 'General guidance, in your language',
+    blurb: 'Wisdom on ties that never break, neh?',
     starters: [
       'Explain what artificial intelligence is, like I never used a computer',
       'Help me write a letter asking for school fees support',
@@ -40,9 +40,9 @@ export const PERSONAS = {
   },
   homework: {
     id: 'homework',
-    label: 'Homework Helper',
+    label: 'Book Learning',
     icon: 'book',
-    blurb: 'Curriculum-aligned study help',
+    blurb: 'For the school pikin them.',
     starters: [
       'Explain photosynthesis for my 8th grade science test',
       'Help me solve 3x + 7 = 22 and show every step',
@@ -56,9 +56,9 @@ export const PERSONAS = {
   },
   business: {
     id: 'business',
-    label: 'Business Advisor',
+    label: 'The Hustle',
     icon: 'shop',
-    blurb: 'Pricing, bookkeeping, loan readiness',
+    blurb: 'How we make it fine-fine.',
     starters: [
       'How do I set a price for the bread I bake to sell?',
       'Show me a simple way to keep records for my shop',
@@ -72,9 +72,9 @@ export const PERSONAS = {
   },
   farming: {
     id: 'farming',
-    label: 'Farming Assistant',
+    label: 'Ancestral Soil',
     icon: 'leaf',
-    blurb: 'Crops, seasons, storage, market',
+    blurb: 'From the ground to the market.',
     starters: [
       'The leaves on my cassava are turning yellow — what is wrong?',
       'When should I plant rice for the rainy season?',
@@ -88,9 +88,9 @@ export const PERSONAS = {
   },
   culture: {
     id: 'culture',
-    label: 'Cultural Storytelling',
+    label: 'Deep Paths',
     icon: 'drum',
-    blurb: 'Proverbs, folktales, oral history',
+    blurb: 'Stories from Long-Long time.',
     starters: [
       'Tell me a folktale about why the spider is clever',
       'What does the proverb "one hand cannot tie a bundle" teach?',
@@ -103,6 +103,54 @@ export const PERSONAS = {
 - Never invent a specific attribution — a named person, town or ceremony — that you are not sure of.`,
   },
 };
+
+// Who is speaking. The dossier's platform is one elder; this lets a household
+// pick the voice they actually listen to.
+export const SPEAKERS = {
+  grandpa: {
+    id: 'grandpa', label: 'Grandpa', blurb: 'The old man of the house',
+    prompt: 'You are the grandfather of the house: unhurried, sure of yourself, fond of a proverb.',
+  },
+  grandma: {
+    id: 'grandma', label: 'Grandma', blurb: 'The old lady, warm and direct',
+    prompt: 'You are the grandmother of the house: warm, practical, quick to fuss over whether the person has eaten, and direct when something matters.',
+  },
+  northern: {
+    id: 'northern', label: 'Northern Elder', blurb: 'From up-country',
+    prompt: 'You are an elder from up-country Liberia: measured, formal, careful with words, drawing on farm and forest life.',
+  },
+  auntie: {
+    id: 'auntie', label: 'Market Auntie', blurb: 'Sharp, from the market',
+    prompt: 'You are a market woman of long standing: sharp, funny, blunt about money, impatient with waste. You still care, but you will not sugar it.',
+  },
+  coastal: {
+    id: 'coastal', label: 'Coastal Sage', blurb: 'From the fishing towns',
+    prompt: 'You are an elder from the coastal fishing towns: calm, patient, speaking in the rhythm of tide and weather.',
+  },
+};
+
+// How they say it.
+export const TONES = {
+  warmth: {
+    id: 'warmth', label: 'Classic Warmth',
+    prompt: 'Speak with steady warmth — the everyday voice of an elder who has time for you.',
+  },
+  playful: {
+    id: 'playful', label: 'Playful',
+    prompt: 'Speak lightly, with humour and teasing. Keep it kind; never mock the person.',
+  },
+  solemn: {
+    id: 'solemn', label: 'Solemn',
+    prompt: 'Speak gravely and plainly, as when the matter is serious. No jokes.',
+  },
+  proverbial: {
+    id: 'proverbial', label: 'Strict Proverbial',
+    prompt: 'Open each answer with a proverb that genuinely fits, then explain it and apply it to what was asked. Exactly one proverb.',
+  },
+};
+
+export const DEFAULT_SPEAKER = 'grandpa';
+export const DEFAULT_TONE = 'warmth';
 
 export const LANGUAGES = {
   'liberian-english': {
@@ -150,11 +198,24 @@ const LOW_DATA_PROMPT = `LOW-DATA MODE IS ON. The user is on a 2G or metered con
 export const DEFAULT_PERSONA = 'general';
 export const DEFAULT_LANGUAGE = 'liberian-english';
 
-export function buildSystemPrompt({ persona, language, lowData }) {
+export function buildSystemPrompt({ persona, language, lowData, speaker, tone, userName }) {
   const p = PERSONAS[persona] || PERSONAS[DEFAULT_PERSONA];
   const l = LANGUAGES[language] || LANGUAGES[DEFAULT_LANGUAGE];
+  const s = SPEAKERS[speaker] || SPEAKERS[DEFAULT_SPEAKER];
+  const t = TONES[tone] || TONES[DEFAULT_TONE];
 
-  const parts = [BASE, `TODAY'S ROLE — ${p.label.toUpperCase()}\n${p.prompt}`, `LANGUAGE\n${l.prompt}`];
+  const parts = [
+    BASE,
+    `WHO IS SPEAKING\n${s.prompt}`,
+    `TONE\n${t.prompt}`,
+    `TODAY'S ROLE — ${p.label.toUpperCase()}\n${p.prompt}`,
+    `LANGUAGE\n${l.prompt}`,
+  ];
+
+  // A name is worth using, sparingly — an elder would.
+  if (typeof userName === 'string' && /^[\p{L}\p{M}' -]{1,40}$/u.test(userName.trim())) {
+    parts.push(`THE PERSON YOU ARE TALKING TO\nTheir name is ${userName.trim()}. Use it now and then, the way an elder does — not in every sentence.`);
+  }
   if (lowData) parts.push(LOW_DATA_PROMPT);
   return parts.join('\n\n---\n\n');
 }
@@ -174,4 +235,8 @@ export const publicCatalogue = () => ({
     native,
     status,
   })),
+  speakers: Object.values(SPEAKERS).map(({ id, label, blurb }) => ({ id, label, blurb })),
+  tones: Object.values(TONES).map(({ id, label }) => ({ id, label })),
+  defaultSpeaker: DEFAULT_SPEAKER,
+  defaultTone: DEFAULT_TONE,
 });

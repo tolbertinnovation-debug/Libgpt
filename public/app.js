@@ -4,16 +4,28 @@ import {
   DEFAULT_DICTATION, DICTATION_ACCENTS, FALLBACK_DICTATION,
   Speaker, englishVoices, loadVoices, pickDefaultVoice,
 } from './speech.js';
+import { GLOSSARY, annotateGlossary } from './glossary.js';
+import { proverbOfTheDay } from './proverbs.js';
+import { setSoundEnabled, sounds } from './sounds.js';
 
 /* ========================================================================
    State
    ======================================================================== */
 
 const PERSONA_EMOJI = {
-  elder: '🧓',
+  elder: '❤️',
   book: '📚',
-  shop: '🏪',
+  shop: '🏆',
   leaf: '🌾',
+  drum: '🥁',
+};
+
+// The oversized glyph bleeding off the right of each card.
+const PERSONA_MARK = {
+  elder: '🏠',
+  book: '✏️',
+  shop: '🛒',
+  leaf: '🌱',
   drum: '🥁',
 };
 
@@ -36,6 +48,10 @@ const state = {
     voicePitch: 0.9,
     voiceURI: '',        // '' = let the app pick the closest accent
     dictationAccent: DEFAULT_DICTATION,
+    userName: '',
+    speaker: 'grandpa',
+    tone: 'warmth',
+    sound: true,
     ...loadPrefs(),
   },
 };
@@ -83,6 +99,15 @@ const el = {
   listeningText: $('listening-text'),
   listenStop: $('listen-stop'),
   offlineBanner: $('offline-banner'),
+  welcomeName: $('welcome-name'),
+  welcomeProverb: $('welcome-proverb'),
+  browseLibrary: $('browse-library'),
+  liberiaFocus: $('liberia-focus'),
+  chipRow: $('chip-row'),
+  setSpeaker: $('settings-speaker'),
+  setTone: $('settings-tone'),
+  setName: $('settings-name'),
+  setSound: $('settings-sound'),
   setCount: $('settings-count'),
   setExport: $('settings-export'),
   setClear: $('settings-clear'),
@@ -194,7 +219,7 @@ function applyTheme(theme) {
   el.themeIcon.textContent = resolved === 'dark' ? '☀' : '☾';
   el.themeLabel.textContent = resolved === 'dark' ? 'Light mode' : 'Dark mode';
   document.querySelector('meta[name="theme-color"]')
-    ?.setAttribute('content', resolved === 'dark' ? '#1a1917' : '#1b2a6b');
+    ?.setAttribute('content', resolved === 'dark' ? '#140c0b' : '#faf3e0');
 }
 
 /* ========================================================================
@@ -252,8 +277,11 @@ function renderWelcome() {
       <button class="persona-card ${p.id === state.prefs.persona ? 'is-active' : ''}"
               data-persona="${p.id}" type="button" aria-pressed="${p.id === state.prefs.persona}">
         <span class="persona-emoji" aria-hidden="true">${PERSONA_EMOJI[p.icon] || '💬'}</span>
-        <span class="persona-name">${escapeHtml(p.label)}</span>
-        <span class="persona-blurb">${escapeHtml(p.blurb)}</span>
+        <span class="persona-body">
+          <span class="persona-name">${escapeHtml(p.label)}</span>
+          <span class="persona-blurb">${escapeHtml(p.blurb)}</span>
+        </span>
+        <span class="persona-mark" aria-hidden="true">${PERSONA_MARK[p.icon] || ''}</span>
       </button>`)
     .join('');
 
@@ -348,6 +376,9 @@ function renderThread() {
     })
     .join('');
 
+  // Mark Liberian terms so a reader from outside can follow the vernacular.
+  el.thread.querySelectorAll('.turn-ai .prose').forEach((prose) => annotateGlossary(prose));
+
   el.thread.scrollTop = el.thread.scrollHeight;
 }
 
@@ -417,6 +448,9 @@ async function streamReply(chat) {
         language: state.prefs.language,
         model: state.prefs.model,
         lowData: state.prefs.lowData,
+        speaker: state.prefs.speaker,
+        tone: state.prefs.tone,
+        userName: state.prefs.userName,
       }),
     });
 
@@ -472,6 +506,7 @@ async function streamReply(chat) {
     if (error.name !== 'AbortError') {
       failed = true;
       target.closest('.turn')?.remove();
+      sounds.error();
       showError(
         navigator.onLine === false
           ? 'You are offline. Your message is saved — send it again when the network comes back.'
@@ -490,6 +525,7 @@ async function streamReply(chat) {
     persist();
     renderThread();
     renderSidebar();
+    if (!failed) sounds.reply();
     // Read it out for anyone who reads slowly — but never over an aborted reply.
     if (state.prefs.autoSpeak && !failed) speak(text);
   } else if (!failed) {
@@ -561,6 +597,7 @@ function send(rawText) {
   persist();
   renderThread();
   renderSidebar();
+  sounds.send();
 
   streamReply(chat);
 }
@@ -739,6 +776,7 @@ function toggleMic() {
   heardFinal = '';
   accentFellBack = false;
   setListening(true);
+  sounds.listen();
   recogniser = startRecogniser(state.prefs.dictationAccent || DEFAULT_DICTATION);
   if (!recogniser) setListening(false);
 }
@@ -749,11 +787,13 @@ el.listenStop.addEventListener('click', stopListening);
    Settings
    ======================================================================== */
 
+// Thresholds match the 0.75x–1.5x slider: the slowest setting must actually
+// read "Slow", and the 0.95 default must read "Normal".
 const RATE_WORDS = [
-  [0.75, 'Slow'],
-  [0.9, 'A little slow'],
-  [1.05, 'Normal'],
-  [1.2, 'Quick'],
+  [0.85, 'Slow'],
+  [0.95, 'A little slow'],
+  [1.1, 'Normal'],
+  [1.3, 'Quick'],
   [Infinity, 'Fast'],
 ];
 
@@ -803,6 +843,10 @@ function renderSettings() {
   el.setPitch.value = prefs.voicePitch;
   el.setPitchValue.textContent = PITCH_WORDS.find(([limit]) => prefs.voicePitch < limit)[1];
   el.setAccent.value = prefs.dictationAccent;
+  el.setName.value = prefs.userName || '';
+  el.setSpeaker.value = prefs.speaker;
+  el.setTone.value = prefs.tone;
+  el.setSound.checked = prefs.sound !== false;
   renderVoiceList();
 
   el.setSize.value = prefs.textSize;
@@ -826,11 +870,13 @@ function openSettings() {
   renderSettings();
   el.settings.hidden = false;
   el.settingsClose.focus();
+  sounds.open();
 }
 
 function closeSettings() {
   el.settings.hidden = true;
   el.settingsOpen.focus();
+  sounds.close();
 }
 
 /** All conversations as one Markdown file the user can keep. */
@@ -940,6 +986,31 @@ el.setAccent.addEventListener('change', () => {
   if (listening) { stopListening(); toast('Tap the microphone again to use the new accent.'); }
 });
 
+el.setName.addEventListener('change', () => {
+  state.prefs.userName = el.setName.value.trim().slice(0, 40);
+  savePreferences();
+  renderWelcomeName();
+});
+
+el.setSpeaker.addEventListener('change', () => {
+  state.prefs.speaker = el.setSpeaker.value;
+  savePreferences();
+  const speaker = state.catalogue.speakers?.find((sp) => sp.id === state.prefs.speaker);
+  if (speaker) toast(`${speaker.label} will answer from now on.`);
+});
+
+el.setTone.addEventListener('change', () => {
+  state.prefs.tone = el.setTone.value;
+  savePreferences();
+});
+
+el.setSound.addEventListener('change', () => {
+  state.prefs.sound = el.setSound.checked;
+  savePreferences();
+  setSoundEnabled(state.prefs.sound);
+  if (state.prefs.sound) sounds.tap();
+});
+
 el.setVoiceTest.addEventListener('click', () => {
   speak('Good day, my friend. One hand cannot tie a bundle. Ask me anything you like.');
 });
@@ -982,6 +1053,103 @@ el.setClear.addEventListener('click', () => {
   renderSidebar();
   renderSettings();
   toast('All conversations deleted.');
+});
+
+/* ========================================================================
+   The hearth — name, proverb, glossary, chips, sounds
+   ======================================================================== */
+
+function renderWelcomeName() {
+  const name = (state.prefs.userName || '').trim();
+  el.welcomeName.textContent = name || 'friend';
+}
+
+function askForName() {
+  const current = (state.prefs.userName || '').trim();
+  const answer = window.prompt('What should Grandpa call you?', current);
+  if (answer === null) return;                       // cancelled
+  state.prefs.userName = answer.trim().slice(0, 40);
+  savePreferences();
+  renderWelcomeName();
+  if (el.setName) el.setName.value = state.prefs.userName;
+  sounds.tap();
+}
+
+el.welcomeName.addEventListener('click', askForName);
+
+// The proverb is the same for everyone for the whole day, so it reads as a
+// saying rather than a shuffle.
+el.welcomeProverb.textContent = `"${proverbOfTheDay()}"`;
+
+/* ---- Glossary popovers ---- */
+let glossaryPop = null;
+
+function closeGlossary() {
+  glossaryPop?.remove();
+  glossaryPop = null;
+}
+
+document.addEventListener('click', (event) => {
+  const term = event.target.closest('.glossary-term');
+  closeGlossary();
+  if (!term) return;
+
+  event.preventDefault();
+  sounds.tap();
+
+  glossaryPop = document.createElement('div');
+  glossaryPop.className = 'glossary-pop';
+  glossaryPop.setAttribute('role', 'tooltip');
+  const title = document.createElement('strong');
+  title.textContent = term.textContent;
+  glossaryPop.append(title, document.createTextNode(term.dataset.meaning || ''));
+  document.body.append(glossaryPop);
+
+  // Keep it on screen next to the word.
+  const box = term.getBoundingClientRect();
+  const pop = glossaryPop.getBoundingClientRect();
+  const left = Math.min(Math.max(8, box.left), window.innerWidth - pop.width - 8);
+  const above = box.top > pop.height + 12;
+  glossaryPop.style.left = `${left}px`;
+  glossaryPop.style.top = above ? `${box.top - pop.height - 8}px` : `${box.bottom + 8}px`;
+});
+
+window.addEventListener('resize', closeGlossary);
+el.thread.addEventListener('scroll', closeGlossary, { passive: true });
+
+/* ---- Chips and the two hearth buttons ---- */
+const CHIP_PROMPTS = {
+  story: { persona: 'culture', text: 'Tell me a story from long-long time.' },
+  wisdom: { persona: 'general', text: 'Give me wisdom for today, and explain it.' },
+  history: { persona: 'culture', text: 'Tell me something true from Liberia\'s history.' },
+};
+
+el.chipRow.addEventListener('click', (event) => {
+  const chip = event.target.closest('[data-chip]');
+  if (!chip) return;
+  const ask = CHIP_PROMPTS[chip.dataset.chip];
+  if (!ask) return;
+  state.prefs.persona = ask.persona;
+  savePreferences();
+  renderComposerPersona();
+  send(ask.text);
+});
+
+el.browseLibrary.addEventListener('click', () => {
+  sounds.open();
+  state.prefs.persona = 'culture';
+  savePreferences();
+  renderWelcome();
+  renderComposerPersona();
+  el.starters.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  toast('Deep Paths — ask for a folktale, a proverb, or a piece of history.');
+});
+
+// Liberia Focus is on and stays on: this platform is Liberian by design, and a
+// switch that does nothing would be a lie. Say what it means instead.
+el.liberiaFocus.addEventListener('click', () => {
+  sounds.tap();
+  toast('Grandpa always answers from a Liberian point of view — that is the whole idea.');
 });
 
 /* ========================================================================
@@ -1094,6 +1262,7 @@ el.personaGrid.addEventListener('click', (event) => {
   if (!card) return;
   state.prefs.persona = card.dataset.persona;
   savePreferences();
+  sounds.tap();
   renderWelcome();
   renderComposerPersona();
   el.input.focus();
@@ -1174,6 +1343,13 @@ el.language.addEventListener('change', () => {
   el.setLanguage.value = el.language.value; // keep the settings copy in step
   savePreferences();
   announceRoadmapLanguage();
+});
+
+$('theme-top').addEventListener('click', () => el.themeToggle.click());
+
+$('about-btn').addEventListener('click', () => {
+  sounds.open();
+  toast('Grandpa AI — African-centred AI by Tolbert Innovation Hub, Monrovia. Answers in Liberian English, by text or voice.');
 });
 
 el.themeToggle.addEventListener('click', () => {
@@ -1264,6 +1440,8 @@ async function boot() {
   applyTheme(state.prefs.theme);
   applyTextSize(state.prefs.textSize);
   paintConnection();
+  setSoundEnabled(state.prefs.sound !== false);
+  renderWelcomeName();
 
   el.setAccent.innerHTML = DICTATION_ACCENTS
     .map((a) => `<option value="${a.id}">${escapeHtml(a.label)}</option>`)
@@ -1322,6 +1500,21 @@ async function boot() {
     el.topModel.value = state.prefs.model;
     el.setSize.value = state.prefs.textSize;
     el.setTheme.value = state.prefs.theme || 'system';
+
+    el.setSpeaker.innerHTML = (config.speakers || [])
+      .map((sp) => `<option value="${sp.id}">${escapeHtml(sp.label)}</option>`)
+      .join('');
+    el.setTone.innerHTML = (config.tones || [])
+      .map((t) => `<option value="${t.id}">${escapeHtml(t.label)}</option>`)
+      .join('');
+    if (!config.speakers?.some((sp) => sp.id === state.prefs.speaker)) {
+      state.prefs.speaker = config.defaultSpeaker || 'grandpa';
+    }
+    if (!config.tones?.some((t) => t.id === state.prefs.tone)) {
+      state.prefs.tone = config.defaultTone || 'warmth';
+    }
+    el.setSpeaker.value = state.prefs.speaker;
+    el.setTone.value = state.prefs.tone;
     el.lowData.setAttribute('aria-pressed', String(state.prefs.lowData));
     renderSettings();
   } catch {

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Grandpa AI — African-centred conversational AI by Tolbert Innovation Hub. Ask in Liberian English, by voice or text.">
-<meta name="theme-color" content="#1b2a6b">
+<meta name="theme-color" content="#faf3e0">
 <title>Grandpa AI · Tolbert Innovation Hub</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%231b2a6b'/%3E%3Ctext x='16' y='23' font-size='18' font-family='Georgia,serif' font-weight='bold' fill='%23f5a623' text-anchor='middle'%3EG%3C/text%3E%3C/svg%3E">
 <link rel="stylesheet" href="styles.css">
@@ -21,10 +21,18 @@
       <div class="brand">
         <span class="brand-seal" aria-hidden="true">
           <svg viewBox="0 0 40 40" width="34" height="34">
-            <circle cx="20" cy="20" r="19" fill="#1b2a6b"/>
-            <circle cx="20" cy="20" r="15" fill="none" stroke="#f5a623" stroke-width="1.5"/>
-            <text x="20" y="26" font-size="16" font-family="Georgia, serif" font-weight="bold"
-                  fill="#f5a623" text-anchor="middle">G</text>
+            <defs><clipPath id="sideClip"><circle cx="20" cy="20" r="19"/></clipPath></defs>
+            <g clip-path="url(#sideClip)">
+              <rect width="40" height="40" fill="#8a5a44"/>
+              <circle cx="20" cy="16" r="8" fill="#a06b50"/>
+              <path d="M8 40c0-7 5.5-11 12-11s12 4 12 11z" fill="#3c6b4a"/>
+              <path d="M12 15a8 8 0 0 1 16 0v2a8 8 0 0 1-16 0z" fill="#a06b50"/>
+              <path d="M12 10a8 8 0 0 1 16 0c-3-4-6-5-8-5s-5 1-8 5z" fill="#efe9e1"/>
+              <path d="M13 22c2 4 12 4 14 0 1 4-2 7-7 7s-8-3-7-7z" fill="#f2ece4"/>
+              <circle cx="16.5" cy="16" r="1.2" fill="#2e1f1a"/>
+              <circle cx="23.5" cy="16" r="1.2" fill="#2e1f1a"/>
+            </g>
+            <circle cx="20" cy="20" r="19" fill="none" stroke="#ff8f00" stroke-width="2"/>
           </svg>
         </span>
         <span class="brand-text">
@@ -78,7 +86,29 @@
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
       </button>
 
-      <h1 class="chat-title" id="chat-title">New conversation</h1>
+      <div class="topbar-brand">
+        <span class="elder-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40" width="30" height="30">
+            <defs>
+              <clipPath id="markClip"><circle cx="20" cy="20" r="19"/></clipPath>
+            </defs>
+            <g clip-path="url(#markClip)">
+              <rect width="40" height="40" fill="#4e342e"/>
+              <circle cx="20" cy="16" r="8" fill="#6d4b3c"/>
+              <path d="M8 40c0-7 5.5-11 12-11s12 4 12 11z" fill="#c62828"/>
+              <path d="M12 15a8 8 0 0 1 16 0v2a8 8 0 0 1-16 0z" fill="#7a5544"/>
+              <path d="M13 22c2 4 12 4 14 0 1 4-2 7-7 7s-8-3-7-7z" fill="#efe7dc"/>
+              <circle cx="16.5" cy="16" r="1.3" fill="#2e1f1a"/>
+              <circle cx="23.5" cy="16" r="1.3" fill="#2e1f1a"/>
+              <path d="M11 10h18" stroke="#ff8f00" stroke-width="2.5" stroke-linecap="round"/>
+            </g>
+            <circle cx="20" cy="20" r="19" fill="none" stroke="#ff8f00" stroke-width="1.5"/>
+          </svg>
+        </span>
+        <strong>Grandpa AI</strong>
+      </div>
+
+      <h1 class="chat-title sr-only" id="chat-title">New conversation</h1>
 
       <div class="topbar-right">
         <button class="pill" id="lowdata-toggle" type="button" aria-pressed="false"
@@ -88,15 +118,27 @@
           <span>Low-data</span>
         </button>
 
-        <div class="select-wrap">
+        <div class="select-wrap sr-only">
           <label class="sr-only" for="language-select">Language</label>
           <select id="language-select" title="Answer language"></select>
         </div>
 
-        <div class="select-wrap">
+        <div class="select-wrap sr-only">
           <label class="sr-only" for="model-select">Model</label>
           <select id="model-select" title="Model"></select>
         </div>
+
+        <button class="icon-btn" id="theme-top" type="button" aria-label="Switch between daylight and twilight">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>
+          </svg>
+        </button>
+
+        <button class="icon-btn" id="about-btn" type="button" aria-label="About Grandpa AI">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <circle cx="12" cy="12" r="9"/><path d="M12 16v-5M12 8h.01"/>
+          </svg>
+        </button>
       </div>
     </header>
 
@@ -114,17 +156,70 @@
     <section class="welcome" id="welcome">
       <div class="welcome-inner">
         <p class="welcome-kicker"><span></span> A thoughtful place to begin</p>
-        <div class="welcome-seal" aria-hidden="true">
-          <svg viewBox="0 0 96 96" width="72" height="72">
-            <circle cx="48" cy="48" r="46" fill="#1b2a6b"/>
-            <circle cx="48" cy="48" r="38" fill="none" stroke="#f5a623" stroke-width="2"/>
-            <circle cx="48" cy="48" r="30" fill="none" stroke="#c62828" stroke-width="2"/>
-            <text x="48" y="60" font-size="34" font-family="Georgia, serif" font-weight="bold"
-                  fill="#f5a623" text-anchor="middle">G</text>
+
+        <div class="elder-portrait">
+          <svg viewBox="0 0 160 160" role="img" aria-label="Grandpa, drawn as a Liberian elder">
+            <defs>
+              <clipPath id="elderClip"><circle cx="80" cy="80" r="78"/></clipPath>
+              <radialGradient id="elderSky" cx="50%" cy="35%">
+                <stop offset="0%" stop-color="#ffd08a"/>
+                <stop offset="60%" stop-color="#ff8f00"/>
+                <stop offset="100%" stop-color="#c96a00"/>
+              </radialGradient>
+            </defs>
+            <g clip-path="url(#elderClip)">
+              <rect width="160" height="160" fill="url(#elderSky)"/>
+              <!-- rays behind him -->
+              <g stroke="#ffe0a8" stroke-width="3" opacity=".55">
+                <path d="M80 80 L80 0"/><path d="M80 80 L20 12"/><path d="M80 80 L140 12"/>
+                <path d="M80 80 L0 55"/><path d="M80 80 L160 55"/>
+              </g>
+              <!-- shoulders and collar -->
+              <path d="M18 160c0-30 26-46 62-46s62 16 62 46z" fill="#3c6b4a"/>
+              <path d="M56 120l24 26 24-26-10-6-14 14-14-14z" fill="#f4ede0"/>
+              <path d="M18 160c0-14 6-25 16-32l10 32z" fill="#c62828"/>
+              <path d="M142 160c0-14-6-25-16-32l-10 32z" fill="#c62828"/>
+              <!-- head -->
+              <ellipse cx="80" cy="70" rx="34" ry="38" fill="#8a5a44"/>
+              <ellipse cx="80" cy="66" rx="30" ry="33" fill="#a06b50"/>
+              <!-- close-cropped white hair -->
+              <path d="M50 58a30 30 0 0 1 60 0c-6-10-18-14-30-14s-24 4-30 14z" fill="#efe9e1"/>
+              <!-- beard -->
+              <path d="M52 78c2 26 14 36 28 36s26-10 28-36c-4 16-16 20-28 20s-24-4-28-20z" fill="#f2ece4"/>
+              <path d="M64 96c4 12 10 18 16 18s12-6 16-18c-5 6-10 8-16 8s-11-2-16-8z" fill="#e4dbd0"/>
+              <!-- glasses -->
+              <g fill="none" stroke="#2e1f1a" stroke-width="2.6">
+                <circle cx="67" cy="66" r="10"/><circle cx="93" cy="66" r="10"/>
+                <path d="M77 66h6M57 64l-8-3M103 64l8-3"/>
+              </g>
+              <circle cx="67" cy="66" r="8" fill="#ffffff" opacity=".28"/>
+              <circle cx="93" cy="66" r="8" fill="#ffffff" opacity=".28"/>
+              <!-- eyes, kind -->
+              <path d="M63 67c2-3 6-3 8 0M89 67c2-3 6-3 8 0" stroke="#2e1f1a" stroke-width="2.4"
+                    fill="none" stroke-linecap="round"/>
+              <path d="M72 86c4 3 12 3 16 0" stroke="#5d3a2c" stroke-width="2.4" fill="none"
+                    stroke-linecap="round"/>
+            </g>
+            <circle cx="80" cy="80" r="78" fill="none" stroke="#fffdf7" stroke-width="4"/>
           </svg>
+          <span class="elder-badge" aria-hidden="true">📖</span>
         </div>
-        <h2 class="welcome-title">Good day. What can I help you with?</h2>
-        <p class="welcome-sub">Ask me anything — in Liberian English, by typing or by voice.</p>
+
+        <h2 class="welcome-title">
+          Welcome home, <button type="button" class="welcome-name" id="welcome-name"
+                                title="Tap to set your name">friend</button>.
+        </h2>
+        <p class="welcome-proverb" id="welcome-proverb"></p>
+
+        <div class="hearth-actions">
+          <button class="hearth-btn" id="browse-library" type="button">Browse the Library</button>
+          <button class="hearth-btn is-muted" id="liberia-focus" type="button" aria-pressed="true">
+            <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18"/>
+            </svg>
+            Liberia Focus
+          </button>
+        </div>
 
         <div class="persona-grid" id="persona-grid" role="group" aria-label="Choose what you came for"></div>
 
@@ -148,6 +243,12 @@
         <span class="listening-dot" aria-hidden="true"></span>
         <span id="listening-text">Listening… speak now</span>
         <button type="button" class="speaking-btn" id="listen-stop">Done</button>
+      </div>
+
+      <div class="chip-row" id="chip-row">
+        <button class="chip" type="button" data-chip="story">✨ Tell me a Stori</button>
+        <button class="chip" type="button" data-chip="wisdom">📖 Give Wisdom</button>
+        <button class="chip" type="button" data-chip="history">🕘 History</button>
       </div>
 
       <div class="composer" id="composer">
@@ -175,6 +276,7 @@
       <p class="composer-foot">
         Grandpa AI can be wrong. For health, money and legal matters, check with a qualified person.
       </p>
+      <p class="hub-credit">by Tolbert Innovation Hub</p>
     </div>
   </main>
 </div>
@@ -190,6 +292,27 @@
       <button class="icon-btn settings-close" id="settings-close" type="button" aria-label="Close settings">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
+    </div>
+
+    <div class="settings-group">
+      <p class="settings-label">You</p>
+      <label class="setting-row" for="settings-name">
+        <span><strong>Your name</strong><small>So Grandpa can greet you properly</small></span>
+        <input type="text" id="settings-name" placeholder="Your name" maxlength="40"
+               autocomplete="given-name">
+      </label>
+    </div>
+
+    <div class="settings-group">
+      <p class="settings-label">Who is talking</p>
+      <label class="setting-row" for="settings-speaker">
+        <span><strong>The elder</strong><small id="settings-speaker-hint">Whose voice you want to hear</small></span>
+        <select id="settings-speaker"></select>
+      </label>
+      <label class="setting-row" for="settings-tone">
+        <span><strong>How they talk</strong><small>Warm, playful, solemn, or all proverbs</small></span>
+        <select id="settings-tone"></select>
+      </label>
     </div>
 
     <div class="settings-group">
@@ -242,7 +365,7 @@
       </label>
       <label class="setting-row" for="settings-rate">
         <span><strong>Speaking speed</strong><small id="settings-rate-value">Normal</small></span>
-        <input type="range" id="settings-rate" min="0.6" max="1.3" step="0.05" value="0.95">
+        <input type="range" id="settings-rate" min="0.75" max="1.5" step="0.05" value="0.95">
       </label>
       <label class="setting-row" for="settings-pitch">
         <span><strong>Voice depth</strong><small id="settings-pitch-value">Deep</small></span>
@@ -251,6 +374,11 @@
       <label class="setting-row" for="settings-accent">
         <span><strong>Your accent</strong><small>Helps Grandpa hear you when you speak</small></span>
         <select id="settings-accent"></select>
+      </label>
+      <label class="setting-row setting-toggle" for="settings-sound">
+        <span><strong>Interface sounds</strong><small>Soft taps and chimes, made on the device</small></span>
+        <input type="checkbox" id="settings-sound">
+        <span class="toggle-track" aria-hidden="true"></span>
       </label>
       <div class="setting-actions">
         <button type="button" class="setting-btn" id="settings-voice-test">Test the voice</button>

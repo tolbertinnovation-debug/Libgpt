@@ -14,6 +14,11 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 
 | Feature | How it works here |
 | --- | --- |
+| **The hearth** | A welcome screen in the Liberian register: the elder's portrait, a greeting by name, a proverb that holds for the whole day, and four topic cards — The Family Hearth, The Hustle, Ancestral Soil, Deep Paths. |
+| **Who is talking** | Five elders — Grandpa, Grandma, Northern Elder, Market Auntie, Coastal Sage — and four tones: Classic Warmth, Playful, Solemn, Strict Proverbial. |
+| **Glossary** | Liberian terms in an answer (*small-small*, *palava hut*, *susu*, *dumboy*) are underlined; tapping one explains it, so a reader from outside can follow without the vernacular being translated away. |
+| **Daylight & Twilight** | Daylight is linen `#FAF3E0`, terracotta `#C62828`, palm gold `#FF8F00`, wood brown `#4E342E`. Twilight is deep mahogany `#140C0B` with warm amber, for evening storytelling. |
+| **Interface sounds** | Taps, sends and chimes synthesised with Web Audio oscillators — no audio files to download on a metered connection. |
 | **Multilingual chatbot** | Liberian English vernacular by default, standard English alongside it. Kpelle, Vai and Bassa appear in the picker as roadmap languages — the assistant says plainly that they are still being built rather than faking them. |
 | **Voice out** | Press **Listen** on any answer, or turn on auto-read. Long answers are split into sentence-sized chunks, which is what stops browsers cutting them off part-way. Pause, continue and stop from a bar above the composer. |
 | **Voice in** | Hold a conversation with the microphone: continuous dictation with the words appearing as you speak, so a pause for breath does not end it. Pick the accent closest to your own; if a device cannot do it, it falls back rather than failing. |
@@ -141,6 +146,9 @@ public/
   speech.js     Text-to-speech chunking, voice ranking, dictation locales
   markdown.js   Small Markdown renderer (escapes first, then adds markup)
   storage.js    localStorage for conversations and preferences
+  glossary.js   Liberian terms, and DOM-safe annotation of them
+  proverbs.js   Proverb of the day
+  sounds.js     Procedural interface sounds (Web Audio, no assets)
 render.yaml     Deploy blueprint — secrets are prompted for, never committed
 ```
 
@@ -186,6 +194,10 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   in step between the pill and the switch, language syncing both ways, the spoken
   speed label, conversation counts, the download's name and contents, two-tap
   delete, and the mobile sheet without horizontal overflow.
+- **Hearth (Playwright)** — 18 checks: the daily proverb holding across a reload, the
+  four card names, greeting by name, the name, speaker and tone actually reaching the
+  server, glossary terms marked and explained (and never inside code), and the chips
+  switching persona and asking.
 - **Access gate** — 17 checks: requests refused with no code, a wrong code and a
   wrong code of the same length; accepted with the right one; `/api/title` gated
   too; the code absent from `/api/config`; and the browser flow through prompt,
@@ -195,7 +207,19 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
 
 ## Not built yet
 
-Named honestly, because the dossier lists them and this app does not do them:
+Named honestly, because the dossier and the reference design list them and this app
+does not do them:
+
+- **Interactive Storyteller with branching choices** — folktales with theme filters and
+  listener decisions. Doable with structured JSON output; not built.
+- **Magic Cultural Album** — image generation, animation, video. Images are possible
+  through a separate OpenAI endpoint; video is not available at all.
+- **Cultural Wisdom Hub** — ancestral name generator, recipe index, daily quiz and streaks.
+- **Acoustic environments** (palaver hut, campfire, radio) — these filter real audio
+  through `AudioContext`. Browser speech output cannot be captured and filtered, so this
+  needs a server-side text-to-speech voice instead of the device's.
+- **Accounts and cloud sync** — conversations live in the browser only; there is no
+  database, so nothing follows a user between devices.
 
 - **SMS / USSD fallback** for feature phones — needs a telecom aggregator.
 - **Offline caching** of recent answers — history persists and the app tells you it is

@@ -5,65 +5,73 @@
    ========================================================================== */
 
 :root {
-  --navy: #1b2a6b;
-  --navy-deep: #131f52;
-  --gold: #f5a623;
-  --gold-deep: #d98e12;
+  /* Daylight — the reference palette: linen, terracotta, palm gold, wood brown */
+  --linen: #faf3e0;
+  --terracotta: #c62828;
+  --palm: #ff8f00;
+  --wood: #4e342e;
+
+  --navy: #4e342e;          /* kept as a token name; now wood brown */
+  --navy-deep: #3a251f;
+  --gold: #ff8f00;
+  --gold-deep: #d97800;
   --red: #c62828;
-  --green: #2f7d5d;
+  --green: #4e7d3f;
 
-  --bg: #f7f5ef;
-  --bg-sidebar: #172555;
-  --bg-raised: #ffffff;
-  --bg-hover: #eae7dd;
-  --bg-active: #e2ded1;
-  --bg-code: #f4f2ec;
+  --bg: #faf3e0;
+  --bg-sidebar: #3a251f;
+  --bg-raised: #fffdf7;
+  --bg-hover: #f2e7cd;
+  --bg-active: #ead9b8;
+  --bg-code: #f4ecd8;
 
-  --text: #23221f;
-  --text-soft: #5c584f;
-  --text-faint: #8b8578;
+  --text: #2e1f1a;
+  --text-soft: #6b5346;
+  --text-faint: #9a8574;
 
-  --border: #e2ded1;
-  --border-strong: #cec9b8;
+  --border: #e6d8bc;
+  --border-strong: #d3c09c;
 
-  --user-bubble: #eceade;
+  --user-bubble: #f3e6c9;
 
-  --radius: 12px;
-  --radius-sm: 8px;
+  --radius: 16px;
+  --radius-sm: 10px;
   --sidebar-w: 268px;
   --measure: 46rem;
 
-  --shadow-sm: 0 1px 2px rgba(35, 34, 31, .06);
-  --shadow-md: 0 4px 16px rgba(35, 34, 31, .10);
-  --shadow-lg: 0 12px 40px rgba(35, 34, 31, .16);
+  --shadow-sm: 0 1px 2px rgba(78, 52, 46, .07);
+  --shadow-md: 0 6px 20px rgba(78, 52, 46, .10);
+  --shadow-lg: 0 18px 50px rgba(78, 52, 46, .20);
 
-  --font: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+  --font: "Avenir Next", Avenir, "Segoe UI", system-ui, sans-serif;
   --font-display: "Iowan Old Style", Baskerville, Georgia, serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 }
 
 [data-theme="dark"] {
-  --bg: #22201d;
-  --bg-sidebar: #1a1917;
-  --bg-raised: #2b2926;
-  --bg-hover: #322f2b;
-  --bg-active: #3b3833;
-  --bg-code: #1c1b19;
+  /* Twilight — low contrast for evening storytelling */
+  --bg: #140c0b;
+  --bg-sidebar: #0d0706;
+  --bg-raised: #221715;
+  --bg-hover: #2c1e1b;
+  --bg-active: #382723;
+  --bg-code: #1a100f;
 
-  --text: #eeece5;
-  --text-soft: #b5b0a4;
-  --text-faint: #857f73;
+  --text: #f2e4d0;
+  --text-soft: #c4ab95;
+  --text-faint: #947c6a;
 
-  --border: #35322d;
-  --border-strong: #48443d;
+  --border: #35231f;
+  --border-strong: #4a322c;
 
-  --user-bubble: #32302b;
-  --gold: #f7b33f;
-  --navy: #7c8fd6;
+  --user-bubble: #2c1e1b;
+  --gold: #ffb340;
+  --navy: #d8a06a;
+  --green: #7fa86a;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .3);
-  --shadow-md: 0 4px 16px rgba(0, 0, 0, .35);
-  --shadow-lg: 0 12px 40px rgba(0, 0, 0, .5);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4);
+  --shadow-md: 0 6px 20px rgba(0, 0, 0, .45);
+  --shadow-lg: 0 18px 50px rgba(0, 0, 0, .6);
 }
 
 * { box-sizing: border-box; }
@@ -85,8 +93,10 @@ html, body {
 
 body {
   background-color: var(--bg);
-  background-image: radial-gradient(rgba(23, 37, 85, .07) .7px, transparent .7px);
-  background-size: 7px 7px;
+  /* A faint woven texture, like linen or country cloth */
+  background-image:
+    repeating-linear-gradient(90deg, rgba(78, 52, 46, .035) 0 1px, transparent 1px 9px),
+    repeating-linear-gradient(0deg, rgba(78, 52, 46, .035) 0 1px, transparent 1px 9px);
   color: var(--text);
   font-family: var(--font);
   font-size: 0.9375rem;
@@ -160,7 +170,7 @@ body {
   letter-spacing: .01em;
   color: #fffaf0;
 }
-.brand-text small { color: #b9c2e3; font-size: .72rem; }
+.brand-text small { color: #cbb79c; font-size: .72rem; }
 
 .new-chat {
   margin: .25rem .875rem .75rem;
@@ -179,10 +189,10 @@ body {
   box-shadow: var(--shadow-sm);
   transition: background .15s, transform .1s;
 }
-.new-chat:hover { background: var(--navy-deep); }
+.new-chat:hover { background: var(--gold-deep); }
 .new-chat:active { transform: translateY(1px); }
-[data-theme="dark"] .new-chat { background: #2c3d80; color: #f3f1ea; }
-[data-theme="dark"] .new-chat:hover { background: #35489b; }
+[data-theme="dark"] .new-chat { background: var(--gold); color: #201412; }
+[data-theme="dark"] .new-chat:hover { background: #ffc266; }
 
 .search-wrap { position: relative; margin: 0 .875rem .5rem; }
 .search-icon {
@@ -199,7 +209,7 @@ body {
   font: inherit;
   font-size: .84rem;
 }
-#chat-search::placeholder { color: #b9c2e3; }
+#chat-search::placeholder { color: #bda88c; }
 #chat-search:focus { border-color: var(--gold); background: rgba(255, 255, 255, .16); outline: none; }
 
 .chat-list {
@@ -216,7 +226,7 @@ body {
   font-weight: 650;
   letter-spacing: .06em;
   text-transform: uppercase;
-  color: #9ca9d2;
+  color: #c0aa8e;
 }
 
 .chat-row {
@@ -228,14 +238,14 @@ body {
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: #c8cee2;
+  color: #dcc9b0;
   font: inherit;
   font-size: .855rem;
   text-align: left;
   cursor: pointer;
 }
 .chat-row:hover { background: rgba(255, 255, 255, .1); color: #fffaf0; }
-.chat-row.is-active { background: rgba(245, 166, 35, .18); color: #fffaf0; font-weight: 550; }
+.chat-row.is-active { background: rgba(255, 143, 0, .22); color: #fffaf0; font-weight: 550; }
 .chat-row-title {
   flex: 1;
   min-width: 0;
@@ -251,17 +261,17 @@ body {
   padding: 0;
   border: none; border-radius: 5px;
   background: transparent;
-  color: var(--text-faint);
+  color: #bda88c;
   cursor: pointer;
   opacity: 0;
 }
 .chat-row:hover .chat-row-del,
 .chat-row:focus-within .chat-row-del { opacity: 1; }
-.chat-row-del:hover { background: var(--bg-active); color: var(--red); }
+.chat-row-del:hover { background: rgba(255, 255, 255, .14); color: #ff8a80; }
 
 .empty-hint {
   padding: 1.5rem .75rem;
-  color: #9ca9d2;
+  color: #c0aa8e;
   font-size: .82rem;
   text-align: center;
 }
@@ -280,7 +290,7 @@ body {
   padding: .45rem .55rem;
   border: none; border-radius: var(--radius-sm);
   background: transparent;
-  color: #c8cee2;
+  color: #dcc9b0;
   font: inherit;
   font-size: .82rem;
   text-decoration: none;
@@ -546,8 +556,9 @@ body {
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: var(--navy);
-  color: var(--gold);
+  background: radial-gradient(circle at 50% 35%, var(--palm), #b45f10);
+  color: #fffdf7;
+  border: 1px solid var(--border);
   font-family: var(--font-display);
   font-weight: 700;
   font-size: .85rem;
@@ -791,7 +802,7 @@ body {
 }
 .send-btn:hover:not(:disabled) { background: var(--navy-deep); }
 .send-btn:disabled { opacity: .35; cursor: not-allowed; }
-[data-theme="dark"] .send-btn { background: #2c3d80; }
+[data-theme="dark"] .send-btn { background: var(--gold); color: #201412; }
 .stop-btn { background: var(--red); }
 .stop-btn:hover { background: #a91f1f; }
 
@@ -971,7 +982,7 @@ body {
 }
 .gate-card button:hover { background: var(--navy-deep); }
 .gate-card button:disabled { opacity: .6; cursor: progress; }
-[data-theme="dark"] .gate-card button { background: #2c3d80; }
+[data-theme="dark"] .gate-card button { background: var(--gold); color: #201412; }
 
 /* ==========================================================================
    Settings panel — styling for the markup added in the design pass
@@ -1077,6 +1088,18 @@ body {
 }
 .settings-panel select option { background: var(--bg-raised); color: var(--text); }
 
+.settings-panel input[type="text"] {
+  flex: 0 0 auto;
+  max-width: 11rem;
+  padding: .4rem .65rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: .82rem;
+}
+
 .settings-panel input[type="range"] {
   flex: 0 0 auto;
   width: 9rem;
@@ -1145,6 +1168,7 @@ body {
   }
   .setting-row { flex-wrap: wrap; }
   .settings-panel select,
+  .settings-panel input[type="text"],
   .settings-panel input[type="range"] { width: 100%; max-width: none; }
 }
 
@@ -1244,4 +1268,299 @@ body {
   color: var(--text);
   font: inherit;
   font-size: .855rem;
+}
+
+/* ==========================================================================
+   The hearth — welcome screen in the reference design's language
+   ========================================================================== */
+
+/* ---- Header: elder mark, name, quiet icon row ---- */
+.topbar-brand {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  min-width: 0;
+}
+.topbar-brand .elder-mark { flex: 0 0 auto; }
+.topbar-brand strong {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+/* ---- Elder portrait ---- */
+.elder-portrait {
+  position: relative;
+  width: 132px;
+  height: 132px;
+  margin: 0 auto 1.4rem;
+}
+/* The glow behind him — sunrise through a doorway */
+.elder-portrait::before {
+  content: "";
+  position: absolute;
+  inset: -14px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--palm) 0%, rgba(255, 143, 0, .35) 45%, transparent 70%);
+  animation: hearth-glow 5s ease-in-out infinite;
+}
+@keyframes hearth-glow {
+  0%, 100% { opacity: .55; transform: scale(1); }
+  50% { opacity: .85; transform: scale(1.04); }
+}
+.elder-portrait svg {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  border: 3px solid var(--bg-raised);
+  box-shadow: var(--shadow-md);
+}
+/* The little book badge at his collar */
+.elder-badge {
+  position: absolute;
+  left: 50%;
+  bottom: -10px;
+  transform: translateX(-50%);
+  width: 30px; height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-sm);
+  font-size: .9rem;
+}
+
+/* ---- Welcome line ---- */
+.welcome-title {
+  margin: 0 0 .5rem;
+  font-family: var(--font-display);
+  font-size: clamp(1.7rem, 5vw, 2.5rem);
+  font-weight: 400;
+  letter-spacing: -.01em;
+  color: var(--text);
+}
+.welcome-name {
+  /* A button so it is reachable by keyboard, but it must read as prose. */
+  appearance: none;
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-style: italic;
+  font-weight: 600;
+  color: var(--terracotta);
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+}
+.welcome-name:hover { border-bottom-color: currentColor; }
+[data-theme="dark"] .welcome-name { color: #ff8a80; }
+
+.welcome-proverb {
+  max-width: 32rem;
+  margin: 0 auto 1.6rem;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 1.02rem;
+  line-height: 1.55;
+  color: var(--text-soft);
+}
+
+/* ---- The two pills under the proverb ---- */
+.hearth-actions {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: .7rem;
+  margin-bottom: 2.2rem;
+}
+.hearth-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  padding: .7rem 1.5rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: .9rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: transform .12s, box-shadow .15s, border-color .15s;
+}
+.hearth-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--gold);
+}
+.hearth-btn.is-muted { background: transparent; font-weight: 500; color: var(--text-soft); }
+.hearth-btn svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+
+/* ---- Topic cards ---- */
+.persona-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: .85rem;
+  margin-bottom: 1.75rem;
+  text-align: left;
+}
+.persona-card {
+  position: relative;
+  display: flex;
+  flex-direction: row;      /* overrides the earlier stacked-card rule */
+  align-items: center;
+  gap: .9rem;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  transition: transform .14s, box-shadow .18s, border-color .18s;
+}
+.persona-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--gold);
+}
+.persona-card.is-active { border-color: var(--terracotta); }
+
+/* The round tinted icon at the left of each card */
+.persona-emoji {
+  flex: 0 0 auto;
+  width: 44px; height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--bg-hover);
+  font-size: 1.2rem;
+  line-height: 1;
+}
+.persona-card:nth-child(1) .persona-emoji { background: rgba(198, 40, 40, .12); }
+.persona-card:nth-child(2) .persona-emoji { background: rgba(255, 143, 0, .16); }
+.persona-card:nth-child(3) .persona-emoji { background: rgba(78, 125, 63, .14); }
+.persona-card:nth-child(4) .persona-emoji { background: rgba(78, 52, 46, .12); }
+.persona-card:nth-child(5) .persona-emoji { background: rgba(198, 40, 40, .10); }
+
+.persona-body { display: flex; flex-direction: column; min-width: 0; }
+.persona-name {
+  font-family: var(--font-display);
+  font-size: 1.12rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.persona-blurb {
+  margin-top: .15rem;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: .84rem;
+  color: var(--text-faint);
+}
+
+/* A large watermark glyph bleeding off the right edge, as in the reference */
+.persona-mark {
+  position: absolute;
+  right: -.4rem;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 4.2rem;
+  line-height: 1;
+  opacity: .07;
+  pointer-events: none;
+  user-select: none;
+}
+
+@media (min-width: 700px) {
+  .persona-grid { grid-template-columns: 1fr 1fr; }
+}
+
+/* ---- Chip row above the composer ---- */
+.chip-row {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: .45rem;
+  max-width: var(--measure);
+  margin: 0 auto .5rem;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .35rem .8rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text-soft);
+  font: inherit;
+  font-size: .78rem;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: border-color .15s, color .15s;
+}
+.chip:hover { border-color: var(--gold); color: var(--text); }
+
+/* ---- Glossary terms ---- */
+.glossary-term {
+  border: none;
+  border-bottom: 1px dotted var(--gold-deep);
+  background: transparent;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: help;
+}
+.glossary-term:hover { background: rgba(255, 143, 0, .14); }
+
+.glossary-pop {
+  position: fixed;
+  z-index: 80;
+  max-width: 17rem;
+  padding: .55rem .7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  color: var(--text);
+  font-size: .8rem;
+  line-height: 1.45;
+  box-shadow: var(--shadow-lg);
+}
+.glossary-pop strong {
+  display: block;
+  font-family: var(--font-display);
+  margin-bottom: .15rem;
+  color: var(--terracotta);
+}
+[data-theme="dark"] .glossary-pop strong { color: var(--gold); }
+
+/* ---- Name prompt ---- */
+.name-row { display: flex; gap: .5rem; margin-top: .6rem; }
+.name-row input {
+  flex: 1;
+  padding: .55rem .7rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
+/* The reference design's small maker credit */
+.hub-credit {
+  margin-top: .35rem;
+  text-align: right;
+  font-size: .66rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
 }
