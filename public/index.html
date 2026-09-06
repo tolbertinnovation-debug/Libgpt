@@ -52,6 +52,12 @@
     <nav class="chat-list" id="chat-list" aria-label="Conversation history"></nav>
 
     <div class="sidebar-foot">
+      <button class="foot-btn" id="settings-toggle" type="button" aria-label="Open settings" aria-haspopup="dialog">
+        <span class="foot-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="16" height="16"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Zm8.2 3.5a6.9 6.9 0 0 0-.1-1l2-1.5-2-3.4-2.3 1a7.4 7.4 0 0 0-1.7-1L15.8 4h-3.9l-.3 2.1a7.4 7.4 0 0 0-1.7 1l-2.3-1-2 3.4 2 1.5a6.9 6.9 0 0 0 0 2l-2 1.5 2 3.4 2.3-1a7.4 7.4 0 0 0 1.7 1l.3 2.1h3.9l.3-2.1a7.4 7.4 0 0 0 1.7-1l2.3 1 2-3.4-2-1.5a6.9 6.9 0 0 0 .1-1Z"/></svg>
+        </span>
+        <span>Settings</span>
+      </button>
       <button class="foot-btn" id="theme-toggle" type="button" aria-label="Switch theme">
         <span class="foot-icon" id="theme-icon" aria-hidden="true">☾</span>
         <span id="theme-label">Dark mode</span>
@@ -87,12 +93,10 @@
           <select id="language-select" title="Answer language"></select>
         </div>
 
-        <button class="icon-btn" id="settings-open" type="button" aria-label="Settings" title="Settings">
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-            <circle cx="12" cy="12" r="3"/>
-            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
-          </svg>
-        </button>
+        <div class="select-wrap">
+          <label class="sr-only" for="model-select">Model</label>
+          <select id="model-select" title="Model"></select>
+        </div>
       </div>
     </header>
 
@@ -109,6 +113,7 @@
     <!-- Empty state -->
     <section class="welcome" id="welcome">
       <div class="welcome-inner">
+        <p class="welcome-kicker"><span></span> A thoughtful place to begin</p>
         <div class="welcome-seal" aria-hidden="true">
           <svg viewBox="0 0 96 96" width="72" height="72">
             <circle cx="48" cy="48" r="46" fill="#1b2a6b"/>
@@ -174,135 +179,98 @@
   </main>
 </div>
 
-<!-- ============ Settings ============ -->
-<div class="modal" id="settings" hidden>
-  <div class="modal-scrim" data-close-settings></div>
-  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-    <header class="modal-head">
-      <h2 id="settings-title">Settings</h2>
-      <button class="icon-btn" id="settings-close" type="button" aria-label="Close settings">
+<div class="settings-modal" id="settings-modal" hidden>
+  <div class="settings-backdrop" data-settings-close></div>
+  <section class="settings-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <div class="settings-head">
+      <div>
+        <p class="settings-kicker">Grandpa AI</p>
+        <h2 id="settings-title">Settings</h2>
+      </div>
+      <button class="icon-btn settings-close" id="settings-close" type="button" aria-label="Close settings">
         <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
       </button>
-    </header>
-
-    <div class="modal-body">
-      <section class="set-group">
-        <h3>Conversation</h3>
-
-        <div class="set-row">
-          <span class="set-label"><label for="set-language">Answer language</label></span>
-          <select id="set-language"></select>
-        </div>
-
-        <div class="set-row">
-          <span class="set-label">
-            <label for="set-model">Model</label>
-            <small id="set-model-hint">&nbsp;</small>
-          </span>
-          <select id="set-model"></select>
-        </div>
-
-        <div class="set-row">
-          <span class="set-label">
-            <label for="set-lowdata">Low-data mode</label>
-            <small>Short answers. Uses less airtime on 2G.</small>
-          </span>
-          <input type="checkbox" id="set-lowdata" class="switch" role="switch">
-        </div>
-      </section>
-
-      <section class="set-group">
-        <h3>Reading</h3>
-
-        <div class="set-row">
-          <span class="set-label">
-            <label id="set-size-label">Text size</label>
-            <small>Bigger letters are easier on the eyes.</small>
-          </span>
-          <div class="segmented" id="set-size" role="radiogroup" aria-labelledby="set-size-label">
-            <button type="button" role="radio" data-size="sm" aria-checked="false" aria-label="Small">A</button>
-            <button type="button" role="radio" data-size="md" aria-checked="true" aria-label="Normal">A</button>
-            <button type="button" role="radio" data-size="lg" aria-checked="false" aria-label="Large">A</button>
-          </div>
-        </div>
-
-        <div class="set-row">
-          <span class="set-label"><label id="set-theme-label">Appearance</label></span>
-          <div class="segmented" id="set-theme" role="radiogroup" aria-labelledby="set-theme-label">
-            <button type="button" role="radio" data-theme-opt="light" aria-checked="false">Light</button>
-            <button type="button" role="radio" data-theme-opt="dark" aria-checked="false">Dark</button>
-            <button type="button" role="radio" data-theme-opt="system" aria-checked="false">Phone</button>
-          </div>
-        </div>
-      </section>
-
-      <section class="set-group">
-        <h3>Voice</h3>
-
-        <div class="set-row">
-          <span class="set-label">
-            <label for="set-autospeak">Read answers aloud</label>
-            <small>Grandpa speaks every answer, for anyone who reads slowly.</small>
-          </span>
-          <input type="checkbox" id="set-autospeak" class="switch" role="switch">
-        </div>
-
-        <div class="set-row">
-          <span class="set-label">
-            <label for="set-voice">Grandpa's voice</label>
-            <small id="set-voice-hint">Voices come from your phone or browser.</small>
-          </span>
-          <select id="set-voice"></select>
-        </div>
-
-        <div class="set-row">
-          <span class="set-label">
-            <label for="set-rate">Speaking speed</label>
-            <small id="set-rate-value">Normal</small>
-          </span>
-          <input type="range" id="set-rate" min="0.6" max="1.3" step="0.05" value="0.95">
-        </div>
-
-        <div class="set-row">
-          <span class="set-label">
-            <label for="set-pitch">Voice depth</label>
-            <small id="set-pitch-value">Deep</small>
-          </span>
-          <input type="range" id="set-pitch" min="0.6" max="1.4" step="0.05" value="0.9">
-        </div>
-
-        <div class="set-row">
-          <span class="set-label">
-            <label for="set-accent">Your accent</label>
-            <small>Helps Grandpa hear you when you speak your question.</small>
-          </span>
-          <select id="set-accent"></select>
-        </div>
-
-        <div class="set-actions">
-          <button type="button" class="set-btn" id="set-voice-test">Test the voice</button>
-        </div>
-      </section>
-
-      <section class="set-group">
-        <h3>Your conversations</h3>
-        <p class="set-hint" id="set-count"></p>
-        <div class="set-actions">
-          <button type="button" class="set-btn" id="set-export">Download all</button>
-          <button type="button" class="set-btn danger" id="set-clear">Delete all</button>
-        </div>
-        <p class="set-hint">
-          Conversations are saved only in this browser — never on a server. If you are on a
-          shared phone, delete them when you finish.
-        </p>
-      </section>
     </div>
 
-    <footer class="modal-foot">
-      <span>Grandpa AI · Tolbert Innovation Hub</span>
-      <a href="https://tolbertinnovationhub.org" target="_blank" rel="noopener noreferrer">tolbertinnovationhub.org</a>
-    </footer>
-  </div>
+    <div class="settings-group">
+      <p class="settings-label">Conversation</p>
+      <label class="setting-row" for="settings-language">
+        <span><strong>Answer language</strong><small>Choose how Grandpa replies</small></span>
+        <select id="settings-language"></select>
+      </label>
+      <label class="setting-row" for="settings-model">
+        <span><strong>AI model</strong><small id="settings-model-hint">Balance speed, quality, and cost</small></span>
+        <select id="settings-model"></select>
+      </label>
+      <label class="setting-row setting-toggle" for="settings-lowdata">
+        <span><strong>Low-data mode</strong><small>Shorter answers for metered connections</small></span>
+        <input type="checkbox" id="settings-lowdata">
+        <span class="toggle-track" aria-hidden="true"></span>
+      </label>
+    </div>
+
+    <div class="settings-group">
+      <p class="settings-label">Appearance</p>
+      <label class="setting-row" for="settings-theme">
+        <span><strong>Theme</strong><small>Adjust the look of your workspace</small></span>
+        <select id="settings-theme">
+          <option value="light">Light</option>
+          <option value="dark">Dark</option>
+          <option value="system">Follow my phone</option>
+        </select>
+      </label>
+      <label class="setting-row" for="settings-size">
+        <span><strong>Text size</strong><small>Bigger letters are easier on the eyes</small></span>
+        <select id="settings-size">
+          <option value="sm">Small</option>
+          <option value="md">Normal</option>
+          <option value="lg">Large</option>
+        </select>
+      </label>
+    </div>
+
+    <div class="settings-group">
+      <p class="settings-label">Voice</p>
+      <label class="setting-row setting-toggle" for="settings-autospeak">
+        <span><strong>Read answers aloud</strong><small>Grandpa speaks every answer, for anyone who reads slowly</small></span>
+        <input type="checkbox" id="settings-autospeak">
+        <span class="toggle-track" aria-hidden="true"></span>
+      </label>
+      <label class="setting-row" for="settings-voice">
+        <span><strong>Grandpa's voice</strong><small id="settings-voice-hint">Voices come from your phone or browser</small></span>
+        <select id="settings-voice"></select>
+      </label>
+      <label class="setting-row" for="settings-rate">
+        <span><strong>Speaking speed</strong><small id="settings-rate-value">Normal</small></span>
+        <input type="range" id="settings-rate" min="0.6" max="1.3" step="0.05" value="0.95">
+      </label>
+      <label class="setting-row" for="settings-pitch">
+        <span><strong>Voice depth</strong><small id="settings-pitch-value">Deep</small></span>
+        <input type="range" id="settings-pitch" min="0.6" max="1.4" step="0.05" value="0.9">
+      </label>
+      <label class="setting-row" for="settings-accent">
+        <span><strong>Your accent</strong><small>Helps Grandpa hear you when you speak</small></span>
+        <select id="settings-accent"></select>
+      </label>
+      <div class="setting-actions">
+        <button type="button" class="setting-btn" id="settings-voice-test">Test the voice</button>
+      </div>
+    </div>
+
+    <div class="settings-group">
+      <p class="settings-label">Your conversations</p>
+      <p class="settings-note" id="settings-count"></p>
+      <div class="setting-actions">
+        <button type="button" class="setting-btn" id="settings-export">Download all</button>
+        <button type="button" class="setting-btn danger" id="settings-clear">Delete all</button>
+      </div>
+    </div>
+
+    <p class="settings-note">
+      Your preferences and conversations stay in this browser — never on a server.
+      On a shared phone, delete them when you finish.
+    </p>
+  </section>
 </div>
 
 <!-- Shown only when the deployment sets ACCESS_CODE -->

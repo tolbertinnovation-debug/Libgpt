@@ -57,24 +57,24 @@ const el = {
   title: $('chat-title'),
   lowData: $('lowdata-toggle'),
   language: $('language-select'),
-  settingsOpen: $('settings-open'),
-  settings: $('settings'),
+  settingsOpen: $('settings-toggle'),
+  settings: $('settings-modal'),
   settingsClose: $('settings-close'),
-  setLanguage: $('set-language'),
-  model: $('set-model'),
-  setModelHint: $('set-model-hint'),
-  setLowData: $('set-lowdata'),
-  setSize: $('set-size'),
-  setTheme: $('set-theme'),
-  setAutoSpeak: $('set-autospeak'),
-  setRate: $('set-rate'),
-  setRateValue: $('set-rate-value'),
-  setPitch: $('set-pitch'),
-  setPitchValue: $('set-pitch-value'),
-  setVoice: $('set-voice'),
-  setVoiceHint: $('set-voice-hint'),
-  setVoiceTest: $('set-voice-test'),
-  setAccent: $('set-accent'),
+  setLanguage: $('settings-language'),
+  model: $('settings-model'),
+  setModelHint: $('settings-model-hint'),
+  setLowData: $('settings-lowdata'),
+  setSize: $('settings-size'),
+  setTheme: $('settings-theme'),
+  setAutoSpeak: $('settings-autospeak'),
+  setRate: $('settings-rate'),
+  setRateValue: $('settings-rate-value'),
+  setPitch: $('settings-pitch'),
+  setPitchValue: $('settings-pitch-value'),
+  setVoice: $('settings-voice'),
+  setVoiceHint: $('settings-voice-hint'),
+  setVoiceTest: $('settings-voice-test'),
+  setAccent: $('settings-accent'),
   speakingBar: $('speaking-bar'),
   speakingText: $('speaking-text'),
   speakToggle: $('speak-toggle'),
@@ -83,9 +83,10 @@ const el = {
   listeningText: $('listening-text'),
   listenStop: $('listen-stop'),
   offlineBanner: $('offline-banner'),
-  setCount: $('set-count'),
-  setExport: $('set-export'),
-  setClear: $('set-clear'),
+  setCount: $('settings-count'),
+  setExport: $('settings-export'),
+  setClear: $('settings-clear'),
+  topModel: $('model-select'),
   banner: $('setup-banner'),
   welcome: $('welcome'),
   personaGrid: $('persona-grid'),
@@ -789,12 +790,6 @@ function renderVoiceList() {
   el.setVoiceHint.textContent = `${voices.length} English voice${voices.length === 1 ? '' : 's'} on this device.`;
 }
 
-function paintSegmented(group, attribute, value) {
-  group.querySelectorAll('button').forEach((button) => {
-    button.setAttribute('aria-checked', String(button.dataset[attribute] === value));
-  });
-}
-
 /** Push the saved preferences into the controls. */
 function renderSettings() {
   const { prefs } = state;
@@ -810,8 +805,8 @@ function renderSettings() {
   el.setAccent.value = prefs.dictationAccent;
   renderVoiceList();
 
-  paintSegmented(el.setSize, 'size', prefs.textSize);
-  paintSegmented(el.setTheme, 'themeOpt', prefs.theme || 'system');
+  el.setSize.value = prefs.textSize;
+  el.setTheme.value = prefs.theme || 'system';
 
   el.setModelHint.textContent =
     state.catalogue.models?.find((m) => m.id === prefs.model)?.hint || '';
@@ -874,7 +869,7 @@ function downloadFile(name, text) {
 el.settingsOpen.addEventListener('click', openSettings);
 el.settingsClose.addEventListener('click', closeSettings);
 el.settings.addEventListener('click', (event) => {
-  if (event.target.closest('[data-close-settings]')) closeSettings();
+  if (event.target.closest('[data-settings-close]')) closeSettings();
 });
 
 el.setLanguage.addEventListener('change', () => {
@@ -884,12 +879,17 @@ el.setLanguage.addEventListener('change', () => {
   announceRoadmapLanguage();
 });
 
-el.model.addEventListener('change', () => {
-  state.prefs.model = el.model.value;
+function applyModelChoice(value) {
+  state.prefs.model = value;
+  el.model.value = value;
+  el.topModel.value = value;
   savePreferences();
   el.setModelHint.textContent =
-    state.catalogue.models?.find((m) => m.id === state.prefs.model)?.hint || '';
-});
+    state.catalogue.models?.find((m) => m.id === value)?.hint || 'Balance speed, quality, and cost';
+}
+
+el.model.addEventListener('change', () => applyModelChoice(el.model.value));
+el.topModel.addEventListener('change', () => applyModelChoice(el.topModel.value));
 
 el.setLowData.addEventListener('change', () => {
   state.prefs.lowData = el.setLowData.checked;
@@ -897,22 +897,16 @@ el.setLowData.addEventListener('change', () => {
   savePreferences();
 });
 
-el.setSize.addEventListener('click', (event) => {
-  const button = event.target.closest('[data-size]');
-  if (!button) return;
-  state.prefs.textSize = button.dataset.size;
+el.setSize.addEventListener('change', () => {
+  state.prefs.textSize = el.setSize.value;
   applyTextSize(state.prefs.textSize);
-  paintSegmented(el.setSize, 'size', state.prefs.textSize);
   savePreferences();
 });
 
-el.setTheme.addEventListener('click', (event) => {
-  const button = event.target.closest('[data-theme-opt]');
-  if (!button) return;
-  const choice = button.dataset.themeOpt;
+el.setTheme.addEventListener('change', () => {
+  const choice = el.setTheme.value;
   state.prefs.theme = choice === 'system' ? null : choice;
   applyTheme(state.prefs.theme);
-  paintSegmented(el.setTheme, 'themeOpt', choice);
   savePreferences();
 });
 
@@ -1187,7 +1181,7 @@ el.themeToggle.addEventListener('click', () => {
   state.prefs.theme = next;
   savePreferences();
   applyTheme(next);
-  paintSegmented(el.setTheme, 'themeOpt', next);
+  el.setTheme.value = next;
 });
 
 /* Access gate */
@@ -1313,9 +1307,11 @@ async function boot() {
     el.language.innerHTML = languageOptions;
     el.setLanguage.innerHTML = languageOptions;
 
-    el.model.innerHTML = config.models
+    const modelOptions = config.models
       .map((m) => `<option value="${m.id}">${escapeHtml(m.label)}</option>`)
       .join('');
+    el.model.innerHTML = modelOptions;
+    el.topModel.innerHTML = modelOptions;
 
     if (!state.prefs.model || !config.models.some((m) => m.id === state.prefs.model)) {
       state.prefs.model = config.defaultModel;
@@ -1323,6 +1319,9 @@ async function boot() {
     el.language.value = state.prefs.language;
     el.setLanguage.value = state.prefs.language;
     el.model.value = state.prefs.model;
+    el.topModel.value = state.prefs.model;
+    el.setSize.value = state.prefs.textSize;
+    el.setTheme.value = state.prefs.theme || 'system';
     el.lowData.setAttribute('aria-pressed', String(state.prefs.lowData));
     renderSettings();
   } catch {
