@@ -291,6 +291,7 @@ body {
   display: flex;
   flex-direction: column;
   position: relative;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--bg) 94%, var(--gold)) 0%, var(--bg) 32%, var(--bg) 100%);
 }
 
 .topbar {
@@ -302,6 +303,7 @@ body {
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   backdrop-filter: blur(8px);
   position: sticky; top: 0; z-index: 20;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--navy) 8%, transparent), 0 8px 24px color-mix(in srgb, var(--navy) 5%, transparent);
 }
 
 .chat-title {
@@ -314,6 +316,16 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.chat-title::before {
+  content: "";
+  display: inline-block;
+  width: .42rem;
+  height: .42rem;
+  margin: 0 .45rem .08rem .1rem;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 18%, transparent);
 }
 
 .topbar-right { display: flex; align-items: center; gap: .4rem; }
@@ -464,7 +476,23 @@ body {
   text-align: left;
   cursor: pointer;
   transition: border-color .15s, transform .1s, box-shadow .15s;
+  position: relative;
+  overflow: hidden;
 }
+.persona-card::after {
+  content: "";
+  position: absolute;
+  right: -1.2rem;
+  bottom: -1.5rem;
+  width: 4.5rem;
+  height: 4.5rem;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--gold) 13%, transparent);
+  pointer-events: none;
+}
+.persona-card:nth-child(2)::after { background: color-mix(in srgb, var(--navy) 10%, transparent); }
+.persona-card:nth-child(3)::after { background: color-mix(in srgb, var(--red) 10%, transparent); }
+.persona-card:nth-child(4)::after { background: color-mix(in srgb, var(--green) 12%, transparent); }
 .persona-card:hover {
   border-color: var(--gold);
   box-shadow: var(--shadow-sm);
@@ -514,6 +542,7 @@ body {
   overflow-y: auto;
   padding: 1.75rem 1rem 1rem;
   scroll-behavior: smooth;
+  background: linear-gradient(to right, transparent, color-mix(in srgb, var(--gold) 3%, transparent), transparent);
 }
 
 .turn {
@@ -533,6 +562,7 @@ body {
 }
 
 .turn-ai { display: flex; gap: .85rem; }
+.turn-ai + .turn-ai { padding-top: .35rem; }
 .avatar {
   flex: 0 0 auto;
   width: 28px; height: 28px;
@@ -732,6 +762,15 @@ body {
 .composer:focus-within {
   border-color: var(--navy);
   box-shadow: var(--shadow-md), 0 0 0 3px color-mix(in srgb, var(--navy) 14%, transparent);
+}
+.composer::before {
+  content: "";
+  align-self: stretch;
+  width: 3px;
+  margin: .15rem .2rem .15rem 0;
+  border-radius: 99px;
+  background: var(--gold);
+  opacity: .8;
 }
 
 .composer-persona {
