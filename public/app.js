@@ -25,7 +25,10 @@ const state = {
     language: 'liberian-english',
     model: '',
     lowData: false,
-    theme: null,
+    theme: null,        // 'light' | 'dark' | null = follow the phone
+    textSize: 'md',     // 'sm' | 'md' | 'lg'
+    autoSpeak: false,
+    voiceRate: 0.95,
     ...loadPrefs(),
   },
 };
@@ -47,7 +50,21 @@ const el = {
   title: $('chat-title'),
   lowData: $('lowdata-toggle'),
   language: $('language-select'),
-  model: $('model-select'),
+  settingsOpen: $('settings-open'),
+  settings: $('settings'),
+  settingsClose: $('settings-close'),
+  setLanguage: $('set-language'),
+  model: $('set-model'),
+  setModelHint: $('set-model-hint'),
+  setLowData: $('set-lowdata'),
+  setSize: $('set-size'),
+  setTheme: $('set-theme'),
+  setAutoSpeak: $('set-autospeak'),
+  setRate: $('set-rate'),
+  setRateValue: $('set-rate-value'),
+  setCount: $('set-count'),
+  setExport: $('set-export'),
+  setClear: $('set-clear'),
   banner: $('setup-banner'),
   welcome: $('welcome'),
   personaGrid: $('persona-grid'),
@@ -143,6 +160,10 @@ function nearBottom(node, slack = 120) {
 /* ========================================================================
    Theme
    ======================================================================== */
+
+function applyTextSize(size) {
+  document.documentElement.dataset.size = size || 'md';
+}
 
 function applyTheme(theme) {
   const resolved =
@@ -419,6 +440,8 @@ async function streamReply(chat) {
     persist();
     renderThread();
     renderSidebar();
+    // Read it out for anyone who reads slowly — but never over an aborted reply.
+    if (state.prefs.autoSpeak && !failed) speak(text);
   } else if (!failed) {
     // Aborted before any text arrived — drop the empty turn.
     target.closest('.turn')?.remove();
@@ -590,7 +613,7 @@ function speak(text, button) {
     .trim();
 
   const utterance = new SpeechSynthesisUtterance(spoken);
-  utterance.rate = 0.95;
+  utterance.rate = state.prefs.voiceRate ?? 0.95;
   utterance.pitch = 0.9; // a little lower — this is Grandpa
 
   if (button) {
@@ -603,6 +626,192 @@ function speak(text, button) {
 
   speechSynthesis.speak(utterance);
 }
+
+/* ========================================================================
+   Settings
+   ======================================================================== */
+
+const RATE_WORDS = [
+  [0.75, 'Slow'],
+  [0.9, 'A little slow'],
+  [1.05, 'Normal'],
+  [1.2, 'Quick'],
+  [Infinity, 'Fast'],
+];
+
+function paintSegmented(group, attribute, value) {
+  group.querySelectorAll('button').forEach((button) => {
+    button.setAttribute('aria-checked', String(button.dataset[attribute] === value));
+  });
+}
+
+/** Push the saved preferences into the controls. */
+function renderSettings() {
+  const { prefs } = state;
+
+  el.setLanguage.value = prefs.language;
+  el.model.value = prefs.model;
+  el.setLowData.checked = prefs.lowData;
+  el.setAutoSpeak.checked = prefs.autoSpeak;
+  el.setRate.value = prefs.voiceRate;
+  el.setRateValue.textContent = RATE_WORDS.find(([limit]) => prefs.voiceRate < limit)[1];
+
+  paintSegmented(el.setSize, 'size', prefs.textSize);
+  paintSegmented(el.setTheme, 'themeOpt', prefs.theme || 'system');
+
+  el.setModelHint.textContent =
+    state.catalogue.models?.find((m) => m.id === prefs.model)?.hint || '';
+
+  const chats = state.chats.length;
+  const messages = state.chats.reduce((sum, chat) => sum + chat.messages.length, 0);
+  el.setCount.textContent = chats
+    ? `${chats} conversation${chats === 1 ? '' : 's'}, ${messages} message${messages === 1 ? '' : 's'} saved on this device.`
+    : 'Nothing saved on this device yet.';
+
+  // Reset the delete button if the panel was closed mid-confirmation.
+  el.setClear.classList.remove('is-confirming');
+  el.setClear.textContent = 'Delete all';
+}
+
+function openSettings() {
+  renderSettings();
+  el.settings.hidden = false;
+  el.settingsClose.focus();
+}
+
+function closeSettings() {
+  el.settings.hidden = true;
+  el.settingsOpen.focus();
+}
+
+/** All conversations as one Markdown file the user can keep. */
+function conversationsAsMarkdown() {
+  const stamp = new Date().toLocaleString();
+  const lines = [
+    '# Grandpa AI — my conversations',
+    '',
+    `Saved ${stamp} · Tolbert Innovation Hub`,
+    '',
+  ];
+
+  for (const chat of [...state.chats].sort((a, b) => (a.updatedAt || 0) - (b.updatedAt || 0))) {
+    lines.push('---', '', `## ${chat.title || 'Conversation'}`, '');
+    if (chat.updatedAt) lines.push(`*${new Date(chat.updatedAt).toLocaleString()}*`, '');
+    for (const message of chat.messages) {
+      lines.push(`**${message.role === 'user' ? 'Me' : 'Grandpa'}:**`, '', message.content, '');
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function downloadFile(name, text) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/markdown;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  // Revoke on the next tick so the download has started.
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+el.settingsOpen.addEventListener('click', openSettings);
+el.settingsClose.addEventListener('click', closeSettings);
+el.settings.addEventListener('click', (event) => {
+  if (event.target.closest('[data-close-settings]')) closeSettings();
+});
+
+el.setLanguage.addEventListener('change', () => {
+  state.prefs.language = el.setLanguage.value;
+  el.language.value = el.setLanguage.value; // keep the topbar copy in step
+  savePreferences();
+  announceRoadmapLanguage();
+});
+
+el.model.addEventListener('change', () => {
+  state.prefs.model = el.model.value;
+  savePreferences();
+  el.setModelHint.textContent =
+    state.catalogue.models?.find((m) => m.id === state.prefs.model)?.hint || '';
+});
+
+el.setLowData.addEventListener('change', () => {
+  state.prefs.lowData = el.setLowData.checked;
+  el.lowData.setAttribute('aria-pressed', String(state.prefs.lowData));
+  savePreferences();
+});
+
+el.setSize.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-size]');
+  if (!button) return;
+  state.prefs.textSize = button.dataset.size;
+  applyTextSize(state.prefs.textSize);
+  paintSegmented(el.setSize, 'size', state.prefs.textSize);
+  savePreferences();
+});
+
+el.setTheme.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-theme-opt]');
+  if (!button) return;
+  const choice = button.dataset.themeOpt;
+  state.prefs.theme = choice === 'system' ? null : choice;
+  applyTheme(state.prefs.theme);
+  paintSegmented(el.setTheme, 'themeOpt', choice);
+  savePreferences();
+});
+
+el.setAutoSpeak.addEventListener('change', () => {
+  state.prefs.autoSpeak = el.setAutoSpeak.checked;
+  savePreferences();
+  if (!state.prefs.autoSpeak && window.speechSynthesis?.speaking) speechSynthesis.cancel();
+});
+
+el.setRate.addEventListener('input', () => {
+  state.prefs.voiceRate = Number(el.setRate.value);
+  el.setRateValue.textContent = RATE_WORDS.find(([limit]) => state.prefs.voiceRate < limit)[1];
+  savePreferences();
+});
+
+el.setExport.addEventListener('click', () => {
+  if (state.chats.length === 0) {
+    toast('There is nothing to download yet.');
+    return;
+  }
+  const date = new Date().toISOString().slice(0, 10);
+  downloadFile(`grandpa-ai-conversations-${date}.md`, conversationsAsMarkdown());
+  toast('Downloaded.');
+});
+
+// Two taps to delete, so a mis-tap on a shared phone cannot wipe the history.
+let clearTimer;
+el.setClear.addEventListener('click', () => {
+  if (!el.setClear.classList.contains('is-confirming')) {
+    if (state.chats.length === 0) {
+      toast('There is nothing to delete.');
+      return;
+    }
+    el.setClear.classList.add('is-confirming');
+    el.setClear.textContent = 'Tap again to delete';
+    clearTimeout(clearTimer);
+    clearTimer = setTimeout(() => {
+      el.setClear.classList.remove('is-confirming');
+      el.setClear.textContent = 'Delete all';
+    }, 4000);
+    return;
+  }
+
+  clearTimeout(clearTimer);
+  state.streaming?.abort();
+  state.chats = [];
+  setCurrent(null);
+  persist();
+  renderThread();
+  renderSidebar();
+  renderSettings();
+  toast('All conversations deleted.');
+});
 
 /* ========================================================================
    Events
@@ -709,24 +918,26 @@ el.thread.addEventListener('click', async (event) => {
 el.lowData.addEventListener('click', () => {
   state.prefs.lowData = !state.prefs.lowData;
   el.lowData.setAttribute('aria-pressed', String(state.prefs.lowData));
+  el.setLowData.checked = state.prefs.lowData;
   savePreferences();
   toast(state.prefs.lowData
     ? 'Low-data mode on — short answers, less data used.'
     : 'Low-data mode off — full answers.');
 });
 
-el.language.addEventListener('change', () => {
-  state.prefs.language = el.language.value;
-  savePreferences();
+/** Kpelle, Vai and Bassa are declared, not trained — say so when picked. */
+function announceRoadmapLanguage() {
   const language = state.catalogue.languages.find((l) => l.id === state.prefs.language);
   if (language?.status === 'roadmap') {
     toast(`${language.label} is still being built — Grandpa will answer in Liberian English for now.`);
   }
-});
+}
 
-el.model.addEventListener('change', () => {
-  state.prefs.model = el.model.value;
+el.language.addEventListener('change', () => {
+  state.prefs.language = el.language.value;
+  el.setLanguage.value = el.language.value; // keep the settings copy in step
   savePreferences();
+  announceRoadmapLanguage();
 });
 
 el.themeToggle.addEventListener('click', () => {
@@ -734,6 +945,7 @@ el.themeToggle.addEventListener('click', () => {
   state.prefs.theme = next;
   savePreferences();
   applyTheme(next);
+  paintSegmented(el.setTheme, 'themeOpt', next);
 });
 
 /* Access gate */
@@ -782,6 +994,7 @@ el.scrim.addEventListener('click', closeNav);
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
+    if (!el.settings.hidden) { closeSettings(); return; }
     closeNav();
     if (speechSynthesis?.speaking) speechSynthesis.cancel();
   }
@@ -804,6 +1017,7 @@ window.addEventListener('beforeunload', () => {
 
 async function boot() {
   applyTheme(state.prefs.theme);
+  applyTextSize(state.prefs.textSize);
 
   try {
     const response = await fetch('/api/config');
@@ -828,22 +1042,26 @@ async function boot() {
       if (!valid) showGate('');
     }
 
-    el.language.innerHTML = config.languages
+    const languageOptions = config.languages
       .map((l) => `<option value="${l.id}">${escapeHtml(l.label)}${
         l.status === 'roadmap' ? ' · soon' : ''
       }</option>`)
       .join('');
+    el.language.innerHTML = languageOptions;
+    el.setLanguage.innerHTML = languageOptions;
 
     el.model.innerHTML = config.models
-      .map((m) => `<option value="${m.id}" title="${escapeHtml(m.hint)}">${escapeHtml(m.label)}</option>`)
+      .map((m) => `<option value="${m.id}">${escapeHtml(m.label)}</option>`)
       .join('');
 
     if (!state.prefs.model || !config.models.some((m) => m.id === state.prefs.model)) {
       state.prefs.model = config.defaultModel;
     }
     el.language.value = state.prefs.language;
+    el.setLanguage.value = state.prefs.language;
     el.model.value = state.prefs.model;
     el.lowData.setAttribute('aria-pressed', String(state.prefs.lowData));
+    renderSettings();
   } catch {
     el.banner.hidden = false;
     el.banner.innerHTML = '<strong>Cannot reach the server.</strong> <span>Is it still running?</span>';
