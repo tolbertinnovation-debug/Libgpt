@@ -1,5 +1,9 @@
 import { renderMarkdown, escapeHtml } from './markdown.js';
 import { groupByDate, loadChats, loadPrefs, newId, savePrefs, saveChats } from './storage.js';
+import {
+  DEFAULT_DICTATION, DICTATION_ACCENTS, FALLBACK_DICTATION,
+  Speaker, englishVoices, loadVoices, pickDefaultVoice,
+} from './speech.js';
 
 /* ========================================================================
    State
@@ -29,6 +33,9 @@ const state = {
     textSize: 'md',     // 'sm' | 'md' | 'lg'
     autoSpeak: false,
     voiceRate: 0.95,
+    voicePitch: 0.9,
+    voiceURI: '',        // '' = let the app pick the closest accent
+    dictationAccent: DEFAULT_DICTATION,
     ...loadPrefs(),
   },
 };
@@ -62,6 +69,20 @@ const el = {
   setAutoSpeak: $('set-autospeak'),
   setRate: $('set-rate'),
   setRateValue: $('set-rate-value'),
+  setPitch: $('set-pitch'),
+  setPitchValue: $('set-pitch-value'),
+  setVoice: $('set-voice'),
+  setVoiceHint: $('set-voice-hint'),
+  setVoiceTest: $('set-voice-test'),
+  setAccent: $('set-accent'),
+  speakingBar: $('speaking-bar'),
+  speakingText: $('speaking-text'),
+  speakToggle: $('speak-toggle'),
+  speakStop: $('speak-stop'),
+  listeningBar: $('listening-bar'),
+  listeningText: $('listening-text'),
+  listenStop: $('listen-stop'),
+  offlineBanner: $('offline-banner'),
   setCount: $('set-count'),
   setExport: $('set-export'),
   setClear: $('set-clear'),
@@ -201,6 +222,12 @@ function renderSidebar() {
           <button class="chat-row ${chat.id === state.currentId ? 'is-active' : ''}"
                   data-open="${chat.id}" type="button">
             <span class="chat-row-title">${escapeHtml(chat.title || 'New conversation')}</span>
+            <span class="chat-row-del" data-rename="${chat.id}" role="button" tabindex="0"
+                  aria-label="Rename ${escapeHtml(chat.title || 'conversation')}">
+              <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+                <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/>
+              </svg>
+            </span>
             <span class="chat-row-del" data-del="${chat.id}" role="button" tabindex="0"
                   aria-label="Delete ${escapeHtml(chat.title || 'conversation')}">
               <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
@@ -258,6 +285,13 @@ function messageActions(index, content) {
              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/>
         </svg>Copy
+      </button>
+      <button class="msg-action" data-share="${index}" type="button">
+        <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+          <path d="M8.6 13.5l6.8 4M15.4 6.5l-6.8 4"/>
+        </svg>Share
       </button>
       <button class="msg-action" data-speak="${index}" type="button">
         <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none"
@@ -333,10 +367,25 @@ function startAiTurn() {
   return turn.querySelector('.prose');
 }
 
-function showError(message) {
+function showError(message, { retry = true } = {}) {
   const box = document.createElement('div');
   box.className = 'turn-error';
   box.textContent = message;
+  if (retry) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'retry';
+    button.textContent = 'Try again';
+    button.addEventListener('click', () => {
+      const chat = currentChat();
+      if (!chat || state.streaming) return;
+      box.remove();
+      // The question is still in the history, so just ask again.
+      streamReply(chat);
+    });
+    box.appendChild(document.createElement('br'));
+    box.appendChild(button);
+  }
   el.thread.appendChild(box);
   el.thread.scrollTop = el.thread.scrollHeight;
 }
@@ -497,6 +546,9 @@ function send(rawText) {
   const text = (rawText ?? el.input.value).trim();
   if (!text || state.streaming) return;
 
+  speaker.stop();   // a new question means the old answer stops talking
+  if (listening) stopListening();
+
   const chat = ensureChat();
   if (!chat.title) chat.title = text.slice(0, 48);
   chat.messages.push({ role: 'user', content: text });
@@ -538,94 +590,159 @@ function updateSendState() {
    Voice — speech in, speech out
    ======================================================================== */
 
+let availableVoices = [];
+
+const speaker = new Speaker((speechState) => {
+  const speaking = speechState !== 'idle';
+  el.speakingBar.hidden = !speaking;
+  el.speakingBar.classList.toggle('is-paused', speechState === 'paused');
+  el.speakingText.textContent = speechState === 'paused' ? 'Paused' : 'Reading aloud…';
+  el.speakToggle.textContent = speechState === 'paused' ? 'Continue' : 'Pause';
+
+  // Keep the per-message Listen buttons in step with what is actually playing.
+  document.querySelectorAll('.msg-action.is-on').forEach((b) => {
+    if (!speaking) b.classList.remove('is-on');
+  });
+});
+
+/** The voice the user chose, or the closest accent we could find. */
+function chosenVoice() {
+  if (!availableVoices.length) return null;
+  return availableVoices.find((v) => v.voiceURI === state.prefs.voiceURI)
+    || pickDefaultVoice(availableVoices);
+}
+
+function speak(text, button) {
+  if (!speaker.supported) {
+    toast('This browser cannot read answers aloud.');
+    return;
+  }
+
+  // Pressing Listen on the message already playing stops it.
+  const wasThisOne = button?.classList.contains('is-on');
+  speaker.stop();
+  document.querySelectorAll('.msg-action.is-on').forEach((b) => b.classList.remove('is-on'));
+  if (wasThisOne) return;
+
+  const started = speaker.speak(text, {
+    voice: chosenVoice(),
+    rate: state.prefs.voiceRate,
+    pitch: state.prefs.voicePitch,
+  });
+
+  if (started) button?.classList.add('is-on');
+  else toast('There is nothing to read out.');
+}
+
+el.speakToggle.addEventListener('click', () => speaker.toggle());
+el.speakStop.addEventListener('click', () => {
+  speaker.stop();
+  document.querySelectorAll('.msg-action.is-on').forEach((b) => b.classList.remove('is-on'));
+});
+
+/* ---- Dictation ---------------------------------------------------------- */
+
 const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
 let recogniser = null;
+let listening = false;
+let baseText = '';        // what was typed before dictation started
+let heardFinal = '';      // confirmed words this session
+let accentFellBack = false;
 
-function toggleMic() {
-  if (!SpeechRecognition) {
-    toast('Voice input needs Chrome, Edge or Safari.');
-    return;
-  }
+function setListening(on) {
+  listening = on;
+  el.listeningBar.hidden = !on;
+  el.mic.classList.toggle('is-listening', on);
+  el.mic.setAttribute('aria-label', on ? 'Stop listening' : 'Speak your question');
+  if (!on) el.input.classList.remove('is-hearing');
+}
 
-  if (recogniser) {
-    recogniser.stop();
-    return;
-  }
+function startRecogniser(lang) {
+  const recognition = new SpeechRecognition();
+  recognition.lang = lang;
+  // Continuous with interim results: the words appear as they are spoken, and
+  // a pause for breath does not end the whole dictation.
+  recognition.continuous = true;
+  recognition.interimResults = true;
 
-  recogniser = new SpeechRecognition();
-  recogniser.lang = 'en-LR'; // Liberian English, with the browser falling back to en
-  recogniser.interimResults = true;
-  recogniser.continuous = false;
-
-  const before = el.input.value;
-  el.mic.classList.add('is-listening');
-  el.mic.setAttribute('aria-label', 'Stop listening');
-
-  recogniser.onresult = (event) => {
-    let heard = '';
+  recognition.onresult = (event) => {
+    let interim = '';
     for (let i = event.resultIndex; i < event.results.length; i += 1) {
-      heard += event.results[i][0].transcript;
+      const result = event.results[i];
+      if (result.isFinal) heardFinal += `${result[0].transcript.trim()} `;
+      else interim += result[0].transcript;
     }
-    el.input.value = (before ? `${before} ` : '') + heard;
+    const joined = `${baseText ? `${baseText} ` : ''}${heardFinal}${interim}`.replace(/\s+/g, ' ');
+    el.input.value = joined.trimStart();
+    el.input.classList.toggle('is-hearing', Boolean(interim));
     autoGrow();
     updateSendState();
   };
-  recogniser.onerror = (event) => {
-    if (event.error === 'not-allowed') toast('Microphone permission was refused.');
-    else if (event.error !== 'aborted') toast('Could not hear you. Try again.');
+
+  recognition.onerror = (event) => {
+    if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+      stopListening();
+      toast('Microphone permission was refused. Allow it in your browser settings.');
+      return;
+    }
+    if (event.error === 'language-not-supported' && !accentFellBack) {
+      // The chosen accent is not available here — drop to one that always is.
+      accentFellBack = true;
+      recogniser = startRecogniser(FALLBACK_DICTATION);
+      toast('That accent is not available on this device. Using American English.');
+      return;
+    }
+    if (event.error === 'no-speech') return; // it restarts below
+    if (event.error !== 'aborted') toast('Could not hear you. Try again.');
   };
-  recogniser.onend = () => {
-    el.mic.classList.remove('is-listening');
-    el.mic.setAttribute('aria-label', 'Speak your question');
+
+  recognition.onend = () => {
+    // Browsers stop after a silence. While the user still wants to talk,
+    // start it again so a thinking pause does not cut them off.
+    if (listening) {
+      try { recognition.start(); return; } catch { /* fall through to stop */ }
+    }
+    setListening(false);
     recogniser = null;
     el.input.focus();
   };
 
   try {
-    recogniser.start();
+    recognition.start();
   } catch {
-    recogniser = null;
-    el.mic.classList.remove('is-listening');
+    return null;
   }
+  return recognition;
 }
 
-function speak(text, button) {
-  if (!('speechSynthesis' in window)) {
-    toast('This browser cannot read answers aloud.');
+function stopListening() {
+  const active = recogniser;
+  setListening(false);       // set first, so onend does not restart it
+  recogniser = null;
+  try { active?.stop(); } catch { /* already stopped */ }
+  el.input.focus();
+}
+
+function toggleMic() {
+  if (!SpeechRecognition) {
+    toast('Speaking your question needs Chrome, Edge or Safari.');
+    return;
+  }
+  if (listening) {
+    stopListening();
     return;
   }
 
-  if (speechSynthesis.speaking) {
-    speechSynthesis.cancel();
-    document.querySelectorAll('.msg-action.is-on').forEach((b) => b.classList.remove('is-on'));
-    if (button?.dataset.wasOn === 'true') {
-      delete button.dataset.wasOn;
-      return; // pressing Listen again just stops
-    }
-  }
-
-  // Strip markdown so the voice reads prose, not punctuation.
-  const spoken = text
-    .replace(/```[\s\S]*?```/g, ' code block. ')
-    .replace(/[*_#>`|]/g, '')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  const utterance = new SpeechSynthesisUtterance(spoken);
-  utterance.rate = state.prefs.voiceRate ?? 0.95;
-  utterance.pitch = 0.9; // a little lower — this is Grandpa
-
-  if (button) {
-    button.classList.add('is-on');
-    button.dataset.wasOn = 'true';
-    const clear = () => { button.classList.remove('is-on'); delete button.dataset.wasOn; };
-    utterance.onend = clear;
-    utterance.onerror = clear;
-  }
-
-  speechSynthesis.speak(utterance);
+  speaker.stop(); // never listen and talk at once
+  baseText = el.input.value.trim();
+  heardFinal = '';
+  accentFellBack = false;
+  setListening(true);
+  recogniser = startRecogniser(state.prefs.dictationAccent || DEFAULT_DICTATION);
+  if (!recogniser) setListening(false);
 }
+
+el.listenStop.addEventListener('click', stopListening);
 
 /* ========================================================================
    Settings
@@ -638,6 +755,39 @@ const RATE_WORDS = [
   [1.2, 'Quick'],
   [Infinity, 'Fast'],
 ];
+
+const PITCH_WORDS = [
+  [0.8, 'Very deep'],
+  [0.95, 'Deep'],
+  [1.1, 'Normal'],
+  [Infinity, 'Light'],
+];
+
+/** Fill the voice picker with whatever this device actually has. */
+function renderVoiceList() {
+  const voices = englishVoices(availableVoices);
+
+  if (voices.length === 0) {
+    el.setVoice.innerHTML = '<option value="">The only voice this device has</option>';
+    el.setVoice.disabled = true;
+    el.setVoiceHint.textContent = availableVoices.length
+      ? 'No English voice found, so your device\'s default is used.'
+      : 'This device has no voices installed for reading aloud.';
+    return;
+  }
+
+  el.setVoice.disabled = false;
+  const best = pickDefaultVoice(availableVoices);
+  el.setVoice.innerHTML = [
+    `<option value="">Closest to Liberia (${escapeHtml(best?.name || 'default')})</option>`,
+    ...voices.map((v) =>
+      `<option value="${escapeHtml(v.voiceURI)}">${escapeHtml(v.name)} · ${escapeHtml(v.lang)}</option>`),
+  ].join('');
+  el.setVoice.value = voices.some((v) => v.voiceURI === state.prefs.voiceURI)
+    ? state.prefs.voiceURI
+    : '';
+  el.setVoiceHint.textContent = `${voices.length} English voice${voices.length === 1 ? '' : 's'} on this device.`;
+}
 
 function paintSegmented(group, attribute, value) {
   group.querySelectorAll('button').forEach((button) => {
@@ -655,6 +805,10 @@ function renderSettings() {
   el.setAutoSpeak.checked = prefs.autoSpeak;
   el.setRate.value = prefs.voiceRate;
   el.setRateValue.textContent = RATE_WORDS.find(([limit]) => prefs.voiceRate < limit)[1];
+  el.setPitch.value = prefs.voicePitch;
+  el.setPitchValue.textContent = PITCH_WORDS.find(([limit]) => prefs.voicePitch < limit)[1];
+  el.setAccent.value = prefs.dictationAccent;
+  renderVoiceList();
 
   paintSegmented(el.setSize, 'size', prefs.textSize);
   paintSegmented(el.setTheme, 'themeOpt', prefs.theme || 'system');
@@ -765,13 +919,35 @@ el.setTheme.addEventListener('click', (event) => {
 el.setAutoSpeak.addEventListener('change', () => {
   state.prefs.autoSpeak = el.setAutoSpeak.checked;
   savePreferences();
-  if (!state.prefs.autoSpeak && window.speechSynthesis?.speaking) speechSynthesis.cancel();
+  if (!state.prefs.autoSpeak) speaker.stop();
 });
 
 el.setRate.addEventListener('input', () => {
   state.prefs.voiceRate = Number(el.setRate.value);
   el.setRateValue.textContent = RATE_WORDS.find(([limit]) => state.prefs.voiceRate < limit)[1];
   savePreferences();
+});
+
+el.setPitch.addEventListener('input', () => {
+  state.prefs.voicePitch = Number(el.setPitch.value);
+  el.setPitchValue.textContent = PITCH_WORDS.find(([limit]) => state.prefs.voicePitch < limit)[1];
+  savePreferences();
+});
+
+el.setVoice.addEventListener('change', () => {
+  state.prefs.voiceURI = el.setVoice.value;
+  savePreferences();
+  speak('Good day, my friend. This is how I will sound.');
+});
+
+el.setAccent.addEventListener('change', () => {
+  state.prefs.dictationAccent = el.setAccent.value;
+  savePreferences();
+  if (listening) { stopListening(); toast('Tap the microphone again to use the new accent.'); }
+});
+
+el.setVoiceTest.addEventListener('click', () => {
+  speak('Good day, my friend. One hand cannot tie a bundle. Ask me anything you like.');
 });
 
 el.setExport.addEventListener('click', () => {
@@ -804,6 +980,7 @@ el.setClear.addEventListener('click', () => {
 
   clearTimeout(clearTimer);
   state.streaming?.abort();
+  speaker.stop();
   state.chats = [];
   setCurrent(null);
   persist();
@@ -832,6 +1009,8 @@ el.mic.addEventListener('click', toggleMic);
 
 el.newChat.addEventListener('click', () => {
   state.streaming?.abort();
+  speaker.stop();
+  if (listening) stopListening();
   setCurrent(null);
   el.input.value = '';
   autoGrow();
@@ -844,7 +1023,51 @@ el.newChat.addEventListener('click', () => {
 
 el.search.addEventListener('input', renderSidebar);
 
+/** Swap the row title for an input so it can be renamed in place. */
+function startRename(row, chat) {
+  const titleSpan = row.querySelector('.chat-row-title');
+  if (!titleSpan) return;
+
+  const input = document.createElement('input');
+  input.className = 'chat-row-rename';
+  input.value = chat.title || '';
+  input.setAttribute('aria-label', 'New name for this conversation');
+  titleSpan.replaceWith(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  const finish = (save) => {
+    if (done) return;
+    done = true;
+    const name = input.value.trim();
+    if (save && name) {
+      chat.title = name.slice(0, 60);
+      chat.titled = true;    // do not let auto-naming overwrite the user
+      persist();
+      if (chat.id === state.currentId) el.title.textContent = chat.title;
+    }
+    renderSidebar();
+  };
+
+  input.addEventListener('keydown', (event) => {
+    event.stopPropagation();
+    if (event.key === 'Enter') finish(true);
+    if (event.key === 'Escape') finish(false);
+  });
+  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('click', (event) => event.stopPropagation());
+}
+
 el.chatList.addEventListener('click', (event) => {
+  const rename = event.target.closest('[data-rename]');
+  if (rename) {
+    event.stopPropagation();
+    const chat = state.chats.find((c) => c.id === rename.dataset.rename);
+    if (chat) startRename(rename.closest('.chat-row'), chat);
+    return;
+  }
+
   const del = event.target.closest('[data-del]');
   if (del) {
     event.stopPropagation();
@@ -861,6 +1084,7 @@ el.chatList.addEventListener('click', (event) => {
   const open = event.target.closest('[data-open]');
   if (open) {
     state.streaming?.abort();
+    speaker.stop();
     setCurrent(open.dataset.open);
     const chat = currentChat();
     if (chat?.persona) state.prefs.persona = chat.persona;
@@ -902,6 +1126,24 @@ el.thread.addEventListener('click', async (event) => {
   if (copy && chat) {
     const text = chat.messages[Number(copy.dataset.copy)]?.content || '';
     toast(await copyText(text) ? 'Answer copied.' : 'Could not copy.');
+    return;
+  }
+
+  const share = event.target.closest('[data-share]');
+  if (share && chat) {
+    const text = chat.messages[Number(share.dataset.share)]?.content || '';
+    const title = chat.title || 'Grandpa AI';
+    // Web Share opens WhatsApp and the rest of the phone's share sheet —
+    // the way most people here actually pass something on.
+    if (navigator.share) {
+      try {
+        await navigator.share({ title, text: `${text}\n\n— Grandpa AI, Tolbert Innovation Hub` });
+      } catch (error) {
+        if (error.name !== 'AbortError') toast('Could not share that.');
+      }
+    } else {
+      toast(await copyText(text) ? 'Copied — paste it wherever you like.' : 'Could not copy.');
+    }
     return;
   }
 
@@ -996,7 +1238,8 @@ document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
     if (!el.settings.hidden) { closeSettings(); return; }
     closeNav();
-    if (speechSynthesis?.speaking) speechSynthesis.cancel();
+    if (listening) stopListening();
+    speaker.stop();
   }
   // Ctrl/Cmd+K — jump to search, the way most chat apps do it.
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
@@ -1007,9 +1250,17 @@ document.addEventListener('keydown', (event) => {
   }
 });
 
-window.addEventListener('beforeunload', () => {
-  if (speechSynthesis?.speaking) speechSynthesis.cancel();
+window.addEventListener('beforeunload', () => speaker.stop());
+
+/* Connection awareness — these users are the reason low-data mode exists. */
+function paintConnection() {
+  el.offlineBanner.hidden = navigator.onLine !== false;
+}
+window.addEventListener('online', () => {
+  paintConnection();
+  toast('Back online.');
 });
+window.addEventListener('offline', paintConnection);
 
 /* ========================================================================
    Boot
@@ -1018,6 +1269,18 @@ window.addEventListener('beforeunload', () => {
 async function boot() {
   applyTheme(state.prefs.theme);
   applyTextSize(state.prefs.textSize);
+  paintConnection();
+
+  el.setAccent.innerHTML = DICTATION_ACCENTS
+    .map((a) => `<option value="${a.id}">${escapeHtml(a.label)}</option>`)
+    .join('');
+  el.setAccent.value = state.prefs.dictationAccent;
+
+  // Voices arrive asynchronously — fill the picker once they do.
+  loadVoices().then((voices) => {
+    availableVoices = voices;
+    if (!el.settings.hidden) renderVoiceList();
+  });
 
   try {
     const response = await fetch('/api/config');

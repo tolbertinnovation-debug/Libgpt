@@ -15,7 +15,12 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | Feature | How it works here |
 | --- | --- |
 | **Multilingual chatbot** | Liberian English vernacular by default, standard English alongside it. Kpelle, Vai and Bassa appear in the picker as roadmap languages — the assistant says plainly that they are still being built rather than faking them. |
-| **Voice in / voice out** | Speak your question with the microphone button (Web Speech API); press **Listen** on any answer to hear it read back, at a slower rate and lower pitch. |
+| **Voice out** | Press **Listen** on any answer, or turn on auto-read. Long answers are split into sentence-sized chunks, which is what stops browsers cutting them off part-way. Pause, continue and stop from a bar above the composer. |
+| **Voice in** | Hold a conversation with the microphone: continuous dictation with the words appearing as you speak, so a pause for breath does not end it. Pick the accent closest to your own; if a device cannot do it, it falls back rather than failing. |
+| **Grandpa's voice** | Choose from the voices your device has. The default is the closest to Liberia the device offers — West African first, then British, then whatever exists. Speed and depth are adjustable, with a test button. |
+| **Share an answer** | Sends it through the phone's own share sheet — WhatsApp and the rest — or copies it where that is unavailable. |
+| **Works offline-aware** | A clear banner when the network drops, your history still readable, and a **Try again** button on any message that failed. |
+| **Rename conversations** | Rename in place from the sidebar, so *Planting Rice Season* can become *My rice notes*. |
 | **Homework Helper** | Teaches the method and shows the working, then offers a practice question — it does not just hand over answers. |
 | **Business Advisor** | Pricing, bookkeeping you can keep in a paper exercise book, and loan readiness. Shows the arithmetic so you can redo it with your own numbers. |
 | **Farming Assistant** | Crop problems, planting seasons, storage. Says honestly that it has no live weather or market-price feed, and points to the extension officer. |
@@ -132,7 +137,8 @@ server/
 public/
   index.html    One page
   styles.css    Brand palette, light and dark, mobile-first breakpoints
-  app.js        State, streaming, voice, history, settings
+  app.js        State, streaming, history, settings, sharing
+  speech.js     Text-to-speech chunking, voice ranking, dictation locales
   markdown.js   Small Markdown renderer (escapes first, then adds markup)
   storage.js    localStorage for conversations and preferences
 render.yaml     Deploy blueprint — secrets are prompted for, never committed
@@ -166,6 +172,15 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
 - **Browser (Playwright)** — 34 checks: streaming display, Stop/Send swapping,
   regenerate, code copy, conversation naming, history, search, delete, dark mode,
   reload persistence, and mobile layout with no horizontal overflow.
+- **Speech (unit)** — 26 assertions: markdown stripped before speaking, long answers
+  chunked under the cutoff limit, over-long single sentences broken at commas,
+  nothing lost or emptied, and voice ranking (accent first, quality as a tiebreaker,
+  non-English excluded, sane fallbacks).
+- **Voice and sharing (Playwright)** — 37 checks against a stubbed speech engine:
+  the voice picker built from the device's real voices, the West African default,
+  a long answer queued as several chunks and read to its final sentence, pause /
+  continue / stop, a new question silencing the old answer, auto-read, Web Share
+  with a copy fallback, the offline banner, and rename with Escape to cancel.
 - **Settings (Playwright)** — 33 checks: opening and closing three ways, text size
   moving the root size and surviving reload, the three-way theme, low-data staying
   in step between the pill and the switch, language syncing both ways, the spoken
@@ -183,7 +198,8 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
 Named honestly, because the dossier lists them and this app does not do them:
 
 - **SMS / USSD fallback** for feature phones — needs a telecom aggregator.
-- **Offline caching** of recent answers — history persists, but answering needs network.
+- **Offline caching** of recent answers — history persists and the app tells you it is
+  offline, but answering still needs a network.
 - **The community knowledge feed** — crowd-sourced local knowledge with moderators.
 - **Trained indigenous-language models** — Kpelle, Vai and Bassa are declared as
   roadmap in the UI rather than approximated.

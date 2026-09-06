@@ -96,6 +96,11 @@
       </div>
     </header>
 
+    <div class="banner offline" id="offline-banner" hidden>
+      <strong>No internet.</strong>
+      <span>Your conversations are still here. Grandpa can answer again when the network returns.</span>
+    </div>
+
     <div class="banner" id="setup-banner" hidden>
       <strong>No API key yet.</strong>
       <span>Copy <code>.env.example</code> to <code>.env</code>, add your <code>OPENAI_API_KEY</code>, then restart the server.</span>
@@ -127,6 +132,19 @@
 
     <!-- Composer -->
     <div class="composer-zone">
+      <div class="speaking-bar" id="speaking-bar" hidden>
+        <span class="speaking-wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+        <span class="speaking-text" id="speaking-text">Reading aloud…</span>
+        <button type="button" class="speaking-btn" id="speak-toggle">Pause</button>
+        <button type="button" class="speaking-btn" id="speak-stop">Stop</button>
+      </div>
+
+      <div class="listening-bar" id="listening-bar" hidden>
+        <span class="listening-dot" aria-hidden="true"></span>
+        <span id="listening-text">Listening… speak now</span>
+        <button type="button" class="speaking-btn" id="listen-stop">Done</button>
+      </div>
+
       <div class="composer" id="composer">
         <div class="composer-persona" id="composer-persona" hidden></div>
         <textarea id="composer-input" rows="1" placeholder="Ask Grandpa anything…"
@@ -231,10 +249,38 @@
 
         <div class="set-row">
           <span class="set-label">
+            <label for="set-voice">Grandpa's voice</label>
+            <small id="set-voice-hint">Voices come from your phone or browser.</small>
+          </span>
+          <select id="set-voice"></select>
+        </div>
+
+        <div class="set-row">
+          <span class="set-label">
             <label for="set-rate">Speaking speed</label>
             <small id="set-rate-value">Normal</small>
           </span>
           <input type="range" id="set-rate" min="0.6" max="1.3" step="0.05" value="0.95">
+        </div>
+
+        <div class="set-row">
+          <span class="set-label">
+            <label for="set-pitch">Voice depth</label>
+            <small id="set-pitch-value">Deep</small>
+          </span>
+          <input type="range" id="set-pitch" min="0.6" max="1.4" step="0.05" value="0.9">
+        </div>
+
+        <div class="set-row">
+          <span class="set-label">
+            <label for="set-accent">Your accent</label>
+            <small>Helps Grandpa hear you when you speak your question.</small>
+          </span>
+          <select id="set-accent"></select>
+        </div>
+
+        <div class="set-actions">
+          <button type="button" class="set-btn" id="set-voice-test">Test the voice</button>
         </div>
       </section>
 
