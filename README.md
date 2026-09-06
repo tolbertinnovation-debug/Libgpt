@@ -18,7 +18,8 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Ancestral names** | Suggestions by people, day of birth, birth order and child, each with its meaning — and a standing instruction to give two names it is sure of rather than five it is not, plus advice to ask an elder of the family before settling. |
 | **Recipes** | Palava sauce, dumboy, pepper soup and the rest: ingredients from a Liberian market, steps you can follow, the story behind the dish, and a grandmother's tip. |
 | **Proverb quiz** | One question at a time on proverbs, history and culture, with a streak that survives a reload. |
-| **Journal** | Keep any story, name list or recipe; read it back later. Stored in the browser. |
+| **Cultural Album** | Painted scenes of Liberian life — a village, the coast, market day, a palaver hut. **Off by default**, because a picture costs cents where an answer costs a fraction of a penny. Every picture is labelled on screen as a drawing, never a photograph. |
+| **Journal** | Keep any story, name list, recipe or picture; read it back later. Stored in the browser. |
 | **The hearth** | A welcome screen in the Liberian register: the elder's portrait, a greeting by name, a proverb that holds for the whole day, and four topic cards — The Family Hearth, The Hustle, Ancestral Soil, Deep Paths. |
 | **Who is talking** | Five elders — Grandpa, Grandma, Northern Elder, Market Auntie, Coastal Sage — and four tones: Classic Warmth, Playful, Solemn, Strict Proverbial. |
 | **Glossary** | Liberian terms in an answer (*small-small*, *palava hut*, *susu*, *dumboy*) are underlined; tapping one explains it, so a reader from outside can follow without the vernacular being translated away. |
@@ -98,10 +99,32 @@ All of it is in `.env` (see `.env.example`):
 | `PORT` | `3000` | Port to listen on. |
 | `RATE_LIMIT_PER_MINUTE` | `30` | Requests allowed per IP per minute. `0` disables the limit. |
 | `ACCESS_CODE` | *(blank)* | When set, visitors must enter this code before they can chat. Leave blank locally; set it on any public address. |
+| `ENABLE_IMAGES` | `false` | Turns the Cultural Album on. Off by default — see below. |
+| `OPENAI_IMAGE_MODEL` | `dall-e-3` | `dall-e-3` works on any account; `gpt-image-1` is newer but some accounts must verify with OpenAI first. |
+| `IMAGES_PER_HOUR` | `20` | A ceiling across the whole deployment, not per visitor. |
 
 The model picker in the header offers GPT-4o mini, GPT-4o, GPT-4.1 mini and GPT-4.1.
 Your account still needs access to whichever one you pick; if it does not, the app
 says so in plain words rather than failing silently.
+
+### Pictures cost real money
+
+A text answer costs a fraction of a penny. A picture costs **cents** — a hundred
+times more. So the Album is off unless `ENABLE_IMAGES=true`, and when it is on:
+
+- `IMAGES_PER_HOUR` caps the whole deployment, not each visitor, so a public
+  address cannot empty the account overnight. The picture is counted *before* the
+  call, so two requests arriving together cannot both slip past.
+- The panel states the cost before anyone presses the button, and shows how many
+  are left this hour.
+- The Album tab does not appear at all where pictures are switched off.
+
+Pictures are made in two steps. A text model first writes a grounded scene
+description under the cultural rules — a painted scene, ordinary life treated with
+dignity, no poverty tropes, no real named people or places, nothing sacred — and
+the image model renders that. A visitor's words never reach the image service
+unchanged. Every picture carries a visible label: *drawn by AI, not a photograph of
+a real place or person*.
 
 ---
 
@@ -202,6 +225,10 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   in step between the pill and the switch, language syncing both ways, the spoken
   speed label, conversation counts, the download's name and contents, two-tap
   delete, and the mobile sheet without horizontal overflow.
+- **Album (Playwright)** — 14 checks: the tab hidden where pictures are off and shown
+  where they are on, the cost stated before the button, a picture rendered with its
+  caption and its "not a photograph" label, the journal keeping a downscaled thumbnail
+  rather than a megabyte of PNG, download, and the hourly ceiling explaining itself.
 - **Library (Playwright)** — 34 checks: the story arriving and stopping at a decision
   with no moral yet, a choice continuing that same story to an ending with a proverb,
   keeping it in the journal and reading it back, the name form's 16 groups, recipes
@@ -226,8 +253,7 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
 Named honestly, because the dossier and the reference design list them and this app
 does not do them:
 
-- **Magic Cultural Album** — image generation, animation, video. Images are possible
-  through a separate OpenAI endpoint; video is not available at all.
+- **Animation and video** for the Album — the API generates still images only.
 - **Acoustic environments** (palaver hut, campfire, radio) — these filter real audio
   through `AudioContext`. Browser speech output cannot be captured and filtered, so this
   needs a server-side text-to-speech voice instead of the device's.

@@ -60,6 +60,8 @@ const failure = (message) => `
  * host app react (a toast, a sound) without this module knowing about either.
  */
 export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpeak = null }) {
+  // `ask(kind, input, path)` — the album has its own endpoint because a
+  // picture is a different kind of request, with its own ceiling.
   let tab = 'story';
   let story = null;   // { title, parts[], choicePrompt, choices[], finished }
 
@@ -366,6 +368,84 @@ export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpea
     if (streak) streak.textContent = `🔥 Streak ${s.streak} · Best ${s.best}`;
   }
 
+  /* ---- Album ---- */
+  let album = null;
+
+  function albumPanel() {
+    const scenes = catalogue.scenes || [];
+    return `
+      <form class="lib-form" id="album-form">
+        <div class="lib-field">
+          <label for="album-scene">A scene</label>
+          <select id="album-scene">${scenes.map((sc) => option(sc.id, sc.label)).join('')}</select>
+        </div>
+        <div class="lib-field">
+          <label for="album-detail">Anything particular? (you can leave this empty)</label>
+          <input type="text" id="album-detail" maxlength="160"
+                 placeholder="women selling greens, the morning light…">
+        </div>
+        <button class="lib-go" type="submit">Paint it</button>
+        <p class="album-cost">
+          A picture costs real money on your OpenAI account — cents each, where an
+          answer costs a fraction of a penny. Grandpa draws; he does not photograph.
+        </p>
+      </form>
+      <div id="album-out"></div>`;
+  }
+
+  async function paintScene(event) {
+    event.preventDefault();
+    const out = root.querySelector('#album-out');
+    out.innerHTML = loading('Grandpa is painting it — this takes a moment…');
+
+    const result = await ask('album', {
+      scene: root.querySelector('#album-scene').value,
+      detail: root.querySelector('#album-detail').value.trim(),
+    }, '/api/album');
+
+    if (!result.ok) { out.innerHTML = failure(result.error); return; }
+    const d = result.data;
+    album = d;
+
+    out.innerHTML = `
+      <figure class="album-figure">
+        <img src="${d.image}" alt="${escapeHtml(d.caption)}">
+        <figcaption>
+          <p class="album-caption">${escapeHtml(d.caption)}</p>
+          <p>${escapeHtml(d.note)}</p>
+          <span class="album-stamp">🖌️ Drawn by AI — not a photograph of a real place or person</span>
+        </figcaption>
+      </figure>
+      <div class="lib-actions">
+        <button class="setting-btn" type="button" data-save-picture>Keep it</button>
+        <button class="setting-btn" type="button" data-download-picture>Download</button>
+      </div>
+      ${typeof d.remaining === 'number'
+        ? `<p class="album-cost">${d.remaining} picture${d.remaining === 1 ? '' : 's'} left this hour.</p>`
+        : ''}`;
+  }
+
+  /**
+   * A full picture is over a megabyte as base64 and would fill the browser's
+   * storage in a handful of saves, so the journal keeps a small thumbnail.
+   */
+  function thumbnail(dataUri, max = 320) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const scale = Math.min(1, max / Math.max(img.width, img.height));
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(img.width * scale);
+        canvas.height = Math.round(img.height * scale);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        try { resolve(canvas.toDataURL('image/jpeg', 0.7)); }
+        catch { resolve(''); }
+      };
+      img.onerror = () => resolve('');
+      img.src = dataUri;
+    });
+  }
+
   /* ---- Journal ---- */
   function journalPanel() {
     const items = loadJournal();
@@ -374,6 +454,7 @@ export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpea
     }
     return items.map((item) => `
       <div class="journal-item">
+        ${item.thumb ? `<img src="${item.thumb}" alt="" style="width:100%;border-radius:8px;margin-bottom:.5rem">` : ''}
         <h4>${escapeHtml(item.title)}</h4>
         <p>${escapeHtml(item.summary || '')}</p>
         <div class="journal-meta">
@@ -399,6 +480,7 @@ export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpea
     names: namesForm,
     recipe: recipeForm,
     quiz: quizPanel,
+    album: albumPanel,
     journal: journalPanel,
   };
 
@@ -420,6 +502,7 @@ export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpea
     if (event.target.id === 'story-form') beginStory(event);
     if (event.target.id === 'names-form') generateNames(event);
     if (event.target.id === 'recipe-form') generateRecipe(event);
+    if (event.target.id === 'album-form') paintScene(event);
   });
 
   root.addEventListener('change', (event) => {
@@ -465,6 +548,27 @@ export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpea
       keep({
         kind: 'recipe', kindLabel: 'Recipe', title: d.dish, summary: d.backstory,
         body: `${d.backstory}\n\nYou will need:\n${d.ingredients.join('\n')}\n\nHow to cook it:\n${d.steps.join('\n')}`,
+      });
+      return;
+    }
+
+    if (event.target.closest('[data-download-picture]') && album) {
+      const link = document.createElement('a');
+      link.href = album.image;
+      link.download = `grandpa-ai-${album.caption.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.png`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      return;
+    }
+
+    if (event.target.closest('[data-save-picture]') && album) {
+      const picture = album;
+      thumbnail(picture.image).then((thumb) => {
+        keep({
+          kind: 'album', kindLabel: 'Picture', title: picture.caption,
+          summary: picture.note, body: picture.note, thumb,
+        });
       });
       return;
     }

@@ -1149,9 +1149,9 @@ el.chipRow.addEventListener('click', (event) => {
 let library = null;
 
 /** One request to the structured endpoint, with the errors already read. */
-async function askLibrary(kind, input) {
+async function askLibrary(kind, input, path = '/api/structured') {
   try {
-    const response = await fetch('/api/structured', {
+    const response = await fetch(path, {
       method: 'POST',
       headers: apiHeaders(),
       body: JSON.stringify({ kind, input, model: state.prefs.model }),
@@ -1167,7 +1167,7 @@ async function askLibrary(kind, input) {
       sounds.error();
       return { ok: false, error: body.error || 'That did not work. Try again.' };
     }
-    return { ok: true, data: body.data };
+    return { ok: true, data: body.data ?? body };
   } catch {
     sounds.error();
     return {
@@ -1585,6 +1585,10 @@ async function boot() {
     }
     el.setSpeaker.value = state.prefs.speaker;
     el.setTone.value = state.prefs.tone;
+
+    // The Album tab appears only where pictures are actually switched on.
+    const albumTab = el.libraryTabs.querySelector('[data-tab="album"]');
+    if (albumTab) albumTab.hidden = !config.imagesEnabled;
     el.lowData.setAttribute('aria-pressed', String(state.prefs.lowData));
     renderSettings();
   } catch {

@@ -1776,3 +1776,41 @@ body {
 @media (max-width: 480px) {
   .lib-row { grid-template-columns: 1fr; }
 }
+
+/* ---- The Cultural Album ---- */
+
+.album-figure { margin: 1.1rem 0 0; }
+.album-figure img {
+  width: 100%;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-md);
+  display: block;
+  background: var(--bg-hover);
+}
+.album-caption {
+  margin: .6rem 0 .3rem;
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+/* Always visible on a generated picture: it is a drawing, not a record. */
+.album-stamp {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  margin-top: .5rem;
+  padding: .25rem .6rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: .72rem;
+  color: var(--text-soft);
+  background: var(--bg-hover);
+}
+
+.album-cost {
+  margin: .5rem 0 0;
+  font-size: .74rem;
+  color: var(--text-faint);
+}

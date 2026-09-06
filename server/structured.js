@@ -225,6 +225,59 @@ and publicly told — never about sacred or secret matters.`,
   },
 };
 
+/* --------------------------------------------------------------- album */
+// Pictures are made in two steps. A text model first writes a careful,
+// grounded scene description; the image model renders that. Sending a
+// visitor's words straight to the image model would lose the cultural framing
+// and put whatever they typed in front of the picture service unchanged.
+
+export const SCENES = [
+  { id: 'village', label: 'An up-country village' },
+  { id: 'coast', label: 'The coast and the fishing boats' },
+  { id: 'market', label: 'A market day' },
+  { id: 'farm', label: 'A rice or cassava farm' },
+  { id: 'palaver', label: 'A palaver hut gathering' },
+  { id: 'town', label: 'A street in Monrovia' },
+  { id: 'evening', label: 'Storytelling in the evening' },
+];
+
+KINDS.album = {
+  maxTokens: 500,
+  temperature: 0.85,
+  build(input) {
+    const scene = SCENES.find((sc) => sc.id === input?.scene)?.label || SCENES[0].label;
+    const detail = asText(input?.detail, 160);
+
+    return {
+      system: `${CULTURAL_CARE}
+
+You are writing the description for one painted illustration of Liberian life,
+which an image model will render.
+
+Reply with a JSON object, and nothing else:
+{
+  "scene": "the description the image model will be given",
+  "caption": "a short caption for the picture",
+  "note": "two or three sentences on what is shown and why it matters"
+}
+
+Rules for "scene":
+- Describe a painted or illustrated scene, warm and dignified, in the palette
+  of linen, terracotta, palm gold and wood brown. Never ask for a photograph.
+- Describe ordinary life with respect. No poverty tropes, no exotic framing,
+  no crowds of anonymous figures.
+- Name no real, living person, and no real named place beyond a general
+  region. Nothing that would read as documentation of a real event.
+- Keep it under 80 words and concrete: light, setting, what people are doing.
+- Nothing sacred, nothing from secret societies, no ceremonies that are not
+  publicly shown.`,
+      user: detail ? `${scene}. Particular: ${detail}` : scene,
+    };
+  },
+  valid: (o) =>
+    isFilledString(o.scene, 30) && isFilledString(o.caption) && isFilledString(o.note),
+};
+
 export const isKind = (kind) => Object.prototype.hasOwnProperty.call(KINDS, kind);
 
 /** What the browser needs to render the forms, without any prompt text. */
@@ -237,4 +290,5 @@ export const libraryCatalogue = () => ({
   groups: GROUPS,
   days: DAYS,
   birthOrders: BIRTH_ORDERS,
+  scenes: SCENES,
 });

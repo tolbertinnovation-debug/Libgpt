@@ -22,8 +22,13 @@ async function toError(response) {
   }
 
   const friendly = {
+    400: /safety|content.?policy|moderation/i.test(detail)
+      ? 'That request was refused by the picture service. Try describing something else.'
+      : detail || 'That request was not accepted.',
     401: 'The OpenAI API key was rejected. Check OPENAI_API_KEY in your .env file.',
-    403: 'This API key is not allowed to use that model.',
+    403: /verif/i.test(detail)
+      ? 'This account must be verified with OpenAI before it can use that image model. Set OPENAI_IMAGE_MODEL=dall-e-3 instead.'
+      : 'This API key is not allowed to use that model.',
     404: 'That model does not exist, or this key has no access to it. Try another model.',
     429: 'Rate limit or quota reached on the OpenAI account. Wait a moment, or check your billing.',
     500: 'OpenAI had a server error. Try again.',
@@ -108,6 +113,29 @@ export async function* streamChat({ model, messages, maxTokens, temperature, sig
   } finally {
     reader.cancel().catch(() => {});
   }
+}
+
+/**
+ * Generate one picture.
+ *
+ * Two model families behave differently: the dall-e models take
+ * `response_format`, gpt-image-1 rejects it and returns base64 regardless.
+ * Either way the bytes come back here and are handed on as a data URI, so the
+ * browser never talks to OpenAI directly.
+ */
+export async function generateImage({ prompt, size = '1024x1024', signal }) {
+  const model = config.imageModel;
+  const body = { model, prompt, n: 1, size };
+  if (/^dall-e/i.test(model)) body.response_format = 'b64_json';
+
+  const response = await post('/images/generations', body, signal);
+  const parsed = await response.json();
+  const b64 = parsed.data?.[0]?.b64_json;
+
+  if (!b64) {
+    throw new OpenAIError('The picture came back empty. Try again.', 502, 'no_image');
+  }
+  return `data:image/png;base64,${b64}`;
 }
 
 /**

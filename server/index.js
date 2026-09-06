@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 
 import { ALLOWED_MODELS, config, isModelAllowed } from './config.js';
-import { OpenAIError, complete, streamChat } from './openai.js';
+import { OpenAIError, complete, generateImage, streamChat } from './openai.js';
 import {
   DEFAULT_LANGUAGE,
   DEFAULT_PERSONA,
@@ -91,6 +91,7 @@ app.get('/api/config', (_req, res) => {
     defaultLanguage: DEFAULT_LANGUAGE,
     ...publicCatalogue(),
     library: libraryCatalogue(),
+    imagesEnabled: config.imagesEnabled,
   });
 });
 
@@ -265,6 +266,82 @@ app.post('/api/structured', rateLimit, requireAccess, async (req, res) => {
   }
 });
 
+// ---- the Cultural Album -------------------------------------------------
+// A picture costs cents rather than hundredths of a cent, so it gets its own
+// ceiling on top of the per-IP limit: a whole-deployment cap per hour. A
+// public address should not be able to empty the account overnight.
+const pictureTimes = [];
+
+function pictureBudgetLeft() {
+  const cutoff = Date.now() - 3_600_000;
+  while (pictureTimes.length && pictureTimes[0] < cutoff) pictureTimes.shift();
+  return Math.max(0, config.imagesPerHour - pictureTimes.length);
+}
+
+app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
+  if (!config.imagesEnabled) {
+    res.status(503).json({
+      error: 'Pictures are switched off on this deployment. Set ENABLE_IMAGES=true to turn them on.',
+    });
+    return;
+  }
+
+  if (pictureBudgetLeft() <= 0) {
+    res.status(429).json({
+      error: 'The picture limit for this hour is used up. Try again later.',
+    });
+    return;
+  }
+
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+
+  try {
+    // Step one: a grounded description, written under the cultural rules.
+    const spec = KINDS.album;
+    const { system, user } = spec.build(req.body?.input || {});
+    const raw = await complete({
+      model: isModelAllowed(req.body?.model) ? req.body.model : config.model,
+      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      maxTokens: spec.maxTokens,
+      temperature: spec.temperature,
+      json: true,
+      signal: controller.signal,
+    });
+
+    let plan;
+    try {
+      plan = JSON.parse(raw);
+    } catch {
+      res.status(502).json({ error: 'Grandpa could not picture it. Try again.' });
+      return;
+    }
+    if (!spec.valid(plan)) {
+      res.status(502).json({ error: 'That came back incomplete. Try again.' });
+      return;
+    }
+
+    // Step two: render it. Count the picture before the call, so two requests
+    // arriving together cannot both slip past the ceiling.
+    pictureTimes.push(Date.now());
+    const image = await generateImage({ prompt: plan.scene, signal: controller.signal });
+
+    res.json({
+      image,
+      caption: plan.caption,
+      note: plan.note,
+      scene: plan.scene,
+      remaining: pictureBudgetLeft(),
+    });
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    const message =
+      error instanceof OpenAIError ? error.message : 'The picture could not be made. Try again.';
+    if (!(error instanceof OpenAIError)) console.error('[album]', error);
+    res.status(error.status || 500).json({ error: message });
+  }
+});
+
 app.listen(config.port, () => {
   const where = `http://localhost:${config.port}`;
   console.log(`\n  Grandpa AI — Empowering Africa's Future, one conversation at a time`);
@@ -272,6 +349,9 @@ app.listen(config.port, () => {
   console.log(`  Listening on ${where}`);
   console.log(`  Model: ${config.model}`);
   if (config.accessCode) console.log('  Access code: on — visitors must enter it before chatting');
+  console.log(config.imagesEnabled
+    ? `  Pictures: on (${config.imageModel}, max ${config.imagesPerHour}/hour)`
+    : '  Pictures: off — set ENABLE_IMAGES=true to turn them on');
   if (!config.apiKey) {
     console.log(`\n  ⚠  No OPENAI_API_KEY found. Copy .env.example to .env and add your key,`);
     console.log(`     otherwise every message will come back with an error.\n`);

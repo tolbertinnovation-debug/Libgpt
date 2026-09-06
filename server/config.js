@@ -15,6 +15,12 @@ export const config = {
   // Optional gate. When set, visitors must enter this code before they can
   // chat — the difference between a public URL and a public bill.
   accessCode: process.env.ACCESS_CODE?.trim() || '',
+
+  // Pictures are a different order of cost from text — cents each rather than
+  // hundredths of a cent — so they are off unless deliberately switched on.
+  imagesEnabled: /^(1|true|yes|on)$/i.test(process.env.ENABLE_IMAGES?.trim() || ''),
+  imageModel: process.env.OPENAI_IMAGE_MODEL?.trim() || 'dall-e-3',
+  imagesPerHour: int(process.env.IMAGES_PER_HOUR, 20),
 };
 
 // Models offered in the UI picker. The account still has to have access to
