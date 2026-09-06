@@ -14,6 +14,11 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 
 | Feature | How it works here |
 | --- | --- |
+| **Interactive Storyteller** | A folktale or a true historical anecdote, on a theme you pick — Wisdom, Bravery, Community, Cleverness, Tradition. It stops at a decision, you choose what happens next, and the ending carries a moral and a proverb. |
+| **Ancestral names** | Suggestions by people, day of birth, birth order and child, each with its meaning — and a standing instruction to give two names it is sure of rather than five it is not, plus advice to ask an elder of the family before settling. |
+| **Recipes** | Palava sauce, dumboy, pepper soup and the rest: ingredients from a Liberian market, steps you can follow, the story behind the dish, and a grandmother's tip. |
+| **Proverb quiz** | One question at a time on proverbs, history and culture, with a streak that survives a reload. |
+| **Journal** | Keep any story, name list or recipe; read it back later. Stored in the browser. |
 | **The hearth** | A welcome screen in the Liberian register: the elder's portrait, a greeting by name, a proverb that holds for the whole day, and four topic cards — The Family Hearth, The Hustle, Ancestral Soil, Deep Paths. |
 | **Who is talking** | Five elders — Grandpa, Grandma, Northern Elder, Market Auntie, Coastal Sage — and four tones: Classic Warmth, Playful, Solemn, Strict Proverbial. |
 | **Glossary** | Liberian terms in an answer (*small-small*, *palava hut*, *susu*, *dumboy*) are underlined; tapping one explains it, so a reader from outside can follow without the vernacular being translated away. |
@@ -139,6 +144,8 @@ server/
   openai.js     OpenAI client: streaming parser, one-shot completions, error translation
   personas.js   The system prompts — persona x language x low-data
   config.js     Environment and the model allowlist
+  structured.js The Library's prompts and reply validators (stories, names,
+                recipes, quizzes) — kept server-side like the personas
 public/
   index.html    One page
   styles.css    Brand palette, light and dark, mobile-first breakpoints
@@ -149,6 +156,7 @@ public/
   glossary.js   Liberian terms, and DOM-safe annotation of them
   proverbs.js   Proverb of the day
   sounds.js     Procedural interface sounds (Web Audio, no assets)
+  library.js    The Storyteller and Wisdom Hub, and the journal
 render.yaml     Deploy blueprint — secrets are prompted for, never committed
 ```
 
@@ -194,6 +202,14 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   in step between the pill and the switch, language syncing both ways, the spoken
   speed label, conversation counts, the download's name and contents, two-tap
   delete, and the mobile sheet without horizontal overflow.
+- **Library (Playwright)** — 34 checks: the story arriving and stopping at a decision
+  with no moral yet, a choice continuing that same story to an ending with a proverb,
+  keeping it in the journal and reading it back, the name form's 16 groups, recipes
+  with ingredients and numbered steps, the quiz marking the right answer and carrying
+  a streak across a reload.
+- **Structured endpoint** — unknown and prototype-key `kind` values refused, replies
+  validated field by field so a half-built story never reaches the interface, and the
+  access gate covering it like the chat endpoint.
 - **Hearth (Playwright)** — 18 checks: the daily proverb holding across a reload, the
   four card names, greeting by name, the name, speaker and tone actually reaching the
   server, glossary terms marked and explained (and never inside code), and the chips
@@ -210,11 +226,8 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
 Named honestly, because the dossier and the reference design list them and this app
 does not do them:
 
-- **Interactive Storyteller with branching choices** — folktales with theme filters and
-  listener decisions. Doable with structured JSON output; not built.
 - **Magic Cultural Album** — image generation, animation, video. Images are possible
   through a separate OpenAI endpoint; video is not available at all.
-- **Cultural Wisdom Hub** — ancestral name generator, recipe index, daily quiz and streaks.
 - **Acoustic environments** (palaver hut, campfire, radio) — these filter real audio
   through `AudioContext`. Browser speech output cannot be captured and filtered, so this
   needs a server-side text-to-speech voice instead of the device's.

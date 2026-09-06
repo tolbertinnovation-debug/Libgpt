@@ -110,13 +110,26 @@ export async function* streamChat({ model, messages, maxTokens, temperature, sig
   }
 }
 
-/** One-shot, non-streaming completion — used to name conversations. */
-export async function complete({ model, messages, maxTokens = 30, temperature = 0.3, signal }) {
-  const response = await post(
-    '/chat/completions',
-    { model: model || config.titleModel, messages, temperature, max_tokens: maxTokens },
-    signal,
-  );
-  const body = await response.json();
-  return body.choices?.[0]?.message?.content?.trim() || '';
+/**
+ * One-shot, non-streaming completion — conversation titles and the structured
+ * features (stories, names, recipes, quizzes).
+ *
+ * With `json: true` the API is asked for a JSON object. That constrains the
+ * shape but does not guarantee the fields we asked for, so callers still
+ * validate what comes back.
+ */
+export async function complete({
+  model, messages, maxTokens = 30, temperature = 0.3, json = false, signal,
+}) {
+  const body = {
+    model: model || config.titleModel,
+    messages,
+    temperature,
+    max_tokens: maxTokens,
+  };
+  if (json) body.response_format = { type: 'json_object' };
+
+  const response = await post('/chat/completions', body, signal);
+  const parsed = await response.json();
+  return parsed.choices?.[0]?.message?.content?.trim() || '';
 }

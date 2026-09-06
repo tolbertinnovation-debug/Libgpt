@@ -7,6 +7,7 @@ import {
 import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
+import { createLibrary } from './library.js';
 
 /* ========================================================================
    State
@@ -104,6 +105,10 @@ const el = {
   browseLibrary: $('browse-library'),
   liberiaFocus: $('liberia-focus'),
   chipRow: $('chip-row'),
+  library: $('library'),
+  libraryBody: $('library-body'),
+  libraryTabs: $('library-tabs'),
+  libraryClose: $('library-close'),
   setSpeaker: $('settings-speaker'),
   setTone: $('settings-tone'),
   setName: $('settings-name'),
@@ -1127,6 +1132,10 @@ const CHIP_PROMPTS = {
 el.chipRow.addEventListener('click', (event) => {
   const chip = event.target.closest('[data-chip]');
   if (!chip) return;
+
+  // "Tell me a Stori" belongs in the Library, where the story can branch.
+  if (chip.dataset.chip === 'story') { openLibrary('story'); return; }
+
   const ask = CHIP_PROMPTS[chip.dataset.chip];
   if (!ask) return;
   state.prefs.persona = ask.persona;
@@ -1135,14 +1144,74 @@ el.chipRow.addEventListener('click', (event) => {
   send(ask.text);
 });
 
-el.browseLibrary.addEventListener('click', () => {
+/* ---- The Library ---- */
+
+let library = null;
+
+/** One request to the structured endpoint, with the errors already read. */
+async function askLibrary(kind, input) {
+  try {
+    const response = await fetch('/api/structured', {
+      method: 'POST',
+      headers: apiHeaders(),
+      body: JSON.stringify({ kind, input, model: state.prefs.model }),
+    });
+    const body = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      if (response.status === 401 && body.needsCode) {
+        writeCode('');
+        showGate('That code is no longer valid. Enter it again.');
+        return { ok: false, error: 'Enter the access code first.' };
+      }
+      sounds.error();
+      return { ok: false, error: body.error || 'That did not work. Try again.' };
+    }
+    return { ok: true, data: body.data };
+  } catch {
+    sounds.error();
+    return {
+      ok: false,
+      error: navigator.onLine === false
+        ? 'You are offline. Try again when the network returns.'
+        : 'Could not reach the server.',
+    };
+  }
+}
+
+function openLibrary(tab = 'story') {
+  if (!library) {
+    library = createLibrary({
+      root: el.libraryBody,
+      catalogue: state.catalogue.library || {},
+      ask: askLibrary,
+      onSaved: (entry) => { sounds.reply(); toast(`Kept in your journal: ${entry.title}`); },
+      onSpeak: (text) => speak(text),
+    });
+  }
+  el.library.hidden = false;
+  library.show(tab);
   sounds.open();
-  state.prefs.persona = 'culture';
-  savePreferences();
-  renderWelcome();
-  renderComposerPersona();
-  el.starters.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  toast('Deep Paths — ask for a folktale, a proverb, or a piece of history.');
+  el.libraryClose.focus();
+}
+
+function closeLibrary() {
+  el.library.hidden = true;
+  speaker.stop();
+  sounds.close();
+  el.browseLibrary.focus();
+}
+
+el.browseLibrary.addEventListener('click', () => openLibrary('story'));
+el.libraryClose.addEventListener('click', closeLibrary);
+el.library.addEventListener('click', (event) => {
+  if (event.target.closest('[data-library-close]')) closeLibrary();
+});
+el.libraryTabs.addEventListener('click', (event) => {
+  const tab = event.target.closest('[data-tab]');
+  if (!tab) return;
+  sounds.tap();
+  library?.show(tab.dataset.tab);
 });
 
 // Liberia Focus is on and stays on: this platform is Liberian by design, and a
@@ -1406,6 +1475,7 @@ el.scrim.addEventListener('click', closeNav);
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Escape') {
+    if (!el.library.hidden) { closeLibrary(); return; }
     if (!el.settings.hidden) { closeSettings(); return; }
     closeNav();
     if (listening) stopListening();

@@ -11,6 +11,7 @@ import {
   buildSystemPrompt,
   publicCatalogue,
 } from './personas.js';
+import { KINDS, isKind, libraryCatalogue } from './structured.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -89,6 +90,7 @@ app.get('/api/config', (_req, res) => {
     defaultPersona: DEFAULT_PERSONA,
     defaultLanguage: DEFAULT_LANGUAGE,
     ...publicCatalogue(),
+    library: libraryCatalogue(),
   });
 });
 
@@ -210,6 +212,56 @@ app.post('/api/title', rateLimit, requireAccess, async (req, res) => {
   } catch (error) {
     // A missing title is cosmetic — never fail the chat over it.
     res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+// ---- the Library: stories, names, recipes, quizzes ----------------------
+app.post('/api/structured', rateLimit, requireAccess, async (req, res) => {
+  const kind = req.body?.kind;
+  if (!isKind(kind)) {
+    res.status(400).json({ error: 'Unknown request.' });
+    return;
+  }
+
+  const spec = KINDS[kind];
+  const { system, user } = spec.build(req.body?.input || {});
+  const model = isModelAllowed(req.body?.model) ? req.body.model : config.model;
+
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+
+  try {
+    const raw = await complete({
+      model,
+      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      maxTokens: spec.maxTokens,
+      temperature: spec.temperature,
+      json: true,
+      signal: controller.signal,
+    });
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      res.status(502).json({ error: 'Grandpa lost his thread. Ask again.' });
+      return;
+    }
+
+    // JSON mode guarantees an object, not the fields we asked for. A
+    // half-built story is worse than an honest retry.
+    if (!spec.valid(parsed)) {
+      res.status(502).json({ error: 'That came back incomplete. Ask again.' });
+      return;
+    }
+
+    res.json({ kind, data: parsed });
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    const message =
+      error instanceof OpenAIError ? error.message : 'Something went wrong. Try again.';
+    if (!(error instanceof OpenAIError)) console.error('[structured]', error);
+    res.status(error.status || 500).json({ error: message });
   }
 });
 

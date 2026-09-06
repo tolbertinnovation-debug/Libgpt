@@ -401,6 +401,33 @@
   </section>
 </div>
 
+<!-- ============ The Library ============ -->
+<div class="settings-modal" id="library" hidden>
+  <div class="settings-backdrop" data-library-close></div>
+  <section class="settings-panel library-panel" role="dialog" aria-modal="true"
+           aria-labelledby="library-title">
+    <div class="settings-head">
+      <div>
+        <p class="settings-kicker">Grandpa AI</p>
+        <h2 id="library-title">The Library</h2>
+      </div>
+      <button class="icon-btn" id="library-close" type="button" aria-label="Close the Library">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+
+    <div class="library-tabs" id="library-tabs" role="tablist">
+      <button role="tab" type="button" data-tab="story" aria-selected="true">📖 Stori</button>
+      <button role="tab" type="button" data-tab="names" aria-selected="false">👶 Names</button>
+      <button role="tab" type="button" data-tab="recipe" aria-selected="false">🍲 Cooking</button>
+      <button role="tab" type="button" data-tab="quiz" aria-selected="false">🎓 Quiz</button>
+      <button role="tab" type="button" data-tab="journal" aria-selected="false">🔖 Journal</button>
+    </div>
+
+    <div class="library-body" id="library-body"></div>
+  </section>
+</div>
+
 <!-- Shown only when the deployment sets ACCESS_CODE -->
 <div class="gate" id="gate" hidden>
   <form class="gate-card" id="gate-form">
