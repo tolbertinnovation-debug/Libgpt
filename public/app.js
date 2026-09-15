@@ -433,6 +433,33 @@ function startAiTurn() {
   return turn.querySelector('.prose');
 }
 
+/**
+ * A long answer that still ran out of room after being carried on twice.
+ *
+ * Rare, and the honest thing is to say so and offer the rest — rather than
+ * leaving a sentence hanging and letting the reader take it for the end.
+ */
+function offerTheRest() {
+  const box = document.createElement('div');
+  box.className = 'turn-error is-unfinished';
+  box.textContent = 'That answer was long and stopped before the end.';
+
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'retry';
+  button.textContent = 'Hear the rest';
+  button.addEventListener('click', () => {
+    if (state.streaming) return;
+    box.remove();
+    send('Go on — finish what you were saying.');
+  });
+
+  box.appendChild(document.createElement('br'));
+  box.appendChild(button);
+  el.thread.appendChild(box);
+  el.thread.scrollTop = el.thread.scrollHeight;
+}
+
 function showError(message, { retry = true } = {}) {
   const box = document.createElement('div');
   box.className = 'turn-error';
@@ -479,6 +506,7 @@ async function streamReply(chat, hooks = {}) {
   let text = '';
   let failed = false;
   let trouble = '';   // what went wrong, for a listener who cannot see it
+  let unfinished = false;   // ran out of room even after being carried on
 
   try {
     const response = await fetch('/api/chat', {
@@ -541,6 +569,10 @@ async function streamReply(chat, hooks = {}) {
           target.classList.add('cursor');
           if (stick) el.thread.scrollTop = el.thread.scrollHeight;
           hooks.onDelta?.(payload.text, text);
+        } else if (event === 'done') {
+          // The server carries a cut-off answer on by itself, twice. This flag
+          // means even that was not enough.
+          unfinished = Boolean(payload.truncated);
         } else if (event === 'error') {
           failed = true;
           trouble = payload.message || 'Something went wrong. Try again.';
@@ -572,6 +604,7 @@ async function streamReply(chat, hooks = {}) {
     renderThread();
     renderSidebar();
     if (!failed) sounds.reply();
+    if (unfinished && !hooks.spoken) offerTheRest();
     // Read it out for anyone who reads slowly — but never over an aborted
     // reply, and never in a spoken conversation, which is already saying it
     // sentence by sentence as it arrives.

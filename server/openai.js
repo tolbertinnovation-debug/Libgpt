@@ -161,9 +161,14 @@ async function post(path, body, signal) {
 
 /**
  * Stream a chat completion. Yields text deltas as they arrive.
+ *
  * `signal` aborts the upstream request when the browser disconnects.
+ * `onFinish` is handed the reason the model stopped — "stop" when it finished
+ * its thought, "length" when it hit the token ceiling part-way through.
  */
-export async function* streamChat({ model, messages, maxTokens, temperature, signal }) {
+export async function* streamChat({
+  model, messages, maxTokens, temperature, signal, onFinish,
+}) {
   const response = await post(
     '/chat/completions',
     {
@@ -200,8 +205,14 @@ export async function* streamChat({ model, messages, maxTokens, temperature, sig
 
           try {
             const chunk = JSON.parse(payload);
-            const delta = chunk.choices?.[0]?.delta?.content;
+            const choice = chunk.choices?.[0];
+            const delta = choice?.delta?.content;
             if (delta) yield delta;
+
+            // Why the model stopped. "length" means it ran out of room
+            // mid-thought rather than finishing — the caller has to know,
+            // because an answer cut off in the middle is not an answer.
+            if (choice?.finish_reason) onFinish?.(choice.finish_reason);
           } catch {
             /* a partial or non-JSON frame — skip it rather than kill the stream */
           }

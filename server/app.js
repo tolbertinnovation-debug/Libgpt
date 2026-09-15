@@ -215,6 +215,18 @@ function readConversation(body) {
 }
 
 // ---- streaming chat -----------------------------------------------------
+// How many times a cut-off answer may be picked up and carried on.
+const MAX_CONTINUATIONS = 2;
+
+// What to say to a model whose answer was cut mid-thought. The join is a plain
+// concatenation, so everything here is about not repeating and not restarting.
+const CONTINUE_PROMPT = `Your answer above was cut off because it ran out of room. Carry straight on from exactly where it stops.
+
+- Do not repeat any of what you already said, and do not start the answer again.
+- No preamble. No "as I was saying", no apology — the two halves are joined end to end and the reader will never know there was a break.
+- If it stopped in the middle of a word, finish that word first.
+- Finish the thought properly this time, and stop when it is done.`;
+
 app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   let messages;
   try {
@@ -259,16 +271,46 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   try {
     send('start', { model, lowData, spoken });
 
-    for await (const delta of streamChat({
-      model,
-      messages: [{ role: 'system', content: system }, ...messages],
-      maxTokens: lowData ? 300 : spoken ? 500 : 1400,
-      signal: controller.signal,
-    })) {
-      send('delta', { text: delta });
+    const budget = lowData ? 420 : spoken ? 700 : 2200;
+    let answer = '';
+    let stopped = '';
+
+    const runOnce = async (conversation) => {
+      stopped = '';
+      for await (const delta of streamChat({
+        model,
+        messages: conversation,
+        maxTokens: budget,
+        signal: controller.signal,
+        onFinish: (reason) => { stopped = reason; },
+      })) {
+        answer += delta;
+        send('delta', { text: delta });
+      }
+    };
+
+    await runOnce([{ role: 'system', content: system }, ...messages]);
+
+    // An answer that ran out of room is not an answer — it is half a sentence
+    // that a reader has to guess the end of. So it is picked up and finished.
+    //
+    // Twice at most: two continuations are enough for any question a person
+    // actually asks, and an unbounded loop here is somebody's money.
+    for (let carried = 0; stopped === 'length' && carried < MAX_CONTINUATIONS; carried += 1) {
+      if (controller.signal.aborted) break;
+      send('continuing', { carried: carried + 1 });
+
+      await runOnce([
+        { role: 'system', content: system },
+        ...messages,
+        { role: 'assistant', content: answer },
+        { role: 'user', content: CONTINUE_PROMPT },
+      ]);
     }
 
-    send('done', { model });
+    // Still unfinished after all that. Say so, rather than leaving a sentence
+    // hanging and letting the reader think that was the whole answer.
+    send('done', { model, truncated: stopped === 'length' });
   } catch (error) {
     if (controller.signal.aborted) {
       // The user pressed Stop. Nothing to report — the connection is going away.

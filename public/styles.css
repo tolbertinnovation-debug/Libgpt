@@ -2028,3 +2028,12 @@ body {
 
 /* Nothing behind the conversation should scroll while it is open. */
 body.is-talking { overflow: hidden; }
+
+/* An answer that ran out of room is not a fault — it is a long answer. It
+   should not wear the red of a failure. */
+.turn-error.is-unfinished {
+  border-color: color-mix(in srgb, var(--palm) 55%, var(--border));
+  border-left-color: var(--palm);
+  background: color-mix(in srgb, var(--palm) 10%, transparent);
+  color: var(--text);
+}

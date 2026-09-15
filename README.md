@@ -27,6 +27,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Interface sounds** | Taps, sends and chimes synthesised with Web Audio oscillators — no audio files to download on a metered connection. |
 | **Multilingual chatbot** | Liberian English vernacular by default, standard English alongside it. Kpelle, Vai and Bassa appear in the picker as roadmap languages — the assistant says plainly that they are still being built rather than faking them. |
 | **Talking with Grandpa** | A hands-free spoken conversation: talk, stop talking, and he answers out loud — then listens again by himself, with nothing to press. Each sentence of his answer is spoken as it arrives rather than after the whole thing, and the exchange is left behind as an ordinary conversation you can read. See below. |
+| **Whole answers** | A reply that runs out of room is picked up and carried on — twice if it needs it — and the halves are joined with no seam. An answer that stops mid-sentence is not an answer. See below. |
 | **How Grandpa talks** | Not an accent filter over standard English. A register with its own sound, grammar, vocabulary and way of arranging a thought — three registers, in fact, from broadcast-standard to family talk to ceremonial. See below. |
 | **Where he is sitting** | The spoken voice can be put in a room: a palaver hut, an evening fire, or a county shortwave set. Built with Web Audio filters on the device — no audio files to download. |
 | **Grandpa's own voice** | Not the phone's robot: a real voice, one per elder, told how an old man on his porch talks. The phone's own voice stays underneath and takes over when the network is gone or on a metered connection. See below. |
@@ -182,6 +183,37 @@ The screen stays awake while you are talking, listening stops if you switch
 away, and a microphone left open with nobody speaking pauses itself after a
 minute. Chrome, Edge and Safari can do this; where the browser cannot, the way
 in is not offered at all rather than failing when tapped.
+
+### Answers that finish
+
+Every model has a token ceiling, and when it hits one it stops — often
+mid-word. Nothing about that looks like an error: the stream ends, the cursor
+disappears, and a half-finished sentence sits there looking like the answer.
+The reader is left to guess whether Grandpa had more to say.
+
+So the finish reason is now read. When the model stopped because it ran out of
+room rather than because it was done, the server hands the answer back with an
+instruction to carry straight on — no preamble, no repetition, finish the word
+if it was cut mid-word — and keeps streaming into the same reply. The reader
+sees one continuous answer and never learns there was a break.
+
+Twice at most. Two continuations cover any question a person actually asks, and
+an unbounded loop here is somebody's money. If it is *still* unfinished after
+that, the app says so plainly and offers the rest, rather than letting a
+hanging sentence pass for the end — and says it in the warm amber of a long
+answer, not the red of a failure.
+
+The ceilings went up too, since the cheapest fix is room to finish: 1400 → 2200
+tokens for a written answer, 500 → 700 for a spoken one, 300 → 420 in low-data
+mode. Library answers are JSON, where being cut off means it does not parse at
+all and the reader gets *nothing* rather than most of something — so a story
+went 1100 → 1600 and a recipe 1100 → 1500.
+
+And the prompt now says it outright: answer the whole question, not the first
+part of it; never stop in the middle of a sentence, a list or a step; if a
+subject is genuinely too big, give the complete useful part and say what is
+left out. In a spoken conversation, sixty words is a target and not a
+guillotine.
 
 ### How Grandpa talks
 
@@ -426,7 +458,7 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   dropped when a model refuses them, the fix remembered so the second request is
   right first time, streaming adapting the same way, and a refusal that sending
   less cannot fix thrown rather than retried.
-- **Browser (Playwright)** — 34 checks: streaming display, Stop/Send swapping,
+- **Browser (Playwright)** — 41 checks: streaming display, Stop/Send swapping,
   regenerate, code copy, conversation naming, history, search, delete, dark mode,
   reload persistence, and mobile layout with no horizontal overflow.
 - **Speech (unit)** — 26 assertions: markdown stripped before speaking, long answers
@@ -438,6 +470,11 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   a long answer queued as several chunks and read to its final sentence, pause /
   continue / stop, a new question silencing the old answer, auto-read, Web Share
   with a copy fallback, the offline banner, and rename with Escape to cancel.
+- **Whole answers (server)** — 19 checks: a finished answer left alone, a
+  cut-off one carried on and the halves joined in order with nothing repeated
+  and no apology at the seam, a runaway answer carried exactly twice and then
+  reported unfinished rather than passed off as whole, and spoken and low-data
+  turns finishing their thought like any other.
 - **The Liberian register (unit)** — 56 checks: every layer reaching the model
   with its examples intact, the density caps on phonetic spelling, each of the
   eight ruled-out pidgin words named, the three registers and which one a
