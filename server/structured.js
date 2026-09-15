@@ -6,6 +6,13 @@
 // a valid answer looks like, so a malformed reply is caught here and never
 // reaches the interface half-built.
 
+import { liberianVoice } from './liberian.js';
+
+// A folktale is family talk, so it is told in the warm familial register —
+// this is the piece where the voice matters most, and where a narrator who
+// sounds like a textbook does the most damage.
+const STORYTELLER_VOICE = liberianVoice({ register: 'familial' });
+
 const CULTURAL_CARE = `You are drawing on West African, and specifically Liberian, culture.
 
 - Never invent a specific attribution. If you do not know which people a story,
@@ -51,6 +58,8 @@ export const KINDS = {
       return {
         system: `${CULTURAL_CARE}
 
+${STORYTELLER_VOICE}
+
 You are telling ${flavour}, on the theme of ${theme}.
 
 Reply with a JSON object, and nothing else:
@@ -90,6 +99,8 @@ moral yet.${kind === 'history' ? '\\nEverything must be factual. If you are unsu
 
       return {
         system: `${CULTURAL_CARE}
+
+${STORYTELLER_VOICE}
 
 You are finishing a story you began. The listener has chosen what happens next.
 Follow their choice honestly — if it leads somewhere hard, let it.

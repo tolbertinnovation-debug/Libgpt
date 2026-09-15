@@ -34,6 +34,7 @@ export class VoiceOut {
    */
   constructor(deps, onStateChange = () => {}) {
     Object.assign(this, deps);
+    // `room` is optional: without one the audio plays dry.
     this.onStateChange = onStateChange;
 
     this.mode = 'device';     // which voice is talking right now
@@ -82,6 +83,9 @@ export class VoiceOut {
       quiet.volume = 0;
       quiet.play().catch(() => {});
     } catch { /* no audio element — the device voice still works */ }
+
+    // The same tap is what an AudioContext needs to start.
+    this.room?.unlock();
   }
 
   /* ---- the two ways in --------------------------------------------------- */
@@ -236,6 +240,10 @@ export class VoiceOut {
     const token = this.token;
     const audio = new Audio(item.url);
     this.audio = audio;
+
+    // Put him in a room, if one is chosen. A failure here is silent and
+    // harmless — the element then plays as it is.
+    this.room?.attach(audio);
 
     audio.onended = () => {
       if (token !== this.token || this.audio !== audio) return;

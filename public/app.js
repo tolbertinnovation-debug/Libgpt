@@ -8,6 +8,7 @@ import {
   DEFAULT_PATIENCE, PATIENCE, SpeechRecognitionAPI, VoiceConversation, patienceMs,
 } from './converse.js';
 import { VoiceOut } from './realvoice.js';
+import { DEFAULT_ROOM, ROOMS, Room, isRoom } from './room.js';
 import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
@@ -55,6 +56,8 @@ const state = {
     dictationAccent: DEFAULT_DICTATION,
     patience: DEFAULT_PATIENCE,
     realVoice: true,
+    register: 'standard',
+    room: DEFAULT_ROOM,
     userName: '',
     speaker: 'grandpa',
     tone: 'warmth',
@@ -118,6 +121,10 @@ const el = {
   libraryTabs: $('library-tabs'),
   libraryClose: $('library-close'),
   setSpeaker: $('settings-speaker'),
+  setRegister: $('settings-register'),
+  setRegisterHint: $('settings-register-hint'),
+  setRoom: $('settings-room'),
+  setRoomHint: $('settings-room-hint'),
   setTone: $('settings-tone'),
   setName: $('settings-name'),
   setSound: $('settings-sound'),
@@ -484,6 +491,7 @@ async function streamReply(chat, hooks = {}) {
         language: state.prefs.language,
         model: state.prefs.model,
         lowData: state.prefs.lowData,
+        register: state.prefs.register,
         spoken: Boolean(hooks.spoken),
         speaker: state.prefs.speaker,
         tone: state.prefs.tone,
@@ -683,8 +691,14 @@ let availableVoices = [];
  */
 const deviceVoice = new Speaker();
 
+// Where he is sitting. Only the real voice can be put in a room — the phone's
+// own synthesiser goes straight to the loudspeaker and no browser lets you
+// intercept it.
+const room = new Room((message) => toast(message));
+
 const speaker = new VoiceOut({
   device: deviceVoice,
+  room,
   // Off when the deployment has no key for it, when the user has asked for the
   // phone's voice, and always in low-data mode: a spoken answer is tens of
   // kilobytes of audio, which is not a thing to send down a 2G line unasked.
@@ -1064,6 +1078,10 @@ function renderSettings() {
   el.setName.value = prefs.userName || '';
   el.setSpeaker.value = prefs.speaker;
   el.setTone.value = prefs.tone;
+  el.setRegister.value = prefs.register || 'standard';
+  el.setRoom.value = prefs.room || DEFAULT_ROOM;
+  el.setRegisterHint.textContent = registerHint();
+  el.setRoomHint.textContent = roomHint();
   el.setSound.checked = prefs.sound !== false;
   renderVoiceList();
 
@@ -1139,6 +1157,8 @@ el.setLanguage.addEventListener('change', () => {
   state.prefs.language = el.setLanguage.value;
   el.language.value = el.setLanguage.value; // keep the topbar copy in step
   savePreferences();
+  // Standard English does not take the Liberian register, and the hint says so.
+  el.setRegisterHint.textContent = registerHint();
   announceRoadmapLanguage();
 });
 
@@ -1169,6 +1189,28 @@ function modelSourceHint() {
  * What the real voice is actually doing right now. A switch that says "on"
  * while low-data mode quietly overrides it would be a lie.
  */
+/** What the chosen register actually changes, in one line. */
+function registerHint() {
+  const chosen = state.catalogue.registers?.find((r) => r.id === state.prefs.register);
+  if (state.prefs.language === 'english') {
+    return 'Standard English is selected, so this has no effect on the words.';
+  }
+  return chosen?.blurb || 'How formal, and how much everyday Liberian English';
+}
+
+/**
+ * A room can only be put around Grandpa's own voice. Saying so beats letting
+ * someone pick "Palaver hut" and wonder why nothing changed.
+ */
+function roomHint() {
+  const chosen = ROOMS.find((r) => r.id === state.prefs.room);
+  if (state.prefs.room === DEFAULT_ROOM) return chosen?.blurb || '';
+  if (!state.catalogue.realVoice || state.prefs.realVoice === false || state.prefs.lowData) {
+    return `${chosen?.blurb}. Needs Grandpa's own voice — the phone's cannot be put in a room.`;
+  }
+  return chosen?.blurb || '';
+}
+
 function realVoiceHint() {
   if (!state.catalogue.realVoice) {
     return 'Not available on this deployment — the phone\'s own voice is used.';
@@ -1257,11 +1299,25 @@ el.setTone.addEventListener('change', () => {
   savePreferences();
 });
 
+el.setRegister.addEventListener('change', () => {
+  state.prefs.register = el.setRegister.value;
+  savePreferences();
+  el.setRegisterHint.textContent = registerHint();
+});
+
+el.setRoom.addEventListener('change', () => {
+  state.prefs.room = isRoom(el.setRoom.value) ? el.setRoom.value : DEFAULT_ROOM;
+  room.set(state.prefs.room);
+  savePreferences();
+  el.setRoomHint.textContent = roomHint();
+});
+
 el.setRealVoice.addEventListener('change', () => {
   state.prefs.realVoice = el.setRealVoice.checked;
   savePreferences();
   speaker.stop();
   el.setRealVoiceHint.textContent = realVoiceHint();
+  el.setRoomHint.textContent = roomHint();
 });
 
 el.setPatience.addEventListener('change', () => {
@@ -1796,6 +1852,12 @@ async function boot() {
     .join('');
   el.setAccent.value = state.prefs.dictationAccent;
 
+  el.setRoom.innerHTML = ROOMS
+    .map((r) => `<option value="${r.id}">${escapeHtml(r.label)}</option>`)
+    .join('');
+  el.setRoom.value = state.prefs.room || DEFAULT_ROOM;
+  room.set(state.prefs.room);
+
   el.setPatience.innerHTML = PATIENCE
     .map((o) => `<option value="${o.id}">${escapeHtml(o.label)} — ${escapeHtml(o.blurb)}</option>`)
     .join('');
@@ -1878,8 +1940,16 @@ async function boot() {
     if (!config.tones?.some((t) => t.id === state.prefs.tone)) {
       state.prefs.tone = config.defaultTone || 'warmth';
     }
+    el.setRegister.innerHTML = (config.registers || [])
+      .map((r) => `<option value="${r.id}">${escapeHtml(r.label)}</option>`)
+      .join('');
+    if (!config.registers?.some((r) => r.id === state.prefs.register)) {
+      state.prefs.register = config.defaultRegister || 'standard';
+    }
+
     el.setSpeaker.value = state.prefs.speaker;
     el.setTone.value = state.prefs.tone;
+    el.setRegister.value = state.prefs.register;
 
     // The Album tab appears only where pictures are actually switched on.
     const albumTab = el.libraryTabs.querySelector('[data-tab="album"]');

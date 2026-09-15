@@ -238,6 +238,8 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     userName: req.body?.userName,
     lowData,
     spoken,
+    register: req.body?.register,
+    task: 'chat',
   });
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -410,8 +412,10 @@ app.post('/api/speak', rateLimit, requireAccess, async (req, res) => {
       delivery,
       // The slider is the same one that drives the phone's voice, so the two
       // sound like the same person at the same pace.
+      // The same range as the speaking-speed slider, so the setting means
+      // what it says whichever voice is talking.
       speed: Number.isFinite(req.body?.speed)
-        ? Math.min(1.3, Math.max(0.7, req.body.speed))
+        ? Math.min(1.5, Math.max(0.75, req.body.speed))
         : undefined,
       signal: controller.signal,
     });

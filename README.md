@@ -27,6 +27,8 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Interface sounds** | Taps, sends and chimes synthesised with Web Audio oscillators — no audio files to download on a metered connection. |
 | **Multilingual chatbot** | Liberian English vernacular by default, standard English alongside it. Kpelle, Vai and Bassa appear in the picker as roadmap languages — the assistant says plainly that they are still being built rather than faking them. |
 | **Talking with Grandpa** | A hands-free spoken conversation: talk, stop talking, and he answers out loud — then listens again by himself, with nothing to press. Each sentence of his answer is spoken as it arrives rather than after the whole thing, and the exchange is left behind as an ordinary conversation you can read. See below. |
+| **How Grandpa talks** | Not an accent filter over standard English. A register with its own sound, grammar, vocabulary and way of arranging a thought — three registers, in fact, from broadcast-standard to family talk to ceremonial. See below. |
+| **Where he is sitting** | The spoken voice can be put in a room: a palaver hut, an evening fire, or a county shortwave set. Built with Web Audio filters on the device — no audio files to download. |
 | **Grandpa's own voice** | Not the phone's robot: a real voice, one per elder, told how an old man on his porch talks. The phone's own voice stays underneath and takes over when the network is gone or on a metered connection. See below. |
 | **Voice out** | Press **Listen** on any answer, or turn on auto-read. Long answers are split into sentence-sized chunks, which is what stops browsers cutting them off part-way. Pause, continue and stop from a bar above the composer. |
 | **Voice in** | Hold a conversation with the microphone: continuous dictation with the words appearing as you speak, so a pause for breath does not end it. Pick the accent closest to your own; if a device cannot do it, it falls back rather than failing. |
@@ -181,6 +183,65 @@ away, and a microphone left open with nobody speaking pauses itself after a
 minute. Chrome, Edge and Safari can do this; where the browser cannot, the way
 in is not offered at all rather than failing when tapped.
 
+### How Grandpa talks
+
+"Answer in Liberian English" is a one-line instruction, and what it produces is
+an accent filter: slang sprinkled over standard English. What it does not
+produce is a person. So the register is built as separate layers, set out in
+`server/liberian.js` as a document about a language — so that someone who
+speaks it can read it and correct it without wading through application code.
+
+**Three registers.** *Standard* is the default: the English of Liberian
+teachers and broadcasters, dignified and clear, with the markers below applied
+lightly. *Warm familial* is for personal advice and folktales — closer, more
+vernacular, more particles. *Formal ceremonial* is for public and official
+matters, with the honorifics used properly. A folktale starts familial; the
+model may move between them when the moment asks, and move back.
+
+**The sound, on the page.** Consonant blends soften (`left → lef`, `last →
+las`); *th* moves to *t* and *d* (`think → tink`, `that → dat`). Capped at
+roughly one word in six or seven, no apostrophes for dropped letters, and a
+standing rule that if a sentence gets harder to read, spell it the ordinary
+way. Heavy phonetic spelling reads as mockery and is slow going for exactly the
+reader this is built for.
+
+**The grammar**, which is where a language actually lives — slang is borrowed
+easily, syntax is not. Completive *done* ("I done look at dat problem
+already"), habitual *be* for what keeps happening and never for a single event,
+reduplication (*small-small*, *fine-fine*, *fast-fast*), and the clause-ending
+particles *o*, *ya* and *nor* placed where the voice would rest — at most one
+in a sentence.
+
+**The lexicon**, in its real contexts: *palaver*, *country fashion*, *snap*,
+*eat money*, *the thing dem*. And a boundary that matters as much as the
+vocabulary: a model reaching for "West African English" reaches for Nigerian
+pidgin, because that is what the internet is full of. *wetin*, *abi*, *abeg*,
+*oya*, *chale*, *wahala* are ruled out by name — a Liberian ear hears them
+instantly as somebody else's language.
+
+**The discourse.** Ground the answer in a proverb or an observation before
+giving it. Correct sideways, through comparison, not bluntly. Return to the key
+phrase once. Address the person as an elder would. An assistant that answers
+like a helpdesk is not an elder, whatever the words are doing.
+
+One thing this must never touch: pick **Standard English** and none of it
+applies, because there *dat* is not a register, it is a mistake. The tests
+check that both ways round.
+
+### Where he is sitting
+
+The spoken voice can be placed in a room — a palaver hut, an evening fire, or a
+county shortwave set — through a Web Audio chain built on the device. The hut
+adds warmth and a short reverb whose impulse response is synthesised from a
+noise burst rather than downloaded; the fire dampens the high end the way night
+air does; the radio is a narrow band with speech pushed up in the middle and a
+little grit from a small cheap speaker.
+
+This can only reach audio the app plays itself, which means Grandpa's own
+voice. The phone's built-in synthesiser goes straight to the loudspeaker and no
+browser lets you intercept it, so the setting says so rather than leaving
+someone to wonder why nothing changed.
+
 ### Grandpa's own voice
 
 A browser can already read text aloud for free, and that is what this used to
@@ -304,6 +365,7 @@ server/
                 translation, and adapting to what each model will accept
   models.js     Which model each task deserves, ranked from the account's own list
   personas.js   The system prompts — persona x language x low-data
+  liberian.js   The register itself: phonology, grammar, lexicon, discourse
   config.js     Environment, the fallback model list and the chat-model filter
   structured.js The Library's prompts and reply validators (stories, names,
                 recipes, quizzes) — kept server-side like the personas
@@ -313,6 +375,7 @@ public/
   app.js        State, streaming, history, settings, sharing
   speech.js     Text-to-speech chunking, voice ranking, dictation locales
   converse.js   The hands-free loop: turn-taking, silence detection, barge-in
+  room.js       Palaver hut, fire and shortwave, as Web Audio filters
   realvoice.js  Grandpa's real voice, with the phone's own as the fallback
   markdown.js   Small Markdown renderer (escapes first, then adds markup)
   storage.js    localStorage for conversations and preferences
@@ -375,6 +438,16 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   a long answer queued as several chunks and read to its final sentence, pause /
   continue / stop, a new question silencing the old answer, auto-read, Web Share
   with a copy fallback, the offline banner, and rename with Escape to cancel.
+- **The Liberian register (unit)** — 56 checks: every layer reaching the model
+  with its examples intact, the density caps on phonetic spelling, each of the
+  eight ruled-out pidgin words named, the three registers and which one a
+  folktale starts in — and, both ways round, that Standard English gets none of
+  it while the roadmap languages get all of it.
+- **Where he is sitting (Playwright)** — 27 checks against a stubbed Web Audio
+  graph: each room building the chain it claims to and no other, "No room"
+  building nothing at all, the choice surviving a reload, the hint admitting
+  what a room cannot reach, and — three ways — a failure never costing the
+  listener the answer.
 - **Grandpa's voice (server)** — 23 checks: each elder given their own voice,
   the delivery instruction actually sent, the speed slider passed through and
   an impossible speed clamped, an over-long piece cut rather than refused, an

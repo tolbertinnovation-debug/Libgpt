@@ -3,6 +3,10 @@
 // user came for), language (how the answer should sound) and low-data mode
 // (how long the answer may be).
 
+import {
+  DEFAULT_REGISTER, liberianVoice, registerCatalogue, registerFor,
+} from './liberian.js';
+
 const BASE = `You are Grandpa AI, an African-centred conversational assistant built by Tolbert Innovation Hub in Monrovia, Liberia.
 
 WHO YOU ARE
@@ -189,6 +193,10 @@ export const LANGUAGES = {
     label: 'Liberian English',
     native: 'Liberian English',
     status: 'live',
+    // The linguistic engine applies to this language and to the roadmap
+    // languages, which answer in Liberian English until they are built. It
+    // must never apply to Standard English, where "dat" would be an error.
+    liberian: true,
     prompt: `Reply in Liberian English vernacular — the everyday spoken English of Liberia. Use its natural rhythm and common expressions ("small-small", "I beg you", "my people", "it na easy") where they come naturally, and keep sentences short. Do not caricature the speech or write it as broken English; write it with the dignity of any other language. If the user writes to you in standard English, still answer in warm, simple Liberian English unless they ask otherwise.`,
   },
   english: {
@@ -203,6 +211,7 @@ export const LANGUAGES = {
     label: 'Kpelle',
     native: 'Kpɛlɛwoo',
     status: 'roadmap',
+    liberian: true,
     prompt: `The user has selected Kpelle, which is on the Grandpa AI roadmap but not yet trained. Open your first reply of the conversation with one short line saying that full Kpelle is still being built with community elders, and that you will answer in simple Liberian English for now. Then answer normally in simple Liberian English. Offer individual Kpelle words or greetings only where you are confident they are correct; never fabricate Kpelle sentences.`,
   },
   vai: {
@@ -210,6 +219,7 @@ export const LANGUAGES = {
     label: 'Vai',
     native: 'ꕙꔤ',
     status: 'roadmap',
+    liberian: true,
     prompt: `The user has selected Vai, which is on the Grandpa AI roadmap but not yet trained. Open your first reply of the conversation with one short line saying that full Vai is still being built with community elders, and that you will answer in simple Liberian English for now. Then answer normally in simple Liberian English. Never fabricate Vai sentences or Vai-script text.`,
   },
   bassa: {
@@ -217,6 +227,7 @@ export const LANGUAGES = {
     label: 'Bassa',
     native: 'Ɓasɔ́ɔ̀',
     status: 'roadmap',
+    liberian: true,
     prompt: `The user has selected Bassa, which is on the Grandpa AI roadmap but not yet trained. Open your first reply of the conversation with one short line saying that full Bassa is still being built with community elders, and that you will answer in simple Liberian English for now. Then answer normally in simple Liberian English. Never fabricate Bassa sentences.`,
   },
 };
@@ -240,7 +251,9 @@ const SPOKEN_PROMPT = `THIS IS A SPOKEN CONVERSATION. Your answer will be read a
 export const DEFAULT_PERSONA = 'general';
 export const DEFAULT_LANGUAGE = 'liberian-english';
 
-export function buildSystemPrompt({ persona, language, lowData, speaker, tone, userName, spoken }) {
+export function buildSystemPrompt({
+  persona, language, lowData, speaker, tone, userName, spoken, register, task,
+}) {
   const p = PERSONAS[persona] || PERSONAS[DEFAULT_PERSONA];
   const l = LANGUAGES[language] || LANGUAGES[DEFAULT_LANGUAGE];
   const s = SPEAKERS[speaker] || SPEAKERS[DEFAULT_SPEAKER];
@@ -253,6 +266,16 @@ export function buildSystemPrompt({ persona, language, lowData, speaker, tone, u
     `TODAY'S ROLE — ${p.label.toUpperCase()}\n${p.prompt}`,
     `LANGUAGE\n${l.prompt}`,
   ];
+
+  // The sound, grammar and lexicon of Liberian English — but only where the
+  // answer is in Liberian English. Asked for Standard English, "dat" is not a
+  // register, it is a mistake.
+  if (l.liberian) {
+    parts.push(liberianVoice({
+      register: registerFor({ persona, task, chosen: register }),
+      spoken,
+    }));
+  }
 
   // A name is worth using, sparingly — an elder would.
   if (typeof userName === 'string' && /^[\p{L}\p{M}' -]{1,40}$/u.test(userName.trim())) {
@@ -281,6 +304,8 @@ export const publicCatalogue = () => ({
   })),
   speakers: Object.values(SPEAKERS).map(({ id, label, blurb }) => ({ id, label, blurb })),
   tones: Object.values(TONES).map(({ id, label }) => ({ id, label })),
+  registers: registerCatalogue(),
   defaultSpeaker: DEFAULT_SPEAKER,
   defaultTone: DEFAULT_TONE,
+  defaultRegister: DEFAULT_REGISTER,
 });
