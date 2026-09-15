@@ -9,8 +9,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express from 'express';
 
-import { ALLOWED_MODELS, config, isModelAllowed } from './config.js';
-import { OpenAIError, complete, generateImage, streamChat } from './openai.js';
+import { FALLBACK_MODELS, config, isChatModel, sortModels } from './config.js';
+import { OpenAIError, complete, generateImage, listModels, streamChat } from './openai.js';
 import {
   DEFAULT_LANGUAGE,
   DEFAULT_PERSONA,
@@ -60,6 +60,47 @@ setInterval(() => {
   }
 }, WINDOW_MS).unref();
 
+// ---- which models this key can use --------------------------------------
+// Asked of OpenAI rather than hardcoded, so the picker shows what the account
+// actually has. Cached because the page asks on every load; the listing costs
+// no tokens, but there is no reason to repeat it every few seconds.
+const MODEL_CACHE_MS = 10 * 60 * 1000;
+let modelCache = { at: 0, models: [] };
+
+async function accountModels() {
+  if (!config.apiKey) return [];
+  if (modelCache.models.length && Date.now() - modelCache.at < MODEL_CACHE_MS) {
+    return modelCache.models;
+  }
+
+  try {
+    const ids = sortModels((await listModels({})).filter(isChatModel));
+    // The default is marked in the label; the hint is reserved for saying where
+    // this whole list came from, which is the more useful fact.
+    const models = ids.map((id) => ({
+      id,
+      label: id === config.model ? `${id} (default)` : id,
+      hint: '',
+    }));
+    modelCache = { at: Date.now(), models };
+    return models;
+  } catch {
+    // An account that cannot list models can still chat; fall back rather
+    // than failing the whole page.
+    return modelCache.models;
+  }
+}
+
+/**
+ * The browser may only name a model the account actually has — or, before the
+ * listing has ever succeeded, one from the fallback list.
+ */
+function modelIsUsable(id) {
+  if (typeof id !== 'string' || !id) return false;
+  if (modelCache.models.length) return modelCache.models.some((m) => m.id === id);
+  return FALLBACK_MODELS.some((m) => m.id === id);
+}
+
 // ---- optional access code -----------------------------------------------
 // A public URL spends real money on every message, so the deployment can be
 // put behind a shared code. Compared in constant time so the comparison
@@ -88,12 +129,17 @@ app.post('/api/verify', rateLimit, (req, res) => {
 });
 
 // ---- config the browser is allowed to know ------------------------------
-app.get('/api/config', (_req, res) => {
+app.get('/api/config', async (_req, res) => {
+  const fromAccount = await accountModels();
+  const models = fromAccount.length ? fromAccount : FALLBACK_MODELS;
+
   res.json({
     ready: Boolean(config.apiKey),
     requiresCode: Boolean(config.accessCode),
-    defaultModel: config.model,
-    models: ALLOWED_MODELS,
+    defaultModel: models.some((m) => m.id === config.model) ? config.model : models[0]?.id,
+    configuredModel: config.model,
+    modelsFromAccount: fromAccount.length > 0,
+    models,
     defaultPersona: DEFAULT_PERSONA,
     defaultLanguage: DEFAULT_LANGUAGE,
     ...publicCatalogue(),
@@ -146,7 +192,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   }
 
   const lowData = Boolean(req.body?.lowData);
-  const model = isModelAllowed(req.body?.model) ? req.body.model : config.model;
+  const model = modelIsUsable(req.body?.model) ? req.body.model : config.model;
   const system = buildSystemPrompt({
     persona: req.body?.persona,
     language: req.body?.language,
@@ -233,7 +279,7 @@ app.post('/api/structured', rateLimit, requireAccess, async (req, res) => {
 
   const spec = KINDS[kind];
   const { system, user } = spec.build(req.body?.input || {});
-  const model = isModelAllowed(req.body?.model) ? req.body.model : config.model;
+  const model = modelIsUsable(req.body?.model) ? req.body.model : config.model;
 
   const controller = new AbortController();
   res.on('close', () => controller.abort());
@@ -322,7 +368,7 @@ app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
     const spec = KINDS.album;
     const { system, user } = spec.build(req.body?.input || {});
     const raw = await complete({
-      model: isModelAllowed(req.body?.model) ? req.body.model : config.model,
+      model: modelIsUsable(req.body?.model) ? req.body.model : config.model,
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
       maxTokens: spec.maxTokens,
       temperature: spec.temperature,

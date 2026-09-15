@@ -129,6 +129,25 @@ export async function* streamChat({ model, messages, maxTokens, temperature, sig
 }
 
 /**
+ * Which models this key can actually use.
+ *
+ * Costs no tokens — it is a plain listing — so the answer can be refreshed
+ * whenever the page loads, subject to the caller's cache.
+ */
+export async function listModels({ signal } = {}) {
+  if (!config.apiKey) return [];
+
+  const response = await fetch(`${config.baseUrl}/models`, {
+    headers: { Authorization: `Bearer ${config.apiKey}` },
+    signal,
+  });
+  if (!response.ok) throw await toError(response);
+
+  const body = await response.json();
+  return (body.data || []).map((m) => m?.id).filter(Boolean);
+}
+
+/**
  * Generate one picture.
  *
  * Two model families behave differently: the dall-e models take

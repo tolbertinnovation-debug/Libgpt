@@ -858,8 +858,7 @@ function renderSettings() {
   el.setSize.value = prefs.textSize;
   el.setTheme.value = prefs.theme || 'system';
 
-  el.setModelHint.textContent =
-    state.catalogue.models?.find((m) => m.id === prefs.model)?.hint || '';
+  el.setModelHint.textContent = modelSourceHint();
 
   const chats = state.chats.length;
   const messages = state.chats.reduce((sum, chat) => sum + chat.messages.length, 0);
@@ -931,13 +930,24 @@ el.setLanguage.addEventListener('change', () => {
   announceRoadmapLanguage();
 });
 
+/**
+ * Where the model list came from. A picker showing a list we invented looks
+ * like the account's limit, so it should never be silent about which it is.
+ */
+function modelSourceHint() {
+  const n = state.catalogue.models?.length || 0;
+  if (!state.catalogue.modelsFromAccount) {
+    return 'Default list — add your API key to see what your account really has';
+  }
+  return `${n} model${n === 1 ? '' : 's'} your key can use`;
+}
+
 function applyModelChoice(value) {
   state.prefs.model = value;
   el.model.value = value;
   el.topModel.value = value;
   savePreferences();
-  el.setModelHint.textContent =
-    state.catalogue.models?.find((m) => m.id === value)?.hint || 'Balance speed, quality, and cost';
+  el.setModelHint.textContent = modelSourceHint();
 }
 
 el.model.addEventListener('change', () => applyModelChoice(el.model.value));

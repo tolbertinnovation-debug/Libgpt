@@ -103,9 +103,14 @@ All of it is in `.env` (see `.env.example`):
 | `OPENAI_IMAGE_MODEL` | `dall-e-3` | `dall-e-3` works on any account; `gpt-image-1` is newer but some accounts must verify with OpenAI first. |
 | `IMAGES_PER_HOUR` | `20` | A ceiling across the whole deployment, not per visitor. |
 
-The model picker in the header offers GPT-4o mini, GPT-4o, GPT-4.1 mini and GPT-4.1.
-Your account still needs access to whichever one you pick; if it does not, the app
-says so in plain words rather than failing silently.
+The model picker is filled by asking OpenAI which models your key can actually use
+(`GET /v1/models`, filtered to chat models and cached for ten minutes). A hardcoded
+list would either hide models you are paying for or offer models your key cannot
+touch — and, worse, would look like your account's limit when it was really ours.
+
+Until a key is configured, or if that listing fails, a small fallback list is shown
+and the picker says so. If a model is refused anyway, the error names it and quotes
+OpenAI's own wording rather than replacing it.
 
 ### Pictures cost real money
 

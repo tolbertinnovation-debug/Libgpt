@@ -31,11 +31,32 @@ export const config = {
 
 // Models offered in the UI picker. The account still has to have access to
 // whichever one is chosen; the server reports the API's error if it does not.
-export const ALLOWED_MODELS = [
-  { id: 'gpt-4o-mini', label: 'GPT-4o mini', hint: 'Fast and cheap — the everyday default' },
-  { id: 'gpt-4o', label: 'GPT-4o', hint: 'Stronger reasoning, higher cost' },
-  { id: 'gpt-4.1-mini', label: 'GPT-4.1 mini', hint: 'Balanced, long context' },
-  { id: 'gpt-4.1', label: 'GPT-4.1', hint: 'Most capable of the listed models' },
+// A fallback list, used only until the account's real models are known — when
+// there is no key yet, or when asking OpenAI fails. The picker is normally
+// filled from the account itself, because a hardcoded list either hides models
+// somebody is paying for or offers models their key cannot touch.
+export const FALLBACK_MODELS = [
+  { id: 'gpt-4o-mini', label: 'gpt-4o-mini', hint: 'Fast and cheap — the everyday default' },
+  { id: 'gpt-4o', label: 'gpt-4o', hint: 'Stronger reasoning, higher cost' },
+  { id: 'gpt-4.1-mini', label: 'gpt-4.1-mini', hint: 'Balanced, long context' },
+  { id: 'gpt-4.1', label: 'gpt-4.1', hint: 'More capable, more expensive' },
 ];
 
-export const isModelAllowed = (id) => ALLOWED_MODELS.some((m) => m.id === id);
+// Models that answer chat, as opposed to the many that do embeddings, audio,
+// images or moderation. Matching on the id is a heuristic, but the list comes
+// from the account, so a wrong guess shows a model rather than hiding one.
+const NOT_CHAT = /embedding|whisper|tts|audio|realtime|transcribe|image|dall-e|moderation|davinci|babbage|codex|search|similarity|edit/i;
+const LOOKS_CHAT = /^(gpt-|o\d|chatgpt-)/i;
+
+export const isChatModel = (id) =>
+  typeof id === 'string' && LOOKS_CHAT.test(id) && !NOT_CHAT.test(id);
+
+/** Cheap-looking models first, then alphabetically — kindest default ordering. */
+export function sortModels(ids) {
+  const weight = (id) => {
+    if (/nano/.test(id)) return 0;
+    if (/mini/.test(id)) return 1;
+    return 2;
+  };
+  return [...ids].sort((a, b) => weight(a) - weight(b) || a.localeCompare(b));
+}
