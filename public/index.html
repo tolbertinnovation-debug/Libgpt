@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Grandpa AI — African-centred conversational AI by Tolbert Innovation Hub. Ask in Liberian English, by voice or text.">
-<meta name="theme-color" content="#f8f7f4">
+<meta name="theme-color" content="#faf3e0">
 <title>Grandpa AI · Tolbert Innovation Hub</title>
 <link rel="icon" href="favicon.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -13,7 +13,6 @@
 <meta property="og:image" content="logo.png">
 <meta property="og:type" content="website">
 <link rel="stylesheet" href="styles.css">
-<link rel="stylesheet" href="design.css">
 </head>
 <body>
 
@@ -50,10 +49,8 @@
       <input type="search" id="chat-search" placeholder="Search conversations" aria-label="Search conversations">
     </div>
 
-    <p class="sidebar-section-label">Your conversations</p>
     <nav class="chat-list" id="chat-list" aria-label="Conversation history"></nav>
 
-    <div class="sidebar-note"><span aria-hidden="true">✦</span><strong>A little wisdom. A world of possibility.</strong><p>Rooted in Africa. Here for your everyday questions.</p></div>
     <div class="sidebar-foot">
       <button class="foot-btn" id="settings-toggle" type="button" aria-label="Open settings" aria-haspopup="dialog">
         <span class="foot-icon" aria-hidden="true">
@@ -85,7 +82,7 @@
         <span class="elder-mark" aria-hidden="true">
           <img src="logo.png" width="320" height="305" alt="">
         </span>
-        <div class="topbar-identity"><strong>Grandpa AI</strong><span>Your everyday companion</span></div>
+        <strong>Grandpa AI</strong>
       </div>
 
       <h1 class="chat-title sr-only" id="chat-title">New conversation</h1>
@@ -98,7 +95,7 @@
           <span>Low-data</span>
         </button>
 
-        <div class="select-wrap language-picker">
+        <div class="select-wrap sr-only">
           <label class="sr-only" for="language-select">Language</label>
           <select id="language-select" title="Answer language"></select>
         </div>
@@ -135,7 +132,7 @@
     <!-- Empty state -->
     <section class="welcome" id="welcome">
       <div class="welcome-inner">
-        <p class="welcome-kicker"><span></span> African roots. Open possibilities.</p>
+        <p class="welcome-kicker"><span></span> A thoughtful place to begin</p>
 
         <div class="brand-logo">
           <img src="logo.png" width="320" height="305"
@@ -146,7 +143,6 @@
           Welcome home, <button type="button" class="welcome-name" id="welcome-name"
                                 title="Tap to set your name">friend</button>.
         </h2>
-        <p class="welcome-description">Big ideas, everyday questions, and a little wisdom.<br>Let’s make sense of it together.</p>
         <p class="welcome-proverb" id="welcome-proverb"></p>
 
         <div class="hearth-actions">
@@ -165,10 +161,8 @@
           </button>
         </div>
 
-        <div class="section-heading"><h3>What’s on your mind?</h3><span>Choose a place to begin</span></div>
         <div class="persona-grid" id="persona-grid" role="group" aria-label="Choose what you came for"></div>
 
-        <div class="section-heading starters-heading"><h3>Try asking Grandpa</h3><span>A spark for your next conversation</span></div>
         <div class="starters" id="starters"></div>
       </div>
     </section>
@@ -199,7 +193,7 @@
 
       <div class="composer" id="composer">
         <div class="composer-persona" id="composer-persona" hidden></div>
-        <textarea id="composer-input" rows="1" placeholder="Ask a question, share an idea…"
+        <textarea id="composer-input" rows="1" placeholder="Ask Grandpa anything…"
                   aria-label="Your message" autocomplete="off" spellcheck="true"></textarea>
         <div class="composer-actions">
           <button class="icon-btn mic-btn" id="mic-btn" type="button" aria-label="Speak your question"
@@ -217,7 +211,7 @@
             </svg>
           </button>
           <button class="send-btn" id="send-btn" type="button" aria-label="Send message" disabled>
-            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true"><path d="M5 12h13M12 5l7 7-7 7"/></svg>
           </button>
           <button class="send-btn stop-btn" id="stop-btn" type="button" aria-label="Stop generating" hidden>
             <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
