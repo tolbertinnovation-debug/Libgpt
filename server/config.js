@@ -21,6 +21,12 @@ export const config = {
   imagesEnabled: /^(1|true|yes|on)$/i.test(process.env.ENABLE_IMAGES?.trim() || ''),
   imageModel: process.env.OPENAI_IMAGE_MODEL?.trim() || 'dall-e-3',
   imagesPerHour: int(process.env.IMAGES_PER_HOUR, 20),
+
+  // Serverless platforms run each request in a short-lived instance, so
+  // anything counted in memory — the rate limit, the picture ceiling — resets
+  // unpredictably and cannot be relied on. The app says so rather than
+  // pretending the guard still holds.
+  serverless: Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME),
 };
 
 // Models offered in the UI picker. The account still has to have access to

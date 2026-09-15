@@ -1,0 +1,366 @@
+// The Express app itself, with no listener attached.
+//
+// server/index.js starts it on a port for local use and ordinary hosts;
+// api/index.js hands the same app to a serverless platform. Keeping the
+// two apart is what lets one codebase run in both shapes.
+
+import crypto from 'node:crypto';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import express from 'express';
+
+import { ALLOWED_MODELS, config, isModelAllowed } from './config.js';
+import { OpenAIError, complete, generateImage, streamChat } from './openai.js';
+import {
+  DEFAULT_LANGUAGE,
+  DEFAULT_PERSONA,
+  buildSystemPrompt,
+  publicCatalogue,
+} from './personas.js';
+import { KINDS, isKind, libraryCatalogue } from './structured.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+
+app.disable('x-powered-by');
+app.use(express.json({ limit: '1mb' }));
+app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
+
+// ---- simple per-IP rate limit -------------------------------------------
+// In-memory on purpose: one small server, one process. On a serverless host
+// this counts per instance rather than per deployment, so it slows a stranger
+// but does not stop one — there, ACCESS_CODE is the real protection.
+const hits = new Map();
+const WINDOW_MS = 60_000;
+
+function rateLimit(req, res, next) {
+  if (config.rateLimitPerMinute <= 0) return next();
+
+  const key = req.ip || 'unknown';
+  const now = Date.now();
+  const recent = (hits.get(key) || []).filter((t) => now - t < WINDOW_MS);
+
+  if (recent.length >= config.rateLimitPerMinute) {
+    res.status(429).json({ error: 'You are sending messages too fast. Wait a moment and try again.' });
+    return;
+  }
+
+  recent.push(now);
+  hits.set(key, recent);
+  next();
+}
+
+// Keep the map from growing without bound on a long-running server.
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, times] of hits) {
+    const recent = times.filter((t) => now - t < WINDOW_MS);
+    if (recent.length) hits.set(key, recent);
+    else hits.delete(key);
+  }
+}, WINDOW_MS).unref();
+
+// ---- optional access code -----------------------------------------------
+// A public URL spends real money on every message, so the deployment can be
+// put behind a shared code. Compared in constant time so the comparison
+// cannot be used to guess the code character by character.
+function codeMatches(given) {
+  if (!config.accessCode) return true;
+  if (typeof given !== 'string') return false;
+
+  const a = Buffer.from(given);
+  const b = Buffer.from(config.accessCode);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+function requireAccess(req, res, next) {
+  if (!config.accessCode) return next();
+
+  if (codeMatches(req.get('x-access-code'))) return next();
+
+  res.status(401).json({ error: 'That access code is not right.', needsCode: true });
+}
+
+app.post('/api/verify', rateLimit, (req, res) => {
+  if (codeMatches(req.body?.code)) res.json({ ok: true });
+  else res.status(401).json({ error: 'That access code is not right.' });
+});
+
+// ---- config the browser is allowed to know ------------------------------
+app.get('/api/config', (_req, res) => {
+  res.json({
+    ready: Boolean(config.apiKey),
+    requiresCode: Boolean(config.accessCode),
+    defaultModel: config.model,
+    models: ALLOWED_MODELS,
+    defaultPersona: DEFAULT_PERSONA,
+    defaultLanguage: DEFAULT_LANGUAGE,
+    ...publicCatalogue(),
+    library: libraryCatalogue(),
+    imagesEnabled: config.imagesEnabled,
+  });
+});
+
+app.get('/api/health', (_req, res) => {
+  res.json({ status: 'ok', keyConfigured: Boolean(config.apiKey) });
+});
+
+// ---- validation ---------------------------------------------------------
+const MAX_MESSAGES = 40;
+const MAX_CHARS = 24_000;
+
+function readConversation(body) {
+  const incoming = Array.isArray(body?.messages) ? body.messages : null;
+  if (!incoming || incoming.length === 0) {
+    throw new OpenAIError('No messages were sent.', 400, 'bad_request');
+  }
+
+  // Only user/assistant turns are accepted — the system prompt is ours to set,
+  // so the browser cannot talk its way into a different persona.
+  const messages = incoming
+    .filter((m) => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+    .map((m) => ({ role: m.role, content: m.content.slice(0, 8_000) }))
+    .slice(-MAX_MESSAGES);
+
+  if (messages.length === 0) {
+    throw new OpenAIError('No usable messages were sent.', 400, 'bad_request');
+  }
+
+  const total = messages.reduce((sum, m) => sum + m.content.length, 0);
+  if (total > MAX_CHARS) {
+    throw new OpenAIError('This conversation is too long. Start a new chat.', 400, 'too_long');
+  }
+
+  return messages;
+}
+
+// ---- streaming chat -----------------------------------------------------
+app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
+  let messages;
+  try {
+    messages = readConversation(req.body);
+  } catch (error) {
+    res.status(error.status || 400).json({ error: error.message });
+    return;
+  }
+
+  const lowData = Boolean(req.body?.lowData);
+  const model = isModelAllowed(req.body?.model) ? req.body.model : config.model;
+  const system = buildSystemPrompt({
+    persona: req.body?.persona,
+    language: req.body?.language,
+    speaker: req.body?.speaker,
+    tone: req.body?.tone,
+    userName: req.body?.userName,
+    lowData,
+  });
+
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // don't let nginx buffer the stream
+  res.flushHeaders?.();
+
+  const send = (event, data) => {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  };
+
+  // Abort the upstream call as soon as the browser goes away or hits Stop.
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+
+  try {
+    send('start', { model, lowData });
+
+    for await (const delta of streamChat({
+      model,
+      messages: [{ role: 'system', content: system }, ...messages],
+      maxTokens: lowData ? 300 : 1400,
+      signal: controller.signal,
+    })) {
+      send('delta', { text: delta });
+    }
+
+    send('done', { model });
+  } catch (error) {
+    if (controller.signal.aborted) {
+      // The user pressed Stop. Nothing to report — the connection is going away.
+    } else {
+      const message =
+        error instanceof OpenAIError ? error.message : 'Something went wrong reaching the AI. Try again.';
+      if (!(error instanceof OpenAIError)) console.error('[chat]', error);
+      send('error', { message });
+    }
+  } finally {
+    res.end();
+  }
+});
+
+// ---- conversation titles ------------------------------------------------
+app.post('/api/title', rateLimit, requireAccess, async (req, res) => {
+  const text = typeof req.body?.text === 'string' ? req.body.text.slice(0, 1_000) : '';
+  if (!text.trim()) {
+    res.status(400).json({ error: 'Nothing to name.' });
+    return;
+  }
+
+  try {
+    const title = await complete({
+      messages: [
+        {
+          role: 'system',
+          content:
+            'Name this conversation in 2 to 5 words. Plain words, no quotes, no punctuation at the end, no "chat" or "conversation" in the name. Reply with the name only.',
+        },
+        { role: 'user', content: text },
+      ],
+    });
+    res.json({ title: title.replace(/^["'\s]+|["'.\s]+$/g, '').slice(0, 60) });
+  } catch (error) {
+    // A missing title is cosmetic — never fail the chat over it.
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+// ---- the Library: stories, names, recipes, quizzes ----------------------
+app.post('/api/structured', rateLimit, requireAccess, async (req, res) => {
+  const kind = req.body?.kind;
+  if (!isKind(kind)) {
+    res.status(400).json({ error: 'Unknown request.' });
+    return;
+  }
+
+  const spec = KINDS[kind];
+  const { system, user } = spec.build(req.body?.input || {});
+  const model = isModelAllowed(req.body?.model) ? req.body.model : config.model;
+
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+
+  try {
+    const raw = await complete({
+      model,
+      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      maxTokens: spec.maxTokens,
+      temperature: spec.temperature,
+      json: true,
+      signal: controller.signal,
+    });
+
+    let parsed;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      res.status(502).json({ error: 'Grandpa lost his thread. Ask again.' });
+      return;
+    }
+
+    // JSON mode guarantees an object, not the fields we asked for. A
+    // half-built story is worse than an honest retry.
+    if (!spec.valid(parsed)) {
+      res.status(502).json({ error: 'That came back incomplete. Ask again.' });
+      return;
+    }
+
+    res.json({ kind, data: parsed });
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    const message =
+      error instanceof OpenAIError ? error.message : 'Something went wrong. Try again.';
+    if (!(error instanceof OpenAIError)) console.error('[structured]', error);
+    res.status(error.status || 500).json({ error: message });
+  }
+});
+
+// ---- the Cultural Album -------------------------------------------------
+// A picture costs cents rather than hundredths of a cent, so it gets its own
+// ceiling on top of the per-IP limit: a whole-deployment cap per hour. A
+// public address should not be able to empty the account overnight.
+//
+// That ceiling is counted in memory, which a serverless platform resets with
+// every cold instance. Rather than let a weakened guard look like a real one,
+// pictures there require an access code, so at least only people you gave it
+// to can spend the money.
+const pictureTimes = [];
+
+function pictureBudgetLeft() {
+  const cutoff = Date.now() - 3_600_000;
+  while (pictureTimes.length && pictureTimes[0] < cutoff) pictureTimes.shift();
+  return Math.max(0, config.imagesPerHour - pictureTimes.length);
+}
+
+app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
+  if (!config.imagesEnabled) {
+    res.status(503).json({
+      error: 'Pictures are switched off on this deployment. Set ENABLE_IMAGES=true to turn them on.',
+    });
+    return;
+  }
+
+  if (config.serverless && !config.accessCode) {
+    res.status(503).json({
+      error: 'On a serverless host the hourly picture limit cannot be enforced, '
+        + 'so pictures need an access code. Set ACCESS_CODE in your environment '
+        + 'variables, or host on a platform that runs a normal server.',
+    });
+    return;
+  }
+
+  if (pictureBudgetLeft() <= 0) {
+    res.status(429).json({
+      error: 'The picture limit for this hour is used up. Try again later.',
+    });
+    return;
+  }
+
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+
+  try {
+    // Step one: a grounded description, written under the cultural rules.
+    const spec = KINDS.album;
+    const { system, user } = spec.build(req.body?.input || {});
+    const raw = await complete({
+      model: isModelAllowed(req.body?.model) ? req.body.model : config.model,
+      messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
+      maxTokens: spec.maxTokens,
+      temperature: spec.temperature,
+      json: true,
+      signal: controller.signal,
+    });
+
+    let plan;
+    try {
+      plan = JSON.parse(raw);
+    } catch {
+      res.status(502).json({ error: 'Grandpa could not picture it. Try again.' });
+      return;
+    }
+    if (!spec.valid(plan)) {
+      res.status(502).json({ error: 'That came back incomplete. Try again.' });
+      return;
+    }
+
+    // Step two: render it. Count the picture before the call, so two requests
+    // arriving together cannot both slip past the ceiling.
+    pictureTimes.push(Date.now());
+    const image = await generateImage({ prompt: plan.scene, signal: controller.signal });
+
+    res.json({
+      image,
+      caption: plan.caption,
+      note: plan.note,
+      scene: plan.scene,
+      remaining: pictureBudgetLeft(),
+    });
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    const message =
+      error instanceof OpenAIError ? error.message : 'The picture could not be made. Try again.';
+    if (!(error instanceof OpenAIError)) console.error('[album]', error);
+    res.status(error.status || 500).json({ error: message });
+  }
+});
+
+export default app;

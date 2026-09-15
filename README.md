@@ -144,6 +144,27 @@ secrets.
 Railway and Fly.io work the same way: build with `npm install`, start with
 `npm start`, and set the same environment variables in their dashboard.
 
+### Vercel
+
+`vercel.json` and `api/index.js` are included, so Vercel works too — import the
+repo, add `OPENAI_API_KEY` under **Settings → Environment Variables**, deploy.
+
+Two things genuinely differ there, because Vercel runs short-lived serverless
+instances rather than one continuous server:
+
+- **The per-IP rate limit and the hourly picture ceiling are counted in memory**,
+  so each instance keeps its own count and a cold start resets it. Neither is a
+  real ceiling on Vercel. `ACCESS_CODE` is the protection that actually holds, and
+  the app **refuses to generate pictures on a serverless host without one** rather
+  than letting a weakened guard look like a real one.
+- **A long answer streams for as long as it takes.** `maxDuration` is set to 60
+  seconds in `vercel.json`; if your plan caps it lower, a long reply is cut off
+  mid-sentence. Low-data mode keeps answers short enough that this rarely bites.
+
+For a pilot with real users, a host that runs a normal server — Render, Railway,
+Fly — keeps both ceilings real. Vercel is a good fit for showing the thing to
+people.
+
 ### Set ACCESS_CODE on anything public
 
 A public URL spends real money — every message is billed to the key you configured,
@@ -162,8 +183,11 @@ about a minute to wake.
 ## How it is put together
 
 ```
+api/
+  index.js      Serverless entry — hands the app to Vercel, no listener
 server/
-  index.js      Express app — static files, SSE chat endpoint, rate limit, validation
+  app.js        The Express app — static files, SSE chat, rate limit, validation
+  index.js      Starts the app on a port (local, Render, Railway, Fly)
   openai.js     OpenAI client: streaming parser, one-shot completions, error translation
   personas.js   The system prompts — persona x language x low-data
   config.js     Environment and the model allowlist
@@ -180,7 +204,8 @@ public/
   proverbs.js   Proverb of the day
   sounds.js     Procedural interface sounds (Web Audio, no assets)
   library.js    The Storyteller and Wisdom Hub, and the journal
-render.yaml     Deploy blueprint — secrets are prompted for, never committed
+render.yaml     Render blueprint — secrets are prompted for, never committed
+vercel.json     Vercel config — static from public/, API as one function
 ```
 
 **The API key never reaches the browser.** The page talks only to this server, which
