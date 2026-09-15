@@ -27,6 +27,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Interface sounds** | Taps, sends and chimes synthesised with Web Audio oscillators — no audio files to download on a metered connection. |
 | **Multilingual chatbot** | Liberian English vernacular by default, standard English alongside it. Kpelle, Vai and Bassa appear in the picker as roadmap languages — the assistant says plainly that they are still being built rather than faking them. |
 | **Talking with Grandpa** | A hands-free spoken conversation: talk, stop talking, and he answers out loud — then listens again by himself, with nothing to press. Each sentence of his answer is spoken as it arrives rather than after the whole thing, and the exchange is left behind as an ordinary conversation you can read. See below. |
+| **Grandpa's own voice** | Not the phone's robot: a real voice, one per elder, told how an old man on his porch talks. The phone's own voice stays underneath and takes over when the network is gone or on a metered connection. See below. |
 | **Voice out** | Press **Listen** on any answer, or turn on auto-read. Long answers are split into sentence-sized chunks, which is what stops browsers cutting them off part-way. Pause, continue and stop from a bar above the composer. |
 | **Voice in** | Hold a conversation with the microphone: continuous dictation with the words appearing as you speak, so a pause for breath does not end it. Pick the accent closest to your own; if a device cannot do it, it falls back rather than failing. |
 | **Grandpa's voice** | Choose from the voices your device has. The default is the closest to Liberia the device offers — West African first, then British, then whatever exists. Speed and depth are adjustable, with a test button. |
@@ -103,6 +104,9 @@ All of it is in `.env` (see `.env.example`):
 | `PORT` | `3000` | Port to listen on. |
 | `RATE_LIMIT_PER_MINUTE` | `30` | Requests allowed per IP per minute. `0` disables the limit. |
 | `ACCESS_CODE` | *(blank)* | When set, visitors must enter this code before they can chat. Leave blank locally; set it on any public address. |
+| `ENABLE_REAL_VOICE` | `true` | Grandpa's own voice instead of the phone's robot. See below. |
+| `OPENAI_VOICE_MODEL` | `gpt-4o-mini-tts` | The only family that takes an instruction about *how* to say it. |
+| `VOICE_CHARS_PER_HOUR` | `60000` | A ceiling across the whole deployment — roughly 150 spoken answers an hour. |
 | `ENABLE_IMAGES` | `false` | Turns the Cultural Album on. Off by default — see below. |
 | `OPENAI_IMAGE_MODEL` | `dall-e-3` | `dall-e-3` works on any account; `gpt-image-1` is newer but some accounts must verify with OpenAI first. |
 | `IMAGES_PER_HOUR` | `20` | A ceiling across the whole deployment, not per visitor. |
@@ -176,6 +180,44 @@ The screen stays awake while you are talking, listening stops if you switch
 away, and a microphone left open with nobody speaking pauses itself after a
 minute. Chrome, Edge and Safari can do this; where the browser cannot, the way
 in is not offered at all rather than failing when tapped.
+
+### Grandpa's own voice
+
+A browser can already read text aloud for free, and that is what this used to
+do. The trouble is what it sounds like: on most Android phones the default
+English voice is a young woman reading a train timetable. For an app whose
+whole promise is a grandfather talking to you, that is not a cosmetic flaw —
+it is the product being wrong.
+
+So the answer is spoken by a real voice from OpenAI, and each of the five
+elders has their own. Grandpa gets the deepest one, and with it an instruction
+about how to say it: *an old West African grandfather, around seventy, on the
+porch in the evening; deep chest voice, slow, warm, small pauses the way an old
+man does when he is remembering; never like a presenter.* That instruction is
+the difference between an elder and a newsreader, and only the `gpt-4o-mini-tts`
+family takes one.
+
+It costs about a US cent for four or five answers — the same order as the
+answers themselves — so it is on by default, with a ceiling of its own.
+
+The phone's own voice is still there underneath, and takes over by itself when:
+
+- the network is gone, or the voice service fails, or the audio will not play
+  (the words already fetched go to it too, so nothing is lost mid-answer);
+- the hourly ceiling is spent;
+- **low-data mode is on** — speech is tens of kilobytes, which is not a thing
+  to send down a 2G line unasked;
+- the listener turns it off in Settings.
+
+That fallback also got the fix it needed: a man's voice now outranks everything
+else when choosing among the phone's own, including a closer accent, because a
+device answering in a woman's voice gets the one thing wrong that everybody
+hears. Browsers do not report a voice's gender, so this reads the name —
+crude, but the alternative is leaving it to chance.
+
+On a serverless host the hourly ceiling is counted per instance and resets with
+every cold start, the same caveat as the picture limit; `ACCESS_CODE` is the
+real protection on a public address.
 
 ### Pictures cost real money
 
@@ -271,6 +313,7 @@ public/
   app.js        State, streaming, history, settings, sharing
   speech.js     Text-to-speech chunking, voice ranking, dictation locales
   converse.js   The hands-free loop: turn-taking, silence detection, barge-in
+  realvoice.js  Grandpa's real voice, with the phone's own as the fallback
   markdown.js   Small Markdown renderer (escapes first, then adds markup)
   storage.js    localStorage for conversations and preferences
   glossary.js   Liberian terms, and DOM-safe annotation of them
@@ -332,6 +375,17 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   a long answer queued as several chunks and read to its final sentence, pause /
   continue / stop, a new question silencing the old answer, auto-read, Web Share
   with a copy fallback, the offline banner, and rename with Escape to cancel.
+- **Grandpa's voice (server)** — 23 checks: each elder given their own voice,
+  the delivery instruction actually sent, the speed slider passed through and
+  an impossible speed clamped, an over-long piece cut rather than refused, an
+  upstream failure named for what the reader was doing, and the hourly ceiling
+  holding and saying the phone's voice still works.
+- **Grandpa's voice (Playwright)** — 21 checks against both engines stubbed:
+  the real voice used and the phone's untouched, and the other way round when
+  it is switched off; low-data holding it back but the answer still read;
+  the fallback taking over when the voice cannot be reached, when the browser
+  refuses to play it and when the audio will not decode — with the words
+  already fetched handed over rather than lost.
 - **Talking with Grandpa (Playwright)** — 37 checks against fake ears and a
   fake mouth: a silence ending the turn with nothing pressed, the ear shut for
   the whole time he is talking and open again after, the answer spoken in

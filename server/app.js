@@ -11,12 +11,15 @@ import express from 'express';
 
 import { FALLBACK_MODELS, config, isChatModel, sortModels } from './config.js';
 import { resolveTiers, tierFor } from './models.js';
-import { OpenAIError, complete, generateImage, listModels, streamChat } from './openai.js';
+import {
+  OpenAIError, complete, generateImage, listModels, speakAloud, streamChat,
+} from './openai.js';
 import {
   DEFAULT_LANGUAGE,
   DEFAULT_PERSONA,
   buildSystemPrompt,
   publicCatalogue,
+  voiceFor,
 } from './personas.js';
 import { KINDS, isKind, libraryCatalogue } from './structured.js';
 
@@ -174,6 +177,7 @@ app.get('/api/config', async (_req, res) => {
     ...publicCatalogue(),
     library: libraryCatalogue(),
     imagesEnabled: config.imagesEnabled,
+    realVoice: config.realVoice && Boolean(config.apiKey),
   });
 });
 
@@ -353,6 +357,73 @@ app.post('/api/structured', rateLimit, requireAccess, async (req, res) => {
     const message =
       error instanceof OpenAIError ? error.message : 'Something went wrong. Try again.';
     if (!(error instanceof OpenAIError)) console.error('[structured]', error);
+    res.status(error.status || 500).json({ error: message });
+  }
+});
+
+// ---- Grandpa's own voice ------------------------------------------------
+// Text-to-speech, charged by the character. An answer costs a fraction of a
+// US cent, which is the same order as the answer itself — so this is not
+// fenced off the way pictures are, but it does get a ceiling of its own, and
+// the browser is told when it runs out rather than falling quiet.
+const spokenChars = [];
+
+function voiceBudgetLeft() {
+  const cutoff = Date.now() - 3_600_000;
+  while (spokenChars.length && spokenChars[0].at < cutoff) spokenChars.shift();
+  const used = spokenChars.reduce((sum, entry) => sum + entry.n, 0);
+  return Math.max(0, config.voiceCharsPerHour - used);
+}
+
+const MAX_SPOKEN = 1_000;
+
+app.post('/api/speak', rateLimit, requireAccess, async (req, res) => {
+  if (!config.realVoice) {
+    res.status(503).json({ error: 'The real voice is switched off on this deployment.' });
+    return;
+  }
+
+  const text = typeof req.body?.text === 'string' ? req.body.text.trim().slice(0, MAX_SPOKEN) : '';
+  if (!text) {
+    res.status(400).json({ error: 'Nothing to say.' });
+    return;
+  }
+
+  if (voiceBudgetLeft() < text.length) {
+    res.status(429).json({
+      error: 'The speaking limit for this hour is used up. The phone\'s own voice still works.',
+    });
+    return;
+  }
+
+  const { voice, delivery } = voiceFor(req.body?.speaker);
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+
+  try {
+    // Counted before the call, so two requests together cannot both slip past.
+    spokenChars.push({ at: Date.now(), n: text.length });
+
+    const audio = await speakAloud({
+      text,
+      voice,
+      delivery,
+      // The slider is the same one that drives the phone's voice, so the two
+      // sound like the same person at the same pace.
+      speed: Number.isFinite(req.body?.speed)
+        ? Math.min(1.3, Math.max(0.7, req.body.speed))
+        : undefined,
+      signal: controller.signal,
+    });
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(audio);
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    const message =
+      error instanceof OpenAIError ? error.message : 'Grandpa\'s voice could not be reached.';
+    if (!(error instanceof OpenAIError)) console.error('[speak]', error);
     res.status(error.status || 500).json({ error: message });
   }
 });

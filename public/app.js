@@ -7,6 +7,7 @@ import {
 import {
   DEFAULT_PATIENCE, PATIENCE, SpeechRecognitionAPI, VoiceConversation, patienceMs,
 } from './converse.js';
+import { VoiceOut } from './realvoice.js';
 import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
@@ -48,11 +49,12 @@ const state = {
     theme: null,        // 'light' | 'dark' | null = follow the phone
     textSize: 'md',     // 'sm' | 'md' | 'lg'
     autoSpeak: false,
-    voiceRate: 0.95,
-    voicePitch: 0.9,
+    voiceRate: 0.92,
+    voicePitch: 0.82,   // an old man, not a newsreader
     voiceURI: '',        // '' = let the app pick the closest accent
     dictationAccent: DEFAULT_DICTATION,
     patience: DEFAULT_PATIENCE,
+    realVoice: true,
     userName: '',
     speaker: 'grandpa',
     tone: 'warmth',
@@ -92,6 +94,8 @@ const el = {
   setRateValue: $('settings-rate-value'),
   setPitch: $('settings-pitch'),
   setPitchValue: $('settings-pitch-value'),
+  setRealVoice: $('settings-realvoice'),
+  setRealVoiceHint: $('settings-realvoice-hint'),
   setVoice: $('settings-voice'),
   setVoiceHint: $('settings-voice-hint'),
   setVoiceTest: $('settings-voice-test'),
@@ -670,7 +674,27 @@ function updateSendState() {
 
 let availableVoices = [];
 
-const speaker = new Speaker((speechState) => {
+/**
+ * Grandpa's real voice, with the phone's own underneath it.
+ *
+ * Everything in the app talks to `speaker`; which of the two is actually
+ * talking is decided here, per answer, and switches by itself when the network
+ * is gone or the hourly limit is spent.
+ */
+const deviceVoice = new Speaker();
+
+const speaker = new VoiceOut({
+  device: deviceVoice,
+  // Off when the deployment has no key for it, when the user has asked for the
+  // phone's voice, and always in low-data mode: a spoken answer is tens of
+  // kilobytes of audio, which is not a thing to send down a 2G line unasked.
+  wanted: () => Boolean(state.catalogue.realVoice)
+    && state.prefs.realVoice !== false
+    && !state.prefs.lowData,
+  speaker: () => state.prefs.speaker,
+  headers: apiHeaders,
+  onNotice: (message) => toast(message),
+}, (speechState) => {
   const speaking = speechState !== 'idle';
   el.speakingBar.hidden = !speaking;
   el.speakingBar.classList.toggle('is-paused', speechState === 'paused');
@@ -691,6 +715,7 @@ function chosenVoice() {
 }
 
 function speak(text, button) {
+  speaker.unlock();
   if (!speaker.supported) {
     toast('This browser cannot read answers aloud.');
     return;
@@ -932,6 +957,7 @@ function openTalk() {
     return;
   }
 
+  speaker.unlock();
   talkReturnFocus = document.activeElement;
   if (listening) stopListening();   // the composer's microphone, not this one
   speaker.stop();
@@ -1007,7 +1033,9 @@ function renderVoiceList() {
   el.setVoice.disabled = false;
   const best = pickDefaultVoice(availableVoices);
   el.setVoice.innerHTML = [
-    `<option value="">Closest to Liberia (${escapeHtml(best?.name || 'default')})</option>`,
+    // Not "closest to Liberia" any more: a man's voice now outranks a closer
+    // accent, and the label must say what the rule actually is.
+    `<option value="">Best elder's voice on this phone (${escapeHtml(best?.name || 'default')})</option>`,
     ...voices.map((v) =>
       `<option value="${escapeHtml(v.voiceURI)}">${escapeHtml(v.name)} · ${escapeHtml(v.lang)}</option>`),
   ].join('');
@@ -1031,6 +1059,8 @@ function renderSettings() {
   el.setPitchValue.textContent = PITCH_WORDS.find(([limit]) => prefs.voicePitch < limit)[1];
   el.setAccent.value = prefs.dictationAccent;
   el.setPatience.value = prefs.patience || DEFAULT_PATIENCE;
+  el.setRealVoice.checked = prefs.realVoice !== false;
+  el.setRealVoiceHint.textContent = realVoiceHint();
   el.setName.value = prefs.userName || '';
   el.setSpeaker.value = prefs.speaker;
   el.setTone.value = prefs.tone;
@@ -1135,6 +1165,19 @@ function modelSourceHint() {
   return `Using ${state.prefs.model} for everything · ${source}`;
 }
 
+/**
+ * What the real voice is actually doing right now. A switch that says "on"
+ * while low-data mode quietly overrides it would be a lie.
+ */
+function realVoiceHint() {
+  if (!state.catalogue.realVoice) {
+    return 'Not available on this deployment — the phone\'s own voice is used.';
+  }
+  if (state.prefs.realVoice === false) return 'Off. The phone\'s own voice is used.';
+  if (state.prefs.lowData) return 'Held back while low-data mode is on — speech is heavy to download.';
+  return 'On. Costs about a US cent for every four or five answers.';
+}
+
 function applyModelChoice(value) {
   state.prefs.model = value;
   el.model.value = value;
@@ -1150,6 +1193,7 @@ el.setLowData.addEventListener('change', () => {
   state.prefs.lowData = el.setLowData.checked;
   el.lowData.setAttribute('aria-pressed', String(state.prefs.lowData));
   savePreferences();
+  el.setRealVoiceHint.textContent = realVoiceHint();
 });
 
 el.setSize.addEventListener('change', () => {
@@ -1211,6 +1255,13 @@ el.setSpeaker.addEventListener('change', () => {
 el.setTone.addEventListener('change', () => {
   state.prefs.tone = el.setTone.value;
   savePreferences();
+});
+
+el.setRealVoice.addEventListener('change', () => {
+  state.prefs.realVoice = el.setRealVoice.checked;
+  savePreferences();
+  speaker.stop();
+  el.setRealVoiceHint.textContent = realVoiceHint();
 });
 
 el.setPatience.addEventListener('change', () => {

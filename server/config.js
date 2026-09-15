@@ -33,6 +33,17 @@ export const config = {
   imageModel: process.env.OPENAI_IMAGE_MODEL?.trim() || 'dall-e-3',
   imagesPerHour: int(process.env.IMAGES_PER_HOUR, 20),
 
+  // Grandpa's own voice. The phone's built-in text-to-speech is free but
+  // sounds like a machine reading; this is a real recorded-sounding voice from
+  // OpenAI, and it costs about a US cent for four or five answers. On by
+  // default because an elder who sounds like a robot is not the product — but
+  // it is a switch, and low-data mode turns it off by itself.
+  realVoice: !/^(0|false|no|off)$/i.test(process.env.ENABLE_REAL_VOICE?.trim() || 'true'),
+  voiceModel: process.env.OPENAI_VOICE_MODEL?.trim() || 'gpt-4o-mini-tts',
+  // A ceiling across the whole deployment, so a public address cannot read the
+  // account dry. Roughly 150 spoken answers an hour.
+  voiceCharsPerHour: int(process.env.VOICE_CHARS_PER_HOUR, 60_000),
+
   // Serverless platforms run each request in a short-lived instance, so
   // anything counted in memory — the rate limit, the picture ceiling — resets
   // unpredictably and cannot be relied on. The app says so rather than

@@ -138,14 +138,37 @@ export function isEnglish(voice) {
   return /^en(-|$)/i.test(voice?.lang || '');
 }
 
-/** Lower is better. */
+// Browsers tell you a voice's language but not, in any reliable way, whose
+// voice it is. All there is to go on is the name — "Google UK English Male",
+// "Microsoft David", "en-gb-x-gbb-network". Crude, but the alternative is
+// letting a phone hand an old man a young woman's voice, which is the one
+// thing this app cannot have.
+const SOUNDS_MALE = /\b(male|man|men|masculin|david|george|james|daniel|thomas|fred|alex|arthur|guy|ryan|eric|brian|rishi|oliver|liam|john|paul|mark|luke|matthew|richard|william|charles|henry|edward|samuel|joseph|aaron|albert|bruce|diego|gordon|jorge|juan|lee|maged|nathan|reed|rocko|tom|xander|-x-gb[bd]|-x-iod|-x-iom)\b/i;
+const SOUNDS_FEMALE = /\b(female|woman|women|feminin|zira|hazel|susan|karen|moira|tessa|fiona|samantha|victoria|allison|ava|joanna|kendra|kimberly|salli|nicole|amy|emma|raveena|aditi|catherine|linda|heather|serena|kate|anna|maria|sara|lisa|carol|grace|ruth|rachel|nova|shimmer)\b/i;
+
+export function soundsMale(voice) {
+  const name = voice?.name || '';
+  if (SOUNDS_FEMALE.test(name)) return false;
+  return SOUNDS_MALE.test(name);
+}
+
+/**
+ * Lower is better.
+ *
+ * A man's voice comes first and nothing outranks it: the app is called Grandpa
+ * AI, and a device that answers in a woman's voice has got the one thing wrong
+ * that everybody notices. Accent decides among the men, and voice quality only
+ * breaks ties between neighbouring accents.
+ */
 export function rankVoice(voice) {
   const lang = (voice?.lang || '').toLowerCase().replace('_', '-');
   const index = ACCENT_ORDER.findIndex((code) => lang === code || lang.startsWith(`${code}-`));
   let score = index === -1 ? ACCENT_ORDER.length : index;
 
-  // Accent comes first; voice quality only breaks ties between neighbouring
-  // accents. These are the names browsers give their better voices.
+  // Well clear of the accent range, so it cannot be outweighed.
+  if (!soundsMale(voice)) score += 100;
+
+  // These are the names browsers give their better voices.
   if (/natural|enhanced|neural|premium|siri/i.test(voice?.name || '')) score -= 0.5;
   return score;
 }

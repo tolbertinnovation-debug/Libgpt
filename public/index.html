@@ -306,8 +306,13 @@
         <input type="checkbox" id="settings-autospeak">
         <span class="toggle-track" aria-hidden="true"></span>
       </label>
+      <label class="setting-row setting-toggle" for="settings-realvoice">
+        <span><strong>Grandpa's own voice</strong><small id="settings-realvoice-hint">A real elder's voice instead of the phone's robot. Uses the internet.</small></span>
+        <input type="checkbox" id="settings-realvoice">
+        <span class="toggle-track" aria-hidden="true"></span>
+      </label>
       <label class="setting-row" for="settings-voice">
-        <span><strong>Grandpa's voice</strong><small id="settings-voice-hint">Voices come from your phone or browser</small></span>
+        <span><strong>Fallback voice</strong><small id="settings-voice-hint">Used when the internet is gone, or in low-data mode</small></span>
         <select id="settings-voice"></select>
       </label>
       <label class="setting-row" for="settings-rate">

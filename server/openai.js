@@ -46,8 +46,14 @@ async function toError(response, asked = '', path = '') {
       + 'Open Settings and pick a different model, or check which models your OpenAI '
       + `project allows.${detail ? ` OpenAI said: ${detail}` : ''}`,
     429: 'Rate limit or quota reached on the OpenAI account. Wait a moment, or check your billing.',
-    500: 'OpenAI had a server error. Try again.',
-    503: 'OpenAI is overloaded right now. Try again in a moment.',
+    // Named for what the reader was doing. "OpenAI had a server error" means
+    // nothing to someone who was listening to an elder talk.
+    500: /audio/.test(path)
+      ? 'Grandpa\'s voice could not be reached. Try again.'
+      : 'OpenAI had a server error. Try again.',
+    503: /audio/.test(path)
+      ? 'Grandpa\'s voice is busy right now. Try again in a moment.'
+      : 'OpenAI is overloaded right now. Try again in a moment.',
   }[response.status];
 
   const error = new OpenAIError(
@@ -247,6 +253,37 @@ export async function generateImage({ prompt, size = '1024x1024', signal }) {
     throw new OpenAIError('The picture came back empty. Try again.', 502, 'no_image');
   }
   return `data:image/png;base64,${b64}`;
+}
+
+/**
+ * Grandpa's own voice.
+ *
+ * The browser's built-in speech synthesis is free and works offline, but it
+ * sounds like a machine reading a timetable — on most Android phones, a young
+ * woman's machine. For an app whose whole promise is an elder talking to you,
+ * that is not a small flaw. This asks OpenAI for the real thing instead.
+ *
+ * `delivery` is how to say it — an old man on his porch, unhurried — which the
+ * gpt-4o-mini-tts model takes as instructions. The older tts-1 models ignore
+ * that field, so the voice name has to carry it alone there.
+ *
+ * Returns the audio as bytes, for the server to hand on; the browser never
+ * talks to OpenAI directly.
+ */
+export async function speakAloud({ text, voice = 'onyx', delivery = '', speed, signal }) {
+  const body = {
+    model: config.voiceModel,
+    voice,
+    input: text,
+    // mp3 plays everywhere. Opus is smaller but Safari will not take it in an
+    // ogg container, and half this audience is on a borrowed phone.
+    response_format: 'mp3',
+  };
+  if (delivery && /gpt-/i.test(config.voiceModel)) body.instructions = delivery;
+  if (speed) body.speed = speed;
+
+  const response = await post('/audio/speech', body, signal);
+  return Buffer.from(await response.arrayBuffer());
 }
 
 /**
