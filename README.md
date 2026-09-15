@@ -243,6 +243,9 @@ public/
   proverbs.js   Proverb of the day
   sounds.js     Procedural interface sounds (Web Audio, no assets)
   library.js    The Storyteller and Wisdom Hub, and the journal
+  logo.png      The Grandpa AI seal — sidebar, topbar, welcome screen, sharing
+  favicon.png   Tab icon
+  apple-touch-icon.png  Home-screen icon on iPhone
 render.yaml     Render blueprint — secrets are prompted for, never committed
 vercel.json     Vercel config — static from public/, API as one function
 ```
@@ -272,6 +275,17 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   `javascript:` links), emphasis, code spans, tables, lists, and half-streamed fences.
 - **Server** — streaming, upstream 404 and missing-key errors surfacing as readable
   messages, empty-message rejection, system-role stripping, and the title endpoint.
+- **Model choice (unit)** — 31 checks: a model id read for family, generation and
+  size, an unfamiliar future name still placing sensibly, a current mini beating an
+  older flagship for conversation, reasoning models kept out of the automatic picks
+  but used when they are all there is, pins honoured and impossible pins ignored.
+- **Model choice (end to end)** — 17 checks through the running server: the tier
+  each endpoint really used, low-data overriding the storytelling persona, a hand
+  picked model winning everywhere, and one the account lacks falling back.
+- **Adapting to a model** — 16 checks: `max_tokens` renamed and `temperature`
+  dropped when a model refuses them, the fix remembered so the second request is
+  right first time, streaming adapting the same way, and a refusal that sending
+  less cannot fix thrown rather than retried.
 - **Browser (Playwright)** — 34 checks: streaming display, Stop/Send swapping,
   regenerate, code copy, conversation naming, history, search, delete, dark mode,
   reload persistence, and mobile layout with no horizontal overflow.

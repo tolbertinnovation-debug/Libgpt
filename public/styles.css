@@ -163,6 +163,8 @@ body {
 
 .brand { display: flex; align-items: center; gap: .6rem; min-width: 0; }
 .brand-seal { display: flex; flex: 0 0 auto; }
+/* The badge carries its own white ring, so it needs no border of ours. */
+.brand-seal img { width: 34px; height: auto; display: block; }
 .brand-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
 .brand-text strong {
   font-family: var(--font-display);
@@ -1281,7 +1283,8 @@ body {
   gap: .55rem;
   min-width: 0;
 }
-.topbar-brand .elder-mark { flex: 0 0 auto; }
+.topbar-brand .elder-mark { flex: 0 0 auto; display: flex; }
+.topbar-brand .elder-mark img { width: 32px; height: auto; display: block; }
 .topbar-brand strong {
   font-family: var(--font-display);
   font-size: 1.05rem;
@@ -1290,18 +1293,17 @@ body {
   white-space: nowrap;
 }
 
-/* ---- Elder portrait ---- */
-.elder-portrait {
+/* ---- The seal on the welcome screen ---- */
+.brand-logo {
   position: relative;
-  width: 132px;
-  height: 132px;
+  width: min(168px, 46vw);
   margin: 0 auto 1.4rem;
 }
-/* The glow behind him — sunrise through a doorway */
-.elder-portrait::before {
+/* The glow behind it — sunrise through a doorway */
+.brand-logo::before {
   content: "";
   position: absolute;
-  inset: -14px;
+  inset: -12%;
   border-radius: 50%;
   background: radial-gradient(circle, var(--palm) 0%, rgba(255, 143, 0, .35) 45%, transparent 70%);
   animation: hearth-glow 5s ease-in-out infinite;
@@ -1310,29 +1312,17 @@ body {
   0%, 100% { opacity: .55; transform: scale(1); }
   50% { opacity: .85; transform: scale(1.04); }
 }
-.elder-portrait svg {
+.brand-logo img {
   position: relative;
   display: block;
   width: 100%;
-  height: 100%;
-  border-radius: 50%;
-  border: 3px solid var(--bg-raised);
-  box-shadow: var(--shadow-md);
+  height: auto;
+  /* The ribbon is not round, so the shadow follows the artwork itself
+     rather than a box drawn around it. */
+  filter: drop-shadow(0 6px 14px rgba(0, 0, 0, .18));
 }
-/* The little book badge at his collar */
-.elder-badge {
-  position: absolute;
-  left: 50%;
-  bottom: -10px;
-  transform: translateX(-50%);
-  width: 30px; height: 30px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-sm);
-  font-size: .9rem;
+@media (prefers-reduced-motion: reduce) {
+  .brand-logo::before { animation: none; }
 }
 
 /* ---- Welcome line ---- */
