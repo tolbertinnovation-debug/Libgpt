@@ -26,13 +26,17 @@ const PERSONA_EMOJI = {
   drum: '🥁',
 };
 
-// The oversized glyph bleeding off the right of each card.
-const PERSONA_MARK = {
-  elder: '🏠',
-  book: '✏️',
-  shop: '🛒',
-  leaf: '🌱',
-  drum: '🥁',
+// Small, consistent line icons keep topic cards readable on every device.
+const PERSONA_ICONS = {
+  elder: '<path d="M3 11l9-8 9 8M5 10v11h14V10M9 21v-7h6v7"/>',
+  book: '<path d="M12 6v15M12 6C8 3 4 3 2 4v15c3-1 7 0 10 2 3-2 7-3 10-2V4c-2-1-6-1-10 2Z"/>',
+  shop: '<rect x="3" y="7" width="18" height="14" rx="2"/><path d="M8 7V4h8v3M3 12h18M10 12v3h4v-3"/>',
+  leaf: '<path d="M20 3C8 2 2 8 5 15s15 5 15-12ZM4 21L15 10"/>',
+  drum: '<path d="M4 4h7a3 3 0 0 1 3 3v14a4 4 0 0 0-4-2H4ZM14 7h6v14h-6"/>',
+};
+const PERSONA_DESCRIPTIONS = {
+  general: 'Life & everyday advice', homework: 'Learn something new',
+  business: 'Build your business', farming: 'Grow with confidence', culture: 'Stories & heritage',
 };
 
 const state = {
@@ -253,7 +257,7 @@ function applyTheme(theme) {
   el.themeIcon.textContent = resolved === 'dark' ? '☀' : '☾';
   el.themeLabel.textContent = resolved === 'dark' ? 'Light mode' : 'Dark mode';
   document.querySelector('meta[name="theme-color"]')
-    ?.setAttribute('content', resolved === 'dark' ? '#140c0b' : '#faf3e0');
+    ?.setAttribute('content', resolved === 'dark' ? '#191c1a' : '#f8f7f4');
 }
 
 /* ========================================================================
@@ -310,12 +314,12 @@ function renderWelcome() {
     .map((p) => `
       <button class="persona-card ${p.id === state.prefs.persona ? 'is-active' : ''}"
               data-persona="${p.id}" type="button" aria-pressed="${p.id === state.prefs.persona}">
-        <span class="persona-emoji" aria-hidden="true">${PERSONA_EMOJI[p.icon] || '💬'}</span>
+        <span class="persona-emoji" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22">${PERSONA_ICONS[p.icon] || PERSONA_ICONS.elder}</svg></span>
         <span class="persona-body">
           <span class="persona-name">${escapeHtml(p.label)}</span>
-          <span class="persona-blurb">${escapeHtml(p.blurb)}</span>
+          <span class="persona-blurb">${escapeHtml(PERSONA_DESCRIPTIONS[p.id] || p.blurb)}</span>
         </span>
-        <span class="persona-mark" aria-hidden="true">${PERSONA_MARK[p.icon] || ''}</span>
+        <span class="persona-check" aria-hidden="true">✓</span>
       </button>`)
     .join('');
 
