@@ -146,6 +146,12 @@
         <p class="welcome-proverb" id="welcome-proverb"></p>
 
         <div class="hearth-actions">
+          <button class="hearth-btn is-talk" id="start-talking" type="button">
+            <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+              <path d="M3 12v1M7 8v8M11 5v14M15 8v8M19 11v2"/>
+            </svg>
+            Talk with Grandpa
+          </button>
           <button class="hearth-btn" id="browse-library" type="button">Browse the Library</button>
           <button class="hearth-btn is-muted" id="liberia-focus" type="button" aria-pressed="true">
             <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
@@ -195,6 +201,13 @@
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
               <rect x="9" y="3" width="6" height="11" rx="3"/>
               <path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>
+            </svg>
+          </button>
+          <button class="icon-btn talk-btn" id="talk-btn" type="button"
+                  aria-label="Talk with Grandpa, hands free"
+                  title="Talk with Grandpa, hands free">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path d="M3 12v1M7 8v8M11 5v14M15 8v8M19 11v2"/>
             </svg>
           </button>
           <button class="send-btn" id="send-btn" type="button" aria-label="Send message" disabled>
@@ -309,6 +322,10 @@
         <span><strong>Your accent</strong><small>Helps Grandpa hear you when you speak</small></span>
         <select id="settings-accent"></select>
       </label>
+      <label class="setting-row" for="settings-patience">
+        <span><strong>When talking, wait for me</strong><small id="settings-patience-hint">How long a pause means you have finished</small></span>
+        <select id="settings-patience"></select>
+      </label>
       <label class="setting-row setting-toggle" for="settings-sound">
         <span><strong>Interface sounds</strong><small>Soft taps and chimes, made on the device</small></span>
         <input type="checkbox" id="settings-sound">
@@ -382,6 +399,49 @@
     <p class="gate-error" id="gate-error" hidden></p>
     <button type="submit" id="gate-submit">Enter</button>
   </form>
+</div>
+
+<!-- ============ Talking with Grandpa ============ -->
+<div class="talk" id="talk" hidden role="dialog" aria-modal="true" aria-label="Talking with Grandpa">
+  <div class="talk-top">
+    <span class="talk-badge" id="talk-badge">Talking with Grandpa</span>
+    <button class="icon-btn talk-close" id="talk-close" type="button" aria-label="End the conversation">
+      <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+
+  <div class="talk-stage">
+    <!-- Tapping the seal interrupts him, which is the thing people reach for
+         first, so it is the biggest target on the screen. -->
+    <button class="talk-orb" id="talk-orb" type="button" aria-label="Interrupt and speak">
+      <span class="talk-ring" aria-hidden="true"></span>
+      <span class="talk-ring talk-ring-2" aria-hidden="true"></span>
+      <img src="logo.png" width="320" height="305" alt="">
+    </button>
+
+    <p class="talk-state" id="talk-state" role="status" aria-live="polite">Listening…</p>
+    <p class="talk-hint" id="talk-hint">Just talk. Grandpa answers when you stop.</p>
+
+    <p class="talk-heard" id="talk-heard"></p>
+    <p class="talk-said" id="talk-said"></p>
+  </div>
+
+  <div class="talk-controls">
+    <button class="talk-btn-big" id="talk-hold" type="button">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <path d="M9 5v14M15 5v14"/>
+      </svg>
+      <span id="talk-hold-label">Wait</span>
+    </button>
+    <button class="talk-btn-big is-end" id="talk-end" type="button">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+        <path d="M5 12h14M12 5l-7 7 7 7"/>
+      </svg>
+      Done
+    </button>
+  </div>
+
+  <p class="talk-foot">Everything said here is saved in this conversation, so you can read it after.</p>
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>

@@ -18,6 +18,9 @@ const CHUNK_LIMIT = 180;
 export function stripMarkdown(text) {
   return String(text ?? '')
     .replace(/```[\s\S]*?```/g, ' . Then some code, which I will not read out. ')
+    // A fence with no partner — which is what a code block looks like while an
+    // answer is still streaming in, one sentence at a time.
+    .replace(/^\s*```.*$/gm, ' ')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/!\[[^\]]*\]\([^)]*\)/g, ' ')
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
@@ -82,6 +85,48 @@ export function splitForSpeech(text, limit = CHUNK_LIMIT) {
 
   flush();
   return chunks;
+}
+
+/**
+ * Turns a reply that is still streaming in into whole sentences.
+ *
+ * Waiting for the last token before speaking costs a spoken conversation its
+ * whole feel — several seconds of silence after every question, and worse on
+ * the 2G connections this is built for. So the text is spoken sentence by
+ * sentence as it arrives, which means finding the end of a sentence in a
+ * string that is still growing.
+ */
+export class SentenceStream {
+  constructor() {
+    this.buffer = '';
+  }
+
+  /** Add newly arrived text; get back whatever sentences are now complete. */
+  push(delta) {
+    this.buffer += delta ?? '';
+    const done = [];
+
+    // A sentence ends at . ! ? : or a newline — but only when something
+    // follows it, so a full stop at the very end of the buffer is left alone
+    // until the next token proves it was not mid-word ("3.5", "Mr.").
+    const ender = /[.!?:]\s|\n/;
+    for (;;) {
+      const at = this.buffer.search(ender);
+      if (at === -1) break;
+      const cut = this.buffer[at] === '\n' ? at + 1 : at + 2;
+      const sentence = this.buffer.slice(0, cut).trim();
+      this.buffer = this.buffer.slice(cut);
+      if (sentence) done.push(sentence);
+    }
+    return done;
+  }
+
+  /** The tail after the last full stop — spoken once the answer is finished. */
+  flush() {
+    const rest = this.buffer.trim();
+    this.buffer = '';
+    return rest ? [rest] : [];
+  }
 }
 
 // Which English a Liberian listener is most likely to find natural, best
@@ -193,6 +238,36 @@ export class Speaker {
     this.#startKeepAlive();
     // A beat after cancel() — Chrome drops a speak() issued too soon after.
     setTimeout(() => this.#playFrom(token), 60);
+    return true;
+  }
+
+  /**
+   * Add to what is already being said, instead of replacing it.
+   *
+   * `speak()` starts an answer; this continues one, so a reply can be read out
+   * sentence by sentence while the rest of it is still arriving. The voice
+   * settings of the run in progress are kept — changing voice mid-answer would
+   * sound like a second person taking over.
+   */
+  enqueue(text, { voice = null, rate = 0.95, pitch = 0.9 } = {}) {
+    if (!this.supported) return false;
+
+    const chunks = splitForSpeech(text);
+    if (chunks.length === 0) return false;
+
+    if (this.state === 'idle') {
+      this.chunks = chunks;
+      this.index = 0;
+      this.settings = { voice, rate, pitch };
+      const token = ++this.token;
+      this.#setState('speaking');
+      this.#startKeepAlive();
+      setTimeout(() => this.#playFrom(token), 60);
+      return true;
+    }
+
+    // Already speaking or paused: join the queue the running loop is reading.
+    this.chunks.push(...chunks);
     return true;
   }
 

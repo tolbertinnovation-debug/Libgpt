@@ -1804,3 +1804,227 @@ body {
   font-size: .74rem;
   color: var(--text-faint);
 }
+
+/* ========================================================================
+   Talking with Grandpa — the hands-free conversation
+   ========================================================================
+   A full screen on purpose. This mode is for someone holding the phone at
+   arm's length, or not holding it at all: everything that matters has to be
+   readable across a room and tappable without aiming. */
+
+.talk {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: calc(env(safe-area-inset-top, 0px) + 1rem) 1.25rem
+           calc(env(safe-area-inset-bottom, 0px) + 1.25rem);
+  background:
+    radial-gradient(ellipse at 50% 22%, rgba(255, 143, 0, .22), transparent 62%),
+    var(--bg);
+  animation: talk-in .28s ease-out;
+}
+@keyframes talk-in {
+  from { opacity: 0; transform: scale(.98); }
+  to { opacity: 1; transform: none; }
+}
+
+.talk-top {
+  width: 100%;
+  max-width: 34rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+}
+.talk-badge {
+  font-family: var(--font-display);
+  font-size: .82rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
+.talk-stage {
+  flex: 1;
+  width: 100%;
+  max-width: 34rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  text-align: center;
+  min-height: 0;
+}
+
+/* ---- the seal, which is also the interrupt button ---- */
+.talk-orb {
+  position: relative;
+  width: min(210px, 44vh);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  margin-bottom: 1.1rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.talk-orb img {
+  position: relative;
+  width: 78%;
+  height: auto;
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, .2));
+  transition: transform .3s ease;
+}
+.talk-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--palm);
+  opacity: 0;
+}
+
+/* Listening: two rings breathe outward, like someone leaning in. */
+.talk[data-state="listening"] .talk-ring {
+  animation: talk-listen 2.4s ease-out infinite;
+  opacity: 1;
+}
+.talk[data-state="listening"] .talk-ring-2 { animation-delay: 1.2s; }
+@keyframes talk-listen {
+  0% { transform: scale(.82); opacity: .55; }
+  100% { transform: scale(1.12); opacity: 0; }
+}
+/* A word just landed — the ring answers it, so the screen proves it heard. */
+.talk-orb.is-hearing .talk-ring { animation-duration: 1s; }
+
+/* Thinking: a slow turn of the whole seal. */
+.talk[data-state="thinking"] .talk-orb img { animation: talk-think 2.6s ease-in-out infinite; }
+@keyframes talk-think {
+  0%, 100% { transform: scale(1); opacity: .82; }
+  50% { transform: scale(.965); opacity: 1; }
+}
+
+/* Speaking: a steady pulse in the brand red. */
+.talk[data-state="speaking"] .talk-ring {
+  border-color: var(--terracotta);
+  opacity: 1;
+  animation: talk-speak 1.5s ease-out infinite;
+}
+.talk[data-state="speaking"] .talk-ring-2 { animation-delay: .75s; }
+@keyframes talk-speak {
+  0% { transform: scale(.9); opacity: .5; }
+  100% { transform: scale(1.06); opacity: 0; }
+}
+
+.talk[data-state="paused"] .talk-orb img,
+.talk[data-state="trouble"] .talk-orb img { filter: grayscale(.6) opacity(.75); }
+
+@media (prefers-reduced-motion: reduce) {
+  .talk, .talk-ring, .talk-orb img { animation: none !important; }
+  .talk[data-state="listening"] .talk-ring { opacity: .5; }
+}
+
+/* ---- words ---- */
+.talk-state {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(1.3rem, 5vw, 1.8rem);
+  color: var(--text);
+}
+.talk-hint {
+  margin: 0 0 .5rem;
+  font-size: .92rem;
+  color: var(--text-faint);
+}
+.talk-heard {
+  margin: 0;
+  max-width: 30rem;
+  font-size: 1.05rem;
+  line-height: 1.5;
+  color: var(--text);
+  min-height: 1.5em;
+}
+.talk-heard:not(:empty)::before { content: "“"; }
+.talk-heard:not(:empty)::after { content: "”"; }
+.talk-said {
+  margin: .35rem 0 0;
+  max-width: 32rem;
+  max-height: 7.5rem;
+  overflow: hidden;
+  font-size: .96rem;
+  line-height: 1.55;
+  color: var(--text-soft);
+  /* The tail of a long answer fades out rather than being cut mid-letter. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent);
+  mask-image: linear-gradient(to bottom, #000 60%, transparent);
+}
+
+/* ---- controls ---- */
+.talk-controls {
+  display: flex;
+  gap: .75rem;
+  width: 100%;
+  max-width: 24rem;
+}
+.talk-btn-big {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: .5rem;
+  min-height: 3.25rem;
+  padding: .5rem 1rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text);
+  font: inherit;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.talk-btn-big svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.talk-btn-big:hover { background: var(--bg-hover); }
+.talk-btn-big.is-end {
+  background: var(--terracotta);
+  border-color: var(--terracotta);
+  color: #fff;
+}
+.talk-btn-big.is-end:hover { filter: brightness(1.06); }
+
+.talk-foot {
+  margin: .85rem 0 0;
+  font-size: .78rem;
+  color: var(--text-faint);
+  text-align: center;
+  max-width: 26rem;
+}
+
+/* ---- the ways in ---- */
+.talk-btn svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.hearth-btn.is-talk {
+  display: inline-flex;
+  align-items: center;
+  gap: .5rem;
+  background: var(--terracotta);
+  border-color: var(--terracotta);
+  color: #fff;
+}
+.hearth-btn.is-talk svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.hearth-btn.is-talk:hover { filter: brightness(1.06); }
+
+/* Short screens — a phone in landscape, or a small laptop. */
+@media (max-height: 600px) {
+  .talk-orb { width: min(130px, 30vh); margin-bottom: .6rem; }
+  .talk-said { display: none; }
+  .talk-foot { display: none; }
+}
+
+/* Nothing behind the conversation should scroll while it is open. */
+body.is-talking { overflow: hidden; }

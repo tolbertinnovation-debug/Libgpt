@@ -2,8 +2,11 @@ import { renderMarkdown, escapeHtml } from './markdown.js';
 import { groupByDate, loadChats, loadPrefs, newId, savePrefs, saveChats } from './storage.js';
 import {
   DEFAULT_DICTATION, DICTATION_ACCENTS, FALLBACK_DICTATION,
-  Speaker, englishVoices, loadVoices, pickDefaultVoice,
+  Speaker, SentenceStream, englishVoices, loadVoices, pickDefaultVoice, stripMarkdown,
 } from './speech.js';
+import {
+  DEFAULT_PATIENCE, PATIENCE, SpeechRecognitionAPI, VoiceConversation, patienceMs,
+} from './converse.js';
 import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
@@ -49,6 +52,7 @@ const state = {
     voicePitch: 0.9,
     voiceURI: '',        // '' = let the app pick the closest accent
     dictationAccent: DEFAULT_DICTATION,
+    patience: DEFAULT_PATIENCE,
     userName: '',
     speaker: 'grandpa',
     tone: 'warmth',
@@ -129,6 +133,19 @@ const el = {
   send: $('send-btn'),
   stop: $('stop-btn'),
   mic: $('mic-btn'),
+  talkBtn: $('talk-btn'),
+  startTalking: $('start-talking'),
+  talk: $('talk'),
+  talkOrb: $('talk-orb'),
+  talkState: $('talk-state'),
+  talkHint: $('talk-hint'),
+  talkHeard: $('talk-heard'),
+  talkSaid: $('talk-said'),
+  talkHold: $('talk-hold'),
+  talkHoldLabel: $('talk-hold-label'),
+  talkEnd: $('talk-end'),
+  talkClose: $('talk-close'),
+  setPatience: $('settings-patience'),
   toast: $('toast'),
   gate: $('gate'),
   gateForm: $('gate-form'),
@@ -419,7 +436,7 @@ function showError(message, { retry = true } = {}) {
       if (!chat || state.streaming) return;
       box.remove();
       // The question is still in the history, so just ask again.
-      streamReply(chat);
+      streamReply(chat).catch(() => {});
     });
     box.appendChild(document.createElement('br'));
     box.appendChild(button);
@@ -434,7 +451,15 @@ function setBusy(busy) {
   el.input.disabled = false; // let the user type their next question while waiting
 }
 
-async function streamReply(chat) {
+/**
+ * Ask for a reply and stream it into the thread.
+ *
+ * `hooks` is how a spoken conversation listens in: it needs each delta as it
+ * lands (to speak whole sentences early), the finished text, and any error —
+ * all of which the thread shows on screen, where a hands-free listener is not
+ * looking. `spoken` also tells the server to answer the way people talk.
+ */
+async function streamReply(chat, hooks = {}) {
   const controller = new AbortController();
   state.streaming = controller;
   setBusy(true);
@@ -442,6 +467,7 @@ async function streamReply(chat) {
   const target = startAiTurn();
   let text = '';
   let failed = false;
+  let trouble = '';   // what went wrong, for a listener who cannot see it
 
   try {
     const response = await fetch('/api/chat', {
@@ -454,6 +480,7 @@ async function streamReply(chat) {
         language: state.prefs.language,
         model: state.prefs.model,
         lowData: state.prefs.lowData,
+        spoken: Boolean(hooks.spoken),
         speaker: state.prefs.speaker,
         tone: state.prefs.tone,
         userName: state.prefs.userName,
@@ -501,23 +528,24 @@ async function streamReply(chat) {
           target.innerHTML = renderMarkdown(text);
           target.classList.add('cursor');
           if (stick) el.thread.scrollTop = el.thread.scrollHeight;
+          hooks.onDelta?.(payload.text, text);
         } else if (event === 'error') {
           failed = true;
+          trouble = payload.message || 'Something went wrong. Try again.';
           target.closest('.turn')?.remove();
-          showError(payload.message || 'Something went wrong. Try again.');
+          showError(trouble);
         }
       }
     }
   } catch (error) {
     if (error.name !== 'AbortError') {
       failed = true;
+      trouble = navigator.onLine === false
+        ? 'You are offline. Your message is saved — send it again when the network comes back.'
+        : error.message || 'Could not reach the server.';
       target.closest('.turn')?.remove();
       sounds.error();
-      showError(
-        navigator.onLine === false
-          ? 'You are offline. Your message is saved — send it again when the network comes back.'
-          : error.message || 'Could not reach the server.',
-      );
+      showError(trouble);
     }
   } finally {
     target.classList.remove('cursor');
@@ -532,14 +560,19 @@ async function streamReply(chat) {
     renderThread();
     renderSidebar();
     if (!failed) sounds.reply();
-    // Read it out for anyone who reads slowly — but never over an aborted reply.
-    if (state.prefs.autoSpeak && !failed) speak(text);
+    // Read it out for anyone who reads slowly — but never over an aborted
+    // reply, and never in a spoken conversation, which is already saying it
+    // sentence by sentence as it arrives.
+    if (state.prefs.autoSpeak && !failed && !hooks.spoken) speak(text);
   } else if (!failed) {
     // Aborted before any text arrived — drop the empty turn.
     target.closest('.turn')?.remove();
   }
 
   if (!chat.titled && chat.messages.length >= 2) nameConversation(chat);
+
+  hooks.onDone?.(text, failed);
+  if (failed && trouble) throw new Error(trouble);
 }
 
 async function nameConversation(chat) {
@@ -605,7 +638,8 @@ function send(rawText) {
   renderSidebar();
   sounds.send();
 
-  streamReply(chat);
+  // The error is already on screen; this only stops an unhandled rejection.
+  streamReply(chat).catch(() => {});
 }
 
 function regenerate(index) {
@@ -614,7 +648,7 @@ function regenerate(index) {
   chat.messages = chat.messages.slice(0, index); // drop this reply, keep the question
   persist();
   renderThread();
-  streamReply(chat);
+  streamReply(chat).catch(() => {});
 }
 
 /* ========================================================================
@@ -790,6 +824,153 @@ function toggleMic() {
 el.listenStop.addEventListener('click', stopListening);
 
 /* ========================================================================
+   Talking with Grandpa — a spoken conversation
+   ========================================================================
+   The loop itself lives in converse.js. This is the part that belongs to the
+   app: what a turn actually does (it is an ordinary message in an ordinary
+   conversation, so hanging up leaves a transcript), and what the screen shows
+   while it happens. */
+
+const TALK_WORDS = {
+  listening: ['Listening…', 'Just talk. Grandpa answers when you stop.'],
+  thinking: ['Grandpa is thinking…', 'One moment.'],
+  speaking: ['Grandpa is talking', 'Tap the seal to cut in.'],
+  paused: ['Waiting', 'Tap Continue when you are ready.'],
+  trouble: ['Grandpa cannot hear', 'Check the microphone permission for this site.'],
+};
+
+/**
+ * One spoken turn: the same push-and-stream as typing, plus the sentences
+ * handed to the voice as soon as each one is whole.
+ */
+function askAloud(said, { onSentence, onText }) {
+  const chat = ensureChat();
+  if (!chat.title) chat.title = said.slice(0, 48);
+  chat.messages.push({ role: 'user', content: said });
+  chat.updatedAt = Date.now();
+  persist();
+  renderThread();
+  renderSidebar();
+
+  const sentences = new SentenceStream();
+
+  return streamReply(chat, {
+    spoken: true,
+    onDelta: (delta, whole) => {
+      onText(whole);
+      for (const sentence of sentences.push(delta)) onSentence(sentence);
+    },
+    onDone: (_text, failed) => {
+      // The tail after the last full stop, which nothing else will emit.
+      if (!failed) for (const sentence of sentences.flush()) onSentence(sentence);
+    },
+  });
+}
+
+const conversation = new VoiceConversation({
+  createEar: () => new SpeechRecognitionAPI(),
+  speaker,
+  voiceSettings: () => ({
+    voice: chosenVoice(),
+    rate: state.prefs.voiceRate,
+    pitch: state.prefs.voicePitch,
+  }),
+  lang: () => state.prefs.dictationAccent || DEFAULT_DICTATION,
+  patience: () => patienceMs(state.prefs.patience),
+  ask: askAloud,
+
+  onState: (talkState) => {
+    el.talk.dataset.state = talkState;
+    const [title, hint] = TALK_WORDS[talkState] || ['', ''];
+    if (title) el.talkState.textContent = title;
+    el.talkHint.textContent = hint;
+
+    const held = talkState === 'paused' || talkState === 'trouble';
+    el.talkHoldLabel.textContent = held ? 'Continue' : 'Wait';
+    el.talkHold.classList.toggle('is-on', held);
+
+    // The last answer stays on screen while listening for the next question —
+    // it is only cleared when a new one starts coming.
+    if (talkState === 'thinking') el.talkSaid.textContent = '';
+    if (talkState === 'listening') sounds.listen();
+    if (talkState === 'closed') closeTalk();
+  },
+
+  onHeard: (text, settled) => {
+    el.talkHeard.textContent = text;
+    el.talkOrb.classList.toggle('is-hearing', Boolean(text) && !settled);
+    if (settled) sounds.send();
+  },
+
+  onSaid: (text) => {
+    // A caption for what is being said, so it has to be the words that are
+    // actually spoken — not the asterisks and hashes the voice skips over.
+    el.talkSaid.textContent = stripMarkdown(text);
+  },
+
+  onNotice: (message, kind) => {
+    toast(message);
+    if (kind === 'trouble') el.talkState.textContent = 'Grandpa cannot hear';
+  },
+});
+
+// The Speaker is shared with the rest of the app, so the conversation is told
+// about it rather than owning it — that is how it learns an answer has
+// actually finished being said, not just finished arriving.
+speaker.onStateChange = ((previous) => (speechState) => {
+  previous(speechState);
+  conversation.noteSpeechState(speechState);
+})(speaker.onStateChange);
+
+let talkReturnFocus = null;
+
+function openTalk() {
+  if (!conversation.supported) {
+    toast(!SpeechRecognitionAPI
+      ? 'Talking needs Chrome, Edge or Safari. You can still type, and still tap Listen.'
+      : 'This browser cannot speak answers aloud.');
+    return;
+  }
+
+  talkReturnFocus = document.activeElement;
+  if (listening) stopListening();   // the composer's microphone, not this one
+  speaker.stop();
+  closeNav();
+
+  el.talkHeard.textContent = '';
+  el.talkSaid.textContent = '';
+  el.talk.hidden = false;
+  el.talkEnd.focus();
+
+  if (!conversation.start()) {
+    el.talk.hidden = true;
+    return;
+  }
+  document.body.classList.add('is-talking');
+}
+
+function closeTalk() {
+  if (el.talk.hidden) return;
+  el.talk.hidden = true;
+  document.body.classList.remove('is-talking');
+  conversation.stop();
+  renderThread();
+  renderSidebar();
+  talkReturnFocus?.focus?.();
+}
+
+el.talkBtn.addEventListener('click', openTalk);
+el.startTalking.addEventListener('click', openTalk);
+el.talkOrb.addEventListener('click', () => conversation.interrupt());
+el.talkHold.addEventListener('click', () => conversation.toggle());
+el.talkEnd.addEventListener('click', closeTalk);
+el.talkClose.addEventListener('click', closeTalk);
+
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !el.talk.hidden) closeTalk();
+});
+
+/* ========================================================================
    Settings
    ======================================================================== */
 
@@ -849,6 +1030,7 @@ function renderSettings() {
   el.setPitch.value = prefs.voicePitch;
   el.setPitchValue.textContent = PITCH_WORDS.find(([limit]) => prefs.voicePitch < limit)[1];
   el.setAccent.value = prefs.dictationAccent;
+  el.setPatience.value = prefs.patience || DEFAULT_PATIENCE;
   el.setName.value = prefs.userName || '';
   el.setSpeaker.value = prefs.speaker;
   el.setTone.value = prefs.tone;
@@ -1029,6 +1211,13 @@ el.setSpeaker.addEventListener('change', () => {
 el.setTone.addEventListener('change', () => {
   state.prefs.tone = el.setTone.value;
   savePreferences();
+});
+
+el.setPatience.addEventListener('change', () => {
+  state.prefs.patience = el.setPatience.value;
+  savePreferences();
+  const choice = PATIENCE.find((p) => p.id === state.prefs.patience);
+  if (choice) toast(`${choice.label} — ${choice.blurb.toLowerCase()}.`);
 });
 
 el.setSound.addEventListener('change', () => {
@@ -1555,6 +1744,18 @@ async function boot() {
     .map((a) => `<option value="${a.id}">${escapeHtml(a.label)}</option>`)
     .join('');
   el.setAccent.value = state.prefs.dictationAccent;
+
+  el.setPatience.innerHTML = PATIENCE
+    .map((o) => `<option value="${o.id}">${escapeHtml(o.label)} — ${escapeHtml(o.blurb)}</option>`)
+    .join('');
+  el.setPatience.value = state.prefs.patience || DEFAULT_PATIENCE;
+
+  // No microphone, no spoken conversation — say so by leaving the way in out
+  // of reach rather than letting it fail when tapped.
+  if (!SpeechRecognitionAPI) {
+    el.talkBtn.hidden = true;
+    el.startTalking.hidden = true;
+  }
 
   // Voices arrive asynchronously — fill the picker once they do.
   loadVoices().then((voices) => {

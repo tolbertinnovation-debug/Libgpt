@@ -1,0 +1,412 @@
+// A spoken conversation: talk, and be talked back to, with no hands.
+//
+// The hard part is not speech recognition or speech synthesis — the browser
+// does both. It is the turn-taking between them, which has three real problems:
+//
+//   1. THE ECHO. A phone's microphone hears its own loudspeaker. Left
+//      listening while Grandpa talks, the recogniser transcribes his answer
+//      back to him and the conversation eats itself. So this is half-duplex:
+//      the ear is closed while the mouth is open. Interrupting is a tap, not
+//      a shout, and the interface says so rather than pretending otherwise.
+//
+//   2. KNOWING WHEN SOMEONE HAS FINISHED. The Web Speech API will happily
+//      listen forever. A person's turn ends with a silence — but how long a
+//      silence depends on the person. An elder thinking mid-sentence is not
+//      finished. So the wait is a setting, not a constant.
+//
+//   3. LATENCY. Waiting for the whole answer before speaking any of it leaves
+//      several seconds of dead air after every question, and many more on a 2G
+//      connection. So each sentence is spoken as it arrives.
+//
+// Everything here is a state machine over those three, guarded by a turn token
+// so that a late callback from an abandoned turn cannot speak over a new one.
+
+import { FALLBACK_DICTATION } from './speech.js';
+
+/** How long a silence means "I have finished talking". */
+export const PATIENCE = [
+  { id: 'quick', label: 'Quick', ms: 900, blurb: 'Answers the moment you stop' },
+  { id: 'normal', label: 'Normal', ms: 1600, blurb: 'A short pause, in case there is more' },
+  { id: 'patient', label: 'Patient', ms: 2800, blurb: 'Room to think in the middle of a sentence' },
+];
+
+export const DEFAULT_PATIENCE = 'normal';
+
+export const patienceMs = (id) =>
+  (PATIENCE.find((p) => p.id === id) || PATIENCE.find((p) => p.id === DEFAULT_PATIENCE)).ms;
+
+// The loudspeaker keeps ringing for a moment after the last word. Opening the
+// ear straight away catches that tail and hears it as the user talking.
+const AFTER_SPEECH_MS = 300;
+
+// An open microphone that nobody is using is a battery cost and a thing to be
+// uneasy about. After this long with nothing heard at all, listening pauses
+// itself and waits to be asked again.
+const NOBODY_THERE_MS = 60_000;
+
+export const SpeechRecognitionAPI = typeof window === 'undefined'
+  ? null
+  : window.SpeechRecognition || window.webkitSpeechRecognition || null;
+
+/**
+ * States, in the order they normally run:
+ *
+ *   listening → thinking → speaking → listening …
+ *
+ * plus 'paused' (asked to wait), 'closed' (not running) and 'trouble'
+ * (something the user has to fix, like a refused microphone).
+ */
+export class VoiceConversation {
+  /**
+   * @param {object} deps
+   * @param {(lang: string) => SpeechRecognition} deps.createEar  builds a recogniser
+   * @param {object} deps.speaker            the shared Speaker
+   * @param {() => object} deps.voiceSettings  voice, rate and pitch at this moment
+   * @param {() => string} deps.lang           dictation locale
+   * @param {() => number} deps.patience       silence that ends a turn, in ms
+   * @param {(said: string, hooks: object) => Promise<string>} deps.ask  send a turn
+   * @param {(state: string) => void} deps.onState
+   * @param {(text: string, settled: boolean) => void} deps.onHeard   what they said
+   * @param {(text: string) => void} deps.onSaid                      what he answered
+   * @param {(message: string, kind?: string) => void} deps.onNotice
+   */
+  constructor(deps) {
+    Object.assign(this, deps);
+
+    this.state = 'closed';
+    this.turn = 0;          // invalidates callbacks from an abandoned turn
+    this.ear = null;
+    this.silence = null;
+    this.alone = null;
+    this.wake = null;
+    this.fellBack = false;  // already dropped to a locale that always exists
+    this.answerDone = false;
+    this.spokeSomething = false;
+
+    this.onVisibility = () => {
+      if (document.visibilityState === 'hidden' && this.state === 'listening') {
+        // Listening on in the background is not what anyone means by this.
+        this.pause('Paused while you were away.');
+      }
+    };
+  }
+
+  get supported() {
+    return Boolean(SpeechRecognitionAPI) && Boolean(this.speaker?.supported);
+  }
+
+  get active() {
+    return this.state !== 'closed';
+  }
+
+  #setState(state) {
+    if (this.state === state) return;
+    this.state = state;
+    this.onState?.(state);
+  }
+
+  /* ---- the ear ---------------------------------------------------------- */
+
+  #openEar() {
+    if (this.ear) return true;
+
+    let ear;
+    try {
+      // Once a locale has been refused on this device, stop asking for it.
+      ear = this.createEar(this.fellBack ? FALLBACK_DICTATION : this.lang());
+    } catch {
+      return false;
+    }
+
+    ear.continuous = true;
+    ear.interimResults = true;
+
+    ear.onresult = (event) => {
+      if (this.ear !== ear || this.state !== 'listening') return;
+
+      // Each event re-reports the words that are not settled yet, so the
+      // interim is rebuilt rather than appended to — and kept, because the
+      // last phrase is often still interim when the silence runs out.
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const result = event.results[i];
+        if (result.isFinal) this.settled += `${result[0].transcript.trim()} `;
+        else interim += result[0].transcript;
+      }
+      this.loose = interim;
+
+      const heard = `${this.settled}${this.loose}`.replace(/\s+/g, ' ').trim();
+      this.onHeard?.(heard, false);
+
+      if (heard) {
+        this.#stopAloneTimer();
+        this.#armSilence();
+      }
+    };
+
+    ear.onerror = (event) => {
+      if (this.ear !== ear) return;
+
+      if (event.error === 'not-allowed' || event.error === 'service-not-allowed') {
+        this.#trouble('Grandpa cannot hear you until the microphone is allowed. '
+          + 'Check the microphone permission for this site in your browser settings.');
+        return;
+      }
+      if (event.error === 'language-not-supported' && !this.fellBack) {
+        this.fellBack = true;
+        this.onNotice?.('That accent is not available on this device. Using American English.');
+        return; // onend restarts, and lang() now answers with the fallback
+      }
+      // 'no-speech' and 'aborted' are ordinary: onend starts listening again.
+      if (event.error === 'network') {
+        this.onNotice?.('The speech service could not be reached. Trying again.');
+      }
+    };
+
+    ear.onend = () => {
+      // A recogniser we already replaced or deliberately closed: let it go.
+      if (this.ear !== ear) return;
+      this.ear = null;
+      // Browsers stop listening after a silence of their own. While this is
+      // still a conversation, open it again.
+      if (this.state === 'listening') this.#openEar();
+    };
+
+    try {
+      ear.start();
+    } catch {
+      // Already running, or refused. Either way there is nothing to listen to.
+      return false;
+    }
+
+    this.ear = ear;
+    return true;
+  }
+
+  #closeEar() {
+    const ear = this.ear;
+    this.ear = null;   // set first: the onend above then knows to stand down
+    try { ear?.stop(); } catch { /* it had already stopped */ }
+  }
+
+  /* ---- timers ----------------------------------------------------------- */
+
+  #armSilence() {
+    clearTimeout(this.silence);
+    this.silence = setTimeout(() => this.#finishTurn(), this.patience());
+  }
+
+  #startAloneTimer() {
+    this.#stopAloneTimer();
+    this.alone = setTimeout(() => {
+      if (this.state === 'listening') {
+        this.pause('Still here whenever you are ready.');
+      }
+    }, NOBODY_THERE_MS);
+  }
+
+  #stopAloneTimer() {
+    clearTimeout(this.alone);
+    this.alone = null;
+  }
+
+  #clearTimers() {
+    clearTimeout(this.silence);
+    this.silence = null;
+    this.#stopAloneTimer();
+  }
+
+  /* ---- the loop --------------------------------------------------------- */
+
+  #listen({ delay = 0 } = {}) {
+    this.turn += 1;
+    this.settled = '';
+    this.loose = '';
+    this.onHeard?.('', false);
+    this.#setState('listening');
+
+    const open = () => {
+      if (this.state !== 'listening') return;
+      if (!this.#openEar()) {
+        this.#trouble('The microphone could not be opened. Close other apps using it and try again.');
+        return;
+      }
+      this.#startAloneTimer();
+    };
+
+    if (delay) setTimeout(open, delay);
+    else open();
+  }
+
+  async #finishTurn() {
+    const said = `${this.settled}${this.loose}`.replace(/\s+/g, ' ').trim();
+    this.#clearTimers();
+
+    // Half a word, a cough, the room. Keep listening rather than asking
+    // Grandpa to make sense of nothing.
+    if (said.length < 2) {
+      this.settled = '';
+      this.loose = '';
+      this.#startAloneTimer();
+      return;
+    }
+
+    this.#closeEar();
+    this.onHeard?.(said, true);
+    this.#setState('thinking');
+
+    const turn = ++this.turn;
+    const settings = this.voiceSettings();
+    this.answerDone = false;
+    this.spokeSomething = false;
+
+    try {
+      await this.ask(said, {
+        // Each finished sentence is spoken while the rest is still arriving.
+        onSentence: (sentence) => {
+          if (turn !== this.turn || !this.active) return;
+          if (this.speaker.enqueue(sentence, settings)) {
+            this.spokeSomething = true;
+            if (this.state === 'thinking') this.#setState('speaking');
+          }
+        },
+        onText: (text) => {
+          if (turn !== this.turn) return;
+          this.onSaid?.(text);
+        },
+      });
+
+      if (turn !== this.turn || !this.active) return;
+      this.answerDone = true;
+
+      // An answer that produced no speech at all — empty, or refused — should
+      // not leave the conversation sitting in silence waiting for a voice.
+      if (!this.spokeSomething || this.speaker.state === 'idle') {
+        this.#listen({ delay: AFTER_SPEECH_MS });
+      }
+    } catch (error) {
+      if (turn !== this.turn || !this.active) return;
+      const trouble = error?.message || 'That did not go through. Say it again.';
+      this.onNotice?.(trouble);
+      // Only the first sentence: an error read out in full is worse than the
+      // error. The rest of it is on the screen.
+      this.say(trouble.split(/(?<=[.!?])\s/)[0]);
+    }
+  }
+
+  /**
+   * The Speaker reports its own state; this is how the loop learns that the
+   * answer has actually finished being said. Called by whoever owns the
+   * Speaker, since it is shared with the rest of the app.
+   */
+  noteSpeechState(state) {
+    if (!this.active) return;
+    if (state === 'idle' && this.state === 'speaking' && this.answerDone) {
+      this.#listen({ delay: AFTER_SPEECH_MS });
+    }
+  }
+
+  /**
+   * Say one short line and then go back to listening.
+   *
+   * For the things a hands-free listener would otherwise never learn — that
+   * the network failed, that nothing came back. Saying it is the only way it
+   * reaches someone holding the phone at arm's length.
+   */
+  say(line) {
+    if (!this.active || !line) return;
+    this.turn += 1;
+    this.#clearTimers();
+    this.#closeEar();
+    this.answerDone = true;
+    this.spokeSomething = true;
+    this.#setState('speaking');
+    if (!this.speaker.enqueue(line, this.voiceSettings())) {
+      this.#listen({ delay: AFTER_SPEECH_MS });
+    }
+  }
+
+  /* ---- what the buttons do ---------------------------------------------- */
+
+  start() {
+    if (this.active) return true;
+    if (!this.supported) {
+      this.onNotice?.(!SpeechRecognitionAPI
+        ? 'Speaking with Grandpa needs Chrome, Edge or Safari. You can still type.'
+        : 'This browser cannot speak answers aloud.');
+      return false;
+    }
+
+    this.fellBack = false;
+    document.addEventListener('visibilitychange', this.onVisibility);
+    this.#keepAwake();
+    this.#listen();
+    return this.state === 'listening';
+  }
+
+  /** Stop talking and listen again — the way to cut Grandpa off mid-answer. */
+  interrupt() {
+    if (!this.active) return;
+    this.turn += 1;           // orphan the answer still arriving
+    this.speaker.stop();
+    this.#listen({ delay: 120 });
+  }
+
+  /** Close the ear but stay open, so nothing is heard until asked. */
+  pause(message = '') {
+    if (!this.active) return;
+    this.turn += 1;
+    this.#clearTimers();
+    this.#closeEar();
+    this.speaker.stop();
+    this.#setState('paused');
+    if (message) this.onNotice?.(message);
+  }
+
+  resume() {
+    if (!this.active || this.state === 'listening') return;
+    this.#listen();
+  }
+
+  toggle() {
+    if (this.state === 'paused' || this.state === 'trouble') this.resume();
+    else this.pause();
+  }
+
+  #trouble(message) {
+    this.turn += 1;
+    this.#clearTimers();
+    this.#closeEar();
+    this.#setState('trouble');
+    this.onNotice?.(message, 'trouble');
+  }
+
+  stop() {
+    if (!this.active) return;
+    this.turn += 1;
+    this.#clearTimers();
+    this.#closeEar();
+    this.speaker.stop();
+    this.#releaseWake();
+    document.removeEventListener('visibilitychange', this.onVisibility);
+    this.#setState('closed');
+  }
+
+  /* ---- keep the screen on ----------------------------------------------- */
+  // A conversation held at arm's length is a conversation nobody is touching,
+  // and a phone that locks mid-answer has ended it.
+
+  async #keepAwake() {
+    try {
+      this.wake = await navigator.wakeLock?.request('screen');
+      this.wake?.addEventListener?.('release', () => { this.wake = null; });
+    } catch {
+      /* not supported, or refused — the conversation works without it */
+    }
+  }
+
+  #releaseWake() {
+    try { this.wake?.release(); } catch { /* already gone */ }
+    this.wake = null;
+  }
+}

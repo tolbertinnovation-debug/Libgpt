@@ -26,6 +26,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Daylight & Twilight** | Daylight is linen `#FAF3E0`, terracotta `#C62828`, palm gold `#FF8F00`, wood brown `#4E342E`. Twilight is deep mahogany `#140C0B` with warm amber, for evening storytelling. |
 | **Interface sounds** | Taps, sends and chimes synthesised with Web Audio oscillators — no audio files to download on a metered connection. |
 | **Multilingual chatbot** | Liberian English vernacular by default, standard English alongside it. Kpelle, Vai and Bassa appear in the picker as roadmap languages — the assistant says plainly that they are still being built rather than faking them. |
+| **Talking with Grandpa** | A hands-free spoken conversation: talk, stop talking, and he answers out loud — then listens again by himself, with nothing to press. Each sentence of his answer is spoken as it arrives rather than after the whole thing, and the exchange is left behind as an ordinary conversation you can read. See below. |
 | **Voice out** | Press **Listen** on any answer, or turn on auto-read. Long answers are split into sentence-sized chunks, which is what stops browsers cutting them off part-way. Pause, continue and stop from a bar above the composer. |
 | **Voice in** | Hold a conversation with the microphone: continuous dictation with the words appearing as you speak, so a pause for breath does not end it. Pick the accent closest to your own; if a device cannot do it, it falls back rather than failing. |
 | **Grandpa's voice** | Choose from the voices your device has. The default is the closest to Liberia the device offers — West African first, then British, then whatever exists. Speed and depth are adjustable, with a test button. |
@@ -144,6 +145,38 @@ table of which model wants what, the server reads the refusal, sends the request
 again without the offending setting, and remembers what each model refused — so that
 round trip is paid once, not on every message.
 
+### Talking with Grandpa
+
+Tap **Talk with Grandpa** on the welcome screen, or the waveform beside the
+microphone, and it becomes a conversation: you speak, you stop, he answers
+aloud, and he is listening again before you think to ask for it.
+
+Three things make that harder than plugging the browser's two speech APIs
+together, and each one shows in the interface:
+
+- **A phone hears its own loudspeaker.** Left listening while he talks, the
+  recogniser transcribes his answer back to him and the conversation eats
+  itself. So the ear is shut while the mouth is open, and interrupting is a tap
+  on the seal rather than talking over him — which the screen says, instead of
+  pretending you can shout him down.
+- **A silence is how a turn ends, but how long a silence is personal.** An
+  elder thinking mid-sentence has not finished. So the wait is a setting —
+  Quick, Normal or Patient, under Voice in Settings — not a constant.
+- **Waiting for the whole answer would leave dead air.** Each sentence is
+  spoken as soon as it is complete, while the rest is still arriving. On a 2G
+  connection that is the difference between a conversation and a wait.
+
+The server is told the turn is spoken, and asks for a spoken answer: about
+sixty words, no headings or bullets or asterisks, no URLs read out letter by
+letter, and if the recogniser clearly mangled something, say what it heard
+rather than guess. Everything said is saved as an ordinary conversation, so
+hanging up leaves a transcript.
+
+The screen stays awake while you are talking, listening stops if you switch
+away, and a microphone left open with nobody speaking pauses itself after a
+minute. Chrome, Edge and Safari can do this; where the browser cannot, the way
+in is not offered at all rather than failing when tapped.
+
 ### Pictures cost real money
 
 A text answer costs a fraction of a penny. A picture costs **cents** — a hundred
@@ -237,6 +270,7 @@ public/
   styles.css    Brand palette, light and dark, mobile-first breakpoints
   app.js        State, streaming, history, settings, sharing
   speech.js     Text-to-speech chunking, voice ranking, dictation locales
+  converse.js   The hands-free loop: turn-taking, silence detection, barge-in
   markdown.js   Small Markdown renderer (escapes first, then adds markup)
   storage.js    localStorage for conversations and preferences
   glossary.js   Liberian terms, and DOM-safe annotation of them
@@ -298,6 +332,13 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   a long answer queued as several chunks and read to its final sentence, pause /
   continue / stop, a new question silencing the old answer, auto-read, Web Share
   with a copy fallback, the offline banner, and rename with Escape to cancel.
+- **Talking with Grandpa (Playwright)** — 37 checks against fake ears and a
+  fake mouth: a silence ending the turn with nothing pressed, the ear shut for
+  the whole time he is talking and open again after, the answer spoken in
+  sentences as it streams rather than in one block, no markdown read out, a
+  half-heard noise not sent as a question, tapping the seal cutting him off,
+  Wait and Continue, a refused microphone explained instead of retried forever,
+  and the whole exchange left behind as an ordinary readable conversation.
 - **Settings (Playwright)** — 33 checks: opening and closing three ways, text size
   moving the root size and surviving reload, the three-way theme, low-data staying
   in step between the pill and the switch, language syncing both ways, the spoken

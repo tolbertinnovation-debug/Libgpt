@@ -222,6 +222,9 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
 
   const lowData = Boolean(req.body?.lowData);
   const persona = req.body?.persona;
+  // A spoken turn is heard once and cannot be skimmed, so it is asked for
+  // shorter and given a smaller ceiling than a written one.
+  const spoken = Boolean(req.body?.spoken);
   const model = await pickModel(req.body?.model, 'chat', { lowData, persona });
   const system = buildSystemPrompt({
     persona,
@@ -230,6 +233,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     tone: req.body?.tone,
     userName: req.body?.userName,
     lowData,
+    spoken,
   });
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -247,12 +251,12 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   res.on('close', () => controller.abort());
 
   try {
-    send('start', { model, lowData });
+    send('start', { model, lowData, spoken });
 
     for await (const delta of streamChat({
       model,
       messages: [{ role: 'system', content: system }, ...messages],
-      maxTokens: lowData ? 300 : 1400,
+      maxTokens: lowData ? 300 : spoken ? 500 : 1400,
       signal: controller.signal,
     })) {
       send('delta', { text: delta });

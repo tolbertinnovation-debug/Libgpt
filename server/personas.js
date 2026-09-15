@@ -195,10 +195,20 @@ const LOW_DATA_PROMPT = `LOW-DATA MODE IS ON. The user is on a 2G or metered con
 - No headings, no tables, no preamble, no closing pleasantries.
 - Give only the most useful part of the answer, and offer to say more if they ask.`;
 
+// A spoken answer is a different thing from a written one. Nobody can skim it,
+// scroll back, or see a bulleted list — it arrives one word at a time and then
+// it is gone. So it has to be short, plainly built, and shaped like talk.
+const SPOKEN_PROMPT = `THIS IS A SPOKEN CONVERSATION. Your answer will be read aloud, not read on a screen.
+- Keep it to about 60 words unless they ask for more. Say the most useful thing first.
+- Talk, do not write: no headings, no bullet points, no numbered lists, no tables, no code, no emoji, no asterisks. If steps are needed, say "first", "then", "after that".
+- Do not spell out URLs or long numbers. Say "I can write that down for you" instead, and keep going.
+- One question back at most, and only when you truly need it. Never end with an offer of further help — they can simply speak again.
+- The words you hear come from a speech recogniser and may be misheard. If something makes no sense, say what you think you heard and ask, rather than guessing.`;
+
 export const DEFAULT_PERSONA = 'general';
 export const DEFAULT_LANGUAGE = 'liberian-english';
 
-export function buildSystemPrompt({ persona, language, lowData, speaker, tone, userName }) {
+export function buildSystemPrompt({ persona, language, lowData, speaker, tone, userName, spoken }) {
   const p = PERSONAS[persona] || PERSONAS[DEFAULT_PERSONA];
   const l = LANGUAGES[language] || LANGUAGES[DEFAULT_LANGUAGE];
   const s = SPEAKERS[speaker] || SPEAKERS[DEFAULT_SPEAKER];
@@ -217,6 +227,8 @@ export function buildSystemPrompt({ persona, language, lowData, speaker, tone, u
     parts.push(`THE PERSON YOU ARE TALKING TO\nTheir name is ${userName.trim()}. Use it now and then, the way an elder does — not in every sentence.`);
   }
   if (lowData) parts.push(LOW_DATA_PROMPT);
+  // Last, so it is the rule closest to the answer.
+  if (spoken) parts.push(SPOKEN_PROMPT);
   return parts.join('\n\n---\n\n');
 }
 
