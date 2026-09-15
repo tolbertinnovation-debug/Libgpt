@@ -9,8 +9,14 @@ export class OpenAIError extends Error {
   }
 }
 
-/** Turn an OpenAI error body into something worth showing a user. */
-async function toError(response) {
+/**
+ * Turn an OpenAI error body into something worth showing a user.
+ *
+ * `asked` is the model the request named. A 404 is almost always about that
+ * model, and an error that does not say which one leaves the reader nowhere —
+ * so it is always included.
+ */
+async function toError(response, asked = '') {
   let detail = '';
   let code = '';
   try {
@@ -25,11 +31,15 @@ async function toError(response) {
     400: /safety|content.?policy|moderation/i.test(detail)
       ? 'That request was refused by the picture service. Try describing something else.'
       : detail || 'That request was not accepted.',
-    401: 'The OpenAI API key was rejected. Check OPENAI_API_KEY in your .env file.',
+    401: 'The OpenAI API key was rejected. Check OPENAI_API_KEY — on your own machine '
+      + 'that is in .env; on a host it is in that host\'s environment variables.',
     403: /verif/i.test(detail)
       ? 'This account must be verified with OpenAI before it can use that image model. Set OPENAI_IMAGE_MODEL=dall-e-3 instead.'
-      : 'This API key is not allowed to use that model.',
-    404: 'That model does not exist, or this key has no access to it. Try another model.',
+      : `This API key is not allowed to use ${asked ? `"${asked}"` : 'that model'}.`
+        + `${detail ? ` OpenAI said: ${detail}` : ''}`,
+    404: `This key cannot use ${asked ? `"${asked}"` : 'that model'}. `
+      + 'Open Settings and pick a different model, or check which models your OpenAI '
+      + `project allows.${detail ? ` OpenAI said: ${detail}` : ''}`,
     429: 'Rate limit or quota reached on the OpenAI account. Wait a moment, or check your billing.',
     500: 'OpenAI had a server error. Try again.',
     503: 'OpenAI is overloaded right now. Try again in a moment.',
@@ -39,6 +49,9 @@ async function toError(response) {
 }
 
 async function post(path, body, signal) {
+  // body.model is what every one of these calls names.
+  const asked = typeof body?.model === 'string' ? body.model : '';
+
   if (!config.apiKey) {
     throw new OpenAIError(
       'No OpenAI API key is configured. Copy .env.example to .env and set OPENAI_API_KEY.',
@@ -57,7 +70,7 @@ async function post(path, body, signal) {
     signal,
   });
 
-  if (!response.ok) throw await toError(response);
+  if (!response.ok) throw await toError(response, asked);
   return response;
 }
 
