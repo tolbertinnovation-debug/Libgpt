@@ -118,6 +118,7 @@ const el = {
   setClear: $('settings-clear'),
   topModel: $('model-select'),
   banner: $('setup-banner'),
+  bannerHow: $('setup-banner-how'),
   welcome: $('welcome'),
   personaGrid: $('persona-grid'),
   starters: $('starters'),
@@ -1493,6 +1494,22 @@ document.addEventListener('keydown', (event) => {
 window.addEventListener('beforeunload', () => speaker.stop());
 
 /* Connection awareness — these users are the reason low-data mode exists. */
+/**
+ * The same missing key means two different things. On a laptop it is a file to
+ * write; on a hosted address it is a setting in the host's dashboard, and a
+ * redeploy afterwards — which is the step people miss.
+ */
+function showSetupBanner() {
+  const local = ['localhost', '127.0.0.1', '::1', ''].includes(location.hostname);
+  el.bannerHow.innerHTML = local
+    ? 'Run <code>npm run setup</code> in the project folder to add your '
+      + '<code>OPENAI_API_KEY</code>, then start the server again.'
+    : 'Add <code>OPENAI_API_KEY</code> to the environment variables where this site '
+      + 'is hosted, then <strong>redeploy</strong> — a new variable does not reach a '
+      + 'deployment that is already running.';
+  el.banner.hidden = false;
+}
+
 function paintConnection() {
   el.offlineBanner.hidden = navigator.onLine !== false;
 }
@@ -1530,7 +1547,7 @@ async function boot() {
     state.catalogue = config;
     state.ready = config.ready;
 
-    if (!config.ready) el.banner.hidden = false;
+    if (!config.ready) showSetupBanner();
 
     if (config.requiresCode) {
       const stored = readCode();
