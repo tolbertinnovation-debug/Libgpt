@@ -19,6 +19,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Recipes** | Palava sauce, dumboy, pepper soup and the rest: ingredients from a Liberian market, steps you can follow, the story behind the dish, and a grandmother's tip. |
 | **Proverb quiz** | One question at a time on proverbs, history and culture, with a streak that survives a reload. |
 | **Cultural Album** | Painted scenes of Liberian life — a village, the coast, market day, a palaver hut. **Off by default**, because a picture costs cents where an answer costs a fraction of a penny. Every picture is labelled on screen as a drawing, never a photograph. |
+| **Read the Library aloud** | Every result has a Listen control — a story (at the fork as well as at the end, with the choices read out, since a listener cannot see the buttons), the names, a recipe read as numbered steps for someone whose hands are in the pot, the quiz question with its options, and the picture's note. In Grandpa's own voice, like everything else. |
 | **Journal** | Keep any story, name list, recipe or picture; read it back later. Stored in the browser. |
 | **The hearth** | A welcome screen in the Liberian register: the elder's portrait, a greeting by name, a proverb that holds for the whole day, and four topic cards — The Family Hearth, The Hustle, Ancestral Soil, Deep Paths. |
 | **Who is talking** | Five elders — Grandpa, Grandma, Northern Elder, Market Auntie, Coastal Sage — and four tones: Classic Warmth, Playful, Solemn, Strict Proverbial. |
@@ -496,6 +497,13 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   the fallback taking over when the voice cannot be reached, when the browser
   refuses to play it and when the audio will not decode — with the words
   already fetched handed over rather than lost.
+- **Reading the Library aloud (Playwright)** — 26 checks on *what* is spoken:
+  the title first, the decision put to the listener and both choices read out
+  and numbered so they can be answered aloud, the proverb and moral at the end
+  and the stale choices gone, a recipe's ingredients and numbered steps and the
+  tip last, every quiz option numbered — plus the control marking itself as the
+  one talking, stopping when pressed again, and stopping when the reader moves
+  on to something else.
 - **Talking with Grandpa (Playwright)** — 37 checks against fake ears and a
   fake mouth: a silence ending the turn with nothing pressed, the ear shut for
   the whole time he is talking and open again after, the answer spoken in

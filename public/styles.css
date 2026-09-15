@@ -2037,3 +2037,12 @@ body.is-talking { overflow: hidden; }
   background: color-mix(in srgb, var(--palm) 10%, transparent);
   color: var(--text);
 }
+
+/* A Library result being read aloud. The same green the thread's Listen
+   buttons use, so "this is the one talking" reads the same everywhere. */
+.lib-read.is-on {
+  border-color: var(--green);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  color: var(--green);
+  font-weight: 600;
+}

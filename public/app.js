@@ -748,10 +748,9 @@ const speaker = new VoiceOut({
   el.speakingText.textContent = speechState === 'paused' ? 'Paused' : 'Reading aloud…';
   el.speakToggle.textContent = speechState === 'paused' ? 'Continue' : 'Pause';
 
-  // Keep the per-message Listen buttons in step with what is actually playing.
-  document.querySelectorAll('.msg-action.is-on').forEach((b) => {
-    if (!speaking) b.classList.remove('is-on');
-  });
+  // Keep every Listen button — in the thread and in the Library — in step
+  // with what is actually playing.
+  if (!speaking) clearSpeakingMarks();
 });
 
 /** The voice the user chose, or the closest accent we could find. */
@@ -761,6 +760,11 @@ function chosenVoice() {
     || pickDefaultVoice(availableVoices);
 }
 
+/** Every control that shows itself as the one currently reading. */
+const READING = '.msg-action.is-on, .lib-read.is-on';
+const clearSpeakingMarks = () =>
+  document.querySelectorAll(READING).forEach((b) => b.classList.remove('is-on'));
+
 function speak(text, button) {
   speaker.unlock();
   if (!speaker.supported) {
@@ -768,10 +772,10 @@ function speak(text, button) {
     return;
   }
 
-  // Pressing Listen on the message already playing stops it.
+  // Pressing Listen on the thing already playing stops it.
   const wasThisOne = button?.classList.contains('is-on');
   speaker.stop();
-  document.querySelectorAll('.msg-action.is-on').forEach((b) => b.classList.remove('is-on'));
+  clearSpeakingMarks();
   if (wasThisOne) return;
 
   const started = speaker.speak(text, {
@@ -787,7 +791,7 @@ function speak(text, button) {
 el.speakToggle.addEventListener('click', () => speaker.toggle());
 el.speakStop.addEventListener('click', () => {
   speaker.stop();
-  document.querySelectorAll('.msg-action.is-on').forEach((b) => b.classList.remove('is-on'));
+  clearSpeakingMarks();
 });
 
 /* ---- Dictation ---------------------------------------------------------- */
@@ -1537,7 +1541,11 @@ function openLibrary(tab = 'story') {
       catalogue: state.catalogue.library || {},
       ask: askLibrary,
       onSaved: (entry) => { sounds.reply(); toast(`Kept in your journal: ${entry.title}`); },
-      onSpeak: (text) => speak(text),
+      onSpeak: (text, button) => speak(text, button),
+      onSpeakStop: () => {
+        speaker.stop();
+        clearSpeakingMarks();
+      },
     });
   }
   el.library.hidden = false;

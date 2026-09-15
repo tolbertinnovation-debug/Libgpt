@@ -59,11 +59,79 @@ const failure = (message) => `
  * The Library's whole surface. `ask` performs the request; `onSaved` lets the
  * host app react (a toast, a sound) without this module knowing about either.
  */
-export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpeak = null }) {
+export function createLibrary({
+  root, catalogue, ask, onSaved = () => {}, onSpeak = null, onSpeakStop = () => {},
+}) {
   // `ask(kind, input, path)` — the album has its own endpoint because a
   // picture is a different kind of request, with its own ceiling.
   let tab = 'story';
   let story = null;   // { title, parts[], choicePrompt, choices[], finished }
+
+  /**
+   * A Listen control for a Library result.
+   *
+   * The Library is where reading aloud matters most: a folktale is meant to be
+   * heard, and a recipe is read by someone whose hands are in the pot. The
+   * text is not put in the markup — some of these run to a thousand words —
+   * so the button names its result and `spokenText` builds it on the click.
+   */
+  const readButton = (key, label = 'Read it to me') => (onSpeak
+    ? `<button class="setting-btn lib-read" type="button" data-read="${key}">🔊 ${label}</button>`
+    : '');
+
+  const listed = (items) => items.map((line, i) => `${i + 1}. ${line}`).join('\n');
+
+  /** What a result sounds like, as opposed to how it looks. */
+  function spokenText(key) {
+    if (key === 'story' && story) {
+      const parts = [story.title, ...story.parts];
+      if (story.finished) {
+        parts.push(story.proverb, story.moral);
+      } else {
+        // At a fork, the choices are the point — a listener who cannot see
+        // the buttons still has to know what they are choosing between.
+        parts.push(story.choicePrompt);
+        parts.push(story.choices
+          .map((c, i) => `${i === 0 ? 'One' : 'Two'}: ${c.label}. ${c.summary}`)
+          .join(' '));
+      }
+      return parts.join('\n\n');
+    }
+
+    if (key === 'names' && root.__lastNames) {
+      const d = root.__lastNames;
+      return [
+        d.note,
+        ...d.names.map((n) => `${n.name}. ${n.meaning}${n.why ? ` ${n.why}` : ''}`),
+        'Ask an elder of the family before you settle on a name.',
+      ].join('\n\n');
+    }
+
+    if (key === 'recipe' && root.__lastRecipe) {
+      const d = root.__lastRecipe;
+      return [
+        d.dish,
+        d.backstory,
+        d.serves ? `It feeds ${d.serves}.` : '',
+        `You will need: ${d.ingredients.join(', ')}.`,
+        `How to cook it. ${listed(d.steps)}`,
+        d.tip ? `Grandpa says: ${d.tip}` : '',
+      ].filter(Boolean).join('\n\n');
+    }
+
+    if (key === 'quiz' && quiz) {
+      const options = quiz.options
+        .map((o, i) => `${['One', 'Two', 'Three', 'Four'][i] || i + 1}: ${o}.`)
+        .join(' ');
+      return quiz.answered
+        ? `${quiz.question}\n\n${quiz.options[quiz.answer]}.\n\n${quiz.explain}`
+        : `${quiz.question}\n\nIs it ${options}`;
+    }
+
+    if (key === 'album' && album) return `${album.caption}.\n\n${album.note}`;
+
+    return '';
+  }
 
   const option = (value, label, selected) =>
     `<option value="${escapeHtml(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
@@ -109,7 +177,7 @@ export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpea
           </div>
           <div class="lib-actions">
             <button class="setting-btn" type="button" data-save-story>Keep this in my journal</button>
-            ${onSpeak ? '<button class="setting-btn" type="button" data-read-story>Read it to me</button>' : ''}
+            ${readButton('story')}
             <button class="setting-btn" type="button" data-new-story>Another stori</button>
           </div>` : `
           <p><strong>${escapeHtml(story.choicePrompt)}</strong></p>
@@ -119,6 +187,9 @@ export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpea
                 <strong>${escapeHtml(c.label)}</strong>
                 <small>${escapeHtml(c.summary)}</small>
               </button>`).join('')}
+          </div>
+          <div class="lib-actions">
+            ${readButton('story', 'Read this to me')}
           </div>`}
       </div>`;
     out.innerHTML = body;
@@ -240,6 +311,7 @@ export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpea
         </p>
         <div class="lib-actions">
           <button class="setting-btn" type="button" data-save-names>Keep these</button>
+          ${readButton('names', 'Read them to me')}
         </div>
       </div>`;
     root.__lastNames = d;
@@ -297,6 +369,7 @@ export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpea
         ${d.tip ? `<div class="lib-moral"><em>Grandpa says</em>${escapeHtml(d.tip)}</div>` : ''}
         <div class="lib-actions">
           <button class="setting-btn" type="button" data-save-recipe>Keep this recipe</button>
+          ${readButton('recipe', 'Read it to me')}
         </div>
       </div>`;
     root.__lastRecipe = d;
@@ -330,6 +403,9 @@ export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpea
         <div class="quiz-options">
           ${quiz.options.map((o, i) =>
             `<button class="quiz-option" type="button" data-answer="${i}">${escapeHtml(o)}</button>`).join('')}
+        </div>
+        <div class="lib-actions">
+          ${readButton('quiz', 'Read the question')}
         </div>
       </div>`;
   }
@@ -418,6 +494,7 @@ export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpea
       </figure>
       <div class="lib-actions">
         <button class="setting-btn" type="button" data-save-picture>Keep it</button>
+        ${readButton('album', 'Read the note')}
         <button class="setting-btn" type="button" data-download-picture>Download</button>
       </div>
       ${typeof d.remaining === 'number'
@@ -512,6 +589,14 @@ export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpea
   });
 
   root.addEventListener('click', (event) => {
+    // Anything that replaces what is on screen also stops the reading of it —
+    // being read a story you have already moved on from is worse than silence.
+    const read = event.target.closest('[data-read]');
+    const changesTheText = event.target.closest(
+      '[data-choice], #quiz-go, [data-answer], [data-new-story], .lib-go',
+    );
+    if (changesTheText && !read) onSpeakStop();
+
     const choice = event.target.closest('[data-choice]');
     if (choice) return chooseBranch(Number(choice.dataset.choice));
 
@@ -522,8 +607,8 @@ export function createLibrary({ root, catalogue, ask, onSaved = () => {}, onSpea
 
     if (event.target.closest('[data-new-story]')) { story = null; render(); return; }
 
-    if (event.target.closest('[data-read-story]') && onSpeak && story) {
-      onSpeak(storyText());
+    if (read && onSpeak) {
+      onSpeak(spokenText(read.dataset.read), read);
       return;
     }
 
