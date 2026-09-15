@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 
 import { FALLBACK_MODELS, config, isChatModel, sortModels } from './config.js';
+import { resolveTiers, tierFor } from './models.js';
 import { OpenAIError, complete, generateImage, listModels, streamChat } from './openai.js';
 import {
   DEFAULT_LANGUAGE,
@@ -65,7 +66,8 @@ setInterval(() => {
 // actually has. Cached because the page asks on every load; the listing costs
 // no tokens, but there is no reason to repeat it every few seconds.
 const MODEL_CACHE_MS = 10 * 60 * 1000;
-let modelCache = { at: 0, models: [] };
+const EMPTY_TIERS = { fast: '', balanced: '', deep: '' };
+let modelCache = { at: 0, models: [], tiers: EMPTY_TIERS };
 
 async function accountModels() {
   if (!config.apiKey) return [];
@@ -75,14 +77,23 @@ async function accountModels() {
 
   try {
     const ids = sortModels((await listModels({})).filter(isChatModel));
-    // The default is marked in the label; the hint is reserved for saying where
-    // this whole list came from, which is the more useful fact.
+    const tiers = resolveTiers(ids, config.modelPins);
+
+    // Each model says what automatic already uses it for, so picking by hand
+    // is an informed change rather than a guess. The hint stays reserved for
+    // where this whole list came from.
+    const jobs = (id) => [
+      id === tiers.fast && 'quick jobs',
+      id === tiers.balanced && 'everyday chat',
+      id === tiers.deep && 'stories',
+    ].filter(Boolean).join(' + ');
+
     const models = ids.map((id) => ({
       id,
-      label: id === config.model ? `${id} (default)` : id,
+      label: jobs(id) ? `${id} · ${jobs(id)}` : id,
       hint: '',
     }));
-    modelCache = { at: Date.now(), models };
+    modelCache = { at: Date.now(), models, tiers };
     return models;
   } catch {
     // An account that cannot list models can still chat; fall back rather
@@ -92,13 +103,22 @@ async function accountModels() {
 }
 
 /**
- * The browser may only name a model the account actually has — or, before the
- * listing has ever succeeded, one from the fallback list.
+ * Which model does this piece of work want?
+ *
+ * A model the browser named explicitly always wins — the picker means what it
+ * says. Otherwise ("Automatic", and every request from an older page that
+ * names nothing) the task decides the tier, and the tier is filled from the
+ * models this key really has: a nano for naming a conversation, the best model
+ * on the account for a folktale.
  */
-function modelIsUsable(id) {
-  if (typeof id !== 'string' || !id) return false;
-  if (modelCache.models.length) return modelCache.models.some((m) => m.id === id);
-  return FALLBACK_MODELS.some((m) => m.id === id);
+async function pickModel(requested, task, context = {}) {
+  const known = await accountModels();
+  const ids = (known.length ? known : FALLBACK_MODELS).map((m) => m.id);
+
+  if (typeof requested === 'string' && ids.includes(requested)) return requested;
+
+  const tiers = known.length ? modelCache.tiers : resolveTiers(ids, config.modelPins);
+  return tiers[tierFor(task, context)] || config.model;
 }
 
 // ---- optional access code -----------------------------------------------
@@ -133,13 +153,22 @@ app.get('/api/config', async (_req, res) => {
   const fromAccount = await accountModels();
   const models = fromAccount.length ? fromAccount : FALLBACK_MODELS;
 
+  const tiers = fromAccount.length
+    ? modelCache.tiers
+    : resolveTiers(models.map((m) => m.id), config.modelPins);
+
   res.json({
     ready: Boolean(config.apiKey),
     requiresCode: Boolean(config.accessCode),
-    defaultModel: models.some((m) => m.id === config.model) ? config.model : models[0]?.id,
+    // Empty means automatic: the server chooses per task. A named model here
+    // would quietly turn that off.
+    defaultModel: '',
     configuredModel: config.model,
     modelsFromAccount: fromAccount.length > 0,
     models,
+    // What automatic would choose right now, so the picker can say so rather
+    // than asking the user to trust it.
+    tiers,
     defaultPersona: DEFAULT_PERSONA,
     defaultLanguage: DEFAULT_LANGUAGE,
     ...publicCatalogue(),
@@ -192,9 +221,10 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   }
 
   const lowData = Boolean(req.body?.lowData);
-  const model = modelIsUsable(req.body?.model) ? req.body.model : config.model;
+  const persona = req.body?.persona;
+  const model = await pickModel(req.body?.model, 'chat', { lowData, persona });
   const system = buildSystemPrompt({
-    persona: req.body?.persona,
+    persona,
     language: req.body?.language,
     speaker: req.body?.speaker,
     tone: req.body?.tone,
@@ -253,6 +283,7 @@ app.post('/api/title', rateLimit, requireAccess, async (req, res) => {
 
   try {
     const title = await complete({
+      model: await pickModel(req.body?.model, 'title'),
       messages: [
         {
           role: 'system',
@@ -279,7 +310,10 @@ app.post('/api/structured', rateLimit, requireAccess, async (req, res) => {
 
   const spec = KINDS[kind];
   const { system, user } = spec.build(req.body?.input || {});
-  const model = modelIsUsable(req.body?.model) ? req.body.model : config.model;
+  // A folktale is worth the account's best model; a quiz question is not.
+  const model = await pickModel(req.body?.model, kind, {
+    lowData: Boolean(req.body?.lowData),
+  });
 
   const controller = new AbortController();
   res.on('close', () => controller.abort());
@@ -368,7 +402,7 @@ app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
     const spec = KINDS.album;
     const { system, user } = spec.build(req.body?.input || {});
     const raw = await complete({
-      model: modelIsUsable(req.body?.model) ? req.body.model : config.model,
+      model: await pickModel(req.body?.model, 'album'),
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
       maxTokens: spec.maxTokens,
       temperature: spec.temperature,

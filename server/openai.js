@@ -16,7 +16,7 @@ export class OpenAIError extends Error {
  * model, and an error that does not say which one leaves the reader nowhere —
  * so it is always included.
  */
-async function toError(response, asked = '') {
+async function toError(response, asked = '', path = '') {
   let detail = '';
   let code = '';
   try {
@@ -29,7 +29,12 @@ async function toError(response, asked = '') {
 
   const friendly = {
     400: /safety|content.?policy|moderation/i.test(detail)
-      ? 'That request was refused by the picture service. Try describing something else.'
+      // Only pictures get the picture wording — the same refusal can come
+      // back from a chat, and naming the wrong service sends the reader off
+      // looking for a problem that is not there.
+      ? (/images/.test(path)
+        ? 'That request was refused by the picture service. Try describing something else.'
+        : 'OpenAI refused that request under its content rules. Try asking it a different way.')
       : detail || 'That request was not accepted.',
     401: 'The OpenAI API key was rejected. Check OPENAI_API_KEY — on your own machine '
       + 'that is in .env; on a host it is in that host\'s environment variables.',
@@ -45,7 +50,69 @@ async function toError(response, asked = '') {
     503: 'OpenAI is overloaded right now. Try again in a moment.',
   }[response.status];
 
-  return new OpenAIError(friendly || detail || `OpenAI request failed (${response.status}).`, response.status, code);
+  const error = new OpenAIError(
+    friendly || detail || `OpenAI request failed (${response.status}).`,
+    response.status,
+    code,
+  );
+  // The raw text too: the retry below reads it to learn what a model refused.
+  error.detail = detail;
+  return error;
+}
+
+// ---- adapting to a model's own rules ------------------------------------
+// Newer and reasoning models reject settings the older ones require. The same
+// request that works on gpt-4o-mini comes back from a reasoning model as
+// "Unsupported parameter: 'max_tokens' ... Use 'max_completion_tokens'
+// instead", or "Unsupported value: 'temperature' does not support 0.7".
+//
+// Rather than keep a table of which model wants what — which would be wrong
+// again in six months — the request is sent, the refusal is read, and the one
+// named setting is renamed or dropped. What each model refused is remembered,
+// so the round trip is paid once rather than on every message.
+const quirks = new Map();
+
+function applyQuirks(body) {
+  const known = quirks.get(body?.model);
+  if (!known) return body;
+
+  const next = { ...body };
+  for (const [from, to] of Object.entries(known.rename)) {
+    if (!(from in next)) continue;
+    if (!(to in next)) next[to] = next[from];
+    delete next[from];
+  }
+  for (const key of known.drop) delete next[key];
+  return next;
+}
+
+function rememberQuirk(model, key, instead) {
+  if (!model) return;
+  const known = quirks.get(model) || { rename: {}, drop: [] };
+  if (instead) known.rename[key] = instead;
+  else if (!known.drop.includes(key)) known.drop.push(key);
+  quirks.set(model, known);
+}
+
+/**
+ * Read a 400 that names one setting and return the body without it, or null
+ * when the message is about something we cannot fix by sending less.
+ */
+function adapt(body, detail, model) {
+  const named = detail.match(/unsupported (?:parameter|value):\s*'([^']+)'/i);
+  if (!named) return null;
+
+  // "messages[0].role" and the like — only the leading key is ours to change.
+  const key = named[1].split(/[.[]/)[0];
+  if (!(key in body)) return null;
+
+  const instead = (detail.match(/use '([^']+)' instead/i) || [])[1];
+  const next = { ...body };
+  if (instead && !(instead in next)) next[instead] = next[key];
+  delete next[key];
+
+  rememberQuirk(model, key, instead);
+  return next;
 }
 
 async function post(path, body, signal) {
@@ -60,18 +127,30 @@ async function post(path, body, signal) {
     );
   }
 
-  const response = await fetch(`${config.baseUrl}${path}`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${config.apiKey}`,
-    },
-    body: JSON.stringify(body),
-    signal,
-  });
+  let attempt = applyQuirks(body);
 
-  if (!response.ok) throw await toError(response, asked);
-  return response;
+  // At most three tries: a model may refuse two settings in turn, and one
+  // spare beyond that is the end of it. Anything else is a real error.
+  for (let tries = 0; ; tries += 1) {
+    const response = await fetch(`${config.baseUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${config.apiKey}`,
+      },
+      body: JSON.stringify(attempt),
+      signal,
+    });
+
+    if (response.ok) return response;
+
+    const error = await toError(response, asked, path);
+    const adapted = response.status === 400 && tries < 2
+      ? adapt(attempt, error.detail || '', asked)
+      : null;
+    if (!adapted) throw error;
+    attempt = adapted;
+  }
 }
 
 /**

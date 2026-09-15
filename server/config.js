@@ -12,6 +12,17 @@ export const config = {
   model: process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
   titleModel: process.env.OPENAI_TITLE_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
   rateLimitPerMinute: int(process.env.RATE_LIMIT_PER_MINUTE, 30),
+
+  // Normally the server picks a model per task from the account's own list
+  // (see server/models.js). These pin one exactly, for an operator who knows
+  // better than the heuristic. A pin naming a model the account does not have
+  // is ignored rather than breaking every request.
+  modelPins: {
+    fast: process.env.MODEL_FAST?.trim() || '',
+    balanced: process.env.MODEL_BALANCED?.trim() || '',
+    deep: process.env.MODEL_DEEP?.trim() || '',
+  },
+
   // Optional gate. When set, visitors must enter this code before they can
   // chat — the difference between a public URL and a public bill.
   accessCode: process.env.ACCESS_CODE?.trim() || '',

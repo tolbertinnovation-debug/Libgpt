@@ -93,8 +93,11 @@ All of it is in `.env` (see `.env.example`):
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `OPENAI_API_KEY` | — | Required. Your key from <https://platform.openai.com/api-keys>. |
-| `OPENAI_MODEL` | `gpt-4o-mini` | Model used for replies. |
-| `OPENAI_TITLE_MODEL` | `gpt-4o-mini` | Cheaper model used only to name conversations. |
+| `OPENAI_MODEL` | `gpt-4o-mini` | Last-resort model, used only when the account's model list cannot be read. Normally the server chooses per task — see below. |
+| `OPENAI_TITLE_MODEL` | `gpt-4o-mini` | Same, for naming conversations. |
+| `MODEL_FAST` | *(automatic)* | Pin the model used for short, high-volume work: naming a conversation, a quiz question, low-data mode. |
+| `MODEL_BALANCED` | *(automatic)* | Pin the model used for ordinary conversation, recipes and names. |
+| `MODEL_DEEP` | *(automatic)* | Pin the model used for folktales and the storytelling persona. |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Point at a compatible gateway if you use one. |
 | `PORT` | `3000` | Port to listen on. |
 | `RATE_LIMIT_PER_MINUTE` | `30` | Requests allowed per IP per minute. `0` disables the limit. |
@@ -111,6 +114,35 @@ touch — and, worse, would look like your account's limit when it was really ou
 Until a key is configured, or if that listing fails, a small fallback list is shown
 and the picker says so. If a model is refused anyway, the error names it and quotes
 OpenAI's own wording rather than replacing it.
+
+### A model for each job
+
+The picker's default is **Automatic**, and it is the right answer for almost
+everybody: the server picks a model per task from that same account list.
+
+| Work | Tier | Why |
+| --- | --- | --- |
+| Naming a conversation, a quiz question, anything in low-data mode | fast | Three words in a sidebar is never worth a large model. |
+| Ordinary conversation, recipes, naming traditions | balanced | A current `mini` — the flagship is more than a conversation needs, `nano` is less. |
+| Folktales, branching stories, the storytelling persona | deep | The best model on the account. This is the work the platform is judged on. |
+
+`server/models.js` ranks the account's models by what their names imply — family,
+generation, `mini`/`nano` — rather than holding a list of its own, because model
+names change and a list would quietly go stale. Reasoning models (`o1`, `o3`, `o4`…)
+are never chosen automatically: they are slow to the first token, which reads badly
+in a streamed answer. They are still there to pick by hand. Where the guess is not
+good enough, `MODEL_FAST` / `MODEL_BALANCED` / `MODEL_DEEP` pin exact models; a pin
+naming a model your account does not have is ignored rather than breaking every
+request.
+
+Choosing a model by hand in Settings turns all of this off for every request — that
+choice is used for everything, which is what picking it means.
+
+Newer models also reject settings the older ones require: `max_tokens` has to become
+`max_completion_tokens`, and some refuse `temperature` outright. Rather than keep a
+table of which model wants what, the server reads the refusal, sends the request
+again without the offending setting, and remembers what each model refused — so that
+round trip is paid once, not on every message.
 
 ### Pictures cost real money
 
@@ -193,9 +225,11 @@ api/
 server/
   app.js        The Express app — static files, SSE chat, rate limit, validation
   index.js      Starts the app on a port (local, Render, Railway, Fly)
-  openai.js     OpenAI client: streaming parser, one-shot completions, error translation
+  openai.js     OpenAI client: streaming parser, one-shot completions, error
+                translation, and adapting to what each model will accept
+  models.js     Which model each task deserves, ranked from the account's own list
   personas.js   The system prompts — persona x language x low-data
-  config.js     Environment and the model allowlist
+  config.js     Environment, the fallback model list and the chat-model filter
   structured.js The Library's prompts and reply validators (stories, names,
                 recipes, quizzes) — kept server-side like the personas
 public/

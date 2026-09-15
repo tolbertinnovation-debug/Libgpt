@@ -936,10 +936,21 @@ el.setLanguage.addEventListener('change', () => {
  */
 function modelSourceHint() {
   const n = state.catalogue.models?.length || 0;
-  if (!state.catalogue.modelsFromAccount) {
-    return 'Default list — add your API key to see what your account really has';
+  const source = state.catalogue.modelsFromAccount
+    ? `${n} model${n === 1 ? '' : 's'} your key can use`
+    : 'Default list — add your API key to see what your account really has';
+
+  // On automatic, say plainly which model does what. A promise to choose well
+  // is worth less than showing the choice.
+  if (!state.prefs.model) {
+    const t = state.catalogue.tiers || {};
+    const picks = t.deep
+      ? ` Stories use ${t.deep}, chat uses ${t.balanced}, short jobs use ${t.fast}.`
+      : '';
+    return `Grandpa picks the right model for each job.${picks} ${source}.`;
   }
-  return `${n} model${n === 1 ? '' : 's'} your key can use`;
+
+  return `Using ${state.prefs.model} for everything · ${source}`;
 }
 
 function applyModelChoice(value) {
@@ -1582,14 +1593,19 @@ async function boot() {
     el.language.innerHTML = languageOptions;
     el.setLanguage.innerHTML = languageOptions;
 
-    const modelOptions = config.models
-      .map((m) => `<option value="${m.id}">${escapeHtml(m.label)}</option>`)
-      .join('');
+    // An empty value means automatic: the server chooses per task. It leads the
+    // list because it is the right answer for almost everybody.
+    const modelOptions = [
+      '<option value="">Automatic — best model for each job</option>',
+      ...config.models.map((m) => `<option value="${m.id}">${escapeHtml(m.label)}</option>`),
+    ].join('');
     el.model.innerHTML = modelOptions;
     el.topModel.innerHTML = modelOptions;
 
-    if (!state.prefs.model || !config.models.some((m) => m.id === state.prefs.model)) {
-      state.prefs.model = config.defaultModel;
+    // A saved choice the account no longer has falls back to automatic rather
+    // than to some other model the user never picked.
+    if (state.prefs.model && !config.models.some((m) => m.id === state.prefs.model)) {
+      state.prefs.model = config.defaultModel || '';
     }
     el.language.value = state.prefs.language;
     el.setLanguage.value = state.prefs.language;
