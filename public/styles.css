@@ -587,6 +587,16 @@ body {
 }
 .looked-up span { color: var(--green); }
 
+/* Said above an answer whose conversation had to be shortened. Quieter than
+   the looked-up mark: it is a footnote about the thread, not a claim about
+   the answer. */
+.turn-note {
+  margin: 0 0 .5rem;
+  color: var(--text-faint);
+  font-size: .78rem;
+  line-height: 1.5;
+}
+
 /* The papers under a news answer. The site name, not the headline: a row of
    long titles is a wall on a small screen. */
 .sources {

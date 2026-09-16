@@ -404,6 +404,39 @@ const lookedUp = (reading = false) =>
   + `<span aria-hidden="true">\u25C9</span> ${reading ? 'Going to read the news\u2026' : 'Looked it up just now'}`
   + '</div>';
 
+// How much of the conversation travels with each question.
+//
+// The server has the same ceiling and trims anything past it, so this is not
+// what keeps the request legal — it is what keeps a long thread from
+// re-uploading itself in full on every message. On a connection somebody pays
+// for by the megabyte that is the difference between a conversation they can
+// afford to keep and one they cannot.
+const SEND_LIMIT = 24_000;
+
+/**
+ * The newest part of the conversation, and how much was left behind.
+ *
+ * The oldest turns go first: the next answer depends on the last few
+ * exchanges, not on how the talk began an hour ago.
+ */
+function forSending(messages) {
+  const list = messages.map(({ role, content }) => ({ role, content }));
+  const size = () => list.reduce((n, m) => n + m.content.length, 0);
+  let dropped = 0;
+  while (list.length > 1 && size() > SEND_LIMIT) {
+    list.shift();
+    dropped += 1;
+  }
+  return { list, dropped };
+}
+
+// Said above an answer whose conversation had to be shortened to send it. A
+// long thread quietly losing its beginning is a thing worth knowing about —
+// it is why he may not remember something said much earlier.
+const trimmedNote = (n) => '<div class="turn-note">'
+  + `Earlier ${n === 1 ? 'message' : 'messages'} left out — this conversation had grown too long to send whole.`
+  + '</div>';
+
 /** Mark the answer being streamed as one he is reading, not remembering. */
 function markLookedUp(prose, reading = false) {
   const body = prose.closest('.ai-body');
@@ -455,6 +488,7 @@ function renderThread() {
         <div class="turn turn-ai">
           <div class="avatar" aria-hidden="true"><img src="logo.png" width="320" height="305" alt=""></div>
           <div class="ai-body">
+            ${message.trimmed ? trimmedNote(message.trimmed) : ''}
             ${message.searched ? lookedUp() : ''}
             <div class="prose">${renderMarkdown(message.content)}</div>
             ${sourceList(message.sources)}
@@ -564,13 +598,20 @@ async function streamReply(chat, hooks = {}) {
   let searched = false;     // this answer was read off the web, not remembered
   let sources = [];         // and these are the pages it was read from
 
+  // A long conversation is shortened rather than refused. What was left behind
+  // is worth saying, because it is why he may not remember the beginning.
+  const sending = forSending(chat.messages);
+  if (sending.dropped) {
+    target.closest('.ai-body')?.insertAdjacentHTML('afterbegin', trimmedNote(sending.dropped));
+  }
+
   try {
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: apiHeaders(),
       signal: controller.signal,
       body: JSON.stringify({
-        messages: chat.messages.map(({ role, content }) => ({ role, content })),
+        messages: sending.list,
         persona: chat.persona || state.prefs.persona,
         language: state.prefs.language,
         model: state.prefs.model,
@@ -676,7 +717,10 @@ async function streamReply(chat, hooks = {}) {
   }
 
   if (text.trim()) {
-    chat.messages.push({ role: 'assistant', content: text, searched, sources });
+    chat.messages.push({
+      role: 'assistant', content: text, searched, sources,
+      ...(sending.dropped ? { trimmed: sending.dropped } : {}),
+    });
     chat.updatedAt = Date.now();
     persist();
     renderThread();

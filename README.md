@@ -49,6 +49,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Farming Assistant** | Crop problems, planting seasons, storage. A market price or a forecast is looked up where live news is switched on, with the source named; where it is not, he says plainly that he has no feed rather than guessing, and points to the extension officer. |
 | **Cultural storytelling** | Proverbs, folktales and oral history — careful with sacred matters, and never inventing an attribution. |
 | **Low-data mode** | A real switch, not a label: answers are capped at 120 words and 300 tokens, with no headings or tables. The whole front end is dependency-free, so nothing is pulled from a CDN. |
+| **Long conversations keep going** | A thread that outgrows the send limit used to be refused — "this conversation is too long, start a new chat" — which threw away the question just typed and told you to abandon the thread to ask it. The oldest turns are dropped instead, the newest part is what travels (so a long thread stops re-uploading itself on a metered connection), and the answer says plainly that earlier messages were left out. |
 | **Conversation history** | Kept in the browser's `localStorage`, grouped by date, searchable, and never sent anywhere but to the model. |
 | **Settings panel** | Language, model, low-data, text size, appearance, voice and your saved data, in one place behind the gear. |
 | **Bigger text** | Three sizes. It moves the root font size, so the whole layout scales like browser zoom rather than only the letters — for older eyes and small phones. |
@@ -752,6 +753,17 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   a long answer queued as several chunks and read to its final sentence, pause /
   continue / stop, a new question silencing the old answer, auto-read, Web Share
   with a copy fallback, the offline banner, and rename with Escape to cancel.
+- **Long conversations (server)** — 11 checks: a forty-turn thread answered
+  rather than refused, the newest question surviving and the oldest turns
+  going, what is sent staying under the ceiling, a single question longer than
+  the whole ceiling cut rather than thrown away, a short conversation losing
+  nothing, and an empty request still refused.
+- **Long conversations (Playwright)** — 10 checks: a long thread opening,
+  answering without an error box, uploading only its newest part rather than
+  all of it, keeping the newest question and dropping the oldest turns, saying
+  what it left behind in words that explain why he may not remember the
+  beginning, that note surviving a reload — and a short conversation carrying
+  no note at all.
 - **Whole answers (server)** — 19 checks: a finished answer left alone, a
   cut-off one carried on and the halves joined in order with nothing repeated
   and no apology at the seam, a runaway answer carried exactly twice and then

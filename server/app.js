@@ -259,12 +259,29 @@ function readConversation(body) {
     throw new OpenAIError('No usable messages were sent.', 400, 'bad_request');
   }
 
-  const total = messages.reduce((sum, m) => sum + m.content.length, 0);
-  if (total > MAX_CHARS) {
-    throw new OpenAIError('This conversation is too long. Start a new chat.', 400, 'too_long');
+  // A long conversation used to be refused outright — "This conversation is
+  // too long. Start a new chat." — which threw away the question somebody had
+  // just typed and told them to abandon the thread to ask it. The history is
+  // the cheap thing here and the question is the expensive one, so the oldest
+  // turns go instead.
+  //
+  // Dropped from the front, because the last few exchanges are what the next
+  // answer actually depends on.
+  const size = (list) => list.reduce((sum, m) => sum + m.content.length, 0);
+  let dropped = 0;
+  while (messages.length > 1 && size(messages) > MAX_CHARS) {
+    messages.shift();
+    dropped += 1;
   }
 
-  return messages;
+  // One message can be over the limit by itself. Cut it rather than refuse:
+  // half a question answered beats a question thrown away.
+  if (size(messages) > MAX_CHARS) {
+    const only = messages[messages.length - 1];
+    only.content = only.content.slice(0, MAX_CHARS);
+  }
+
+  return { messages, dropped };
 }
 
 // ---- streaming chat -----------------------------------------------------
@@ -282,8 +299,9 @@ const CONTINUE_PROMPT = `Your answer above was cut off because it ran out of roo
 
 app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   let messages;
+  let dropped = 0;
   try {
-    messages = readConversation(req.body);
+    ({ messages, dropped } = readConversation(req.body));
   } catch (error) {
     res.status(error.status || 400).json({ error: error.message });
     return;
@@ -343,7 +361,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   res.on('close', () => controller.abort());
 
   try {
-    send('start', { model, lowData, spoken, searched });
+    send('start', { model, lowData, spoken, searched, dropped });
 
     const budget = lowData ? 420 : spoken ? 700 : 2200;
     let answer = '';
@@ -408,7 +426,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
         // Correct what the browser was told: no badge, and he is back to
         // saying he has not heard the news — which, having failed to read it,
         // is true again.
-        send('start', { model, lowData, spoken, searched });
+        send('start', { model, lowData, spoken, searched, dropped });
       }
     }
 
