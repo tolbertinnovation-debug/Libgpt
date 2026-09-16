@@ -167,23 +167,15 @@ async function post(path, body, signal) {
  * its thought, "length" when it hit the token ceiling part-way through.
  */
 export async function* streamChat({
-  model, messages, maxTokens, temperature, signal, onFinish, webSearch = false,
+  model, messages, maxTokens, temperature, signal, onFinish,
 }) {
-  const body = {
+  const response = await post('/chat/completions', {
     model: model || config.model,
     messages,
     stream: true,
     temperature: temperature ?? 0.7,
     max_tokens: maxTokens ?? 1400,
-  };
-
-  // Tells a search-capable model it may go and read the web. A model that
-  // cannot search refuses the field outright rather than ignoring it, and the
-  // adapting retry in post() then drops it — so asking costs nothing worse
-  // than one extra round trip, once, on a model that does not take it.
-  if (webSearch) body.web_search_options = {};
-
-  const response = await post('/chat/completions', body, signal);
+  }, signal);
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -219,6 +211,121 @@ export async function* streamChat({
             if (choice?.finish_reason) onFinish?.(choice.finish_reason);
           } catch {
             /* a partial or non-JSON frame — skip it rather than kill the stream */
+          }
+        }
+      }
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+}
+
+// ---- reading the web ----------------------------------------------------
+// Web search does not live on /chat/completions. It is a tool on the Responses
+// API, which is a different endpoint with a different request shape and a
+// different stream — so it gets its own function rather than a flag on the
+// other one.
+//
+// The tool has been called two things. `web_search` is the current name;
+// `web_search_preview` is what older accounts still answer to. Rather than
+// guess, the first name is sent, the refusal is read, and the other is used
+// from then on — the same way the parameter quirks above are learned.
+let toolName = 'web_search';
+
+/** For the tests, and for a server that wants to start over. */
+export const searchToolName = () => toolName;
+
+/**
+ * Stream an answer that is allowed to go and read the web first.
+ *
+ * Yields text deltas like streamChat, so the caller's loop is unchanged.
+ * `onSource` is handed each page it actually cited — a news answer with no
+ * paper behind it is just a confident-sounding guess.
+ *
+ * Throws like any other call. The caller is expected to catch it and answer
+ * the question without the web rather than show the reader an error: a search
+ * that could not happen is a reason to say less, not a reason to say nothing.
+ */
+export async function* streamSearch({
+  model, messages, maxTokens, signal, onFinish, onSource,
+}) {
+  // The Responses API takes `input` rather than `messages`, and counts the
+  // ceiling as `max_output_tokens`. Everything else is the same conversation.
+  const build = (tool) => ({
+    model: model || config.model,
+    input: messages,
+    tools: [{ type: tool }],
+    stream: true,
+    max_output_tokens: maxTokens ?? 1400,
+  });
+
+  let response;
+  try {
+    response = await post('/responses', build(toolName), signal);
+  } catch (error) {
+    // "Invalid value: 'web_search'. Supported values are: 'web_search_preview'"
+    const other = toolName === 'web_search' ? 'web_search_preview' : 'web_search';
+    const named = error.status === 400 && new RegExp(other).test(error.detail || '');
+    if (!named) throw error;
+    toolName = other;
+    response = await post('/responses', build(other), signal);
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split('\n\n');
+      buffer = frames.pop() ?? '';
+
+      for (const frame of frames) {
+        for (const line of frame.split('\n')) {
+          if (!line.startsWith('data:')) continue;
+          const payload = line.slice(5).trim();
+          if (!payload || payload === '[DONE]') continue;
+
+          let event;
+          try { event = JSON.parse(payload); } catch { continue; }
+
+          switch (event.type) {
+            case 'response.output_text.delta':
+              if (event.delta) yield event.delta;
+              break;
+
+            // Where it read. The url is the part worth keeping; the title is
+            // often the headline, which is worth showing beside it.
+            case 'response.output_text.annotation.added': {
+              const cited = event.annotation || {};
+              if (cited.url) onSource?.({ url: cited.url, title: cited.title || '' });
+              break;
+            }
+
+            case 'response.incomplete':
+              // Same meaning as finish_reason "length" on the other endpoint.
+              onFinish?.(event.response?.incomplete_details?.reason === 'max_output_tokens'
+                ? 'length' : 'stop');
+              break;
+
+            case 'response.completed':
+              onFinish?.('stop');
+              break;
+
+            case 'error':
+            case 'response.failed':
+              throw new OpenAIError(
+                event.response?.error?.message || event.message || 'The search failed.',
+                502,
+                'search_failed',
+              );
+
+            default:
+              /* the many lifecycle events — nothing to do with them */
           }
         }
       }

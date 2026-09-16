@@ -585,6 +585,27 @@ body {
 }
 .looked-up span { color: var(--green); }
 
+/* The papers under a news answer. The site name, not the headline: a row of
+   long titles is a wall on a small screen. */
+.sources {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .4rem;
+  margin: .7rem 0 0;
+  font-size: .8rem;
+}
+.sources-label { color: var(--text-faint); }
+.sources a {
+  padding: .1rem .5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-soft);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.sources a:hover, .sources a:focus-visible { background: var(--bg-hover); color: var(--text); }
+
 /* Rendered markdown */
 .prose > :first-child { margin-top: 0; }
 .prose > :last-child { margin-bottom: 0; }

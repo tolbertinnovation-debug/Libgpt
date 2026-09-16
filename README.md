@@ -257,9 +257,9 @@ point. The point was not making things up.
 So rather than loosen the rule, he was given a way to actually find out.
 
 A question that is about **now** — the news, today's rate, the weather, who won last
-night, anything naming this year or later — is sent to a search-capable model on the
-same account, which reads the web before answering. That turn gets a different set of
-instructions: name the paper or station and the date, prefer Liberian sources where
+night, anything naming this year or later — is sent to OpenAI's Responses API with its
+web-search tool attached, on the same account and the same key, so the model reads the
+web before answering. That turn gets a different set of instructions: name the paper or station and the date, prefer Liberian sources where
 they exist (FrontPage Africa, the Daily Observer, the New Dawn, the Liberian
 Investigator, the Liberia News Agency), give both sides where reports disagree, and
 say plainly when the search came back with nothing rather than filling the gap.
@@ -270,8 +270,24 @@ people ask him is not news. Those turns keep the old instruction word for word: 
 internet, no feeds, say so.
 
 Which turn you got is on the screen. An answer he read carries a small mark —
-**◉ Looked it up just now** — and one he did not carries nothing. The two are not the
-same kind of claim, and the page should not let them look alike.
+**◉ Looked it up just now** — and the papers behind it are listed underneath as links
+you can go and check. An answer he did not look up carries neither. The two are not
+the same kind of claim, and the page should not let them look alike.
+
+**A search that cannot happen is never allowed to cost the answer.** If the reading
+fails — the key is not cleared for it, the tool is refused, OpenAI is having a bad
+minute — the turn quietly falls back to an ordinary answer under the honest
+instruction, the mark is taken back off before a word is written, and the reader gets
+what he does know instead of a red box. A refusal that will still be a refusal in five
+minutes (a 400, 403 or 404) is remembered, so the round trip is paid once rather than
+on every news question after it.
+
+The tool has been called two things; `web_search` is current and `web_search_preview`
+is what older accounts answer to. Rather than guess, the first is sent, the refusal is
+read, and the other is used from then on — the same way the parameter quirks are
+learned. It is deliberately **not** `gpt-4o-search-preview`: those models were retired,
+and a key that still sees one in its listing gets "has been deprecated" when it tries
+to use it.
 
 It runs on the same key and the same bill as everything else: no second provider, no
 second account. If your key has no search-capable model, the feature switches itself
@@ -683,17 +699,24 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   four card names, greeting by name, the name, speaker and tone actually reaching the
   server, glossary terms marked and explained (and never inside code), and the chips
   switching persona and asking.
-- **Live news (server)** — 22 checks across three deployments: a question about
-  today routed to a model that can read the web with the web actually asked for,
-  an ordinary one left on the everyday model, the prompt swapping between "say
-  where you read it" and "say you have not heard the news" and never carrying
-  both, eight questions sorted either way, a setting the search model refuses
-  dropped rather than surfaced as an error — and, on an account with no
-  search-capable model and on a deployment with the feature switched off, live
-  news reported as unavailable and the honest refusal left exactly as it was.
-- **Live news (Playwright)** — 5 checks: the page saying he is reading while he
-  reads, the finished answer still marked as looked up, an answer he did not
-  look up carrying no mark, and the mark remembered with the conversation.
+- **Live news (server)** — 42 checks across four deployments: a question about
+  today sent to the endpoint where web search actually lives, with the tool
+  attached and the ceiling under the name that endpoint uses; an ordinary one
+  left on the everyday chat call with no tool at all; the prompt swapping
+  between "say where you read it" and "say you have not heard the news" and
+  never carrying both; eight questions sorted either way; the tool's other name
+  learned from one refusal and remembered for the next question; the pages it
+  cited passed on as links. Then the three ways it can be unavailable — no
+  capable model, switched off, and a key that is told no — each falling back to
+  the honest refusal, the last one with the answer still arriving, no error
+  shown, the claim withdrawn mid-stream and the refusal remembered so the next
+  question does not pay for it.
+- **Live news (Playwright)** — 13 checks: the page saying he is reading while he
+  reads, the finished answer still marked as looked up, the sources listed as
+  site names with the headline as the tooltip and `rel="noopener noreferrer"`,
+  an answer he did not look up carrying no mark, the mark remembered with the
+  conversation — and, on a key that cannot read, an answer with no error box and
+  the mark taken back off.
 - **Access gate** — 17 checks: requests refused with no code, a wrong code and a
   wrong code of the same length; accepted with the right one; `/api/title` gated
   too; the code absent from `/api/config`; and the browser flow through prompt,

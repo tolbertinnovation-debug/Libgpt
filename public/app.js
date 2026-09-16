@@ -403,6 +403,28 @@ function markLookedUp(prose, reading = false) {
   body.insertAdjacentHTML('afterbegin', lookedUp(reading));
 }
 
+/** Take it back — the reading did not happen, so the claim must not stand. */
+function unmarkLookedUp(prose) {
+  prose.closest('.ai-body')?.querySelector('.looked-up')?.remove();
+}
+
+// The papers he actually read, under the answer. A news answer with no source
+// behind it is only a confident-sounding guess, and the reader deserves to be
+// able to go and check — the site name is the link, because on a slow phone a
+// row of long headlines is a wall.
+const siteName = (url) => {
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
+};
+
+function sourceList(items) {
+  const links = (items || []).filter((s) => /^https?:\/\//i.test(s?.url || '')).slice(0, 6);
+  if (!links.length) return '';
+  return `<div class="sources"><span class="sources-label">Where he read it</span>${links
+    .map((s) => `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer"`
+      + ` title="${escapeHtml(s.title || s.url)}">${escapeHtml(siteName(s.url) || 'the paper')}</a>`)
+    .join('')}</div>`;
+}
+
 function renderThread() {
   const chat = currentChat();
   const hasMessages = Boolean(chat?.messages.length);
@@ -427,6 +449,7 @@ function renderThread() {
           <div class="ai-body">
             ${message.searched ? lookedUp() : ''}
             <div class="prose">${renderMarkdown(message.content)}</div>
+            ${sourceList(message.sources)}
             ${messageActions(index, message.content)}
           </div>
         </div>`;
@@ -531,6 +554,7 @@ async function streamReply(chat, hooks = {}) {
   let trouble = '';   // what went wrong, for a listener who cannot see it
   let unfinished = false;   // ran out of room even after being carried on
   let searched = false;     // this answer was read off the web, not remembered
+  let sources = [];         // and these are the pages it was read from
 
   try {
     const response = await fetch('/api/chat', {
@@ -588,9 +612,14 @@ async function streamReply(chat, hooks = {}) {
 
         if (event === 'start') {
           // Say so while he is still reading, not only afterwards — a search
-          // takes a few seconds and silence reads as a hang.
+          // takes a few seconds and silence reads as a hang. This can arrive
+          // twice: the second one means the reading could not happen after
+          // all, and the mark has to come off before a word is written.
           searched = Boolean(payload.searched);
           if (searched) markLookedUp(target, true);
+          else unmarkLookedUp(target);
+        } else if (event === 'sources' && Array.isArray(payload.items)) {
+          sources = payload.items;
         } else if (event === 'delta' && payload.text) {
           const stick = nearBottom(el.thread);
           text += payload.text;
@@ -627,7 +656,7 @@ async function streamReply(chat, hooks = {}) {
   }
 
   if (text.trim()) {
-    chat.messages.push({ role: 'assistant', content: text, searched });
+    chat.messages.push({ role: 'assistant', content: text, searched, sources });
     chat.updatedAt = Date.now();
     persist();
     renderThread();

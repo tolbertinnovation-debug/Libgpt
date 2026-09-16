@@ -12,7 +12,7 @@ import express from 'express';
 import { FALLBACK_MODELS, config, isChatModel, sortModels } from './config.js';
 import { resolveTiers, tierFor } from './models.js';
 import {
-  OpenAIError, complete, generateImage, listModels, speakAloud, streamChat,
+  OpenAIError, complete, generateImage, listModels, speakAloud, streamChat, streamSearch,
 } from './openai.js';
 import {
   DEFAULT_LANGUAGE,
@@ -111,6 +111,27 @@ async function accountModels() {
   }
 }
 
+// Set when the account turns out not to be able to read the web at all — the
+// tool refused, the model is not allowed one, the endpoint is not there. After
+// that there is no point paying for the round trip on every news question, and
+// /api/config stops claiming a capability this key does not have.
+let searchRefused = '';
+
+/**
+ * Should a failed search stop us trying again?
+ *
+ * A 429 or a 500 is the account being busy or OpenAI having a bad minute —
+ * both pass. A 400, 403 or 404 is this key being told no, which will still be
+ * true in five minutes.
+ */
+function rememberIfPermanent(error) {
+  const status = error?.status;
+  if (status === 400 || status === 403 || status === 404) {
+    searchRefused = error.message || 'This key cannot read the web.';
+    console.error('[search] switched off for this process:', error.detail || error.message);
+  }
+}
+
 /**
  * The model on this account that can go and read the web, if there is one.
  *
@@ -118,7 +139,7 @@ async function accountModels() {
  * stays true. Nothing here ever claims a capability the key does not have.
  */
 async function lookupModel() {
-  if (!config.searchEnabled || !config.apiKey) return '';
+  if (!config.searchEnabled || !config.apiKey || searchRefused) return '';
   await accountModels();   // fills the cache, including the search model
   return modelCache.search;
 }
@@ -271,10 +292,11 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   // costs more and most questions have not changed since training.
   const asked = messages.filter((m) => m.role === 'user').at(-1)?.content || '';
   const reader = await lookupModel();
-  const searched = Boolean(reader) && needsLookingUp(asked);
 
-  const model = searched ? reader : await pickModel(req.body?.model, 'chat', { lowData, persona });
-  const system = buildSystemPrompt({
+  // Not const: a search that cannot happen falls back to an ordinary answer
+  // below, and then every one of these has to change with it.
+  let searched = Boolean(reader) && needsLookingUp(asked);
+  const promptFor = (didSearch) => buildSystemPrompt({
     persona,
     language: req.body?.language,
     speaker: req.body?.speaker,
@@ -284,8 +306,11 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     spoken,
     register: req.body?.register,
     task: 'chat',
-    searched,
+    searched: didSearch,
   });
+
+  let model = searched ? reader : await pickModel(req.body?.model, 'chat', { lowData, persona });
+  let system = promptFor(searched);
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
   res.setHeader('Cache-Control', 'no-cache, no-transform');
@@ -307,6 +332,12 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     const budget = lowData ? 420 : spoken ? 700 : 2200;
     let answer = '';
     let stopped = '';
+    const sources = [];
+
+    const take = (delta) => {
+      answer += delta;
+      send('delta', { text: delta });
+    };
 
     const runOnce = async (conversation) => {
       stopped = '';
@@ -315,15 +346,52 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
         messages: conversation,
         maxTokens: budget,
         signal: controller.signal,
-        webSearch: searched,
         onFinish: (reason) => { stopped = reason; },
-      })) {
-        answer += delta;
-        send('delta', { text: delta });
-      }
+      })) take(delta);
     };
 
-    await runOnce([{ role: 'system', content: system }, ...messages]);
+    // The same turn, but allowed to go and read the web first.
+    const runSearch = async (conversation) => {
+      stopped = '';
+      for await (const delta of streamSearch({
+        model,
+        messages: conversation,
+        maxTokens: budget,
+        signal: controller.signal,
+        onFinish: (reason) => { stopped = reason; },
+        onSource: (found) => {
+          if (!sources.some((s) => s.url === found.url)) sources.push(found);
+        },
+      })) take(delta);
+    };
+
+    const run = async (conversation) => (searched ? runSearch(conversation) : runOnce(conversation));
+
+    const opening = () => [{ role: 'system', content: system }, ...messages];
+
+    if (searched) {
+      try {
+        await runSearch(opening());
+      } catch (error) {
+        // A search that could not happen is a reason to say less, not a reason
+        // to say nothing. Unless the answer was already under way — then
+        // restarting it would repeat half of it on the reader's screen.
+        if (controller.signal.aborted || answer) throw error;
+
+        rememberIfPermanent(error);
+        console.error('[search] falling back to an ordinary answer:', error.message);
+
+        searched = false;
+        model = await pickModel(req.body?.model, 'chat', { lowData, persona });
+        system = promptFor(false);
+        // Correct what the browser was told: no badge, and he is back to
+        // saying he has not heard the news — which, having failed to read it,
+        // is true again.
+        send('start', { model, lowData, spoken, searched });
+      }
+    }
+
+    if (!searched) await runOnce(opening());
 
     // An answer that ran out of room is not an answer — it is half a sentence
     // that a reader has to guess the end of. So it is picked up and finished.
@@ -334,13 +402,17 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
       if (controller.signal.aborted) break;
       send('continuing', { carried: carried + 1 });
 
-      await runOnce([
+      await run([
         { role: 'system', content: system },
         ...messages,
         { role: 'assistant', content: answer },
         { role: 'user', content: CONTINUE_PROMPT },
       ]);
     }
+
+    // Where he read it. Sent before "done" so the browser has them by the time
+    // it files the answer away.
+    if (sources.length) send('sources', { items: sources.slice(0, 6) });
 
     // Still unfinished after all that. Say so, rather than leaving a sentence
     // hanging and letting the reader think that was the whole answer.

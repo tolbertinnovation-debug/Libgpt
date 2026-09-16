@@ -6,23 +6,41 @@
 // actually find out — and the rule stays exactly as strict for everything he
 // has not looked up.
 //
-// OpenAI's search-capable chat models do the looking. They take an ordinary
-// chat-completions request, stream like any other, and go and read the web
-// when the question needs it. No second provider, no second key, no second
-// bill — it runs on the same account as everything else.
+// The reading is done by OpenAI's Responses API with its web-search tool: an
+// ordinary model, told it may go and look. It runs on the same account and the
+// same key as everything else, so there is no second provider and no second
+// bill.
+//
+// It is deliberately NOT the old `gpt-4o-search-preview` models. Those were
+// retired, and a key that still sees them in its model list gets a 404 with
+// "has been deprecated" when it tries to use one — which is how this feature
+// first reached a phone in Monrovia as a red error box.
 //
 // The decision of *when* to search is made here rather than by the model,
 // because a search costs more than an answer and most questions do not need
 // one. "How do I plant rice" has not changed since the model was trained.
 
-/** Models that can read the web, best first. */
+/**
+ * Models that can be handed the web-search tool, best-value first.
+ *
+ * The small models lead on purpose. The searching is what costs; once the
+ * pages are in front of it, summarising three news reports is not hard work,
+ * and this runs on an account with ten dollars on it. OPENAI_SEARCH_MODEL
+ * overrides the order for anyone who disagrees.
+ *
+ * Nano models are left out: they do not carry the tool.
+ */
 export const SEARCH_MODELS = [
-  'gpt-4o-search-preview',
-  'gpt-4o-mini-search-preview',
+  'gpt-4.1-mini',
+  'gpt-4o-mini',
+  'gpt-5-mini',
+  'gpt-4.1',
+  'gpt-4o',
+  'gpt-5',
 ];
 
 /**
- * Which of the account's models can go and look something up.
+ * Which of the account's models should do the looking up.
  *
  * Nothing here is assumed: if the account has none of them, live news is off
  * and Grandpa says he has not heard the news, which is true.
