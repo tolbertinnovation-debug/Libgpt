@@ -63,6 +63,7 @@ const state = {
     register: 'standard',
     room: DEFAULT_ROOM,
     loudness: DEFAULT_LOUDNESS,
+    navHidden: false,   // the conversation list folded away on a wide screen
     accent: DEFAULT_ACCENT,
     cutIn: true,
     userName: '',
@@ -2244,7 +2245,17 @@ el.gateForm.addEventListener('submit', async (event) => {
   }
 });
 
-/* Mobile navigation */
+/* ---- the conversation list ----------------------------------------------
+ * Two different jobs behind one button, because they are the same job to the
+ * person pressing it: show me the conversations, or get them out of my way.
+ *
+ * On a phone the list is a drawer over the page. On a wide screen it is a
+ * column beside it, and folding it away gives the reading column the space
+ * back — which is what anyone reading a long answer wants, and what every
+ * other tool of this kind offers. The choice is remembered, because somebody
+ * who folded it away meant it. */
+const onPhone = () => window.matchMedia('(max-width: 820px)').matches;
+
 function openNav() {
   el.app.classList.add('nav-open');
   el.scrim.hidden = false;
@@ -2253,9 +2264,27 @@ function openNav() {
 function closeNav() {
   el.app.classList.remove('nav-open');
   el.scrim.hidden = true;
-  el.menuBtn.setAttribute('aria-expanded', 'false');
+  el.menuBtn.setAttribute('aria-expanded', String(!onPhone() && !state.prefs.navHidden));
 }
-el.menuBtn.addEventListener('click', openNav);
+
+/** Fold the list away, or bring it back. Wide screens only. */
+function setNavHidden(hidden) {
+  state.prefs.navHidden = Boolean(hidden);
+  el.app.classList.toggle('nav-hidden', state.prefs.navHidden);
+  el.menuBtn.setAttribute('aria-expanded', String(!state.prefs.navHidden));
+  el.menuBtn.setAttribute('aria-label',
+    state.prefs.navHidden ? 'Show conversations' : 'Hide conversations');
+  el.menuBtn.title = state.prefs.navHidden ? 'Show conversations' : 'Hide conversations';
+}
+
+el.menuBtn.addEventListener('click', () => {
+  if (onPhone()) {
+    openNav();
+    return;
+  }
+  setNavHidden(!state.prefs.navHidden);
+  savePreferences();
+});
 el.sidebarClose.addEventListener('click', closeNav);
 el.scrim.addEventListener('click', closeNav);
 
@@ -2267,6 +2296,15 @@ document.addEventListener('keydown', (event) => {
     if (listening) stopListening();
     speaker.stop();
   }
+  // Ctrl/Cmd+B — fold the conversation list away and back, the way every
+  // editor and chat tool with a side panel does it.
+  if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'b' && !onPhone()) {
+    event.preventDefault();
+    setNavHidden(!state.prefs.navHidden);
+    savePreferences();
+    return;
+  }
+
   // Ctrl/Cmd+K — jump to search, the way most chat apps do it.
   if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault();
@@ -2460,6 +2498,9 @@ async function boot() {
   updateSendState();
   // After the config, so nothing is offered that this deployment cannot do.
   startCanDo();
+  // The list folds away only where there is a column to fold; on a phone it is
+  // a drawer, and the same button opens it.
+  setNavHidden(!onPhone() && state.prefs.navHidden === true);
   el.input.focus();
 }
 

@@ -151,6 +151,24 @@ body {
   flex-direction: column;
   min-height: 0;
   color: #f3f0e6;
+  transition: width .2s ease, flex-basis .2s ease;
+}
+
+/* Folded away on a wide screen. Width rather than a transform, so the reading
+   column actually takes the space back instead of the panel sliding under it.
+   visibility keeps it out of the tab order and the accessibility tree, which
+   width alone does not. */
+.app.nav-hidden .sidebar {
+  width: 0;
+  flex-basis: 0;
+  overflow: hidden;
+  visibility: hidden;
+  border-right-width: 0;
+  transition: width .2s ease, flex-basis .2s ease, visibility 0s linear .2s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
 }
 
 .sidebar-head {
@@ -348,7 +366,11 @@ body {
 }
 .icon-btn:hover { background: var(--bg-hover); color: var(--text); }
 
-.menu-btn, .sidebar-close { display: none; }
+/* The menu button is not only for phones. On a wide screen it folds the
+   conversation list away, which is what anyone reading a long answer wants —
+   and what every other tool of this kind offers. */
+.menu-btn { display: grid; }
+.sidebar-close { display: none; }
 
 .pill {
   display: inline-flex;
@@ -929,7 +951,9 @@ body {
     visibility: visible;
     transition: transform .22s ease, visibility 0s;
   }
-  .menu-btn, .sidebar-close { display: grid; }
+  .sidebar-close { display: grid; }
+  /* Off-canvas already: there is nothing to fold away. */
+  .app.nav-hidden .sidebar { width: var(--sidebar-w); flex-basis: var(--sidebar-w); }
   .topbar-right .select-wrap:last-child { display: none; } /* model picker moves out of the way */
   .chat-title { font-size: .84rem; }
   .thread { padding-top: 1.25rem; }
