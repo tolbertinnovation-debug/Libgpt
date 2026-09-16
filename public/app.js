@@ -60,6 +60,7 @@ const state = {
     register: 'standard',
     room: DEFAULT_ROOM,
     accent: DEFAULT_ACCENT,
+    cutIn: true,
     userName: '',
     speaker: 'grandpa',
     tone: 'warmth',
@@ -160,6 +161,8 @@ const el = {
   talkHoldLabel: $('talk-hold-label'),
   talkEnd: $('talk-end'),
   talkClose: $('talk-close'),
+  setCutIn: $('settings-cutin'),
+  setCutInHint: $('settings-cutin-hint'),
   setPatience: $('settings-patience'),
   toast: $('toast'),
   gate: $('gate'),
@@ -915,7 +918,7 @@ el.listenStop.addEventListener('click', stopListening);
 const TALK_WORDS = {
   listening: ['Listening…', 'Just talk. Grandpa answers when you stop.'],
   thinking: ['Grandpa is thinking…', 'One moment.'],
-  speaking: ['Grandpa is talking', 'Tap the seal to cut in.'],
+  speaking: ['Grandpa is talking', 'Talk over him, or tap the seal, to cut in.'],
   paused: ['Waiting', 'Tap Continue when you are ready.'],
   trouble: ['Grandpa cannot hear', 'Check the microphone permission for this site.'],
 };
@@ -958,6 +961,7 @@ const conversation = new VoiceConversation({
   }),
   lang: () => state.prefs.dictationAccent || DEFAULT_DICTATION,
   patience: () => patienceMs(state.prefs.patience),
+  wantsCutIn: () => state.prefs.cutIn !== false,
   ask: askAloud,
 
   onState: (talkState) => {
@@ -965,6 +969,13 @@ const conversation = new VoiceConversation({
     const [title, hint] = TALK_WORDS[talkState] || ['', ''];
     if (title) el.talkState.textContent = title;
     el.talkHint.textContent = hint;
+
+    // The hint must not promise talking over him where that does not work —
+    // a phone that hears its own loudspeaker, or the switch turned off.
+    if (talkState === 'speaking'
+      && (!conversation.cutInWorks || state.prefs.cutIn === false)) {
+      el.talkHint.textContent = 'Tap the seal to cut in.';
+    }
 
     const held = talkState === 'paused' || talkState === 'trouble';
     el.talkHoldLabel.textContent = held ? 'Continue' : 'Wait';
@@ -975,6 +986,14 @@ const conversation = new VoiceConversation({
     if (talkState === 'thinking') el.talkSaid.textContent = '';
     if (talkState === 'listening') sounds.listen();
     if (talkState === 'closed') closeTalk();
+  },
+
+  // The seal moves with the voice the microphone is actually hearing. A circle
+  // that pulses on a timer is decoration; one that answers your own voice is
+  // the proof that it can hear you.
+  onLevel: (level) => {
+    if (el.talk.hidden) return;
+    el.talkOrb.style.setProperty('--voice', level.toFixed(2));
   },
 
   onHeard: (text, settled) => {
@@ -990,7 +1009,7 @@ const conversation = new VoiceConversation({
   },
 
   onNotice: (message, kind) => {
-    toast(message);
+    if (message) toast(message);
     if (kind === 'trouble') el.talkState.textContent = 'Grandpa cannot hear';
   },
 });
@@ -1115,6 +1134,7 @@ function renderSettings() {
   el.setPitchValue.textContent = PITCH_WORDS.find(([limit]) => prefs.voicePitch < limit)[1];
   el.setAccent.value = prefs.dictationAccent;
   el.setPatience.value = prefs.patience || DEFAULT_PATIENCE;
+  el.setCutIn.checked = prefs.cutIn !== false;
   el.setRealVoice.checked = prefs.realVoice !== false;
   el.setRealVoiceHint.textContent = realVoiceHint();
   el.setName.value = prefs.userName || '';
@@ -1383,6 +1403,11 @@ el.setRealVoice.addEventListener('change', () => {
   speaker.stop();
   el.setRealVoiceHint.textContent = realVoiceHint();
   el.setRoomHint.textContent = roomHint();
+});
+
+el.setCutIn.addEventListener('change', () => {
+  state.prefs.cutIn = el.setCutIn.checked;
+  savePreferences();
 });
 
 el.setPatience.addEventListener('change', () => {

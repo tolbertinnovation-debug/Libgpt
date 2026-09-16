@@ -251,9 +251,12 @@ export class VoiceOut {
   #pump() {
     if (this.mode !== 'real') return;
 
-    // One piece fetched ahead: enough to play without a gap, not so much that
-    // a conversation cut short has already paid for three answers.
-    if (this.fetching === 0 && this.ready.length < 1 && this.pending.length) {
+    // Two pieces fetched ahead rather than one. With a single one the queue
+    // only starts the next request when the last arrives, so a piece that
+    // takes longer to make than the one before it takes to say leaves a hole
+    // in the middle of a sentence. Two is still not so much that a
+    // conversation cut short has paid for half an answer nobody heard.
+    if (this.fetching === 0 && this.ready.length < 2 && this.pending.length) {
       this.#fetchNext();
     }
     if (!this.audio && this.state !== 'paused' && this.ready.length) {

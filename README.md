@@ -27,7 +27,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Daylight & Twilight** | Daylight is linen `#FAF3E0`, terracotta `#C62828`, palm gold `#FF8F00`, wood brown `#4E342E`. Twilight is deep mahogany `#140C0B` with warm amber, for evening storytelling. |
 | **Interface sounds** | Taps, sends and chimes synthesised with Web Audio oscillators — no audio files to download on a metered connection. |
 | **Multilingual chatbot** | Liberian English vernacular by default, standard English alongside it. Kpelle, Vai and Bassa appear in the picker as roadmap languages — the assistant says plainly that they are still being built rather than faking them. |
-| **Talking with Grandpa** | A hands-free spoken conversation: talk, stop talking, and he answers out loud — then listens again by himself, with nothing to press. Each sentence of his answer is spoken as it arrives rather than after the whole thing, and the exchange is left behind as an ordinary conversation you can read. See below. |
+| **Talking with Grandpa** | A hands-free spoken conversation: talk, stop talking, and he answers out loud — then listens again by himself, with nothing to press. **Talk over him and he stops**, the way a person does. He waits when you pause on "and" or "because" instead of cutting you off. Each sentence is spoken as it arrives, and the exchange is left behind as an ordinary conversation you can read. See below. |
 | **Whole answers** | A reply that runs out of room is picked up and carried on — twice if it needs it — and the halves are joined with no seam. An answer that stops mid-sentence is not an answer. See below. |
 | **How Grandpa talks** | Not an accent filter over standard English. A register with its own sound, grammar, vocabulary and way of arranging a thought — three registers, in fact, from broadcast-standard to family talk to ceremonial. See below. |
 | **Where he is sitting** | The spoken voice can be put in a room: a palaver hut, an evening fire, or a county shortwave set. Built with Web Audio filters on the device — no audio files to download. |
@@ -163,14 +163,16 @@ aloud, and he is listening again before you think to ask for it.
 Three things make that harder than plugging the browser's two speech APIs
 together, and each one shows in the interface:
 
-- **A phone hears its own loudspeaker.** Left listening while he talks, the
-  recogniser transcribes his answer back to him and the conversation eats
-  itself. So the ear is shut while the mouth is open, and interrupting is a tap
-  on the seal rather than talking over him — which the screen says, instead of
-  pretending you can shout him down.
+- **A phone hears its own loudspeaker.** The recogniser cannot be left running
+  while he talks, or it transcribes his answer back to him and the
+  conversation eats itself. So the *recogniser* is shut while he speaks — but
+  a second microphone stream, with the browser's echo cancellation on, watches
+  the **volume** and nothing else. A voice that rises over him stops him. See
+  below.
 - **A silence is how a turn ends, but how long a silence is personal.** An
   elder thinking mid-sentence has not finished. So the wait is a setting —
-  Quick, Normal or Patient, under Voice in Settings — not a constant.
+  Quick, Normal or Patient, under Voice in Settings — and it stretches further
+  still when you stop on a word nobody ends on.
 - **Waiting for the whole answer would leave dead air.** Each sentence is
   spoken as soon as it is complete, while the rest is still arriving. On a 2G
   connection that is the difference between a conversation and a wait.
@@ -180,6 +182,30 @@ sixty words, no headings or bullets or asterisks, no URLs read out letter by
 letter, and if the recogniser clearly mangled something, say what it heard
 rather than guess. Everything said is saved as an ordinary conversation, so
 hanging up leaves a transcript.
+
+**Talking over him.** Browsers have had acoustic echo cancellation for years —
+it is what every video call runs on — so a microphone opened with it subtracts
+most of the loudspeaker from what it reports. A second stream does nothing but
+measure the level: no words leave it, nothing it hears is sent anywhere. When a
+voice stays well clear of the room's own noise for about a third of a second,
+he stops and listens.
+
+Where that fails, it fails loudly rather than quietly: on a phone whose echo
+cancellation does not hold, Grandpa's own voice trips the meter and he
+interrupts himself. So a cut-in that nobody follows with words counts against
+the feature, and after three it switches itself off and says why. It is also a
+plain switch in Settings, for a noisy market where it would misfire.
+
+That same stream drives the seal: it swells with the voice the microphone is
+really hearing, rather than pulsing on a timer. A circle that answers your own
+voice is the proof that the thing can hear you, which is the first question
+anyone has.
+
+**Not being cut off.** A person who stops on "and", "because", "so" or "um" has
+not finished — they are reaching for the next word. Ending their turn there is
+the rudest thing a listener can do, and the commonest fault in voice
+assistants. Those endings add most of a second to the wait. A lone "mm" or "ah"
+is not sent as a question at all.
 
 The screen stays awake while you are talking, listening stops if you switch
 away, and a microphone left open with nobody speaking pauses itself after a
@@ -474,7 +500,8 @@ public/
   styles.css    Brand palette, light and dark, mobile-first breakpoints
   app.js        State, streaming, history, settings, sharing
   speech.js     Text-to-speech chunking, voice ranking, dictation locales
-  converse.js   The hands-free loop: turn-taking, silence detection, barge-in
+  converse.js   The hands-free loop: turn-taking, silence detection, cutting in
+  ear.js        The microphone as a volume meter — never as words
   pronounce.js  The accent: what the voice is handed, not what the page shows
   room.js       Palaver hut, fire and shortwave, as Web Audio filters
   realvoice.js  Grandpa's real voice, with the phone's own as the fallback
@@ -582,7 +609,15 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   tip last, every quiz option numbered — plus the control marking itself as the
   one talking, stopping when pressed again, and stopping when the reader moves
   on to something else.
-- **Talking with Grandpa (Playwright)** — 37 checks against fake ears and a
+- **Turn-taking (unit)** — 33 checks against a driven ear and mouth: a turn
+  ending on "and", "because", "um" or "the" held rather than answered, and one
+  that has genuinely finished sent on the ordinary wait; a lone "mm" or "ah"
+  not sent as a question at all while real words beginning with one are;
+  talking over an answer stopping it and the interruption then being answered;
+  and — where echo cancellation fails — three interruptions with nobody behind
+  them switching the feature off and saying why, while an interruption somebody
+  does follow up on is not held against it.
+- **Talking with Grandpa (Playwright)** — 38 checks against fake ears and a
   fake mouth: a silence ending the turn with nothing pressed, the ear shut for
   the whole time he is talking and open again after, the answer spoken in
   sentences as it streams rather than in one block, no markdown read out, a

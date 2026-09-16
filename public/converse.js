@@ -22,6 +22,7 @@
 // so that a late callback from an abandoned turn cannot speak over a new one.
 
 import { FALLBACK_DICTATION } from './speech.js';
+import { Ear } from './ear.js';
 
 /** How long a silence means "I have finished talking". */
 export const PATIENCE = [
@@ -43,6 +44,22 @@ const AFTER_SPEECH_MS = 300;
 // uneasy about. After this long with nothing heard at all, listening pauses
 // itself and waits to be asked again.
 const NOBODY_THERE_MS = 60_000;
+
+// Somebody who stops on one of these has not finished — they are thinking of
+// the next word. Ending their turn there cuts them off mid-sentence, which is
+// the rudest thing a listener can do and the commonest fault in voice
+// assistants. The wait is stretched instead.
+const HANGING = /\b(and|but|so|or|because|cause|then|that|the|a|an|to|of|for|with|my|your|his|her|is|was|if|when|like|about|um+|uh+|er+|eh+|hmm+)\s*$/i;
+const MID_THOUGHT_EXTRA = 900;
+
+// Sounds, not words. A cough, a hum or a single stray syllable is not a
+// question, and sending it as one wastes money and answers nothing.
+const FILLER_ONLY = /^(um+|uh+|er+|eh+|ah+|oh+|hm+|mm+|hmm+|yeah|yes|no|ok|okay|a|the|i|so)$/i;
+
+// Cutting in by voice depends on the browser subtracting the loudspeaker from
+// the microphone. Where that fails it fires on Grandpa's own voice — so after
+// this many cut-ins that turned out to be nobody, it gives up and says so.
+const FALSE_CUTINS_ALLOWED = 3;
 
 export const SpeechRecognitionAPI = typeof window === 'undefined'
   ? null
@@ -69,6 +86,8 @@ export class VoiceConversation {
    * @param {(text: string, settled: boolean) => void} deps.onHeard   what they said
    * @param {(text: string) => void} deps.onSaid                      what he answered
    * @param {(message: string, kind?: string) => void} deps.onNotice
+   * @param {(level: number) => void} [deps.onLevel]   0 to 1, while listening
+   * @param {(handlers: object) => object} [deps.makeMeter]  for tests
    */
   constructor(deps) {
     Object.assign(this, deps);
@@ -82,6 +101,22 @@ export class VoiceConversation {
     this.fellBack = false;  // already dropped to a locale that always exists
     this.answerDone = false;
     this.spokeSomething = false;
+
+    // The microphone as a volume meter: what makes cutting in by voice
+    // possible, and what makes the seal move with a real voice rather than a
+    // timer. It never transcribes anything.
+    this.falseCutIns = 0;
+    this.cutInWorks = true;
+    this.cutInCheck = null;
+
+    // The volume meter — not `this.ear`, which is the speech recogniser and
+    // gets closed and reopened all through a conversation. Built through
+    // `makeMeter` so a test can hand over one it drives itself; there is no
+    // microphone to talk into in a test.
+    this.meter = (this.makeMeter || ((handlers) => new Ear(handlers)))({
+      onLevel: (level) => this.onLevel?.(level),
+      onCutIn: () => this.#cutIn(),
+    });
 
     this.onVisibility = () => {
       if (document.visibilityState === 'hidden' && this.state === 'listening') {
@@ -102,6 +137,13 @@ export class VoiceConversation {
   #setState(state) {
     if (this.state === state) return;
     this.state = state;
+
+    // Listen for somebody talking over the answer only while there is an
+    // answer to talk over.
+    const cutInAllowed = this.cutInWorks && (this.wantsCutIn?.() ?? true);
+    if (state === 'speaking' && cutInAllowed) this.meter.arm();
+    else this.meter.disarm();
+
     this.onState?.(state);
   }
 
@@ -139,6 +181,7 @@ export class VoiceConversation {
       this.onHeard?.(heard, false);
 
       if (heard) {
+        this.#cutInWasReal();
         this.#stopAloneTimer();
         this.#armSilence();
       }
@@ -191,9 +234,62 @@ export class VoiceConversation {
 
   /* ---- timers ----------------------------------------------------------- */
 
+  /**
+   * Somebody talked over the answer.
+   *
+   * Grandpa stops and listens, which is what a person does. If nothing is
+   * actually said afterwards it was the loudspeaker leaking back rather than a
+   * voice, and after a few of those this gives up on hearing interruptions.
+   */
+  #cutIn() {
+    if (this.state !== 'speaking' || !this.active) return;
+
+    this.interrupt();
+
+    // Was that a person, or the loudspeaker coming back round? Words within
+    // the next few seconds settle it.
+    clearTimeout(this.cutInCheck);
+    this.cutInCheck = setTimeout(() => this.#cutInWasNobody(), 4_000);
+  }
+
+  /** Nothing was said after all — so that was echo, not a person. */
+  #cutInWasNobody() {
+    // The handle is spent, and leaving it set makes the next ordinary turn
+    // look like somebody answering this interruption.
+    this.cutInCheck = null;
+    this.falseCutIns += 1;
+    if (this.falseCutIns < FALSE_CUTINS_ALLOWED) return;
+
+    this.cutInWorks = false;
+    this.meter.disarm();
+    this.onNotice?.('This phone hears its own speaker, so talking over Grandpa '
+      + 'is switched off. Tap the seal to cut in.');
+  }
+
+  /**
+   * Words arrived, so whatever woke the microphone was real.
+   *
+   * Only while an interruption is actually waiting to be judged. Words from
+   * some later, ordinary turn say nothing about whether this phone hears its
+   * own loudspeaker, and letting them clear the count means it never reaches
+   * the limit and never gives up.
+   */
+  #cutInWasReal() {
+    if (!this.cutInCheck) return;
+    clearTimeout(this.cutInCheck);
+    this.cutInCheck = null;
+    this.falseCutIns = 0;
+  }
+
   #armSilence() {
     clearTimeout(this.silence);
-    this.silence = setTimeout(() => this.#finishTurn(), this.patience());
+
+    // Stopping on "and", "because", "um" is a pause for thought, not the end
+    // of a turn. Waiting longer costs a moment; cutting in costs the sentence.
+    const heard = `${this.settled}${this.loose}`.trim();
+    const extra = HANGING.test(heard) ? MID_THOUGHT_EXTRA : 0;
+
+    this.silence = setTimeout(() => this.#finishTurn(), this.patience() + extra);
   }
 
   #startAloneTimer() {
@@ -213,6 +309,8 @@ export class VoiceConversation {
   #clearTimers() {
     clearTimeout(this.silence);
     this.silence = null;
+    clearTimeout(this.cutInCheck);
+    this.cutInCheck = null;
     this.#stopAloneTimer();
   }
 
@@ -242,9 +340,9 @@ export class VoiceConversation {
     const said = `${this.settled}${this.loose}`.replace(/\s+/g, ' ').trim();
     this.#clearTimers();
 
-    // Half a word, a cough, the room. Keep listening rather than asking
-    // Grandpa to make sense of nothing.
-    if (said.length < 2) {
+    // Half a word, a cough, the room, or a single "mm" — keep listening
+    // rather than asking Grandpa to make sense of nothing.
+    if (said.length < 2 || FILLER_ONLY.test(said.replace(/[.,!?]/g, '').trim())) {
       this.settled = '';
       this.loose = '';
       this.#startAloneTimer();
@@ -338,8 +436,16 @@ export class VoiceConversation {
     }
 
     this.fellBack = false;
+    this.falseCutIns = 0;
     document.addEventListener('visibilitychange', this.onVisibility);
     this.#keepAwake();
+
+    // Best effort. Refused or unavailable, the conversation works exactly as
+    // it did — interrupted by a tap instead of by talking.
+    this.meter.start().then((opened) => {
+      if (!opened) this.cutInWorks = false;
+    });
+
     this.#listen();
     return this.state === 'listening';
   }
@@ -386,6 +492,7 @@ export class VoiceConversation {
     this.turn += 1;
     this.#clearTimers();
     this.#closeEar();
+    this.meter.stop();
     this.speaker.stop();
     this.#releaseWake();
     document.removeEventListener('visibilitychange', this.onVisibility);

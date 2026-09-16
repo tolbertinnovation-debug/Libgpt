@@ -1889,10 +1889,18 @@ body {
   opacity: 0;
 }
 
-/* Listening: two rings breathe outward, like someone leaning in. */
+/* Listening: two rings breathe outward, like someone leaning in — and the
+   seal itself swells with whatever the microphone is really hearing, so the
+   screen answers your voice rather than a timer. */
+.talk-orb img {
+  transform: scale(calc(1 + var(--voice, 0) * 0.07));
+}
 .talk[data-state="listening"] .talk-ring {
   animation: talk-listen 2.4s ease-out infinite;
   opacity: 1;
+}
+.talk[data-state="listening"] .talk-ring {
+  border-width: calc(2px + var(--voice, 0) * 3px);
 }
 .talk[data-state="listening"] .talk-ring-2 { animation-delay: 1.2s; }
 @keyframes talk-listen {
@@ -1927,6 +1935,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .talk, .talk-ring, .talk-orb img { animation: none !important; }
   .talk[data-state="listening"] .talk-ring { opacity: .5; }
+  .talk-orb img { transform: none; }
 }
 
 /* ---- words ---- */
