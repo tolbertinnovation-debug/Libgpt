@@ -1439,6 +1439,11 @@ function realVoiceHint() {
   }
   if (state.prefs.realVoice === false) return 'Off. The phone\'s own voice is used.';
   if (state.prefs.lowData) return 'Held back while low-data mode is on — speech is heavy to download.';
+  // Which engine, because the two do not sound alike and somebody wondering
+  // why it changed deserves to be told rather than left guessing.
+  if (state.catalogue.voiceFrom === 'elevenlabs') {
+    return 'On, in the ElevenLabs voice. Charged to that account by the character.';
+  }
   return 'On. Costs about a US cent for every four or five answers.';
 }
 

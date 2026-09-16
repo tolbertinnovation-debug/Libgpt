@@ -36,6 +36,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Where the voice is sitting** | The spoken voice can be put in a room: a palaver hut, an evening fire, or a county shortwave set. Built with Web Audio filters on the device — no audio files to download. |
 | **Said, not read** | "20cm x 20cm" read aloud is "twenty see em ex twenty see em", and one of those in a sentence undoes any voice. Numbers, money, measures, times, years, ordinals and short forms are turned into the words a person would actually say before either voice sees them — and a colon becomes a held breath, because a list read without one is the sound of a machine getting through it. See below. |
 | **The accent** | There is no Liberian voice in any speech service. So the text going to the voice is not the text on the screen: the page stays easy to read, while the speaker is handed the spoken spelling — *"I tink dat ting will be betta afta de wata."* See below. |
+| **A better voice, optionally** | ElevenLabs can do the talking instead, in any voice that account has — including one you cloned yourself from a recording of a real Liberian elder. **Off unless a key is set**: no key, no calls, no second bill. When it is on and their end fails, OpenAI's voice finishes the sentence rather than the listener losing it. See below. |
 | **Grandpa's own voice** | Not the phone's robot: a real voice, one per elder, told how an old man on his porch talks. The phone's own voice stays underneath and takes over when the network is gone or on a metered connection. See below. |
 | **Voice out** | Press **Listen** on any answer, or turn on auto-read. Long answers are split into sentence-sized chunks, which is what stops browsers cutting them off part-way. Pause, continue and stop from a bar above the composer. |
 | **Voice in** | Hold a conversation with the microphone: continuous dictation with the words appearing as you speak, so a pause for breath does not end it. Pick the accent closest to your own; if a device cannot do it, it falls back rather than failing. |
@@ -526,6 +527,44 @@ On a serverless host the hourly ceiling is counted per instance and resets with
 every cold start, the same caveat as the picture limit; `ACCESS_CODE` is the
 real protection on a public address.
 
+### A better voice, optionally
+
+Everything else in this app runs on one key and one bill, deliberately. This is the
+exception, and it is here because the voice *is* the product: an app whose promise is
+an elder talking to you lives or dies on whether the talking sounds like a person, and
+ElevenLabs is better at that than anything you can buy by the character.
+
+Set `ELEVENLABS_API_KEY` and it does the talking. Leave it empty and nothing changes —
+nothing is called, nothing is charged, and `/api/config` reports `voiceFrom: "openai"`
+rather than implying the better voice when it has not got it.
+
+**One thing it cannot do, which people reasonably expect it to.** An audio file is not
+a voice. Neither this API nor OpenAI's will take a recording and read new words in it.
+A voice has to exist *in the account* first — either a premade one (`Daniel`, `Brian`,
+`Charlotte`…) or one cloned there from a recording. Which is the door this leaves
+open, and the most interesting thing about it: record a real Liberian elder, clone the
+voice in your own ElevenLabs account, put its **name** in `ELEVENLABS_VOICE`, and
+Grandpa AI speaks in that person's voice. The setting takes a name rather than only an
+id precisely so that a voice you made yourself is named the way you named it.
+
+Four things it does carefully:
+
+- **mp3 at 22kHz, 32kbps.** About a quarter of the bytes of their default, and barely
+  different through a phone loudspeaker — which is what this is heard through, on a
+  connection somebody is paying for by the megabyte.
+- **A failure never costs a sentence.** Their quota spent, their server having a bad
+  minute, the network gone: OpenAI's voice says it instead. A failure that will still
+  be a failure in five minutes — a rejected key, a voice the account has not got — is
+  remembered, so the next sentence does not wait for it again; a passing one is not.
+- **A wrong voice name is refused, not swapped.** If one request names a voice the
+  account does not have, that is an error naming the voices it does have. Speaking it
+  in some other voice would be answering as somebody nobody chose.
+- **Settings say which engine is talking**, because the two do not sound alike and
+  someone wondering why it changed deserves to be told.
+
+Mind the plan: their free tier is about 10,000 characters a month — fifteen or twenty
+spoken answers — and does not allow commercial use.
+
 ### Pictures cost real money
 
 A text answer costs a fraction of a penny. A picture costs **cents** — a hundred
@@ -724,6 +763,15 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   through every substitution, the three strengths differing as they claim,
   applying it twice being the same as once — and eight trap words (brand, bond,
   beyond, wand…) that a looser rule would turn into different real words.
+- **The second voice (server)** — 24 checks across three deployments: the words,
+  model, settings and low bitrate reaching ElevenLabs, a voice name resolved to
+  an id against the account's own list (including a cloned one), the speed
+  slider reaching it, and a speed it will not take dropped rather than the
+  sentence lost. Then every way it can fail: a spent quota and a bad minute
+  both falling back to OpenAI without being remembered, a rejected key
+  remembered so the next sentence does not wait for it, a voice the account has
+  not got refused rather than quietly swapped — and, with no key at all,
+  everything behaving exactly as it did before.
 - **Grandpa's voice (server)** — 23 checks: each elder given their own voice,
   the delivery instruction actually sent, the speed slider passed through and
   an impossible speed clamped, an over-long piece cut rather than refused, an

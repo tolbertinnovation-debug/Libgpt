@@ -5,6 +5,11 @@ const int = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const num = (value, fallback) => {
+  const parsed = Number.parseFloat(value ?? '');
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 export const config = {
   port: int(process.env.PORT, 3000),
   apiKey: process.env.OPENAI_API_KEY?.trim() || '',
@@ -39,6 +44,25 @@ export const config = {
   // the news, which stays true.
   searchEnabled: !/^(0|false|no|off)$/i.test(process.env.ENABLE_LIVE_NEWS?.trim() || 'true'),
   searchModel: process.env.OPENAI_SEARCH_MODEL?.trim() || '',
+
+  // A better voice than OpenAI's, from ElevenLabs, for anyone who wants it.
+  //
+  // Off unless a key is set: no key, no calls, no second bill. The voice may
+  // be given as an id or as the name shown on their website, which is also how
+  // a voice somebody cloned themselves is named — the door this leaves open
+  // for a real Liberian elder to be recorded one day and become the voice.
+  //
+  // The settings are the ones the sample was made with. Stability at half
+  // keeps life in it; similarity high enough that it stays the same person
+  // from one sentence to the next, which matters when an answer is spoken in
+  // pieces.
+  elevenKey: process.env.ELEVENLABS_API_KEY?.trim() || '',
+  elevenBaseUrl: (process.env.ELEVENLABS_BASE_URL || 'https://api.elevenlabs.io/v1').replace(/\/+$/, ''),
+  elevenVoice: process.env.ELEVENLABS_VOICE?.trim() || 'Daniel',
+  elevenModel: process.env.ELEVENLABS_MODEL?.trim() || 'eleven_multilingual_v2',
+  elevenStability: num(process.env.ELEVENLABS_STABILITY, 0.5),
+  elevenSimilarity: num(process.env.ELEVENLABS_SIMILARITY, 0.75),
+  elevenStyle: num(process.env.ELEVENLABS_STYLE, 0),
 
   // Grandpa's own voice. The phone's built-in text-to-speech is free but
   // sounds like a machine reading; this is a real recorded-sounding voice from
