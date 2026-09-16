@@ -349,6 +349,10 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     let answer = '';
     let stopped = '';
     const sources = [];
+    // Whether it actually went and looked, as opposed to being sent somewhere
+    // it could. The mark on the answer says it did; that must be a fact and
+    // not an intention.
+    let didSearch = false;
 
     const take = (delta) => {
       answer += delta;
@@ -375,6 +379,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
         maxTokens: budget,
         signal: controller.signal,
         onFinish: (reason) => { stopped = reason; },
+        onSearched: () => { didSearch = true; },
         onSource: (found) => {
           if (!sources.some((s) => s.url === found.url)) sources.push(found);
         },
@@ -430,9 +435,21 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     // it files the answer away.
     if (sources.length) send('sources', { items: sources.slice(0, 6) });
 
+    // A turn that was sent to search but never searched has no business
+    // wearing the mark. It is rare now the tool is not optional, but "rare"
+    // is not a reason to let the page claim something that did not happen.
+    if (searched && !didSearch) {
+      console.error('[search] the model answered without searching:', asked.slice(0, 80));
+    }
+
     // Still unfinished after all that. Say so, rather than leaving a sentence
     // hanging and letting the reader think that was the whole answer.
-    send('done', { model, searched, truncated: stopped === 'length' });
+    send('done', {
+      model,
+      // What happened, not what was asked for.
+      searched: searched && didSearch,
+      truncated: stopped === 'length',
+    });
   } catch (error) {
     if (controller.signal.aborted) {
       // The user pressed Stop. Nothing to report — the connection is going away.

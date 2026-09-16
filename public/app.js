@@ -642,6 +642,15 @@ async function streamReply(chat, hooks = {}) {
           // The server carries a cut-off answer on by itself, twice. This flag
           // means even that was not enough.
           unfinished = Boolean(payload.truncated);
+          // And this says whether the reading actually happened, rather than
+          // whether it was asked for. If it did not, the mark comes off — a
+          // badge saying "looked it up just now" over an answer that was
+          // remembered is the one thing this feature must never do.
+          if (searched && payload.searched === false) {
+            searched = false;
+            sources = [];
+            unmarkLookedUp(target);
+          }
         } else if (event === 'error') {
           failed = true;
           trouble = payload.message || 'Something went wrong. Try again.';

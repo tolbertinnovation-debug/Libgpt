@@ -277,6 +277,19 @@ That second list was missing at first, and the question that exposed it was *"Se
 and list the best online fully funded scholarships available"*, answered with "I cannot
 search the live internet" — with the word **search** sitting in front of it.
 
+**The search is not optional on those turns.** Offered a tool, a model will often
+answer a question about this week from memory and then apologise for having no
+internet — which is how "I don't have live internet access" ended up printed under a
+badge reading *Looked it up just now*. The decision that this question needs the web
+has already been made, by the words in it or by the person tapping the globe, so the
+request names the tool as required rather than available, and the prompt for that turn
+says outright that the reading has already happened and forbids the sentence.
+
+**And the badge reports what happened, not what was asked for.** The server watches
+the stream for the search actually being run; if it was not, the finished turn says so
+and the mark comes off before the answer is filed. A badge that says "looked it up" on
+an answer that was remembered is the one thing this whole feature exists to prevent.
+
 No list of words will ever be complete, so there is also a **globe on the composer**.
 Tap it and this question gets the web whatever the words look like. It is off by
 default, because a search costs more than an answer, and it turns itself off again
@@ -847,7 +860,7 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   four card names, greeting by name, the name, speaker and tone actually reaching the
   server, glossary terms marked and explained (and never inside code), and the chips
   switching persona and asking.
-- **Live news (server)** — 42 checks across four deployments: a question about
+- **Live news (server)** — 51 checks across five deployments: a question about
   today sent to the endpoint where web search actually lives, with the tool
   attached and the ceiling under the name that endpoint uses; an ordinary one
   left on the everyday chat call with no tool at all; the prompt swapping
@@ -858,7 +871,10 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   capable model, switched off, and a key that is told no — each falling back to
   the honest refusal, the last one with the answer still arriving, no error
   shown, the claim withdrawn mid-stream and the refusal remembered so the next
-  question does not pay for it.
+  question does not pay for it. And a fifth: a model that is handed the tool
+  and answers from memory anyway, where the answer still arrives but the turn
+  is reported as not looked up, so the mark comes off rather than sitting over
+  a sentence that contradicts it.
 - **Live news (Playwright)** — 22 checks: the page saying he is reading while he
   reads, the finished answer still marked as looked up, the sources listed as
   site names with the headline as the tooltip and `rel="noopener noreferrer"`,

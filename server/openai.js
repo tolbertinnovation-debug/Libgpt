@@ -247,7 +247,7 @@ export const searchToolName = () => toolName;
  * that could not happen is a reason to say less, not a reason to say nothing.
  */
 export async function* streamSearch({
-  model, messages, maxTokens, signal, onFinish, onSource,
+  model, messages, maxTokens, signal, onFinish, onSource, onSearched,
 }) {
   // The Responses API takes `input` rather than `messages`, and counts the
   // ceiling as `max_output_tokens`. Everything else is the same conversation.
@@ -255,20 +255,44 @@ export async function* streamSearch({
     model: model || config.model,
     input: messages,
     tools: [{ type: tool }],
+    // Not "here is a tool if you want it" — go and use it.
+    //
+    // Left on auto, a model will often answer a question about this week from
+    // memory and then apologise for having no internet, which is what it did:
+    // "Looked it up just now" over an answer beginning "I don't have live
+    // internet access". The decision that this question needs the web was
+    // already made, by the words in it or by the person tapping the globe.
+    // Leaving the model free to overrule that silently is how you get a badge
+    // that lies.
+    tool_choice: { type: tool },
     stream: true,
     max_output_tokens: maxTokens ?? 1400,
   });
 
+  const attempt = async (tool) => {
+    try {
+      return await post('/responses', build(tool), signal);
+    } catch (error) {
+      // A model that will not be ordered to use the tool can still be offered
+      // it. Better a turn that might search than no turn at all.
+      if (error.status === 400 && /tool_choice/i.test(error.detail || '')) {
+        const { tool_choice: _dropped, ...rest } = build(tool);
+        return post('/responses', rest, signal);
+      }
+      throw error;
+    }
+  };
+
   let response;
   try {
-    response = await post('/responses', build(toolName), signal);
+    response = await attempt(toolName);
   } catch (error) {
     // "Invalid value: 'web_search'. Supported values are: 'web_search_preview'"
     const other = toolName === 'web_search' ? 'web_search_preview' : 'web_search';
     const named = error.status === 400 && new RegExp(other).test(error.detail || '');
     if (!named) throw error;
     toolName = other;
-    response = await post('/responses', build(other), signal);
+    response = await attempt(other);
   }
 
   const reader = response.body.getReader();
@@ -296,6 +320,17 @@ export async function* streamSearch({
           switch (event.type) {
             case 'response.output_text.delta':
               if (event.delta) yield event.delta;
+              break;
+
+            // It actually went and looked. Worth knowing for certain rather
+            // than assuming: the badge on the answer says it did, and that
+            // must not be a guess.
+            case 'response.web_search_call.completed':
+              onSearched?.();
+              break;
+
+            case 'response.output_item.done':
+              if (event.item?.type === 'web_search_call') onSearched?.();
               break;
 
             // Where it read. The url is the part worth keeping; the title is
