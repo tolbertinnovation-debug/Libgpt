@@ -286,6 +286,12 @@ has already been made, by the words in it or by the person tapping the globe, so
 request names the tool as required rather than available, and the prompt for that turn
 says outright that the reading has already happened and forbids the sentence.
 
+While it is still reading, the mark says **Going to search the internet…** rather than
+naming the errand as news: most of what gets looked up here is not news — a scholarship
+still open, what a thing costs today, whether an office is still at that address — and
+a line that names the wrong job is a small lie told during the pause where the reader
+has nothing else to look at.
+
 **And the badge reports what happened, not what was asked for.** The server watches
 the stream for the search actually being run; if it was not, the finished turn says so
 and the mark comes off before the answer is filed. A badge that says "looked it up" on

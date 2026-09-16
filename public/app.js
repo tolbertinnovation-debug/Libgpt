@@ -399,9 +399,15 @@ function lastAiIndex() {
 // Said above an answer that was read off the web, so nobody has to guess
 // whether it was known or looked up. The two are not the same thing, and an
 // elder who blurs them is not worth listening to.
+//
+// While it is still reading it says searching the internet, not reading the
+// news. Most of what gets looked up here is not news at all — a scholarship
+// still open, what a thing costs today, whether an office is still at that
+// address — and a line that names the wrong errand is a small lie told during
+// the pause where the reader has nothing else to look at.
 const lookedUp = (reading = false) =>
   '<div class="looked-up" title="This answer was read off the web just now">'
-  + `<span aria-hidden="true">\u25C9</span> ${reading ? 'Going to read the news\u2026' : 'Looked it up just now'}`
+  + `<span aria-hidden="true">\u25C9</span> ${reading ? 'Going to search the internet\u2026' : 'Looked it up just now'}`
   + '</div>';
 
 // How much of the conversation travels with each question.
@@ -849,7 +855,7 @@ function setLookItUp(on) {
   el.look.setAttribute('aria-pressed', String(state.lookItUp));
   el.look.classList.toggle('is-on', state.lookItUp);
   el.look.title = state.lookItUp
-    ? 'He will read the web for this one'
+    ? 'This one will be looked up on the web'
     : 'Look it up on the web';
 }
 
