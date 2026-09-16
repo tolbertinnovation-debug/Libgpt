@@ -1210,6 +1210,24 @@ body {
 .setting-toggle input:focus-visible ~ .toggle-track { outline: 2px solid var(--gold); outline-offset: 2px; }
 
 .setting-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin: .5rem 0 .2rem; }
+
+/* What the phone said when the microphone was checked. Monospaced and small,
+   because it is a log to be read line by line and then sent to somebody. */
+.mic-report {
+  margin: .5rem 0;
+  padding: .6rem .7rem;
+  max-height: 14rem;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 10px);
+  background: var(--bg-code);
+  color: var(--text-soft);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .72rem;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
 .setting-btn {
   padding: .45rem .8rem;
   border: 1px solid var(--border-strong);

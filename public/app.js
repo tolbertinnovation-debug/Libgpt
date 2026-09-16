@@ -132,6 +132,10 @@ const el = {
   setRegisterHint: $('settings-register-hint'),
   setRoom: $('settings-room'),
   setRoomHint: $('settings-room-hint'),
+  setMicCheck: $('settings-mic-check'),
+  setMicReport: $('settings-mic-report'),
+  setMicActions: $('settings-mic-actions'),
+  setMicCopy: $('settings-mic-copy'),
   setLoudness: $('settings-loudness'),
   setLoudnessHint: $('settings-loudness-hint'),
   setSpokenAccent: $('settings-spoken-accent'),
@@ -1672,6 +1676,126 @@ el.setSound.addEventListener('change', () => {
   savePreferences();
   setSoundEnabled(state.prefs.sound);
   if (state.prefs.sound) sounds.tap();
+});
+
+/* ---- checking the microphone --------------------------------------------
+ * A talking screen that says "Listening…" and never hears anything is the
+ * worst kind of failure: there is nothing on it to tell you whether the
+ * permission is wrong, the microphone is held by another app, the browser has
+ * no speech recognition at all, or the speech service cannot be reached.
+ *
+ * Nobody can debug that from the outside — least of all somebody looking at it
+ * on a phone in another country. So this asks the phone, out loud, and prints
+ * what it says: every event the recogniser fires, with the millisecond it
+ * happened, and whether a single word ever arrived. Then a Copy button, so the
+ * answer can be sent to whoever is fixing it. */
+const MIC_CHECK_MS = 8_000;
+
+async function checkTheMicrophone() {
+  const started = Date.now();
+  const lines = [];
+  const at = () => String(Date.now() - started).padStart(4, ' ');
+  const say = (line) => {
+    lines.push(line);
+    el.setMicReport.textContent = lines.join('\n');
+  };
+
+  el.setMicReport.hidden = false;
+  el.setMicActions.hidden = false;
+  el.setMicCheck.disabled = true;
+  el.setMicReport.textContent = '';
+
+  say(`Browser: ${navigator.userAgent}`);
+  say(`Speech recognition: ${SpeechRecognitionAPI ? 'yes' : 'NO — this browser has none'}`);
+  say(`Accent asked for: ${state.prefs.dictationAccent || DEFAULT_DICTATION}`);
+
+  try {
+    const permission = await navigator.permissions?.query({ name: 'microphone' });
+    if (permission) say(`Microphone permission: ${permission.state}`);
+  } catch {
+    say('Microphone permission: this browser will not say');
+  }
+
+  // Can the microphone be opened at all? This is a different question from
+  // whether the recogniser works, and the answers are often different.
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    say('Opening the microphone: worked');
+    for (const track of stream.getTracks()) track.stop();
+  } catch (error) {
+    say(`Opening the microphone: FAILED — ${error.name}`);
+  }
+
+  if (!SpeechRecognitionAPI) {
+    say('Stopping here: there is no speech recognition to test.');
+    el.setMicCheck.disabled = false;
+    return;
+  }
+
+  await new Promise((done) => {
+    let heard = false;
+    let ear;
+    try {
+      ear = new SpeechRecognitionAPI();
+    } catch (error) {
+      say(`Building the recogniser: FAILED — ${error.message}`);
+      done();
+      return;
+    }
+
+    ear.lang = state.prefs.dictationAccent || DEFAULT_DICTATION;
+    ear.continuous = false;
+    ear.interimResults = true;
+
+    const finish = (why) => {
+      say(`${at()}ms  ${why}`);
+      say(heard ? 'RESULT: the microphone and the speech service both work.'
+        : 'RESULT: nothing was heard. Say something next time; if you did, the '
+          + 'lines above say where it stopped.');
+      try { ear.abort(); } catch { /* already done */ }
+      done();
+    };
+
+    for (const name of ['audiostart', 'soundstart', 'speechstart', 'speechend', 'soundend', 'audioend']) {
+      ear.addEventListener(name, () => say(`${at()}ms  ${name}`));
+    }
+    ear.onstart = () => say(`${at()}ms  started — say something now`);
+    ear.onresult = (event) => {
+      const words = [...event.results].map((r) => r[0].transcript).join(' ').trim();
+      if (words) heard = true;
+      say(`${at()}ms  heard: "${words}"`);
+    };
+    ear.onerror = (event) => say(`${at()}ms  ERROR: ${event.error}`);
+    ear.onend = () => finish('ended');
+
+    setTimeout(() => { if (!heard) finish(`gave up after ${MIC_CHECK_MS / 1000} seconds`); }, MIC_CHECK_MS);
+
+    try {
+      ear.start();
+      say(`${at()}ms  asked it to start`);
+    } catch (error) {
+      say(`Starting: FAILED — ${error.message}`);
+      done();
+    }
+  });
+
+  el.setMicCheck.disabled = false;
+}
+
+el.setMicCheck.addEventListener('click', () => {
+  checkTheMicrophone().catch((error) => {
+    el.setMicReport.textContent += `\nThe check itself failed: ${error.message}`;
+  });
+});
+
+el.setMicCopy.addEventListener('click', async () => {
+  const said = el.setMicReport.textContent || '';
+  try {
+    await navigator.clipboard.writeText(said);
+    toast('Copied. Send it to whoever is fixing this.');
+  } catch {
+    toast('This browser would not copy it. Select the text and copy by hand.');
+  }
 });
 
 el.setVoiceTest.addEventListener('click', () => {

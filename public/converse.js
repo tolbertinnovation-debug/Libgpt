@@ -56,6 +56,23 @@ const NOBODY_THERE_MS = 60_000;
 // it to tell anyone what to do instead.
 const NEVER_HEARD_MS = 15_000;
 
+// Android's speech recogniser does not do `continuous`.
+//
+// On a desktop it means "keep listening until told to stop", and the whole
+// hands-free loop is built on it. On Android Chrome it is at best ignored and
+// at worst poison: the recogniser starts, ends almost immediately, and never
+// returns a word — which, with an onend that reopens it, becomes a silent
+// start-stop loop under a screen that says "Listening…" and means nothing.
+//
+// So there it listens one utterance at a time and is reopened after each. The
+// turn logic above does not care: finals accumulate across reopenings, and the
+// silence timer still decides when a turn has ended.
+const ANDROID = typeof navigator !== 'undefined' && /android/i.test(navigator.userAgent || '');
+
+// Reopening after an end is not instant, so a recogniser that ends the moment
+// it opens cannot spin. It also gives the microphone a beat to be handed back.
+const REOPEN_MS = 250;
+
 // Somebody who stops on one of these has not finished — they are thinking of
 // the next word. Ending their turn there cuts them off mid-sentence, which is
 // the rudest thing a listener can do and the commonest fault in voice
@@ -117,6 +134,7 @@ export class VoiceConversation {
     // silence means something quite different from a long silence after.
     this.everHeard = false;
     this.deaf = null;
+    this.reopen = null;
 
     // The microphone as a volume meter: what makes cutting in by voice
     // possible, and what makes the seal move with a real voice rather than a
@@ -181,7 +199,8 @@ export class VoiceConversation {
       return false;
     }
 
-    ear.continuous = true;
+    // See ANDROID above: true here is what stops a phone hearing anything.
+    ear.continuous = this.continuousEar ?? !ANDROID;
     ear.interimResults = true;
 
     ear.onresult = (event) => {
@@ -238,9 +257,16 @@ export class VoiceConversation {
       // A recogniser we already replaced or deliberately closed: let it go.
       if (this.ear !== ear) return;
       this.ear = null;
-      // Browsers stop listening after a silence of their own. While this is
-      // still a conversation, open it again.
-      if (this.state === 'listening') this.#openEar();
+      // Browsers stop listening after a silence of their own, and on Android
+      // after every utterance. While this is still a conversation, open it
+      // again — after a beat, so a recogniser that ends the moment it opens
+      // cannot spin the phone's battery away.
+      if (this.state === 'listening') {
+        clearTimeout(this.reopen);
+        this.reopen = setTimeout(() => {
+          if (this.state === 'listening' && !this.ear) this.#openEar();
+        }, REOPEN_MS);
+      }
     };
 
     try {
@@ -255,6 +281,8 @@ export class VoiceConversation {
   }
 
   #closeEar() {
+    clearTimeout(this.reopen);
+    this.reopen = null;
     const ear = this.ear;
     this.ear = null;   // set first: the onend above then knows to stand down
     try { ear?.stop(); } catch { /* it had already stopped */ }

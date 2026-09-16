@@ -39,6 +39,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **A better voice, optionally** | ElevenLabs can do the talking instead, in any voice that account has — including one you cloned yourself from a recording of a real Liberian elder. **Off unless a key is set**: no key, no calls, no second bill. When it is on and their end fails, OpenAI's voice finishes the sentence rather than the listener losing it. See below. |
 | **Grandpa's own voice** | Not the phone's robot: a real voice, one per elder, told how an old man on his porch talks. The phone's own voice stays underneath and takes over when the network is gone or on a metered connection. See below. |
 | **Voice out** | Press **Listen** on any answer, or turn on auto-read. Long answers are split into sentence-sized chunks, which is what stops browsers cutting them off part-way. Pause, continue and stop from a bar above the composer. |
+| **Check the microphone** | A talking screen that says "Listening…" and never hears anything cannot be debugged from the outside. Settings has a check that asks the phone and prints what it says — whether this browser has speech recognition at all, what the permission is, whether the microphone opens, every event the recogniser fires with the millisecond it happened, and whether a single word ever arrived — plus a Copy button, so the answer can be sent to whoever is fixing it. |
 | **Voice in** | Hold a conversation with the microphone: continuous dictation with the words appearing as you speak, so a pause for breath does not end it. Pick the accent closest to your own; if a device cannot do it, it falls back rather than failing. |
 | **Grandpa's voice** | Choose from the voices your device has. The default is the closest to Liberia the device offers — West African first, then British, then whatever exists. Speed and depth are adjustable, with a test button. |
 | **Share an answer** | Sends it through the phone's own share sheet — WhatsApp and the rest — or copies it where that is unavailable. |
@@ -848,6 +849,11 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   and — where echo cancellation fails — three interruptions with nobody behind
   them switching the feature off and saying why, while an interruption somebody
   does follow up on is not held against it.
+- **Checking the microphone (Playwright)** — 9 checks against four stubbed
+  browsers: one that hears, one whose recogniser starts and then never returns
+  a word, one that refuses the microphone outright, and one with no speech
+  recognition at all. Each has to print which of those it was, rather than a
+  single unhelpful "it did not work".
 - **Talking with Grandpa (Playwright)** — 38 checks against fake ears and a
   fake mouth: a silence ending the turn with nothing pressed, the ear shut for
   the whole time he is talking and open again after, the answer spoken in
