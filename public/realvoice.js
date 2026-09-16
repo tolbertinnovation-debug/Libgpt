@@ -16,6 +16,7 @@
 
 import { stripMarkdown } from './speech.js';
 import { DEFAULT_ACCENT, forSpeaking } from './pronounce.js';
+import { sayable } from './sayable.js';
 
 // Below this, a fragment is held back and joined to the next one: a request
 // per three-word sentence is slow, dear, and sounds chopped.
@@ -138,6 +139,7 @@ export class VoiceOut {
     this.ready = [];          // { url, text } fetched and waiting to play
     this.fetching = 0;
     this.audio = null;
+    this.waiting = null;   // the next piece, built while this one talks
     this.settings = {};
     this.warned = false;
     this.unlocked = false;
@@ -196,7 +198,14 @@ export class VoiceOut {
     // Markdown off first, then the accent. Both voices get the same text:
     // there is no Liberian voice to select in any speech service, so the
     // accent has to come from the letters the engine is handed.
-    const clean = forSpeaking(stripMarkdown(text), this.accent?.() ?? DEFAULT_ACCENT);
+    // Three layers, in this order. The markdown comes off, then what was
+    // written for the eye becomes what a person would say — "20cm" into
+    // "twenty centimetres" — and only then does the accent respell the whole
+    // words. Doing the accent first would leave it respelling digits.
+    const clean = forSpeaking(
+      sayable(stripMarkdown(text)),
+      this.accent?.() ?? DEFAULT_ACCENT,
+    );
     if (!clean) return false;
 
     // Not wanted, or nothing to play it with: the phone's voice takes it.
@@ -344,12 +353,48 @@ export class VoiceOut {
     else this.#report('idle');
   }
 
+  /**
+   * Have the next piece's audio element built and decoding before it is
+   * needed.
+   *
+   * The pieces are separate requests, so each one is a separate file. Creating
+   * its element only when the last one ends puts a hole between two halves of
+   * the same thought — a fraction of a second, but it is exactly the gap that
+   * makes a voice sound assembled rather than spoken. Built while the current
+   * piece is still talking, the hole closes to whatever the browser needs to
+   * start a file it has already decoded.
+   */
+  #preload() {
+    if (this.waiting || !this.ready.length || typeof Audio === 'undefined') return;
+    const item = this.ready[0];
+    try {
+      const audio = new Audio(item.url);
+      audio.preload = 'auto';
+      audio.load();
+      this.waiting = { audio, item };
+    } catch {
+      /* no element to be had — #playNext will make one the ordinary way */
+    }
+  }
+
   #playNext() {
+    // Whatever was made ready while the last piece was talking.
+    const held = this.waiting;
+    this.waiting = null;
+
     const item = this.ready.shift();
-    if (!item) return;
+    if (!item) {
+      if (held) this.#discard(held);
+      return;
+    }
+
+    // It is only usable if it is an element for this very piece — the queue
+    // can have been emptied and refilled since it was built.
+    const reuse = held && held.item === item;
+    if (held && !reuse) this.#discard(held);
 
     const token = this.token;
-    const audio = new Audio(item.url);
+    const audio = reuse ? held.audio : new Audio(item.url);
     this.audio = audio;
 
     // Put him in a room, if one is chosen. A failure here is silent and
@@ -361,6 +406,11 @@ export class VoiceOut {
       URL.revokeObjectURL(item.url);
       this.audio = null;
       this.#pump();
+    };
+
+    // As soon as this one is under way, get the one after it ready.
+    audio.onplaying = () => {
+      if (token === this.token && this.audio === audio) this.#preload();
     };
 
     // Audio that will not decode is not a piece to skip over — it is words the
@@ -389,9 +439,24 @@ export class VoiceOut {
     });
 
     this.#pump();
+    // If the piece after this one is already here, start on it now rather
+    // than waiting for playback to report that it began.
+    this.#preload();
+  }
+
+  /** Let go of a prepared element that will not be played after all. */
+  #discard(held) {
+    try { held.audio.pause(); } catch { /* never started */ }
+    held.audio.removeAttribute('src');
+    held.audio.onended = null;
+    held.audio.onerror = null;
   }
 
   #dropAudio() {
+    if (this.waiting) {
+      this.#discard(this.waiting);
+      this.waiting = null;
+    }
     if (this.audio) {
       try { this.audio.pause(); } catch { /* already stopped */ }
       this.audio.onended = null;

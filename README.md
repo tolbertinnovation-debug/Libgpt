@@ -34,6 +34,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **How Grandpa talks** | Not an accent filter over standard English. A register with its own sound, grammar, vocabulary and way of arranging a thought — three registers, in fact, from broadcast-standard to family talk to ceremonial. See below. |
 | **How loud the voice is** | Louder than a phone can go on its own. `audio.volume` stops at 1 and is already there, so the voice is run through a compressor and a makeup gain instead — the loud syllables held back so the quiet trailing ones can come up with them, which is what actually makes a voice carry over a generator. Three steps, **Loud by default**, and turning it up lands on the words being spoken right now. See below. |
 | **Where the voice is sitting** | The spoken voice can be put in a room: a palaver hut, an evening fire, or a county shortwave set. Built with Web Audio filters on the device — no audio files to download. |
+| **Said, not read** | "20cm x 20cm" read aloud is "twenty see em ex twenty see em", and one of those in a sentence undoes any voice. Numbers, money, measures, times, years, ordinals and short forms are turned into the words a person would actually say before either voice sees them — and a colon becomes a held breath, because a list read without one is the sound of a machine getting through it. See below. |
 | **The accent** | There is no Liberian voice in any speech service. So the text going to the voice is not the text on the screen: the page stays easy to read, while the speaker is handed the spoken spelling — *"I tink dat ting will be betta afta de wata."* See below. |
 | **Grandpa's own voice** | Not the phone's robot: a real voice, one per elder, told how an old man on his porch talks. The phone's own voice stays underneath and takes over when the network is gone or on a metered connection. See below. |
 | **Voice out** | Press **Listen** on any answer, or turn on auto-read. Long answers are split into sentence-sized chunks, which is what stops browsers cutting them off part-way. Pause, continue and stop from a bar above the composer. |
@@ -371,6 +372,42 @@ and the remainder dropped, so "Read it to me" on a long folktale, with the real
 voice on, simply stopped two thirds of the way through and never said the rest.
 Nothing is discarded now, and the tests check the whole text is accounted for.
 
+### Said, not read
+
+Most of what makes a spoken answer sound like a machine is not the voice. It is the
+text. Writing is full of things that are read with the eye and never spoken — `20cm x
+20cm`, `LRD 1,500`, `3-4 cups`, `e.g.`, `Dr.`, `50%`, `12:30` — and a speech engine
+handed those says "twenty see em ex twenty see em", or spells the letters, or reads a
+price digit by digit. One of them in a sentence is enough to remind a listener what
+they are talking to, however good the voice is.
+
+So before either voice sees it, the text is turned into what a person would say:
+
+| Written | Said |
+| --- | --- |
+| `Plant at 20cm x 20cm` | twenty centimetres by twenty centimetres |
+| `LRD 1,500` | one thousand five hundred Liberian dollars |
+| `3-4 cups`, `500g` | three to four cups, five hundred grams |
+| `1989`, `2024` | nineteen eighty-nine, twenty twenty-four |
+| `12:30`, `6:00` | twelve thirty, six o'clock |
+| `the 1st time`, `50%` | the first time, fifty percent |
+| `Three things:` | Three things… *(a held breath)* |
+
+Two of those rules are judgement rather than lookup. A currency written in front of
+the number is still said after it — nobody says "Liberian dollars one thousand five
+hundred". And an `x` means two different things in the same app: between bare numbers
+it is arithmetic for the Homework Helper ("three times four"), after a unit it is a
+measurement on a rice farm ("ten metres by ten metres").
+
+It is deliberately timid. A rule that fires where it should not is worse than one that
+does not fire at all, because the listener hears a *wrong* word rather than a flat one
+— so anything ambiguous is left exactly as it was, and `8pm` goes through untouched.
+
+This runs before the accent layer, so the accent does its respelling on whole words
+rather than on digits, and both voices get the benefit — the phone's own synthesiser
+reads "twenty centimetres" as badly or as well as it reads anything else, but at least
+it is reading the right words.
+
 ### The accent
 
 There is no Liberian voice in any text-to-speech service, and there is not
@@ -674,6 +711,14 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   sizes that ramp rather than jump, and — the one that matters — every
   character of a long story accounted for, including a single sentence longer
   than one request is allowed to be, and text with no sentence ends at all.
+- **Said, not read (unit)** — 38 checks: numbers from seven to two million, and
+  one too big to be worth saying left as it is; the spacing, quantities,
+  ranges, prices, percentages, times, years, decimals and ordinals that gave
+  the voice away; a currency code moved to the far side of its number; `x`
+  read as arithmetic between bare numbers and as a measurement after a unit; a
+  colon becoming a breath while a time is not; and — the half that matters more
+  — ordinary sentences coming back untouched, `8pm` surviving, and applying it
+  twice being the same as applying it once.
 - **The accent (unit)** — 40 checks: each of the three features, a whole
   sentence surviving with nothing dropped and its punctuation intact, case kept
   through every substitution, the three strengths differing as they claim,
