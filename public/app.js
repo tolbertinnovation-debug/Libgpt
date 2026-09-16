@@ -11,6 +11,7 @@ import { VoiceOut } from './realvoice.js';
 import {
   DEFAULT_LOUDNESS, DEFAULT_ROOM, LOUDNESS, ROOMS, Room, isLoudness, isRoom,
 } from './room.js';
+import { canDoFor, canDoOrder } from './cando.js';
 import { ACCENTS, DEFAULT_ACCENT, isAccent } from './pronounce.js';
 import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
@@ -151,6 +152,7 @@ const el = {
   composer: $('composer'),
   composerPersona: $('composer-persona'),
   input: $('composer-input'),
+  foot: $('composer-foot'),
   send: $('send-btn'),
   stop: $('stop-btn'),
   mic: $('mic-btn'),
@@ -770,6 +772,71 @@ function autoGrow() {
 
 function updateSendState() {
   el.send.disabled = el.input.value.trim().length === 0;
+}
+
+/* ---- what he can do ------------------------------------------------------
+ * The line under the composer. It used to be a warning; now it shows one
+ * thing he can actually do, and moves on to another after a while — most
+ * people have no idea this will tell them a folktale or read the answer out
+ * loud in an elder's voice, and nothing else on the screen tells them.
+ *
+ * It holds still whenever the person is doing something: typing, reading an
+ * answer as it arrives, talking to him, or away from the tab. A line that
+ * changes under your hands while you write is a distraction, not a hint. */
+const CAN_DO_EVERY = 9_000;
+
+let canDo = [];
+let canDoAt = 0;
+let canDoTimer = null;
+
+/** Which lines this deployment can honestly show, in a shuffled order. */
+function buildCanDo() {
+  canDo = canDoOrder(canDoFor({
+    voice: speaker.supported,
+    liveNews: Boolean(state.catalogue.liveNews),
+    images: Boolean(state.catalogue.imagesEnabled),
+  }));
+  canDoAt = 0;
+}
+
+/** Still, because the person is in the middle of something. */
+function canDoHeld() {
+  return document.hidden
+    || Boolean(state.streaming)
+    || !el.talk.hidden
+    || el.input.value.trim().length > 0;
+}
+
+function showCanDo() {
+  if (!el.foot || !canDo.length) return;
+  const line = canDo[canDoAt % canDo.length];
+  canDoAt += 1;
+
+  // Fade through, unless the person has asked for less movement — then it
+  // simply changes.
+  const still = window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches;
+  if (still) {
+    el.foot.textContent = line;
+    return;
+  }
+  el.foot.classList.add('is-fading');
+  setTimeout(() => {
+    el.foot.textContent = line;
+    el.foot.classList.remove('is-fading');
+  }, 260);
+}
+
+function startCanDo() {
+  buildCanDo();
+  if (!canDo.length) return;
+
+  el.foot.textContent = canDo[0];
+  canDoAt = 1;
+
+  clearInterval(canDoTimer);
+  canDoTimer = setInterval(() => {
+    if (!canDoHeld()) showCanDo();
+  }, CAN_DO_EVERY);
 }
 
 /* ========================================================================
@@ -2165,6 +2232,8 @@ async function boot() {
   renderSidebar();
   autoGrow();
   updateSendState();
+  // After the config, so nothing is offered that this deployment cannot do.
+  startCanDo();
   el.input.focus();
 }
 

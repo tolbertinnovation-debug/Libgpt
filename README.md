@@ -23,6 +23,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Journal** | Keep any story, name list, recipe or picture; read it back later. Stored in the browser. |
 | **The hearth** | A welcome screen in the Liberian register: the elder's portrait, a greeting by name, a proverb that holds for the whole day, and four topic cards — The Family Hearth, The Hustle, Ancestral Soil, Deep Paths. |
 | **Who is talking** | Five elders — Grandpa, Grandma, Northern Elder, Market Auntie, Coastal Sage — and four tones: Classic Warmth, Playful, Solemn, Strict Proverbial. |
+| **What he can do** | The line under the composer shows one thing he is actually for — a folktale you choose the ending of, homework with the working shown, the answer read aloud in an elder's voice — and moves on to another every few seconds. It holds still while you type, while he answers, and while you are talking to him. A line that needs something this deployment has not switched on is simply never shown. |
 | **Glossary** | Liberian terms in an answer (*small-small*, *palava hut*, *susu*, *dumboy*) are underlined; tapping one explains it, so a reader from outside can follow without the vernacular being translated away. |
 | **Daylight & Twilight** | Daylight is linen `#FAF3E0`, terracotta `#C62828`, palm gold `#FF8F00`, wood brown `#4E342E`. Twilight is deep mahogany `#140C0B` with warm amber, for evening storytelling. |
 | **Interface sounds** | Taps, sends and chimes synthesised with Web Audio oscillators — no audio files to download on a metered connection. |
@@ -55,7 +56,9 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 
 The assistant is told, in every conversation, not to invent local prices, school rules
 or clinic hours, and not to give a diagnosis, a legal ruling or a financial guarantee —
-it points to a teacher, nurse, extension officer or ministry instead.
+it points to a teacher, nurse, extension officer or ministry instead. That is where the
+caution belongs: in what he says, every time, rather than in a warning printed under
+the box you type into, which told a reader nothing except to be careful, forever.
 
 ---
 
@@ -709,6 +712,11 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   half-heard noise not sent as a question, tapping the seal cutting him off,
   Wait and Continue, a refused microphone explained instead of retried forever,
   and the whole exchange left behind as an ordinary readable conversation.
+- **What he can do (Playwright)** — 13 checks: a line under the composer that
+  is not the old warning, moving on to other things he can do without ever
+  showing an empty one, holding still while you type and while he answers —
+  and, both ways round, a deployment with pictures and live news switched off
+  never offering either of them.
 - **Settings (Playwright)** — 33 checks: opening and closing three ways, text size
   moving the root size and surviving reload, the three-way theme, low-data staying
   in step between the pill and the switch, language syncing both ways, the spoken

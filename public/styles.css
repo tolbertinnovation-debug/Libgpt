@@ -849,9 +849,16 @@ body {
 .composer-foot {
   max-width: var(--measure);
   margin: .5rem auto 0;
+  min-height: 1.1em;      /* holds its place, so the composer never jumps */
   text-align: center;
   font-size: .72rem;
   color: var(--text-faint);
+  transition: opacity .25s ease;
+}
+.composer-foot.is-fading { opacity: 0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .composer-foot { transition: none; }
 }
 
 /* ============================ Toast ===================================== */
