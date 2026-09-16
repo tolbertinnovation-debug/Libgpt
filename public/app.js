@@ -270,7 +270,15 @@ function applyTheme(theme) {
   const resolved =
     theme || (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
   document.documentElement.dataset.theme = resolved;
-  el.themeIcon.textContent = resolved === 'dark' ? '☀' : '☾';
+  // A drawn sun and moon rather than typed characters: ☀ and ☾ render at
+  // different weights and sizes on every phone, and sat badly beside the gear
+  // that was already an svg.
+  el.themeIcon.innerHTML = resolved === 'dark'
+    ? '<svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="4"/>'
+      + '<path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2'
+      + 'M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>'
+    : '<svg viewBox="0 0 24 24" width="16" height="16">'
+      + '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>';
   el.themeLabel.textContent = resolved === 'dark' ? 'Light mode' : 'Dark mode';
   document.querySelector('meta[name="theme-color"]')
     ?.setAttribute('content', resolved === 'dark' ? '#140c0b' : '#faf3e0');
@@ -279,6 +287,35 @@ function applyTheme(theme) {
 /* ========================================================================
    Sidebar
    ======================================================================== */
+
+/**
+ * When a conversation was last touched, as briefly as it can be said.
+ *
+ * Today is a clock time, this week is the day, anything older is the date. It
+ * is the same rule a phone uses for messages, because everybody already reads
+ * it without being taught.
+ */
+function whenLabel(at) {
+  const when = new Date(at || Date.now());
+  if (Number.isNaN(when.getTime())) return '';
+
+  const now = new Date();
+  const sameDay = when.toDateString() === now.toDateString();
+  if (sameDay) {
+    return when.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+  if (now - when < 6 * 24 * 3600 * 1000) {
+    return when.toLocaleDateString(undefined, { weekday: 'short' });
+  }
+  return when.toLocaleDateString(undefined, { day: 'numeric', month: 'short' });
+}
+
+/** The first thing said in a conversation, short enough to sit under its name. */
+function openingLine(chat) {
+  const first = chat.messages?.find((m) => m.role === 'user')?.content || '';
+  const clean = first.replace(/\s+/g, ' ').trim();
+  return clean.length > 58 ? `${clean.slice(0, 57)}…` : clean;
+}
 
 function renderSidebar() {
   const query = el.search.value.trim().toLowerCase();
@@ -298,23 +335,39 @@ function renderSidebar() {
   el.chatList.innerHTML = groupByDate(matches)
     .map((group) => {
       const rows = group.chats
-        .map((chat) => `
-          <button class="chat-row ${chat.id === state.currentId ? 'is-active' : ''}"
-                  data-open="${chat.id}" type="button">
-            <span class="chat-row-title">${escapeHtml(chat.title || 'New conversation')}</span>
-            <span class="chat-row-del" data-rename="${chat.id}" role="button" tabindex="0"
-                  aria-label="Rename ${escapeHtml(chat.title || 'conversation')}">
-              <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
-                <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/>
-              </svg>
+        .map((chat) => {
+          const name = escapeHtml(chat.title || 'New conversation');
+          // Two conversations can easily carry the same name — ask about
+          // scholarships twice and they both come back "Liberia Student
+          // Scholarships". The line underneath is what tells them apart: when
+          // it was, and what was actually asked.
+          const opening = escapeHtml(openingLine(chat));
+          const when = escapeHtml(whenLabel(chat.updatedAt || chat.createdAt));
+          return `
+          <div class="chat-row ${chat.id === state.currentId ? 'is-active' : ''}">
+            <button class="chat-row-open" data-open="${chat.id}" type="button">
+              <span class="chat-row-title">${name}</span>
+              <span class="chat-row-sub">
+                <span class="chat-row-opening">${opening}</span>
+                <span class="chat-row-when">${when}</span>
+              </span>
+            </button>
+            <span class="chat-row-tools">
+              <span class="chat-row-del" data-rename="${chat.id}" role="button" tabindex="0"
+                    aria-label="Rename ${name}">
+                <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+                  <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/>
+                </svg>
+              </span>
+              <span class="chat-row-del" data-del="${chat.id}" role="button" tabindex="0"
+                    aria-label="Delete ${name}">
+                <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+                  <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>
+                </svg>
+              </span>
             </span>
-            <span class="chat-row-del" data-del="${chat.id}" role="button" tabindex="0"
-                  aria-label="Delete ${escapeHtml(chat.title || 'conversation')}">
-              <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
-                <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>
-              </svg>
-            </span>
-          </button>`)
+          </div>`;
+        })
         .join('');
       return `<div class="chat-group-label">${group.label}</div>${rows}`;
     })

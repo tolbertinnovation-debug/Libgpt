@@ -241,53 +241,159 @@ body {
 }
 
 .chat-group-label {
-  padding: .75rem .5rem .3rem;
-  font-size: .7rem;
+  padding: 1rem .55rem .35rem;
+  font-size: .68rem;
   font-weight: 650;
-  letter-spacing: .06em;
+  letter-spacing: .09em;
   text-transform: uppercase;
-  color: #c0aa8e;
+  color: #a08a6e;
+}
+.chat-group-label:first-child { padding-top: .35rem; }
+
+/* A conversation in the list.
+ *
+ * Two lines, not one. Ask about scholarships twice and both conversations come
+ * back named "Liberia Student Scholarships" — the line underneath, with the
+ * time and the question that started it, is the only thing that tells them
+ * apart. A list you cannot navigate is not a list. */
+.chat-row {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+  gap: .15rem;
+  width: 100%;
+  border-radius: var(--radius-sm);
+  color: #d6c2a8;
+  transition: background .12s ease;
+}
+.chat-row:hover { background: rgba(255, 255, 255, .07); }
+.chat-row.is-active { background: rgba(255, 143, 0, .16); color: #fffaf0; }
+
+/* The mark of the one you are reading. A bar rather than a wash of colour:
+   it says "this one" without turning a quiet list into a warning. */
+.chat-row.is-active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 1.7rem;
+  border-radius: 0 3px 3px 0;
+  background: var(--gold);
 }
 
-.chat-row {
+.chat-row-open {
+  flex: 1;
+  min-width: 0;
   display: flex;
-  align-items: center;
-  gap: .4rem;
-  width: 100%;
-  padding: .45rem .5rem;
+  flex-direction: column;
+  gap: .1rem;
+  padding: .5rem .35rem .55rem .6rem;
   border: none;
-  border-radius: var(--radius-sm);
   background: transparent;
-  color: #dcc9b0;
+  color: inherit;
   font: inherit;
-  font-size: .855rem;
   text-align: left;
   cursor: pointer;
 }
-.chat-row:hover { background: rgba(255, 255, 255, .1); color: #fffaf0; }
-.chat-row.is-active { background: rgba(255, 143, 0, .22); color: #fffaf0; font-weight: 550; }
+
 .chat-row-title {
   flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-size: .855rem;
+  line-height: 1.35;
+}
+.chat-row.is-active .chat-row-title { font-weight: 600; }
+
+/* The second line: what was actually asked, and when.
+ *
+ * Both of them down here so the name gets the whole width of the first line.
+ * A name cut to "Liberia Student …" to make room for a clock is the worst of
+ * both — you can read neither. */
+.chat-row-sub {
+  display: flex;
+  align-items: baseline;
+  gap: .45rem;
+  font-size: .755rem;
+  line-height: 1.35;
+  color: #9d876b;
+}
+.chat-row.is-active .chat-row-sub { color: #bda78a; }
+
+.chat-row-opening {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Never wraps and never shrinks — a time squeezed to "10:4…" is worse than no
+   time at all. */
+.chat-row-when {
+  flex: 0 0 auto;
+  font-size: .715rem;
+  font-variant-numeric: tabular-nums;
+  color: #8d7860;
+}
+.chat-row.is-active .chat-row-when { color: #c7ab84; }
+
+/* Rename and delete.
+ *
+ * They take no width until they are wanted. Hidden-but-still-in-the-layout
+ * cost every name 52 pixels for buttons nobody could see — in a 268px panel
+ * that is the difference between "Liberia Student Scholarships" and "Liberia
+ * Student Schol…". */
+.chat-row-tools {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: .1rem;
+  width: 0;
+  overflow: hidden;
+  transition: width .12s ease;
+}
+.chat-row:hover .chat-row-tools,
+.chat-row:focus-within .chat-row-tools,
+.chat-row.is-active .chat-row-tools {
+  width: 58px;
+  padding-right: .3rem;
 }
 .chat-row-del {
-  flex: 0 0 auto;
   display: grid;
   place-items: center;
-  width: 22px; height: 22px;
-  padding: 0;
-  border: none; border-radius: 5px;
+  width: 26px; height: 26px;
+  border: none; border-radius: 6px;
   background: transparent;
-  color: #bda88c;
+  color: #a08a6e;
   cursor: pointer;
   opacity: 0;
+  transition: opacity .12s ease, background .12s ease, color .12s ease;
 }
 .chat-row:hover .chat-row-del,
 .chat-row:focus-within .chat-row-del { opacity: 1; }
-.chat-row-del:hover { background: rgba(255, 255, 255, .14); color: #ff8a80; }
+.chat-row.is-active .chat-row-del { opacity: .9; }
+.chat-row-del:hover { background: rgba(255, 255, 255, .14); color: #fffaf0; }
+.chat-row-del[data-del]:hover { color: #ff8a80; }
+
+/* A finger has no hover, so on a touch screen these would have to sit there
+   permanently — and two 26px buttons on every row is 52px taken off every
+   name, in a list whose whole job is being read. So they appear on the
+   conversation you are actually in: tap a row, then rename or delete it.
+   Scanning happens constantly; deleting happens rarely. */
+@media (hover: none) {
+  .chat-row.is-active .chat-row-del { opacity: .85; }
+  /* Only the open conversation gives up the width. */
+  .chat-row:not(.is-active) .chat-row-tools { width: 0; padding-right: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-row, .chat-row-del, .chat-row-tools { transition: none; }
+}
 
 .empty-hint {
   padding: 1.5rem .75rem;
@@ -306,18 +412,52 @@ body {
 .foot-btn {
   display: flex;
   align-items: center;
-  gap: .55rem;
-  padding: .45rem .55rem;
+  gap: .6rem;
+  /* A row a thumb can hit without aiming. */
+  min-height: 40px;
+  padding: .4rem .55rem;
   border: none; border-radius: var(--radius-sm);
   background: transparent;
-  color: #dcc9b0;
+  color: #d6c2a8;
   font: inherit;
   font-size: .82rem;
   text-decoration: none;
   cursor: pointer;
+  transition: background .12s ease, color .12s ease;
 }
-.foot-btn:hover { background: rgba(255, 255, 255, .1); color: #fffaf0; }
-.foot-icon { width: 1rem; text-align: center; opacity: .8; }
+.foot-btn:hover { background: rgba(255, 255, 255, .08); color: #fffaf0; }
+/* Every icon down here is now a drawn one at the same size and weight — the
+   moon and the arrow used to be typed characters, which sat differently and
+   rendered differently on every phone. */
+.foot-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  opacity: .75;
+}
+.foot-icon svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.foot-btn:hover .foot-icon { opacity: 1; }
+
+/* The link out is the one thing here that leaves the app, so it is quieter
+   and sits a little apart from the two that do not. */
+.sidebar-foot a.foot-btn {
+  margin-top: .15rem;
+  color: #a08a6e;
+  font-size: .76rem;
+}
+.sidebar-foot a.foot-btn:hover { color: #dcc9b0; }
+
+@media (prefers-reduced-motion: reduce) {
+  .foot-btn { transition: none; }
+}
 
 /* ============================ Main ====================================== */
 

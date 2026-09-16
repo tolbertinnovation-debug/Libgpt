@@ -52,7 +52,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Low-data mode** | A real switch, not a label: answers are capped at 120 words and 300 tokens, with no headings or tables. The whole front end is dependency-free, so nothing is pulled from a CDN. |
 | **Long conversations keep going** | A thread that outgrows the send limit used to be refused — "this conversation is too long, start a new chat" — which threw away the question just typed and told you to abandon the thread to ask it. The oldest turns are dropped instead, the newest part is what travels (so a long thread stops re-uploading itself on a metered connection), and the answer says plainly that earlier messages were left out. |
 | **The list folds away** | On a wide screen the conversation list is a column beside the page, and the menu button folds it away so the reading column takes the space back — Ctrl/Cmd+B as well, the way every tool with a side panel does it. The choice is remembered. On a phone the same button opens the list as a drawer, because there it is a different thing. |
-| **Conversation history** | Kept in the browser's `localStorage`, grouped by date, searchable, and never sent anywhere but to the model. |
+| **Conversation history** | Kept in the browser's `localStorage`, grouped by date, searchable, and never sent anywhere but to the model. Each one is listed by name, by what was actually asked, and by when — because ask about scholarships twice and both conversations come back called "Liberia Student Scholarships", and a list of names alone is then a list you cannot navigate. |
 | **Settings panel** | Language, model, low-data, text size, appearance, voice and your saved data, in one place behind the gear. |
 | **Bigger text** | Three sizes. It moves the root font size, so the whole layout scales like browser zoom rather than only the letters — for older eyes and small phones. |
 | **Answers read aloud** | Turn on *Read answers aloud* and every reply is spoken, at a speed you choose, for anyone who reads slowly. |
@@ -869,6 +869,13 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   never offering either of them. Plus the two that keep this honest about who
   is talking: no line and nothing in the settings says "he", because the elder
   answering may be Grandma, the Market Auntie or the Coastal Sage.
+- **The conversation list, as a thing to read (Playwright)** — 16 checks: two
+  conversations genuinely sharing a name and the opening line telling them
+  apart, a clock time for today and a weekday for older, the name keeping
+  nearly the whole width of the row, the open one marked with a bar rather
+  than a wash of colour, its rename and delete reachable — and, on a touch
+  screen where there is no hover, those tools appearing on the open
+  conversation while every other row keeps its width for the name.
 - **The conversation list (Playwright)** — 16 checks: a menu button on a wide
   screen, folding the list to nothing and giving the reading column the space,
   the label and `aria-expanded` changing with it, the folded list out of the
