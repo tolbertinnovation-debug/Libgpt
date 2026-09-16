@@ -125,16 +125,33 @@ export class Ear {
     this.level = 0;
   }
 
-  /** Start watching for somebody talking over the answer. */
+  /**
+   * Start watching for somebody talking over the answer — opening the
+   * microphone if it is not already open.
+   *
+   * The microphone is held ONLY while there is an answer to talk over, and
+   * that is not a detail. On Android, a page that is already capturing audio
+   * can stop the speech recogniser hearing anything at all: the browser hands
+   * the microphone to the capture, the recogniser opens, reports no error, and
+   * simply never returns a word. From the outside it looks exactly like this
+   * screen sitting on "Listening…" forever with the microphone light on.
+   *
+   * So the two take turns. The recogniser has the microphone whenever it is
+   * listening; this has it only while Grandpa is talking, which is the only
+   * time cutting in means anything.
+   */
   arm() {
     this.armed = true;
     this.armedAt = Date.now();
     this.loudFor = 0;
+    if (!this.stream && !this.broken) this.start().catch(() => {});
   }
 
+  /** Stop watching, and give the microphone back. */
   disarm() {
     this.armed = false;
     this.loudFor = 0;
+    if (this.stream) this.stop();
   }
 
   #tick() {

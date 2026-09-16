@@ -45,6 +45,17 @@ const AFTER_SPEECH_MS = 300;
 // itself and waits to be asked again.
 const NOBODY_THERE_MS = 60_000;
 
+// How long to sit on "Listening…" having never heard a single word in this
+// whole conversation before saying something is wrong.
+//
+// Not the same thing as the minute above, which is for somebody who has been
+// talking and then went quiet — that is a person getting on with something
+// else. Nothing at all, ever, is a broken microphone, a permission granted to
+// the wrong thing, or a speech service that cannot be reached. A screen
+// saying "Listening…" through all of that is lying, and there is nothing on
+// it to tell anyone what to do instead.
+const NEVER_HEARD_MS = 15_000;
+
 // Somebody who stops on one of these has not finished — they are thinking of
 // the next word. Ending their turn there cuts them off mid-sentence, which is
 // the rudest thing a listener can do and the commonest fault in voice
@@ -88,6 +99,7 @@ export class VoiceConversation {
    * @param {(message: string, kind?: string) => void} deps.onNotice
    * @param {(level: number) => void} [deps.onLevel]   0 to 1, while listening
    * @param {(handlers: object) => object} [deps.makeMeter]  for tests
+   * @param {() => number} [deps.deafAfter]  ms of never hearing anything, for tests
    */
   constructor(deps) {
     Object.assign(this, deps);
@@ -101,6 +113,10 @@ export class VoiceConversation {
     this.fellBack = false;  // already dropped to a locale that always exists
     this.answerDone = false;
     this.spokeSomething = false;
+    // Has this conversation ever heard a word? Until it has, a long
+    // silence means something quite different from a long silence after.
+    this.everHeard = false;
+    this.deaf = null;
 
     // The microphone as a volume meter: what makes cutting in by voice
     // possible, and what makes the seal move with a real voice rather than a
@@ -140,6 +156,11 @@ export class VoiceConversation {
 
     // Listen for somebody talking over the answer only while there is an
     // answer to talk over.
+    // A meter that could not open the microphone — refused, or not available
+    // — takes cutting in with it, and the hint says tap instead of promising
+    // something that will not happen.
+    if (this.meter.broken) this.cutInWorks = false;
+
     const cutInAllowed = this.cutInWorks && (this.wantsCutIn?.() ?? true);
     if (state === 'speaking' && cutInAllowed) this.meter.arm();
     else this.meter.disarm();
@@ -178,6 +199,13 @@ export class VoiceConversation {
       this.loose = interim;
 
       const heard = `${this.settled}${this.loose}`.replace(/\s+/g, ' ').trim();
+      // Even half a word proves the microphone and the speech service are
+      // working, which is all the timer above was ever asking.
+      if (heard && !this.everHeard) {
+        this.everHeard = true;
+        clearTimeout(this.deaf);
+        this.deaf = null;
+      }
       this.onHeard?.(heard, false);
 
       if (heard) {
@@ -299,11 +327,21 @@ export class VoiceConversation {
         this.pause('Still here whenever you are ready.');
       }
     }, NOBODY_THERE_MS);
+
+    // And, much sooner, the case where nothing has ever been heard at all.
+    this.deaf = this.everHeard ? null : setTimeout(() => {
+      if (this.state !== 'listening' || this.everHeard) return;
+      this.#trouble('Nothing is reaching the microphone. Check that this site is '
+        + 'allowed to use it, and that no other app is holding it — then tap '
+        + 'Continue. Or tap Done and type your question instead.');
+    }, this.deafAfter?.() ?? NEVER_HEARD_MS);
   }
 
   #stopAloneTimer() {
     clearTimeout(this.alone);
     this.alone = null;
+    clearTimeout(this.deaf);
+    this.deaf = null;
   }
 
   #clearTimers() {
@@ -440,12 +478,10 @@ export class VoiceConversation {
     document.addEventListener('visibilitychange', this.onVisibility);
     this.#keepAwake();
 
-    // Best effort. Refused or unavailable, the conversation works exactly as
-    // it did — interrupted by a tap instead of by talking.
-    this.meter.start().then((opened) => {
-      if (!opened) this.cutInWorks = false;
-    });
-
+    // The meter is NOT opened here. It takes the microphone only while there
+    // is an answer to talk over — see Ear.arm — because a page already
+    // capturing audio can stop the recogniser hearing anything on Android,
+    // with no error and nothing on screen but "Listening…" forever.
     this.#listen();
     return this.state === 'listening';
   }

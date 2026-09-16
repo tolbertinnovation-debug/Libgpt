@@ -835,7 +835,12 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   tip last, every quiz option numbered — plus the control marking itself as the
   one talking, stopping when pressed again, and stopping when the reader moves
   on to something else.
-- **Turn-taking (unit)** — 33 checks against a driven ear and mouth: a turn
+- **Turn-taking (unit)** — 38 checks against a driven ear and mouth, including
+  the two rules that decide whether the microphone works at all on Android: the
+  meter never holds a capture while the recogniser is listening (it takes the
+  microphone on arm and gives it back on disarm), and a conversation that has
+  never heard a single word says so rather than sitting on "Listening…", while
+  anything heard at all — even half a word — settles it. Also: a turn
   ending on "and", "because", "um" or "the" held rather than answered, and one
   that has genuinely finished sent on the ordinary wait; a lone "mm" or "ah"
   not sent as a question at all while real words beginning with one are;
