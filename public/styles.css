@@ -978,7 +978,12 @@ body {
   text-align: center;
 }
 
-.gate-seal { margin-bottom: 1rem; }
+/* The real badge, the same one the welcome screen shows — smaller, because a
+   gate card is narrow, and this is the first thing anyone sees of the app. */
+.gate-seal.brand-logo {
+  width: min(132px, 38vw);
+  margin: 0 auto 1.1rem;
+}
 
 .gate-card h2 {
   margin: 0 0 .35rem;

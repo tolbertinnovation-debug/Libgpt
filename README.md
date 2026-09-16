@@ -803,10 +803,12 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   an answer he did not look up carrying no mark, the mark remembered with the
   conversation — and, on a key that cannot read, an answer with no error box and
   the mark taken back off.
-- **Access gate** — 17 checks: requests refused with no code, a wrong code and a
-  wrong code of the same length; accepted with the right one; `/api/title` gated
-  too; the code absent from `/api/config`; and the browser flow through prompt,
-  rejection, entry and reload.
+- **Access gate** — 21 checks: requests refused with no code, a wrong code and
+  a wrong code of the same length; accepted with the right one; `/api/title`
+  gated too; the code absent from `/api/config`; the browser flow through
+  prompt, rejection, entry and reload; and the real badge on the gate rather
+  than a placeholder letter — loaded, described for anyone who cannot see it,
+  and small enough not to push the code box off a phone.
 
 ---
 
