@@ -29,7 +29,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Interface sounds** | Taps, sends and chimes synthesised with Web Audio oscillators — no audio files to download on a metered connection. |
 | **Multilingual chatbot** | Liberian English vernacular by default, standard English alongside it. Kpelle, Vai and Bassa appear in the picker as roadmap languages — the assistant says plainly that they are still being built rather than faking them. |
 | **Talking with Grandpa** | A hands-free spoken conversation: talk, stop talking, and he answers out loud — then listens again by himself, with nothing to press. **Talk over him and he stops**, the way a person does. He waits when you pause on "and" or "because" instead of cutting you off. Each sentence is spoken as it arrives, and the exchange is left behind as an ordinary conversation you can read. See below. |
-| **Live news** | Ask what happened today and he goes and reads it, then says which paper carried it and when — Liberian papers first. Only questions that are actually about *now* are looked up; everything else is answered from what he knows, and still refused honestly when he does not know it. See below. |
+| **Live news** | Ask what happened today and he goes and reads it, then says which paper carried it and when — Liberian papers first. Only questions that are actually about *now* are looked up; everything else is answered from what he knows, and still refused honestly when he does not know it. Being told to "search", "look up" or "find me" is enough on its own, and there is a globe on the composer for the times the guess is wrong. See below. |
 | **Whole answers** | A reply that runs out of room is picked up and carried on — twice if it needs it — and the halves are joined with no seam. An answer that stops mid-sentence is not an answer. See below. |
 | **How Grandpa talks** | Not an accent filter over standard English. A register with its own sound, grammar, vocabulary and way of arranging a thought — three registers, in fact, from broadcast-standard to family talk to ceremonial. See below. |
 | **How loud the voice is** | Louder than a phone can go on its own. `audio.volume` stops at 1 and is already there, so the voice is run through a compressor and a makeup gain instead — the loud syllables held back so the quiet trailing ones can come up with them, which is what actually makes a voice carry over a generator. Three steps, **Loud by default**, and turning it up lands on the words being spoken right now. See below. |
@@ -269,6 +269,20 @@ web before answering. That turn gets a different set of instructions: name the p
 they exist (FrontPage Africa, the Daily Observer, the New Dawn, the Liberian
 Investigator, the Liberia News Agency), give both sides where reports disagree, and
 say plainly when the search came back with nothing rather than filling the gap.
+
+Two ways in. A question is looked up when it is **about now** — the news, today's rate,
+who won last night, a deadline, anything naming this year or later — or when it **asks
+to be**: "search", "look up", "find me", "google", "check online", "what is available".
+That second list was missing at first, and the question that exposed it was *"Search
+and list the best online fully funded scholarships available"*, answered with "I cannot
+search the live internet" — with the word **search** sitting in front of it.
+
+No list of words will ever be complete, so there is also a **globe on the composer**.
+Tap it and this question gets the web whatever the words look like. It is off by
+default, because a search costs more than an answer, and it turns itself off again
+after the question it was meant for rather than sitting there quietly spending. It
+appears only where the key can actually read the web — a button that cannot do what it
+says is worse than no button.
 
 Every other question goes where it always went. "How do I plant rice" has not changed
 since the model was trained, a search costs more than an answer, and most of what
@@ -845,12 +859,15 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   the honest refusal, the last one with the answer still arriving, no error
   shown, the claim withdrawn mid-stream and the refusal remembered so the next
   question does not pay for it.
-- **Live news (Playwright)** — 13 checks: the page saying he is reading while he
+- **Live news (Playwright)** — 22 checks: the page saying he is reading while he
   reads, the finished answer still marked as looked up, the sources listed as
   site names with the headline as the tooltip and `rel="noopener noreferrer"`,
   an answer he did not look up carrying no mark, the mark remembered with the
   conversation — and, on a key that cannot read, an answer with no error box and
-  the mark taken back off.
+  the mark taken back off. Plus the real badge beside every answer rather than a
+  letter in a circle, and the globe: hidden where the web cannot be read, off to
+  begin with, searching a question whose words would never have triggered it,
+  and turning itself off again afterwards.
 - **Access gate** — 21 checks: requests refused with no code, a wrong code and
   a wrong code of the same length; accepted with the right one; `/api/title`
   gated too; the code absent from `/api/config`; the browser flow through

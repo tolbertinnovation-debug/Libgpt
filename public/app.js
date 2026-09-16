@@ -153,6 +153,7 @@ const el = {
   composerPersona: $('composer-persona'),
   input: $('composer-input'),
   foot: $('composer-foot'),
+  look: $('look-btn'),
   send: $('send-btn'),
   stop: $('stop-btn'),
   mic: $('mic-btn'),
@@ -452,7 +453,7 @@ function renderThread() {
       }
       return `
         <div class="turn turn-ai">
-          <div class="avatar" aria-hidden="true">G</div>
+          <div class="avatar" aria-hidden="true"><img src="logo.png" width="320" height="305" alt=""></div>
           <div class="ai-body">
             ${message.searched ? lookedUp() : ''}
             <div class="prose">${renderMarkdown(message.content)}</div>
@@ -477,7 +478,7 @@ function startAiTurn() {
   const turn = document.createElement('div');
   turn.className = 'turn turn-ai';
   turn.innerHTML = `
-    <div class="avatar" aria-hidden="true">G</div>
+    <div class="avatar" aria-hidden="true"><img src="logo.png" width="320" height="305" alt=""></div>
     <div class="ai-body">
       <div class="prose"><span class="thinking"><span></span><span></span><span></span></span></div>
     </div>`;
@@ -576,6 +577,9 @@ async function streamReply(chat, hooks = {}) {
         lowData: state.prefs.lowData,
         register: state.prefs.register,
         spoken: Boolean(hooks.spoken),
+        // Asked for outright. The server works out for itself when a question
+        // needs looking up; this is for when it guesses wrong.
+        search: state.lookItUp === true,
         speaker: state.prefs.speaker,
         tone: state.prefs.tone,
         userName: state.prefs.userName,
@@ -679,6 +683,10 @@ async function streamReply(chat, hooks = {}) {
     target.closest('.turn')?.remove();
   }
 
+  // One question at a time: it is a decision about the thing being asked, not
+  // a mode to be left on and forgotten about spending money.
+  setLookItUp(false);
+
   if (!chat.titled && chat.messages.length >= 2) nameConversation(chat);
 
   hooks.onDone?.(text, failed);
@@ -772,6 +780,24 @@ function autoGrow() {
 
 function updateSendState() {
   el.send.disabled = el.input.value.trim().length === 0;
+}
+
+/* ---- looking it up on purpose -------------------------------------------
+ * The server decides by itself whether a question needs the web, and it will
+ * sometimes be wrong — no list of words is ever complete. "Search and list the
+ * best scholarships available" came back as "I cannot search the live
+ * internet", with the word search sitting in the question.
+ *
+ * So there is also a button. It is off by default, because a search costs more
+ * than an answer, and it turns itself off again after the question it was
+ * meant for. */
+function setLookItUp(on) {
+  state.lookItUp = Boolean(on) && Boolean(state.catalogue.liveNews);
+  el.look.setAttribute('aria-pressed', String(state.lookItUp));
+  el.look.classList.toggle('is-on', state.lookItUp);
+  el.look.title = state.lookItUp
+    ? 'He will read the web for this one'
+    : 'Look it up on the web';
 }
 
 /* ---- what this can do ----------------------------------------------------
@@ -1546,6 +1572,12 @@ el.setRoom.addEventListener('change', () => {
   el.setRoomHint.textContent = roomHint();
 });
 
+el.look.addEventListener('click', () => {
+  setLookItUp(!state.lookItUp);
+  sounds.tap();
+  el.input.focus();
+});
+
 el.setLoudness.addEventListener('change', () => {
   state.prefs.loudness = isLoudness(el.setLoudness.value) ? el.setLoudness.value : DEFAULT_LOUDNESS;
   room.setLoudness(state.prefs.loudness);
@@ -2214,6 +2246,12 @@ async function boot() {
     el.setSpeaker.value = state.prefs.speaker;
     el.setTone.value = state.prefs.tone;
     el.setRegister.value = state.prefs.register;
+
+    // The same for looking things up: the button appears only where this key
+    // can actually read the web. A button that cannot do what it says is
+    // worse than no button.
+    el.look.hidden = !config.liveNews;
+    setLookItUp(false);
 
     // The Album tab appears only where pictures are actually switched on.
     const albumTab = el.libraryTabs.querySelector('[data-tab="album"]');

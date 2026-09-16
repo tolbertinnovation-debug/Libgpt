@@ -551,20 +551,22 @@ body {
 }
 
 .turn-ai { display: flex; gap: .85rem; }
+/* The badge beside every answer. It was a letter in a circle, drawn before
+   there was a logo — the same stand-in the access gate had. The artwork
+   carries its own ring, so it needs no circle or border of ours. */
 .avatar {
   flex: 0 0 auto;
-  width: 28px; height: 28px;
+  width: 30px;
+  height: 30px;
   margin-top: .1rem;
-  border-radius: 50%;
   display: grid;
   place-items: center;
-  background: radial-gradient(circle at 50% 35%, var(--palm), #b45f10);
-  color: #fffdf7;
-  border: 1px solid var(--border);
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: .85rem;
   user-select: none;
+}
+.avatar img {
+  width: 100%;
+  height: auto;
+  display: block;
 }
 .ai-body { flex: 1; min-width: 0; }
 
@@ -843,6 +845,15 @@ body {
 .send-btn:hover:not(:disabled) { background: var(--navy-deep); }
 .send-btn:disabled { opacity: .35; cursor: not-allowed; }
 [data-theme="dark"] .send-btn { background: var(--gold); color: #201412; }
+/* The look-it-up switch. Off it is one more quiet icon; on it is unmistakable,
+   because it is the one button here that spends more than an answer costs. */
+.look-btn.is-on {
+  background: var(--gold);
+  color: #201412;
+  border-color: var(--gold-deep);
+}
+.look-btn.is-on:hover { background: var(--gold-deep); }
+
 .stop-btn { background: var(--red); }
 .stop-btn:hover { background: #a91f1f; }
 

@@ -300,12 +300,18 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   // account has a model that can go and read, that model takes this one turn.
   // Everything else goes to the ordinary per-task choice, because a search
   // costs more and most questions have not changed since training.
+  //
+  // The browser can also just say so. No list of words is ever complete, and
+  // the one that missed "Search and list the best scholarships available" had
+  // the word SEARCH sitting in front of it — so the asker gets the final say
+  // rather than being told what they wanted.
   const asked = messages.filter((m) => m.role === 'user').at(-1)?.content || '';
   const reader = await lookupModel();
 
   // Not const: a search that cannot happen falls back to an ordinary answer
   // below, and then every one of these has to change with it.
-  let searched = Boolean(reader) && needsLookingUp(asked);
+  let searched = Boolean(reader)
+    && (req.body?.search === true || needsLookingUp(asked));
   const promptFor = (didSearch) => buildSystemPrompt({
     persona,
     language: req.body?.language,

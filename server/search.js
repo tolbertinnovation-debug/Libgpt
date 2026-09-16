@@ -50,6 +50,25 @@ export function searchModelFrom(ids = [], pinned = '') {
   return SEARCH_MODELS.find((id) => ids.includes(id)) || '';
 }
 
+// Somebody asking, in so many words, to go and look. This is the strongest
+// signal there is and it was missing entirely: "Search and list the best
+// online fully funded scholarships available" was answered with "I cannot
+// search the live internet", with the word SEARCH sitting in the question.
+//
+// Kept separate from the list below because these are not about time at all.
+// "Find me a supplier" is not a question about today; it is an instruction to
+// go and look, and refusing it while holding the ability is the same failure
+// by a different route.
+const ASKED_TO_LOOK = new RegExp([
+  '\\bsearch\\b', '\\bgoogle\\b', '\\bbrowse\\b',
+  'look (?:it |them |this |that )?up', 'look (?:online|on the web|on the internet)',
+  'find (?:me|out|us|a|an|the|some)', 'check (?:online|the web|the internet|for me)',
+  '(?:on|from|off) the (?:web|internet)', 'on ?line (?:for|and)',
+  'web ?search', 'internet search',
+  'what (?:is|are) (?:there |now )?(?:out there|available)',
+  'list (?:the |some |all )?(?:best|current|available|open)',
+].join('|'), 'i');
+
 // Words that mean "as things stand now" rather than "as things are". These are
 // the cheap, certain cases — a question with one of these in it is asking
 // about a world the model has not seen.
@@ -62,6 +81,11 @@ const ASKING_NOW = new RegExp([
   'weather', 'forecast', 'rain today', 'football score', 'match result',
   'who won', 'election result', 'who is the president', 'still in office',
   'happening', 'what happened', 'any update', 'update on',
+  // Things that are open until they are not: an application, a deadline, a
+  // post, a place on a course. Whether one is still open cannot be remembered.
+  'deadline', 'still open', 'now open', 'applications? (?:are |is )?open',
+  'closing date', 'vacanc', 'job opening', 'admission', 'intake',
+  'available (?:now|today|this)', 'currently available',
 ].join('|'), 'i');
 
 // A year at or past the one the model may not know about. Written as a live
@@ -73,13 +97,18 @@ const YEAR = /\b(20\d\d)\b/;
  *
  * Deliberately cautious in both directions: searching a question that did not
  * need it costs money, and not searching one that did means Grandpa either
- * guesses or refuses. The obvious cases are caught here; anything subtler is
- * left to the refusal, which is honest.
+ * guesses or refuses. The obvious cases are caught here.
+ *
+ * No list of words will ever be complete, which is why this is not the only
+ * way in — the asker can also say so outright with the button on the composer,
+ * and that beats anything decided here.
  */
 export function needsLookingUp(text, now = new Date()) {
   const asked = String(text ?? '');
   if (!asked.trim()) return false;
 
+  // Being asked outright beats every guess below it.
+  if (ASKED_TO_LOOK.test(asked)) return true;
   if (ASKING_NOW.test(asked)) return true;
 
   // "in 2026" — anything from this year or later is past what a model can be
