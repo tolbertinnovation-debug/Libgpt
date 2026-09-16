@@ -31,6 +31,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Whole answers** | A reply that runs out of room is picked up and carried on — twice if it needs it — and the halves are joined with no seam. An answer that stops mid-sentence is not an answer. See below. |
 | **How Grandpa talks** | Not an accent filter over standard English. A register with its own sound, grammar, vocabulary and way of arranging a thought — three registers, in fact, from broadcast-standard to family talk to ceremonial. See below. |
 | **Where he is sitting** | The spoken voice can be put in a room: a palaver hut, an evening fire, or a county shortwave set. Built with Web Audio filters on the device — no audio files to download. |
+| **The accent** | There is no Liberian voice in any speech service. So the text going to the voice is not the text on the screen: the page stays easy to read, while the speaker is handed the spoken spelling — *"I tink dat ting will be betta afta de wata."* See below. |
 | **Grandpa's own voice** | Not the phone's robot: a real voice, one per elder, told how an old man on his porch talks. The phone's own voice stays underneath and takes over when the network is gone or on a metered connection. See below. |
 | **Voice out** | Press **Listen** on any answer, or turn on auto-read. Long answers are split into sentence-sized chunks, which is what stops browsers cutting them off part-way. Pause, continue and stop from a bar above the composer. |
 | **Voice in** | Hold a conversation with the microphone: continuous dictation with the words appearing as you speak, so a pause for breath does not end it. Pick the accent closest to your own; if a device cannot do it, it falls back rather than failing. |
@@ -261,6 +262,47 @@ One thing this must never touch: pick **Standard English** and none of it
 applies, because there *dat* is not a register, it is a mistake. The tests
 check that both ways round.
 
+### The accent
+
+There is no Liberian voice in any text-to-speech service, and there is not
+going to be one soon. What there is, is this: **a speech engine pronounces the
+letters it is handed.** Write "dat ting" and it says "dat ting".
+
+So the page and the speaker do not get the same text. On screen the words stay
+easy to read — a light scattering of spoken forms, no more, which is what
+`server/liberian.js` is careful about, because someone has to *read* it. On the
+way to the voice they go through `public/pronounce.js` first, and there the
+shift can be as complete as the accent really is, because nobody is reading it:
+
+| on the page | to the voice |
+| --- | --- |
+| "Good day, my friend." | "Good day, my fren." |
+| "I think that thing will be better after the water comes." | "I tink dat ting will be betta afta de wata comes." |
+| "Ask the doctor, and remember to take the medicine small-small." | "Aks de docta, an rememba to take de medicine small-small." |
+
+Three features carry most of the sound, and each is applied by a named list or
+a guarded rule — never by ear:
+
+1. **The interdentals.** /θ/ and /ð/ are *t* and *d*: think → tink, this → dis.
+2. **Final clusters simplify.** last → las, hand → han, left → lef.
+3. **It is non-rhotic.** Unstressed *-er* is *-a*: water → wata, never → neva,
+   doctor → docta.
+
+The clusters are a list rather than a suffix rule on purpose. "-nd → -n" would
+correctly give *han* and *husban*, and would also turn **brand** into **bran**,
+which is a different word. A rule that can quietly swap one real word for
+another is not in that file, and the tests name eight such traps and check each
+one.
+
+**Grandpa's accent** in Settings is Full, Light (the *th* only) or Off, and the
+hint shows you the sentence rather than describing it.
+
+The instruction sent with the voice names the accent too — Liberian English,
+non-rhotic, syllable-timed and even rather than the stress-timed bounce of
+American English, level intonation — and tells the engine to pronounce the
+spelling as written and not correct it back. All five elders get it; they are
+all Liberian.
+
 ### Where he is sitting
 
 The spoken voice can be placed in a room — a palaver hut, an evening fire, or a
@@ -408,6 +450,7 @@ public/
   app.js        State, streaming, history, settings, sharing
   speech.js     Text-to-speech chunking, voice ranking, dictation locales
   converse.js   The hands-free loop: turn-taking, silence detection, barge-in
+  pronounce.js  The accent: what the voice is handed, not what the page shows
   room.js       Palaver hut, fire and shortwave, as Web Audio filters
   realvoice.js  Grandpa's real voice, with the phone's own as the fallback
   markdown.js   Small Markdown renderer (escapes first, then adds markup)
@@ -486,6 +529,11 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   building nothing at all, the choice surviving a reload, the hint admitting
   what a room cannot reach, and — three ways — a failure never costing the
   listener the answer.
+- **The accent (unit)** — 40 checks: each of the three features, a whole
+  sentence surviving with nothing dropped and its punctuation intact, case kept
+  through every substitution, the three strengths differing as they claim,
+  applying it twice being the same as once — and eight trap words (brand, bond,
+  beyond, wand…) that a looser rule would turn into different real words.
 - **Grandpa's voice (server)** — 23 checks: each elder given their own voice,
   the delivery instruction actually sent, the speed slider passed through and
   an impossible speed clamped, an over-long piece cut rather than refused, an

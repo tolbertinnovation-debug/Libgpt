@@ -15,6 +15,7 @@
 // to know which voice is talking.
 
 import { stripMarkdown } from './speech.js';
+import { DEFAULT_ACCENT, forSpeaking } from './pronounce.js';
 
 // Below this, a fragment is held back and joined to the next one: a request
 // per three-word sentence is slow, dear, and sounds chopped.
@@ -100,7 +101,10 @@ export class VoiceOut {
   }
 
   #add(text, settings, fresh) {
-    const clean = stripMarkdown(text);
+    // Markdown off first, then the accent. Both voices get the same text:
+    // there is no Liberian voice to select in any speech service, so the
+    // accent has to come from the letters the engine is handed.
+    const clean = forSpeaking(stripMarkdown(text), this.accent?.() ?? DEFAULT_ACCENT);
     if (!clean) return false;
 
     // Not wanted, or nothing to play it with: the phone's voice takes it.

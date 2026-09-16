@@ -9,6 +9,7 @@ import {
 } from './converse.js';
 import { VoiceOut } from './realvoice.js';
 import { DEFAULT_ROOM, ROOMS, Room, isRoom } from './room.js';
+import { ACCENTS, DEFAULT_ACCENT, isAccent } from './pronounce.js';
 import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
@@ -58,6 +59,7 @@ const state = {
     realVoice: true,
     register: 'standard',
     room: DEFAULT_ROOM,
+    accent: DEFAULT_ACCENT,
     userName: '',
     speaker: 'grandpa',
     tone: 'warmth',
@@ -125,6 +127,8 @@ const el = {
   setRegisterHint: $('settings-register-hint'),
   setRoom: $('settings-room'),
   setRoomHint: $('settings-room-hint'),
+  setSpokenAccent: $('settings-spoken-accent'),
+  setSpokenAccentHint: $('settings-spoken-accent-hint'),
   setTone: $('settings-tone'),
   setName: $('settings-name'),
   setSound: $('settings-sound'),
@@ -739,6 +743,7 @@ const speaker = new VoiceOut({
     && state.prefs.realVoice !== false
     && !state.prefs.lowData,
   speaker: () => state.prefs.speaker,
+  accent: () => state.prefs.accent,
   headers: apiHeaders,
   onNotice: (message) => toast(message),
 }, (speechState) => {
@@ -1117,6 +1122,8 @@ function renderSettings() {
   el.setTone.value = prefs.tone;
   el.setRegister.value = prefs.register || 'standard';
   el.setRoom.value = prefs.room || DEFAULT_ROOM;
+  el.setSpokenAccent.value = prefs.accent || DEFAULT_ACCENT;
+  el.setSpokenAccentHint.textContent = spokenAccentHint();
   el.setRegisterHint.textContent = registerHint();
   el.setRoomHint.textContent = roomHint();
   el.setSound.checked = prefs.sound !== false;
@@ -1236,6 +1243,20 @@ function registerHint() {
 }
 
 /**
+ * What the accent setting is doing, in his own words rather than in mine —
+ * showing the change is worth more than describing it.
+ */
+function spokenAccentHint() {
+  const chosen = ACCENTS.find((a) => a.id === state.prefs.accent);
+  const sample = {
+    full: '"I tink dat ting will be betta afta de rain."',
+    light: '"I tink dat ting will be better after de rain."',
+    off: '"I think that thing will be better after the rain."',
+  }[state.prefs.accent] || '';
+  return `${chosen?.blurb || ''} ${sample}`.trim();
+}
+
+/**
  * A room can only be put around Grandpa's own voice. Saying so beats letting
  * someone pick "Palaver hut" and wonder why nothing changed.
  */
@@ -1340,6 +1361,13 @@ el.setRegister.addEventListener('change', () => {
   state.prefs.register = el.setRegister.value;
   savePreferences();
   el.setRegisterHint.textContent = registerHint();
+});
+
+el.setSpokenAccent.addEventListener('change', () => {
+  state.prefs.accent = isAccent(el.setSpokenAccent.value) ? el.setSpokenAccent.value : DEFAULT_ACCENT;
+  savePreferences();
+  speaker.stop();
+  el.setSpokenAccentHint.textContent = spokenAccentHint();
 });
 
 el.setRoom.addEventListener('change', () => {
@@ -1892,6 +1920,11 @@ async function boot() {
     .map((a) => `<option value="${a.id}">${escapeHtml(a.label)}</option>`)
     .join('');
   el.setAccent.value = state.prefs.dictationAccent;
+
+  el.setSpokenAccent.innerHTML = ACCENTS
+    .map((a) => `<option value="${a.id}">${escapeHtml(a.label)}</option>`)
+    .join('');
+  el.setSpokenAccent.value = state.prefs.accent || DEFAULT_ACCENT;
 
   el.setRoom.innerHTML = ROOMS
     .map((r) => `<option value="${r.id}">${escapeHtml(r.label)}</option>`)
