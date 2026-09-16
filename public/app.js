@@ -388,6 +388,21 @@ function lastAiIndex() {
   return -1;
 }
 
+// Said above an answer he went and read the web for, so nobody has to guess
+// whether he knew it or looked it up. The two are not the same thing, and an
+// elder who blurs them is not worth listening to.
+const lookedUp = (reading = false) =>
+  '<div class="looked-up" title="Grandpa read the web for this answer">'
+  + `<span aria-hidden="true">\u25C9</span> ${reading ? 'Going to read the news\u2026' : 'Looked it up just now'}`
+  + '</div>';
+
+/** Mark the answer being streamed as one he is reading, not remembering. */
+function markLookedUp(prose, reading = false) {
+  const body = prose.closest('.ai-body');
+  if (!body || body.querySelector('.looked-up')) return;
+  body.insertAdjacentHTML('afterbegin', lookedUp(reading));
+}
+
 function renderThread() {
   const chat = currentChat();
   const hasMessages = Boolean(chat?.messages.length);
@@ -410,6 +425,7 @@ function renderThread() {
         <div class="turn turn-ai">
           <div class="avatar" aria-hidden="true">G</div>
           <div class="ai-body">
+            ${message.searched ? lookedUp() : ''}
             <div class="prose">${renderMarkdown(message.content)}</div>
             ${messageActions(index, message.content)}
           </div>
@@ -514,6 +530,7 @@ async function streamReply(chat, hooks = {}) {
   let failed = false;
   let trouble = '';   // what went wrong, for a listener who cannot see it
   let unfinished = false;   // ran out of room even after being carried on
+  let searched = false;     // this answer was read off the web, not remembered
 
   try {
     const response = await fetch('/api/chat', {
@@ -569,7 +586,12 @@ async function streamReply(chat, hooks = {}) {
         let payload;
         try { payload = JSON.parse(data); } catch { continue; }
 
-        if (event === 'delta' && payload.text) {
+        if (event === 'start') {
+          // Say so while he is still reading, not only afterwards — a search
+          // takes a few seconds and silence reads as a hang.
+          searched = Boolean(payload.searched);
+          if (searched) markLookedUp(target, true);
+        } else if (event === 'delta' && payload.text) {
           const stick = nearBottom(el.thread);
           text += payload.text;
           target.innerHTML = renderMarkdown(text);
@@ -605,7 +627,7 @@ async function streamReply(chat, hooks = {}) {
   }
 
   if (text.trim()) {
-    chat.messages.push({ role: 'assistant', content: text });
+    chat.messages.push({ role: 'assistant', content: text, searched });
     chat.updatedAt = Date.now();
     persist();
     renderThread();

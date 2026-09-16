@@ -568,6 +568,23 @@ body {
 }
 .ai-body { flex: 1; min-width: 0; }
 
+/* Marks an answer he went and read, rather than one he remembered. Small and
+   quiet — it is a provenance note, not a badge of honour. */
+.looked-up {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  margin: 0 0 .5rem;
+  padding: .15rem .55rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--text-soft);
+  font-size: .78rem;
+  line-height: 1.5;
+}
+.looked-up span { color: var(--green); }
+
 /* Rendered markdown */
 .prose > :first-child { margin-top: 0; }
 .prose > :last-child { margin-bottom: 0; }

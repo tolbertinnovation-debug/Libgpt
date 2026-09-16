@@ -33,6 +33,13 @@ export const config = {
   imageModel: process.env.OPENAI_IMAGE_MODEL?.trim() || 'dall-e-3',
   imagesPerHour: int(process.env.IMAGES_PER_HOUR, 20),
 
+  // Reading the web, so "what is the news today" can be answered rather than
+  // refused. Uses a search-capable model on the same account — no second
+  // provider and no second key. Off means he keeps saying he has not heard
+  // the news, which stays true.
+  searchEnabled: !/^(0|false|no|off)$/i.test(process.env.ENABLE_LIVE_NEWS?.trim() || 'true'),
+  searchModel: process.env.OPENAI_SEARCH_MODEL?.trim() || '',
+
   // Grandpa's own voice. The phone's built-in text-to-speech is free but
   // sounds like a machine reading; this is a real recorded-sounding voice from
   // OpenAI, and it costs about a US cent for four or five answers. On by

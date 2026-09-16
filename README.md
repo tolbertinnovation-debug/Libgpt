@@ -28,6 +28,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Interface sounds** | Taps, sends and chimes synthesised with Web Audio oscillators — no audio files to download on a metered connection. |
 | **Multilingual chatbot** | Liberian English vernacular by default, standard English alongside it. Kpelle, Vai and Bassa appear in the picker as roadmap languages — the assistant says plainly that they are still being built rather than faking them. |
 | **Talking with Grandpa** | A hands-free spoken conversation: talk, stop talking, and he answers out loud — then listens again by himself, with nothing to press. **Talk over him and he stops**, the way a person does. He waits when you pause on "and" or "because" instead of cutting you off. Each sentence is spoken as it arrives, and the exchange is left behind as an ordinary conversation you can read. See below. |
+| **Live news** | Ask what happened today and he goes and reads it, then says which paper carried it and when — Liberian papers first. Only questions that are actually about *now* are looked up; everything else is answered from what he knows, and still refused honestly when he does not know it. See below. |
 | **Whole answers** | A reply that runs out of room is picked up and carried on — twice if it needs it — and the halves are joined with no seam. An answer that stops mid-sentence is not an answer. See below. |
 | **How Grandpa talks** | Not an accent filter over standard English. A register with its own sound, grammar, vocabulary and way of arranging a thought — three registers, in fact, from broadcast-standard to family talk to ceremonial. See below. |
 | **Where he is sitting** | The spoken voice can be put in a room: a palaver hut, an evening fire, or a county shortwave set. Built with Web Audio filters on the device — no audio files to download. |
@@ -41,7 +42,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Rename conversations** | Rename in place from the sidebar, so *Planting Rice Season* can become *My rice notes*. |
 | **Homework Helper** | Teaches the method and shows the working, then offers a practice question — it does not just hand over answers. |
 | **Business Advisor** | Pricing, bookkeeping you can keep in a paper exercise book, and loan readiness. Shows the arithmetic so you can redo it with your own numbers. |
-| **Farming Assistant** | Crop problems, planting seasons, storage. Says honestly that it has no live weather or market-price feed, and points to the extension officer. |
+| **Farming Assistant** | Crop problems, planting seasons, storage. A market price or a forecast is looked up where live news is switched on, with the source named; where it is not, he says plainly that he has no feed rather than guessing, and points to the extension officer. |
 | **Cultural storytelling** | Proverbs, folktales and oral history — careful with sacred matters, and never inventing an attribution. |
 | **Low-data mode** | A real switch, not a label: answers are capped at 120 words and 300 tokens, with no headings or tables. The whole front end is dependency-free, so nothing is pulled from a CDN. |
 | **Conversation history** | Kept in the browser's `localStorage`, grouped by date, searchable, and never sent anywhere but to the model. |
@@ -112,6 +113,8 @@ All of it is in `.env` (see `.env.example`):
 | `ENABLE_REAL_VOICE` | `true` | Grandpa's own voice instead of the phone's robot. See below. |
 | `OPENAI_VOICE_MODEL` | `gpt-4o-mini-tts` | The only family that takes an instruction about *how* to say it. |
 | `VOICE_CHARS_PER_HOUR` | `60000` | A ceiling across the whole deployment — roughly 150 spoken answers an hour. |
+| `ENABLE_LIVE_NEWS` | `true` | Lets him read the web for questions that are about now. Switches itself off if the account has no search-capable model. See below. |
+| `OPENAI_SEARCH_MODEL` | *(automatic)* | Pin which model does the reading. Left empty, the best one the account has is used. |
 | `ENABLE_IMAGES` | `false` | Turns the Cultural Album on. Off by default — see below. |
 | `OPENAI_IMAGE_MODEL` | `dall-e-3` | `dall-e-3` works on any account; `gpt-image-1` is newer but some accounts must verify with OpenAI first. |
 | `IMAGES_PER_HOUR` | `20` | A ceiling across the whole deployment, not per visitor. |
@@ -242,6 +245,41 @@ part of it; never stop in the middle of a sentence, a list or a step; if a
 subject is genuinely too big, give the complete useful part and say what is
 left out. In a spoken conversation, sixty words is a target and not a
 guillotine.
+
+### Live news, and what he still will not guess
+
+Asked what was in the news this morning, Grandpa used to say he had no internet.
+That was the honest answer and the right one — a model knows nothing after the day
+its training stopped, and an elder who invents the news is worse than one who says
+he has not heard it. But it is not a *useful* answer, and the rule was never the
+point. The point was not making things up.
+
+So rather than loosen the rule, he was given a way to actually find out.
+
+A question that is about **now** — the news, today's rate, the weather, who won last
+night, anything naming this year or later — is sent to a search-capable model on the
+same account, which reads the web before answering. That turn gets a different set of
+instructions: name the paper or station and the date, prefer Liberian sources where
+they exist (FrontPage Africa, the Daily Observer, the New Dawn, the Liberian
+Investigator, the Liberia News Agency), give both sides where reports disagree, and
+say plainly when the search came back with nothing rather than filling the gap.
+
+Every other question goes where it always went. "How do I plant rice" has not changed
+since the model was trained, a search costs more than an answer, and most of what
+people ask him is not news. Those turns keep the old instruction word for word: no
+internet, no feeds, say so.
+
+Which turn you got is on the screen. An answer he read carries a small mark —
+**◉ Looked it up just now** — and one he did not carries nothing. The two are not the
+same kind of claim, and the page should not let them look alike.
+
+It runs on the same key and the same bill as everything else: no second provider, no
+second account. If your key has no search-capable model, the feature switches itself
+off and `/api/config` reports `liveNews: false`, because promising live news the
+account cannot fetch is the same lie this whole thing exists to prevent.
+
+`ENABLE_LIVE_NEWS=false` turns it off deliberately — then he goes back to saying he
+has not heard the news, which is true again.
 
 ### How Grandpa talks
 
@@ -645,6 +683,17 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   four card names, greeting by name, the name, speaker and tone actually reaching the
   server, glossary terms marked and explained (and never inside code), and the chips
   switching persona and asking.
+- **Live news (server)** — 22 checks across three deployments: a question about
+  today routed to a model that can read the web with the web actually asked for,
+  an ordinary one left on the everyday model, the prompt swapping between "say
+  where you read it" and "say you have not heard the news" and never carrying
+  both, eight questions sorted either way, a setting the search model refuses
+  dropped rather than surfaced as an error — and, on an account with no
+  search-capable model and on a deployment with the feature switched off, live
+  news reported as unavailable and the honest refusal left exactly as it was.
+- **Live news (Playwright)** — 5 checks: the page saying he is reading while he
+  reads, the finished answer still marked as looked up, an answer he did not
+  look up carrying no mark, and the mark remembered with the conversation.
 - **Access gate** — 17 checks: requests refused with no code, a wrong code and a
   wrong code of the same length; accepted with the right one; `/api/title` gated
   too; the code absent from `/api/config`; and the browser flow through prompt,

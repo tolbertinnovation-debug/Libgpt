@@ -21,6 +21,7 @@ import {
   publicCatalogue,
   voiceFor,
 } from './personas.js';
+import { needsLookingUp, searchModelFrom } from './search.js';
 import { KINDS, isKind, libraryCatalogue } from './structured.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -70,7 +71,7 @@ setInterval(() => {
 // no tokens, but there is no reason to repeat it every few seconds.
 const MODEL_CACHE_MS = 10 * 60 * 1000;
 const EMPTY_TIERS = { fast: '', balanced: '', deep: '' };
-let modelCache = { at: 0, models: [], tiers: EMPTY_TIERS };
+let modelCache = { at: 0, models: [], tiers: EMPTY_TIERS, search: '' };
 
 async function accountModels() {
   if (!config.apiKey) return [];
@@ -79,8 +80,13 @@ async function accountModels() {
   }
 
   try {
-    const ids = sortModels((await listModels({})).filter(isChatModel));
+    const all = await listModels({});
+    const ids = sortModels(all.filter(isChatModel));
     const tiers = resolveTiers(ids, config.modelPins);
+    // The search-capable models are deliberately not in `ids` — they are not
+    // general chat models and should not be in the picker — so they are found
+    // in the full listing instead, and kept beside it.
+    const search = config.searchEnabled ? searchModelFrom(all, config.searchModel) : '';
 
     // Each model says what automatic already uses it for, so picking by hand
     // is an informed change rather than a guess. The hint stays reserved for
@@ -96,13 +102,25 @@ async function accountModels() {
       label: jobs(id) ? `${id} · ${jobs(id)}` : id,
       hint: '',
     }));
-    modelCache = { at: Date.now(), models, tiers };
+    modelCache = { at: Date.now(), models, tiers, search };
     return models;
   } catch {
     // An account that cannot list models can still chat; fall back rather
     // than failing the whole page.
     return modelCache.models;
   }
+}
+
+/**
+ * The model on this account that can go and read the web, if there is one.
+ *
+ * Empty means Grandpa cannot look anything up — and then he says so, which
+ * stays true. Nothing here ever claims a capability the key does not have.
+ */
+async function lookupModel() {
+  if (!config.searchEnabled || !config.apiKey) return '';
+  await accountModels();   // fills the cache, including the search model
+  return modelCache.search;
 }
 
 /**
@@ -178,6 +196,10 @@ app.get('/api/config', async (_req, res) => {
     library: libraryCatalogue(),
     imagesEnabled: config.imagesEnabled,
     realVoice: config.realVoice && Boolean(config.apiKey),
+    // True only when a model that can actually read the web is on this
+    // account. Promising live news the key cannot fetch would be the same
+    // lie the feature exists to stop.
+    liveNews: Boolean(await lookupModel()),
   });
 });
 
@@ -241,7 +263,17 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   // A spoken turn is heard once and cannot be skimmed, so it is asked for
   // shorter and given a smaller ceiling than a written one.
   const spoken = Boolean(req.body?.spoken);
-  const model = await pickModel(req.body?.model, 'chat', { lowData, persona });
+
+  // Does this question need something the model cannot remember — this
+  // morning's news, today's rate, who won last night? If so, and if the
+  // account has a model that can go and read, that model takes this one turn.
+  // Everything else goes to the ordinary per-task choice, because a search
+  // costs more and most questions have not changed since training.
+  const asked = messages.filter((m) => m.role === 'user').at(-1)?.content || '';
+  const reader = await lookupModel();
+  const searched = Boolean(reader) && needsLookingUp(asked);
+
+  const model = searched ? reader : await pickModel(req.body?.model, 'chat', { lowData, persona });
   const system = buildSystemPrompt({
     persona,
     language: req.body?.language,
@@ -252,6 +284,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     spoken,
     register: req.body?.register,
     task: 'chat',
+    searched,
   });
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -269,7 +302,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   res.on('close', () => controller.abort());
 
   try {
-    send('start', { model, lowData, spoken });
+    send('start', { model, lowData, spoken, searched });
 
     const budget = lowData ? 420 : spoken ? 700 : 2200;
     let answer = '';
@@ -282,6 +315,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
         messages: conversation,
         maxTokens: budget,
         signal: controller.signal,
+        webSearch: searched,
         onFinish: (reason) => { stopped = reason; },
       })) {
         answer += delta;
@@ -310,7 +344,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
 
     // Still unfinished after all that. Say so, rather than leaving a sentence
     // hanging and letting the reader think that was the whole answer.
-    send('done', { model, truncated: stopped === 'length' });
+    send('done', { model, searched, truncated: stopped === 'length' });
   } catch (error) {
     if (controller.signal.aborted) {
       // The user pressed Stop. Nothing to report — the connection is going away.

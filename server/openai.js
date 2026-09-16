@@ -167,19 +167,23 @@ async function post(path, body, signal) {
  * its thought, "length" when it hit the token ceiling part-way through.
  */
 export async function* streamChat({
-  model, messages, maxTokens, temperature, signal, onFinish,
+  model, messages, maxTokens, temperature, signal, onFinish, webSearch = false,
 }) {
-  const response = await post(
-    '/chat/completions',
-    {
-      model: model || config.model,
-      messages,
-      stream: true,
-      temperature: temperature ?? 0.7,
-      max_tokens: maxTokens ?? 1400,
-    },
-    signal,
-  );
+  const body = {
+    model: model || config.model,
+    messages,
+    stream: true,
+    temperature: temperature ?? 0.7,
+    max_tokens: maxTokens ?? 1400,
+  };
+
+  // Tells a search-capable model it may go and read the web. A model that
+  // cannot search refuses the field outright rather than ignoring it, and the
+  // adapting retry in post() then drops it — so asking costs nothing worse
+  // than one extra round trip, once, on a model that does not take it.
+  if (webSearch) body.web_search_options = {};
+
+  const response = await post('/chat/completions', body, signal);
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();

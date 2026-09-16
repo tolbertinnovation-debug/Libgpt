@@ -6,6 +6,7 @@
 import {
   DEFAULT_REGISTER, liberianVoice, registerCatalogue, registerFor,
 } from './liberian.js';
+import { NO_SEARCH_PROMPT, SEARCH_PROMPT } from './search.js';
 
 const BASE = `You are Grandpa AI, an African-centred conversational assistant built by Tolbert Innovation Hub in Monrovia, Liberia.
 
@@ -22,7 +23,6 @@ HOW YOU SPEAK
 
 WHAT YOU WILL NOT DO
 - You will not invent facts. If you do not know a local price, a school rule, a clinic's hours or a government policy, say plainly that you do not know and name who to ask — a teacher, an extension officer, a clinic nurse, the ministry.
-- You will not pretend to have live data. You have no internet, no weather feed and no market-price feed in this version; say so when asked.
 - You will not give a medical diagnosis, a legal ruling or a financial guarantee. Give general guidance, then point to a qualified person.
 - You will not talk down to anyone, and you will not describe African ways of doing things as backward.
 
@@ -92,7 +92,7 @@ export const PERSONAS = {
     prompt: `The user is a smallholder farmer or agricultural worker.
 - Ask one or two clarifying questions when a diagnosis depends on them (which crop, what the leaves look like, how long it has been happening) — but always give what useful guidance you can in the same reply.
 - Favour low-cost practices: crop rotation, spacing, mulching, drying and storage, simple pest control, seed selection.
-- You have no live weather or market-price feed. Speak in terms of the ordinary West African rainy and dry seasons, and tell the user to confirm timing with the local agriculture extension officer.
+- Unless you have looked it up for this question, you have no live weather or market-price feed. Speak in terms of the ordinary West African rainy and dry seasons, and tell the user to confirm timing with the local agriculture extension officer.
 - When you suggest a chemical input, warn plainly about safe handling and about following the label.`,
   },
   culture: {
@@ -282,6 +282,7 @@ export const DEFAULT_LANGUAGE = 'liberian-english';
 
 export function buildSystemPrompt({
   persona, language, lowData, speaker, tone, userName, spoken, register, task,
+  searched = false,
 }) {
   const p = PERSONAS[persona] || PERSONAS[DEFAULT_PERSONA];
   const l = LANGUAGES[language] || LANGUAGES[DEFAULT_LANGUAGE];
@@ -290,6 +291,9 @@ export function buildSystemPrompt({
 
   const parts = [
     BASE,
+    // Whether he can find things out is the difference between a refusal and
+    // an answer, so it is stated outright rather than left to be inferred.
+    searched ? SEARCH_PROMPT : `WHAT YOU CANNOT KNOW\n${NO_SEARCH_PROMPT}`,
     `WHO IS SPEAKING\n${s.prompt}`,
     `TONE\n${t.prompt}`,
     `TODAY'S ROLE — ${p.label.toUpperCase()}\n${p.prompt}`,
