@@ -262,6 +262,31 @@ One thing this must never touch: pick **Standard English** and none of it
 applies, because there *dat* is not a register, it is a mistake. The tests
 check that both ways round.
 
+### Starting to talk quickly
+
+Speech is generated before a word of it can play, and how long that takes goes
+with how much text was sent. Handing the voice a whole folktale means standing
+there in silence while all of it is made.
+
+So a press of Listen is split. The first piece is about one sentence — it comes
+back quickly and starts talking — and the longer pieces behind it are fetched
+while it plays, where nobody is waiting on them. The sizes ramp rather than
+jump (roughly 110, 330, then 550 characters), because a one-sentence opener is
+only a second or two of audio and a full-size piece behind it might not be
+ready when that second runs out.
+
+The two ends want opposite things and are cut differently: the first piece
+takes the *earliest* sentence end it can find, since it is the one being waited
+on; every piece after it takes the *latest* that fits, for fewer round trips
+and fewer seams. Both break at a sentence wherever possible — a piece that
+stops at "…that was not" and resumes with "his." sounds worse than one that ran
+a little over.
+
+This also fixed a real fault. The text used to be cut to one request's length
+and the remainder dropped, so "Read it to me" on a long folktale, with the real
+voice on, simply stopped two thirds of the way through and never said the rest.
+Nothing is discarded now, and the tests check the whole text is accounted for.
+
 ### The accent
 
 There is no Liberian voice in any text-to-speech service, and there is not
@@ -529,6 +554,11 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   building nothing at all, the choice surviving a reload, the hint admitting
   what a room cannot reach, and — three ways — a failure never costing the
   listener the answer.
+- **Breaking text up for the voice (unit)** — 22 checks: a small first piece
+  that is a whole sentence rather than a fragment, larger ones behind it,
+  sizes that ramp rather than jump, and — the one that matters — every
+  character of a long story accounted for, including a single sentence longer
+  than one request is allowed to be, and text with no sentence ends at all.
 - **The accent (unit)** — 40 checks: each of the three features, a whole
   sentence surviving with nothing dropped and its punctuation intact, case kept
   through every substitution, the three strengths differing as they claim,

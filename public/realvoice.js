@@ -23,6 +23,98 @@ const JOIN_UNDER = 220;
 // The server refuses more than this in one go.
 const MAX_PIECE = 1_000;
 
+// Time to the first sound is the whole of how this feels. Speech is generated
+// before any of it can play, and how long that takes goes with how much text
+// was sent — so the first piece is deliberately tiny, about a sentence. It
+// comes back quickly, starts talking, and the longer pieces behind it are
+// fetched while it plays, where nobody is waiting on them.
+const FIRST_PIECE = 130;
+const LATER_PIECE = 600;
+
+/** Where the sentences end, in order. */
+function sentenceEnds(text) {
+  const ends = [];
+  const finder = /[.!?:](?=\s)|\n/g;
+  let hit = finder.exec(text);
+  while (hit) {
+    ends.push(hit.index + 1);
+    hit = finder.exec(text);
+  }
+  return ends;
+}
+
+/**
+ * Where to break, given what this piece is for.
+ *
+ * The two ends of the answer want opposite things. The first piece wants to
+ * be SHORT — it is the one somebody is waiting on — so it takes the earliest
+ * sentence end it can. Every piece after it is fetched while the voice is
+ * already talking, so it wants to be LONG: fewer round trips, fewer seams,
+ * less money.
+ *
+ * Either way it breaks at the end of a sentence where it possibly can. A
+ * fragment that stops at "...that was not" and resumes with "his." sounds
+ * worse than a piece that ran a little over.
+ */
+function cutAt(text, limit, wants) {
+  if (text.length <= limit) return text.length;
+
+  const ends = sentenceEnds(text);
+
+  if (wants === 'short') {
+    // The first sentence, even if it runs somewhat past the limit — reaching
+    // the end of one is worth more than the few hundred milliseconds.
+    const reach = Math.min(text.length, limit * 2, MAX_PIECE);
+    const first = ends.find((at) => at <= reach);
+    if (first) return first;
+  } else {
+    // The most that fits.
+    const last = [...ends].reverse().find((at) => at <= limit);
+    if (last && last > limit * 0.3) return last;
+  }
+
+  const space = text.slice(0, limit).lastIndexOf(' ');
+  return space > limit * 0.3 ? space + 1 : limit;
+}
+
+/**
+ * Split text into request-sized pieces: one short one to get talking, then
+ * larger ones behind it.
+ *
+ * Nothing is ever dropped. A folktale read aloud is several times longer than
+ * a single request may be, and the whole of it has to be said.
+ */
+export function piecesFor(text, first = FIRST_PIECE, later = LATER_PIECE) {
+  const pieces = [];
+  let rest = String(text ?? '').trim();
+
+  // The sizes ramp rather than jump. A one-sentence first piece buys a quick
+  // start, but it is also only a second or two of audio — and if the piece
+  // behind it is the full size, it may not be ready when that second runs
+  // out. The one in between covers the join.
+  const limitFor = (i) => {
+    if (i === 0) return first;
+    if (i === 1) return Math.round((first + later) / 2);
+    return later;
+  };
+
+  // A first piece smaller than the rest is a first piece somebody is waiting
+  // on, so it takes the earliest sentence end it can. Asked for a first piece
+  // the same size as the others — which is what happens when the voice is
+  // already talking — it is simply one of the others.
+  let wants = first < later ? 'short' : 'long';
+
+  while (rest) {
+    const at = cutAt(rest, Math.min(limitFor(pieces.length), MAX_PIECE), wants);
+    const piece = rest.slice(0, at).trim();
+    if (piece) pieces.push(piece);
+    rest = rest.slice(at).trim();
+    wants = 'long';
+  }
+
+  return pieces;
+}
+
 export class VoiceOut {
   /**
    * @param {object} deps
@@ -124,18 +216,30 @@ export class VoiceOut {
     this.settings = settings;
     if (fresh) this.token += 1;
 
-    // Join a short piece to the one before it, unless that one is already on
-    // its way — a request per half-sentence is slow, dear and sounds chopped.
+    // Pressing Listen hands over a whole answer, or a whole folktale. It is
+    // split here rather than sent in one piece: a short one first so the
+    // voice starts almost at once, longer ones after, fetched while it talks.
+    // Nothing is discarded — a story is easily longer than one request may be.
+    const [head, ...tail] = piecesFor(
+      clean,
+      // Already talking? Then nothing is waiting on this one, so it need not
+      // be small.
+      this.pending.length || this.ready.length || this.audio ? LATER_PIECE : FIRST_PIECE,
+    );
+
+    // A short fragment joins the piece before it, unless that one is already
+    // on its way — a request per half-sentence sounds chopped.
     const last = this.pending.length - 1;
     if (
       last >= 0
       && this.pending[last].length < JOIN_UNDER
-      && this.pending[last].length + clean.length + 1 <= MAX_PIECE
+      && this.pending[last].length + head.length + 1 <= MAX_PIECE
     ) {
-      this.pending[last] += ` ${clean}`;
+      this.pending[last] += ` ${head}`;
     } else {
-      this.pending.push(clean.slice(0, MAX_PIECE));
+      this.pending.push(head);
     }
+    this.pending.push(...tail);
 
     this.#report('speaking');
     this.#pump();
