@@ -8,7 +8,9 @@ import {
   DEFAULT_PATIENCE, PATIENCE, SpeechRecognitionAPI, VoiceConversation, patienceMs,
 } from './converse.js';
 import { VoiceOut } from './realvoice.js';
-import { DEFAULT_ROOM, ROOMS, Room, isRoom } from './room.js';
+import {
+  DEFAULT_LOUDNESS, DEFAULT_ROOM, LOUDNESS, ROOMS, Room, isLoudness, isRoom,
+} from './room.js';
 import { ACCENTS, DEFAULT_ACCENT, isAccent } from './pronounce.js';
 import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
@@ -59,6 +61,7 @@ const state = {
     realVoice: true,
     register: 'standard',
     room: DEFAULT_ROOM,
+    loudness: DEFAULT_LOUDNESS,
     accent: DEFAULT_ACCENT,
     cutIn: true,
     userName: '',
@@ -128,6 +131,8 @@ const el = {
   setRegisterHint: $('settings-register-hint'),
   setRoom: $('settings-room'),
   setRoomHint: $('settings-room-hint'),
+  setLoudness: $('settings-loudness'),
+  setLoudnessHint: $('settings-loudness-hint'),
   setSpokenAccent: $('settings-spoken-accent'),
   setSpokenAccentHint: $('settings-spoken-accent-hint'),
   setTone: $('settings-tone'),
@@ -1193,6 +1198,8 @@ function renderSettings() {
   el.setTone.value = prefs.tone;
   el.setRegister.value = prefs.register || 'standard';
   el.setRoom.value = prefs.room || DEFAULT_ROOM;
+  el.setLoudness.value = prefs.loudness || DEFAULT_LOUDNESS;
+  el.setLoudnessHint.textContent = loudnessHint();
   el.setSpokenAccent.value = prefs.accent || DEFAULT_ACCENT;
   el.setSpokenAccentHint.textContent = spokenAccentHint();
   el.setRegisterHint.textContent = registerHint();
@@ -1340,6 +1347,25 @@ function roomHint() {
   return chosen?.blurb || '';
 }
 
+/**
+ * Louder is only possible for Grandpa's own voice. The phone's synthesiser
+ * goes straight to the loudspeaker at whatever the phone's volume is, and no
+ * browser lets you get in between — so this says that rather than letting
+ * someone turn it up and hear no difference.
+ */
+function loudnessHint() {
+  const chosen = LOUDNESS.find((l) => l.id === state.prefs.loudness);
+  const onPhoneVoice = !state.catalogue.realVoice
+    || state.prefs.realVoice === false
+    || state.prefs.lowData;
+
+  if (state.prefs.loudness === 'normal') return chosen?.blurb || '';
+  if (onPhoneVoice) {
+    return `${chosen?.blurb}. Needs Grandpa's own voice — the phone's own cannot be turned up past its volume button.`;
+  }
+  return `${chosen?.blurb}. Turn the phone up too.`;
+}
+
 function realVoiceHint() {
   if (!state.catalogue.realVoice) {
     return 'Not available on this deployment — the phone\'s own voice is used.';
@@ -1448,12 +1474,22 @@ el.setRoom.addEventListener('change', () => {
   el.setRoomHint.textContent = roomHint();
 });
 
+el.setLoudness.addEventListener('change', () => {
+  state.prefs.loudness = isLoudness(el.setLoudness.value) ? el.setLoudness.value : DEFAULT_LOUDNESS;
+  room.setLoudness(state.prefs.loudness);
+  savePreferences();
+  el.setLoudnessHint.textContent = loudnessHint();
+  // No stop(): the level is two numbers on nodes already in the graph, so a
+  // change lands on the words being spoken right now.
+});
+
 el.setRealVoice.addEventListener('change', () => {
   state.prefs.realVoice = el.setRealVoice.checked;
   savePreferences();
   speaker.stop();
   el.setRealVoiceHint.textContent = realVoiceHint();
   el.setRoomHint.textContent = roomHint();
+  el.setLoudnessHint.textContent = loudnessHint();
 });
 
 el.setCutIn.addEventListener('change', () => {
@@ -2007,6 +2043,12 @@ async function boot() {
     .join('');
   el.setRoom.value = state.prefs.room || DEFAULT_ROOM;
   room.set(state.prefs.room);
+
+  el.setLoudness.innerHTML = LOUDNESS
+    .map((l) => `<option value="${l.id}">${escapeHtml(l.label)}</option>`)
+    .join('');
+  el.setLoudness.value = state.prefs.loudness || DEFAULT_LOUDNESS;
+  room.setLoudness(state.prefs.loudness);
 
   el.setPatience.innerHTML = PATIENCE
     .map((o) => `<option value="${o.id}">${escapeHtml(o.label)} — ${escapeHtml(o.blurb)}</option>`)

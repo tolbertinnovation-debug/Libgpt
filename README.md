@@ -31,6 +31,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Live news** | Ask what happened today and he goes and reads it, then says which paper carried it and when — Liberian papers first. Only questions that are actually about *now* are looked up; everything else is answered from what he knows, and still refused honestly when he does not know it. See below. |
 | **Whole answers** | A reply that runs out of room is picked up and carried on — twice if it needs it — and the halves are joined with no seam. An answer that stops mid-sentence is not an answer. See below. |
 | **How Grandpa talks** | Not an accent filter over standard English. A register with its own sound, grammar, vocabulary and way of arranging a thought — three registers, in fact, from broadcast-standard to family talk to ceremonial. See below. |
+| **How loud he talks** | Louder than a phone can go on its own. `audio.volume` stops at 1 and is already there, so the voice is run through a compressor and a makeup gain instead — the loud syllables held back so the quiet trailing ones can come up with them, which is what actually makes a voice carry over a generator. Three steps, **Loud by default**, and turning it up lands on the words being spoken right now. See below. |
 | **Where he is sitting** | The spoken voice can be put in a room: a palaver hut, an evening fire, or a county shortwave set. Built with Web Audio filters on the device — no audio files to download. |
 | **The accent** | There is no Liberian voice in any speech service. So the text going to the voice is not the text on the screen: the page stays easy to read, while the speaker is handed the spoken spelling — *"I tink dat ting will be betta afta de wata."* See below. |
 | **Grandpa's own voice** | Not the phone's robot: a real voice, one per elder, told how an old man on his porch talks. The phone's own voice stays underneath and takes over when the network is gone or on a metered connection. See below. |
@@ -408,6 +409,31 @@ American English, level intonation — and tells the engine to pronounce the
 spelling as written and not correct it back. All five elders get it; they are
 all Liberian.
 
+### How loud he talks
+
+The first thing anyone said about the spoken voice was that they could not hear it.
+A phone's volume button stops where it stops, and an elder talking on a porch in
+Monrovia is competing with a generator, a road, and other people's conversations.
+
+`audio.volume` cannot help — 1 is the ceiling and it is already there. Going past it
+means Web Audio, and a plain gain past 1 would only clip. So what is actually in the
+chain is a compressor first and the gain after it: the loud syllables are held back so
+the quiet trailing ones — which is most of how an old man speaks — can be lifted with
+them, and the compressor then stands in front of the gain as the limiter so nothing
+crunches.
+
+Three steps: **Normal** (the compressor sitting there wide open, doing nothing),
+**Loud** (×1.9, 4:1) and **Very loud** (×3.1, 9:1). Loud is the default. Changing it
+is two numbers on nodes that are already in the graph, not a rebuild, so it lands on
+the sentence being spoken rather than the next one — somebody who cannot hear him is
+turning it up to find out whether it helped.
+
+At Normal with no room chosen there is nothing to do to the audio at all, so nothing
+is built and nothing is routed; the element plays exactly as it did before. And like
+the rooms, this can only reach Grandpa's own voice: the phone's built-in synthesiser
+goes straight to the loudspeaker and no browser lets you get in between, so the
+setting says so instead of letting someone turn it up and hear no difference.
+
 ### Where he is sitting
 
 The spoken voice can be placed in a room — a palaver hut, an evening fire, or a
@@ -630,11 +656,16 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   eight ruled-out pidgin words named, the three registers and which one a
   folktale starts in — and, both ways round, that Standard English gets none of
   it while the roadmap languages get all of it.
-- **Where he is sitting (Playwright)** — 27 checks against a stubbed Web Audio
-  graph: each room building the chain it claims to and no other, "No room"
-  building nothing at all, the choice surviving a reload, the hint admitting
-  what a room cannot reach, and — three ways — a failure never costing the
-  listener the answer.
+- **Where he is sitting, and how loud (Playwright)** — 41 checks against a
+  stubbed Web Audio graph: each room building the chain it claims to and no
+  other, the choice surviving a reload, the hint admitting what a room cannot
+  reach, and — three ways — a failure never costing the listener the answer.
+  Then the level: nothing built before there is a word to say, nothing routed
+  at Normal with no room, routed but untouched in tone when only the loudness
+  is up, the makeup gain pushed past what an audio element can reach, Very loud
+  lifting further and squeezing harder to make room for it, Normal leaving the
+  sound alone, the new level landing on nodes already in the graph rather than
+  the next piece, and the same honesty about the phone's own voice.
 - **Breaking text up for the voice (unit)** — 22 checks: a small first piece
   that is a whole sentence rather than a fragment, larger ones behind it,
   sizes that ramp rather than jump, and — the one that matters — every

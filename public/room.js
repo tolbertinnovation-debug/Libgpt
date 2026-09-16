@@ -26,6 +26,36 @@ export const DEFAULT_ROOM = 'none';
 
 export const isRoom = (id) => ROOMS.some((r) => r.id === id);
 
+// ---- how loud ------------------------------------------------------------
+// A phone's own volume control stops where it stops, and an elder talking on a
+// porch in Monrovia is competing with a generator, a road and other people's
+// conversations. `audio.volume` cannot help: 1 is the ceiling and it is
+// already there. Going past it means Web Audio.
+//
+// The gain alone would only clip. What actually makes a voice carry is
+// compression: the loud syllables are held back so the quiet trailing ones —
+// which is most of how an old man speaks — can be brought up with them. Then
+// the makeup gain lifts the whole thing. The compressor stays in front of it
+// as the limiter, so nothing crunches.
+export const LOUDNESS = [
+  { id: 'normal', label: 'Normal', blurb: 'The voice as it comes' },
+  { id: 'loud', label: 'Loud', blurb: 'Lifted and evened out, for a noisy room' },
+  { id: 'full', label: 'Very loud', blurb: 'As far as it goes without breaking up' },
+];
+
+// Louder by default: the first complaint about this app was never that it
+// spoke too loudly.
+export const DEFAULT_LOUDNESS = 'loud';
+
+export const isLoudness = (id) => LOUDNESS.some((l) => l.id === id);
+
+// threshold and ratio do the evening-out; makeup is what you actually hear.
+const LEVELS = {
+  normal: null,
+  loud: { threshold: -24, knee: 8, ratio: 4, attack: 0.005, release: 0.2, makeup: 1.9 },
+  full: { threshold: -34, knee: 6, ratio: 9, attack: 0.003, release: 0.15, makeup: 3.1 },
+};
+
 /**
  * A reverb tail, made rather than downloaded: noise that decays.
  *
@@ -66,9 +96,17 @@ export class Room {
     this.ctx = null;
     this.input = null;
     this.output = null;
+    this.level = null;        // compressor, when anything above normal is asked for
+    this.makeup = null;
     this.id = DEFAULT_ROOM;
+    this.loudness = DEFAULT_LOUDNESS;
     this.attached = new WeakSet();
     this.broken = false;
+  }
+
+  /** Is there any reason to route the audio through Web Audio at all? */
+  get shaping() {
+    return this.id !== DEFAULT_ROOM || this.loudness !== 'normal';
   }
 
   get available() {
@@ -91,6 +129,18 @@ export class Room {
     if (this.ctx) this.#buildChain();
   }
 
+  /**
+   * How loud, from now on.
+   *
+   * Unlike the room this is safe to change mid-sentence — it is two numbers on
+   * nodes that are already there, not a new graph — so someone who cannot hear
+   * him does not have to wait for the next piece to find out if it helped.
+   */
+  setLoudness(id) {
+    this.loudness = isLoudness(id) ? id : DEFAULT_LOUDNESS;
+    if (this.ctx) this.#setLevel();
+  }
+
   #ensure() {
     if (this.ctx || this.broken) return this.ctx;
     try {
@@ -98,7 +148,18 @@ export class Room {
       this.ctx = new Ctx();
       this.input = this.ctx.createGain();
       this.output = this.ctx.createGain();
-      this.output.connect(this.ctx.destination);
+
+      // Everything lands on the output, and the level chain is the last thing
+      // between it and the loudspeaker — so the room is shaped first and then
+      // the whole of it is lifted, rather than the reverb being lifted on its
+      // own into a roar.
+      this.level = this.ctx.createDynamicsCompressor();
+      this.makeup = this.ctx.createGain();
+      this.output.connect(this.level);
+      this.level.connect(this.makeup);
+      this.makeup.connect(this.ctx.destination);
+
+      this.#setLevel();
       this.#buildChain();
     } catch {
       // No Web Audio, or it refused to start. Audio still plays; it simply
@@ -107,6 +168,26 @@ export class Room {
       this.ctx = null;
     }
     return this.ctx;
+  }
+
+  /** Point the compressor and the makeup gain at the chosen loudness. */
+  #setLevel() {
+    const wanted = LEVELS[this.loudness];
+    if (!this.level || !this.makeup) return;
+
+    // Normal is the compressor left wide open — present in the graph, doing
+    // nothing to the sound. Rewiring it in and out would click.
+    const set = wanted || { threshold: 0, knee: 0, ratio: 1, attack: 0.003, release: 0.25, makeup: 1 };
+    try {
+      this.level.threshold.value = set.threshold;
+      this.level.knee.value = set.knee;
+      this.level.ratio.value = set.ratio;
+      this.level.attack.value = set.attack;
+      this.level.release.value = set.release;
+      this.makeup.gain.value = set.makeup;
+    } catch {
+      /* an engine that will not take one of these still plays, just flat */
+    }
   }
 
   #buildChain() {
@@ -199,24 +280,31 @@ export class Room {
    * element as it is — a missing room is a small loss, a silent answer is not.
    */
   attach(element) {
-    if (this.id === DEFAULT_ROOM || !this.available || !element) return false;
+    if (!this.shaping || !this.available || !element) return false;
     // An element can only ever be given one source node.
     if (this.attached.has(element)) return true;
 
     if (!this.#ensure()) return false;
 
+    // A suspended context swallows everything routed into it, and resume()
+    // needs a tap that may not have happened yet. Playing this piece dry is a
+    // small loss; playing it into a stopped graph is silence.
+    if (this.ctx.state !== 'running') {
+      this.ctx.resume().catch(() => {});
+      return false;
+    }
+
     try {
       const source = this.ctx.createMediaElementSource(element);
       source.connect(this.input);
       this.attached.add(element);
-      if (this.ctx.state === 'suspended') this.ctx.resume().catch(() => {});
       return true;
     } catch {
       // Once this throws the element may already be half-routed, so the safest
       // thing is to stop using rooms for the rest of the session rather than
       // risk a voice that plays into nothing.
       this.broken = true;
-      this.onNotice('The room effect could not start on this browser.');
+      this.onNotice('The voice could not be shaped on this browser. It still plays.');
       return false;
     }
   }
