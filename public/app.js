@@ -395,11 +395,11 @@ function lastAiIndex() {
   return -1;
 }
 
-// Said above an answer he went and read the web for, so nobody has to guess
-// whether he knew it or looked it up. The two are not the same thing, and an
+// Said above an answer that was read off the web, so nobody has to guess
+// whether it was known or looked up. The two are not the same thing, and an
 // elder who blurs them is not worth listening to.
 const lookedUp = (reading = false) =>
-  '<div class="looked-up" title="Grandpa read the web for this answer">'
+  '<div class="looked-up" title="This answer was read off the web just now">'
   + `<span aria-hidden="true">\u25C9</span> ${reading ? 'Going to read the news\u2026' : 'Looked it up just now'}`
   + '</div>';
 
@@ -426,7 +426,7 @@ const siteName = (url) => {
 function sourceList(items) {
   const links = (items || []).filter((s) => /^https?:\/\//i.test(s?.url || '')).slice(0, 6);
   if (!links.length) return '';
-  return `<div class="sources"><span class="sources-label">Where he read it</span>${links
+  return `<div class="sources"><span class="sources-label">Where this was read</span>${links
     .map((s) => `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer"`
       + ` title="${escapeHtml(s.title || s.url)}">${escapeHtml(siteName(s.url) || 'the paper')}</a>`)
     .join('')}</div>`;
@@ -774,9 +774,9 @@ function updateSendState() {
   el.send.disabled = el.input.value.trim().length === 0;
 }
 
-/* ---- what he can do ------------------------------------------------------
+/* ---- what this can do ----------------------------------------------------
  * The line under the composer. It used to be a warning; now it shows one
- * thing he can actually do, and moves on to another after a while — most
+ * thing the app can actually do, and moves on to another after a while — most
  * people have no idea this will tell them a folktale or read the answer out
  * loud in an elder's voice, and nothing else on the screen tells them.
  *
@@ -1041,7 +1041,7 @@ el.listenStop.addEventListener('click', stopListening);
 const TALK_WORDS = {
   listening: ['Listening…', 'Just talk. Grandpa answers when you stop.'],
   thinking: ['Grandpa is thinking…', 'One moment.'],
-  speaking: ['Grandpa is talking', 'Talk over him, or tap the seal, to cut in.'],
+  speaking: ['Grandpa is talking', 'Talk over the answer, or tap the seal, to cut in.'],
   paused: ['Waiting', 'Tap Continue when you are ready.'],
   trouble: ['Grandpa cannot hear', 'Check the microphone permission for this site.'],
 };

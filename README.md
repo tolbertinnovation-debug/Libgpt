@@ -23,7 +23,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Journal** | Keep any story, name list, recipe or picture; read it back later. Stored in the browser. |
 | **The hearth** | A welcome screen in the Liberian register: the elder's portrait, a greeting by name, a proverb that holds for the whole day, and four topic cards — The Family Hearth, The Hustle, Ancestral Soil, Deep Paths. |
 | **Who is talking** | Five elders — Grandpa, Grandma, Northern Elder, Market Auntie, Coastal Sage — and four tones: Classic Warmth, Playful, Solemn, Strict Proverbial. |
-| **What he can do** | The line under the composer shows one thing he is actually for — a folktale you choose the ending of, homework with the working shown, the answer read aloud in an elder's voice — and moves on to another every few seconds. It holds still while you type, while he answers, and while you are talking to him. A line that needs something this deployment has not switched on is simply never shown. |
+| **What it can do** | The line under the composer shows one thing the app is actually for — a folktale you choose the ending of, homework with the method worked through, the answer read aloud in an elder's voice — and moves on to another every few seconds. It holds still while you type, while an answer is arriving, and while you are talking. A line that needs something this deployment has not switched on is simply never shown. |
 | **Glossary** | Liberian terms in an answer (*small-small*, *palava hut*, *susu*, *dumboy*) are underlined; tapping one explains it, so a reader from outside can follow without the vernacular being translated away. |
 | **Daylight & Twilight** | Daylight is linen `#FAF3E0`, terracotta `#C62828`, palm gold `#FF8F00`, wood brown `#4E342E`. Twilight is deep mahogany `#140C0B` with warm amber, for evening storytelling. |
 | **Interface sounds** | Taps, sends and chimes synthesised with Web Audio oscillators — no audio files to download on a metered connection. |
@@ -32,8 +32,8 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Live news** | Ask what happened today and he goes and reads it, then says which paper carried it and when — Liberian papers first. Only questions that are actually about *now* are looked up; everything else is answered from what he knows, and still refused honestly when he does not know it. See below. |
 | **Whole answers** | A reply that runs out of room is picked up and carried on — twice if it needs it — and the halves are joined with no seam. An answer that stops mid-sentence is not an answer. See below. |
 | **How Grandpa talks** | Not an accent filter over standard English. A register with its own sound, grammar, vocabulary and way of arranging a thought — three registers, in fact, from broadcast-standard to family talk to ceremonial. See below. |
-| **How loud he talks** | Louder than a phone can go on its own. `audio.volume` stops at 1 and is already there, so the voice is run through a compressor and a makeup gain instead — the loud syllables held back so the quiet trailing ones can come up with them, which is what actually makes a voice carry over a generator. Three steps, **Loud by default**, and turning it up lands on the words being spoken right now. See below. |
-| **Where he is sitting** | The spoken voice can be put in a room: a palaver hut, an evening fire, or a county shortwave set. Built with Web Audio filters on the device — no audio files to download. |
+| **How loud the voice is** | Louder than a phone can go on its own. `audio.volume` stops at 1 and is already there, so the voice is run through a compressor and a makeup gain instead — the loud syllables held back so the quiet trailing ones can come up with them, which is what actually makes a voice carry over a generator. Three steps, **Loud by default**, and turning it up lands on the words being spoken right now. See below. |
+| **Where the voice is sitting** | The spoken voice can be put in a room: a palaver hut, an evening fire, or a county shortwave set. Built with Web Audio filters on the device — no audio files to download. |
 | **The accent** | There is no Liberian voice in any speech service. So the text going to the voice is not the text on the screen: the page stays easy to read, while the speaker is handed the spoken spelling — *"I tink dat ting will be betta afta de wata."* See below. |
 | **Grandpa's own voice** | Not the phone's robot: a real voice, one per elder, told how an old man on his porch talks. The phone's own voice stays underneath and takes over when the network is gone or on a metered connection. See below. |
 | **Voice out** | Press **Listen** on any answer, or turn on auto-read. Long answers are split into sentence-sized chunks, which is what stops browsers cutting them off part-way. Pause, continue and stop from a bar above the composer. |
@@ -412,7 +412,7 @@ American English, level intonation — and tells the engine to pronounce the
 spelling as written and not correct it back. All five elders get it; they are
 all Liberian.
 
-### How loud he talks
+### How loud the voice is
 
 The first thing anyone said about the spoken voice was that they could not hear it.
 A phone's volume button stops where it stops, and an elder talking on a porch in
@@ -437,7 +437,7 @@ the rooms, this can only reach Grandpa's own voice: the phone's built-in synthes
 goes straight to the loudspeaker and no browser lets you get in between, so the
 setting says so instead of letting someone turn it up and hear no difference.
 
-### Where he is sitting
+### Where the voice is sitting
 
 The spoken voice can be placed in a room — a palaver hut, an evening fire, or a
 county shortwave set — through a Web Audio chain built on the device. The hut
@@ -659,7 +659,7 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   eight ruled-out pidgin words named, the three registers and which one a
   folktale starts in — and, both ways round, that Standard English gets none of
   it while the roadmap languages get all of it.
-- **Where he is sitting, and how loud (Playwright)** — 41 checks against a
+- **Where the voice is sitting, and how loud (Playwright)** — 41 checks against a
   stubbed Web Audio graph: each room building the chain it claims to and no
   other, the choice surviving a reload, the hint admitting what a room cannot
   reach, and — three ways — a failure never costing the listener the answer.
@@ -712,11 +712,13 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   half-heard noise not sent as a question, tapping the seal cutting him off,
   Wait and Continue, a refused microphone explained instead of retried forever,
   and the whole exchange left behind as an ordinary readable conversation.
-- **What he can do (Playwright)** — 13 checks: a line under the composer that
+- **What it can do (Playwright)** — 15 checks: a line under the composer that
   is not the old warning, moving on to other things he can do without ever
   showing an empty one, holding still while you type and while he answers —
   and, both ways round, a deployment with pictures and live news switched off
-  never offering either of them.
+  never offering either of them. Plus the two that keep this honest about who
+  is talking: no line and nothing in the settings says "he", because the elder
+  answering may be Grandma, the Market Auntie or the Coastal Sage.
 - **Settings (Playwright)** — 33 checks: opening and closing three ways, text size
   moving the root size and surviving reload, the three-way theme, low-data staying
   in step between the pill and the switch, language syncing both ways, the spoken

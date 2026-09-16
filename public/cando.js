@@ -1,15 +1,20 @@
 // What Grandpa can actually do, under the composer.
 //
 // That space used to carry a warning. A warning is worth saying once, and it
-// is already said where it matters — he is told in every conversation not to
-// give a diagnosis, a legal ruling or a financial guarantee, and to name the
-// teacher, nurse or extension officer to ask instead. Repeating it under the
-// box a person types into told them nothing except to be careful, forever.
+// is already said where it matters — the assistant is told in every
+// conversation not to give a diagnosis, a legal ruling or a financial
+// guarantee, and to name the teacher, nurse or extension officer to ask
+// instead. Repeating it under the box a person types into told them nothing
+// except to be careful, forever.
 //
-// So the space says what he is for instead. Most people who open this have no
+// So the space says what this is for instead. Most people who open it have no
 // idea it will tell them a folktale, work through their homework, or read the
 // answer out loud in an elder's voice — and a line that quietly shows them one
 // of those is worth more than a line that warns them about all of it.
+//
+// No line says "he". Grandpa is the name on the door, but the elder talking
+// may be Grandma, the Market Auntie or the Coastal Sage — so the chrome around
+// the conversation does not assume, and speaks to the reader instead.
 //
 // Each line is a real feature. Where one depends on the deployment — pictures
 // are off unless switched on, live news needs a key that can read the web —
@@ -17,19 +22,19 @@
 // Promising something the app cannot do would be its own kind of lie.
 
 export const CAN_DO = [
-  { text: 'Ask him for a folktale — you choose how it ends.' },
-  { text: 'He names children, and tells you what the name carries.' },
+  { text: 'Ask for a folktale — you choose how it ends.' },
+  { text: 'Ask for a child\'s name, and what that name carries.' },
   { text: 'Palava sauce, dumboy, pepper soup — with the story behind them.' },
-  { text: 'Homework: he shows the working, then sets you one to try.' },
+  { text: 'Homework: see the method worked through, then try one yourself.' },
   { text: 'Business: pricing, bookkeeping, what a loan officer looks for.' },
   { text: 'Farming: sick cassava, planting time, keeping a harvest dry.' },
-  { text: 'He talks Liberian English, and explains the words if you need.' },
-  { text: 'Ask him a proverb and he will tell you what it is really about.' },
+  { text: 'Liberian English, with the words explained if you need them.' },
+  { text: 'Ask what a proverb really means, not just what it says.' },
 
-  { text: 'Tap Listen and he reads any answer out loud.', needs: 'voice' },
-  { text: 'Hold the microphone and just talk — he answers out loud.', needs: 'voice' },
-  { text: 'Ask what is in the news today and he goes and reads it.', needs: 'liveNews' },
-  { text: 'He can paint a scene of Liberian life for you.', needs: 'images' },
+  { text: 'Tap Listen and any answer is read out loud.', needs: 'voice' },
+  { text: 'Hold the microphone and just talk — the answer comes back out loud.', needs: 'voice' },
+  { text: 'Ask what is in the news today, and it is looked up just now.', needs: 'liveNews' },
+  { text: 'Ask for a painted scene of Liberian life.', needs: 'images' },
 ];
 
 /**
