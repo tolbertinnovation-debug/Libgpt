@@ -343,7 +343,12 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     searched: didSearch,
   });
 
-  let model = searched ? reader : await pickModel(req.body?.model, 'chat', { lowData, persona });
+  // The question decides which model answers it. "Good morning" is not
+  // worth the best model on the account; working out the interest on a loan
+  // is. Nobody should have to pick that from a list of forty names.
+  let model = searched
+    ? reader
+    : await pickModel(req.body?.model, 'chat', { lowData, persona, asked });
   let system = promptFor(searched);
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -421,7 +426,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
         console.error('[search] falling back to an ordinary answer:', error.message);
 
         searched = false;
-        model = await pickModel(req.body?.model, 'chat', { lowData, persona });
+        model = await pickModel(req.body?.model, 'chat', { lowData, persona, asked });
         system = promptFor(false);
         // Correct what the browser was told: no badge, and he is back to
         // saying he has not heard the news — which, having failed to read it,

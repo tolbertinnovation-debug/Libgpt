@@ -95,8 +95,8 @@ const el = {
   settings: $('settings-modal'),
   settingsClose: $('settings-close'),
   setLanguage: $('settings-language'),
-  model: $('settings-model'),
   setModelHint: $('settings-model-hint'),
+  setModelTiers: $('settings-model-tiers'),
   setLowData: $('settings-lowdata'),
   setSize: $('settings-size'),
   setTheme: $('settings-theme'),
@@ -147,7 +147,6 @@ const el = {
   setCount: $('settings-count'),
   setExport: $('settings-export'),
   setClear: $('settings-clear'),
-  topModel: $('model-select'),
   banner: $('setup-banner'),
   bannerHow: $('setup-banner-how'),
   welcome: $('welcome'),
@@ -1392,7 +1391,6 @@ function renderSettings() {
   const { prefs } = state;
 
   el.setLanguage.value = prefs.language;
-  el.model.value = prefs.model;
   el.setLowData.checked = prefs.lowData;
   el.setAutoSpeak.checked = prefs.autoSpeak;
   el.setRate.value = prefs.voiceRate;
@@ -1422,6 +1420,7 @@ function renderSettings() {
   el.setTheme.value = prefs.theme || 'system';
 
   el.setModelHint.textContent = modelSourceHint();
+  renderModelTiers();
 
   const chats = state.chats.length;
   const messages = state.chats.reduce((sum, chat) => sum + chat.messages.length, 0);
@@ -1503,19 +1502,35 @@ function modelSourceHint() {
   const n = state.catalogue.models?.length || 0;
   const source = state.catalogue.modelsFromAccount
     ? `${n} model${n === 1 ? '' : 's'} your key can use`
-    : 'Default list — add your API key to see what your account really has';
+    : 'default list — add your API key to see what your account really has';
 
-  // On automatic, say plainly which model does what. A promise to choose well
-  // is worth less than showing the choice.
-  if (!state.prefs.model) {
-    const t = state.catalogue.tiers || {};
-    const picks = t.deep
-      ? ` Stories use ${t.deep}, chat uses ${t.balanced}, short jobs use ${t.fast}.`
-      : '';
-    return `Grandpa picks the right model for each job.${picks} ${source}.`;
+  return `Chosen by the question you ask, from the ${source}.`;
+}
+
+/**
+ * Which model does what, as three plain rows.
+ *
+ * There used to be a picker here: every model on the account, dated snapshots
+ * and all, forty of them. Nobody can choose from that — the names do not say
+ * which is better, and every wrong choice is either a worse answer or a bigger
+ * bill than the question deserved. So the question chooses, and this shows the
+ * working rather than asking anybody to do it.
+ */
+function renderModelTiers() {
+  const t = state.catalogue.tiers || {};
+  if (!t.deep) {
+    el.setModelTiers.innerHTML = '';
+    return;
   }
 
-  return `Using ${state.prefs.model} for everything · ${source}`;
+  const rows = [
+    ['A greeting, or naming a conversation', t.fast],
+    ['An ordinary question', t.balanced],
+    ['A folktale, a sum, a plan, a letter', t.deep],
+  ];
+  el.setModelTiers.innerHTML = rows
+    .map(([job, model]) => `<li><span>${escapeHtml(job)}</span><code>${escapeHtml(model)}</code></li>`)
+    .join('');
 }
 
 /**
@@ -1591,16 +1606,6 @@ function realVoiceHint() {
   return 'On. Costs about a US cent for every four or five answers.';
 }
 
-function applyModelChoice(value) {
-  state.prefs.model = value;
-  el.model.value = value;
-  el.topModel.value = value;
-  savePreferences();
-  el.setModelHint.textContent = modelSourceHint();
-}
-
-el.model.addEventListener('change', () => applyModelChoice(el.model.value));
-el.topModel.addEventListener('change', () => applyModelChoice(el.topModel.value));
 
 el.setLowData.addEventListener('change', () => {
   state.prefs.lowData = el.setLowData.checked;
@@ -2491,22 +2496,11 @@ async function boot() {
 
     // An empty value means automatic: the server chooses per task. It leads the
     // list because it is the right answer for almost everybody.
-    const modelOptions = [
-      '<option value="">Automatic — best model for each job</option>',
-      ...config.models.map((m) => `<option value="${m.id}">${escapeHtml(m.label)}</option>`),
-    ].join('');
-    el.model.innerHTML = modelOptions;
-    el.topModel.innerHTML = modelOptions;
-
-    // A saved choice the account no longer has falls back to automatic rather
-    // than to some other model the user never picked.
-    if (state.prefs.model && !config.models.some((m) => m.id === state.prefs.model)) {
-      state.prefs.model = config.defaultModel || '';
-    }
+    // Anything an older version of this app saved as a hand-picked model is
+    // dropped on load: the choice belongs to the question now.
+    state.prefs.model = '';
     el.language.value = state.prefs.language;
     el.setLanguage.value = state.prefs.language;
-    el.model.value = state.prefs.model;
-    el.topModel.value = state.prefs.model;
     el.setSize.value = state.prefs.textSize;
     el.setTheme.value = state.prefs.theme || 'system';
 

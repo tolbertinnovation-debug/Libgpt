@@ -1467,6 +1467,38 @@ body {
 .setting-toggle input:checked ~ .toggle-track::after { transform: translateX(17px); }
 .setting-toggle input:focus-visible ~ .toggle-track { outline: 2px solid var(--gold); outline-offset: 2px; }
 
+/* Which model answers what. Three rows of plain words and a model name —
+   what the picker used to ask people to work out for themselves. */
+.setting-stack {
+  display: block;
+}
+.model-tiers {
+  margin: .6rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: .3rem;
+}
+.model-tiers li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: .6rem;
+  padding: .35rem .55rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-code);
+  font-size: .78rem;
+  color: var(--text-soft);
+}
+.model-tiers code {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: .72rem;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
 .setting-actions { display: flex; gap: .5rem; flex-wrap: wrap; margin: .5rem 0 .2rem; }
 
 /* What the phone said when the microphone was checked. Monospaced and small,
