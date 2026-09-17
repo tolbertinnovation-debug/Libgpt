@@ -621,11 +621,37 @@ rather than implying the better voice when it has not got it.
 **One thing it cannot do, which people reasonably expect it to.** An audio file is not
 a voice. Neither this API nor OpenAI's will take a recording and read new words in it.
 A voice has to exist *in the account* first — either a premade one (`Daniel`, `Brian`,
-`Charlotte`…) or one cloned there from a recording. Which is the door this leaves
-open, and the most interesting thing about it: record a real Liberian elder, clone the
-voice in your own ElevenLabs account, put its **name** in `ELEVENLABS_VOICE`, and
-Grandpa AI speaks in that person's voice. The setting takes a name rather than only an
-id precisely so that a voice you made yourself is named the way you named it.
+`Charlotte`…) or one cloned there from a recording.
+
+That cloning step is the one worth doing, and there is a command for it:
+
+```
+node scripts/voice-clone.mjs recording.mp4 --name "Grandpa Tolbert"
+```
+
+Record a real Liberian elder — a minute or two of ordinary talking, in as quiet a room
+as you can find — run that, and put the name it prints into `ELEVENLABS_VOICE`. From
+then on every answer is said in that person's voice, with the Liberian respelling
+still doing its work underneath.
+
+**A video is fine, and is what people actually have.** Nobody has a studio recording of
+their grandfather; they have a thirteen-megabyte phone video of him talking, of which
+the voice is about one megabyte and the picture is the rest. The usual answer to that
+is *install ffmpeg and run this incantation*, which is no answer at all on a phone, or
+on a borrowed laptop in Monrovia. So `scripts/mp4-audio.mjs` does the one narrow job by
+hand, in plain JavaScript with nothing installed: it reads the MP4's box tree, finds
+the sound track's table of contents, copies the AAC frames out and puts an ADTS header
+on each. A 13 MB video becomes 0.3 MB of audio and only the audio is uploaded — the
+picture never leaves the machine. Pass `--keep out.aac` to listen to it first.
+
+The setting takes a name rather than only an id precisely so that a voice you made
+yourself is named the way you named it.
+
+Two things to know before running it. **Cloning needs a paid ElevenLabs plan** — the
+free tier refuses, and the command says so in as many words rather than printing a
+status code. And **the voice belongs to the person who owns it**: clone somebody's
+voice because they agreed to it, not because you have a recording of them. Their terms
+require that of you; the script cannot check it and does not pretend to.
 
 Four things it does carefully:
 
