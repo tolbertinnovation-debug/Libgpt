@@ -183,6 +183,7 @@ const el = {
   gateInput: $('gate-input'),
   gateError: $('gate-error'),
   gateSubmit: $('gate-submit'),
+  gatePeek: $('gate-peek'),
 };
 
 // The access code, when the deployment sets one. Kept per-browser so a visitor
@@ -2270,6 +2271,17 @@ el.themeToggle.addEventListener('click', () => {
 });
 
 /* Access gate */
+// Show the code. A code typed blind on a phone keyboard is how a right code
+// becomes a wrong one, and this gate is the whole app until somebody is
+// through it.
+el.gatePeek.addEventListener('click', () => {
+  const showing = el.gateInput.type === 'text';
+  el.gateInput.type = showing ? 'password' : 'text';
+  el.gatePeek.setAttribute('aria-pressed', String(!showing));
+  el.gatePeek.setAttribute('aria-label', showing ? 'Show the code' : 'Hide the code');
+  el.gateInput.focus();
+});
+
 el.gateForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const code = el.gateInput.value.trim();

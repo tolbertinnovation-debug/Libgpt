@@ -1142,6 +1142,12 @@ body {
 /* Shown only when the deployment sets ACCESS_CODE — a public URL spends real
    money on every message. */
 
+/* ============================ The access gate ===========================
+ * For anyone given a code, this page IS the app until they type — it is the
+ * whole of what they see, and it has to look like somewhere worth entering
+ * rather than a lock on an empty room. So it carries the same warmth as the
+ * welcome screen behind it: the sunrise glow, the woven texture, the badge.
+ */
 .gate {
   position: fixed;
   inset: 0;
@@ -1152,10 +1158,24 @@ body {
   background: var(--bg);
 }
 
+/* A low sunrise behind the card, the same one the welcome screen has under
+   the badge. Drawn, not downloaded — nothing here costs a byte of data. */
+.gate::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(60% 40% at 50% 26%, color-mix(in srgb, var(--palm) 16%, transparent), transparent 70%),
+    repeating-linear-gradient(90deg, rgba(78, 52, 46, .035) 0 1px, transparent 1px 9px),
+    repeating-linear-gradient(0deg, rgba(78, 52, 46, .035) 0 1px, transparent 1px 9px);
+  pointer-events: none;
+}
+
 .gate-card {
+  position: relative;
   width: 100%;
-  max-width: 22rem;
-  padding: 2rem 1.75rem;
+  max-width: 23rem;
+  padding: 2rem 1.6rem 1.5rem;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--bg-raised);
@@ -1166,60 +1186,134 @@ body {
 /* The real badge, the same one the welcome screen shows — smaller, because a
    gate card is narrow, and this is the first thing anyone sees of the app. */
 .gate-seal.brand-logo {
-  width: min(132px, 38vw);
-  margin: 0 auto 1.1rem;
+  width: min(128px, 36vw);
+  margin: 0 auto 1rem;
 }
 
 .gate-card h2 {
-  margin: 0 0 .35rem;
+  margin: 0 0 .4rem;
   font-family: var(--font-display);
-  font-size: 1.4rem;
+  font-size: 1.45rem;
   font-weight: 600;
+  letter-spacing: -.01em;
 }
 
-.gate-card p {
-  margin: 0 0 1.25rem;
+.gate-blurb {
+  margin: 0 auto 1.4rem;
+  max-width: 19rem;
   color: var(--text-soft);
-  font-size: .875rem;
+  font-size: .85rem;
+  line-height: 1.55;
 }
+
+/* A label rather than a placeholder. A placeholder disappears the moment
+   somebody starts typing, which is exactly when they might want to check
+   what the box was asking for. */
+.gate-label {
+  display: block;
+  margin-bottom: .35rem;
+  text-align: left;
+  font-size: .78rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+  color: var(--text-soft);
+}
+
+.gate-field { position: relative; }
 
 .gate-card input {
   width: 100%;
-  padding: .6rem .8rem;
+  padding: .7rem 2.9rem .7rem .9rem;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: var(--bg);
   color: var(--text);
   font: inherit;
-  text-align: center;
+  font-size: 1rem;          /* 16px or more, or the phone zooms on focus */
+  letter-spacing: .04em;
+  text-align: left;
 }
 .gate-card input:focus {
   outline: none;
-  border-color: var(--navy);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--navy) 14%, transparent);
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--gold) 22%, transparent);
 }
+
+/* Show the code. Typing one blind on a phone keyboard is how a right code
+   becomes a wrong one. */
+.gate-peek {
+  position: absolute;
+  right: .3rem;
+  top: 50%;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-faint);
+  cursor: pointer;
+}
+.gate-peek svg {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.gate-peek:hover { color: var(--text-soft); }
+.gate-peek[aria-pressed="true"] { color: var(--gold-deep); }
 
 .gate-error {
-  margin: .6rem 0 0 !important;
+  margin: .7rem 0 0 !important;
+  padding: .5rem .65rem;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--red) 10%, transparent);
   color: var(--red) !important;
   font-size: .82rem;
+  text-align: left;
 }
 
-.gate-card button {
+.gate-card button[type="submit"] {
   width: 100%;
-  margin-top: .85rem;
-  padding: .6rem;
+  margin-top: 1rem;
+  padding: .75rem;
   border: none;
   border-radius: var(--radius-sm);
   background: var(--navy);
   color: #fff;
   font: inherit;
-  font-weight: 550;
+  font-size: .95rem;
+  font-weight: 600;
+  letter-spacing: .01em;
   cursor: pointer;
+  transition: background .15s ease, transform .08s ease;
 }
-.gate-card button:hover { background: var(--navy-deep); }
-.gate-card button:disabled { opacity: .6; cursor: progress; }
-[data-theme="dark"] .gate-card button { background: var(--gold); color: #201412; }
+.gate-card button[type="submit"]:hover { background: var(--navy-deep); }
+.gate-card button[type="submit"]:active { transform: translateY(1px); }
+.gate-card button[type="submit"]:disabled { opacity: .6; cursor: progress; }
+[data-theme="dark"] .gate-card button[type="submit"] { background: var(--gold); color: #201412; }
+[data-theme="dark"] .gate-card button[type="submit"]:hover { background: var(--gold-deep); }
+
+/* Who is behind this, and what to do if you have no code — the two questions
+   somebody stopped at a door actually has. */
+.gate-foot {
+  display: flex;
+  flex-direction: column;
+  gap: .2rem;
+  margin: 1.3rem 0 0 !important;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border);
+  font-size: .73rem !important;
+  color: var(--text-faint) !important;
+}
+.gate-foot-quiet { opacity: .85; }
+
+@media (prefers-reduced-motion: reduce) {
+  .gate-card button[type="submit"] { transition: none; }
+}
 
 /* ==========================================================================
    Settings panel — styling for the markup added in the design pass

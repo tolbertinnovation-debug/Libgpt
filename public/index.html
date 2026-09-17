@@ -434,13 +434,33 @@
       <img src="logo.png" width="320" height="305"
            alt="Grandpa AI — Tolbert Innovation Hub. Empowering Africa's Future.">
     </div>
-    <h2>Grandpa AI</h2>
-    <p>Enter the access code you were given to start chatting.</p>
-    <label class="sr-only" for="gate-input">Access code</label>
-    <input type="password" id="gate-input" placeholder="Access code" autocomplete="current-password"
-           required>
+
+    <!-- The name is in the badge already; what somebody arriving on a link
+         needs is what this IS, in one line they can read at a glance. -->
+    <h2>An elder to talk to</h2>
+    <p class="gate-blurb">Stories, homework, farming, business — in the English
+      we speak at home. Enter the code you were given to begin.</p>
+
+    <label class="gate-label" for="gate-input">Access code</label>
+    <div class="gate-field">
+      <input type="password" id="gate-input" placeholder="" autocomplete="current-password"
+             autocapitalize="none" autocorrect="off" spellcheck="false" required>
+      <!-- A code typed blind on a phone keyboard is a code typed wrong. -->
+      <button type="button" class="gate-peek" id="gate-peek"
+              aria-label="Show the code" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path d="M2 12s3.6-6.5 10-6.5S22 12 22 12s-3.6 6.5-10 6.5S2 12 2 12Z"/>
+          <circle cx="12" cy="12" r="2.6"/>
+        </svg>
+      </button>
+    </div>
     <p class="gate-error" id="gate-error" hidden></p>
     <button type="submit" id="gate-submit">Enter</button>
+
+    <p class="gate-foot">
+      <span>Tolbert Innovation Hub · Monrovia</span>
+      <span class="gate-foot-quiet">No code? Ask whoever shared this with you.</span>
+    </p>
   </form>
 </div>
 

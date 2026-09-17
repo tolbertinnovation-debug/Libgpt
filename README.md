@@ -927,7 +927,11 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   letter in a circle, and the globe: hidden where the web cannot be read, off to
   begin with, searching a question whose words would never have triggered it,
   and turning itself off again afterwards.
-- **Access gate** — 21 checks: requests refused with no code, a wrong code and
+- **Access gate** — 33 checks: the page saying what this is rather than only
+  that it is locked, a label that stays put rather than a placeholder that
+  vanishes the moment you type, a field at 16px so a phone does not zoom the
+  card half off the screen, a show-the-code button that flips the field and
+  says so to a screen reader, the hub named and "no code?" answered — then requests refused with no code, a wrong code and
   a wrong code of the same length; accepted with the right one; `/api/title`
   gated too; the code absent from `/api/config`; the browser flow through
   prompt, rejection, entry and reload; and the real badge on the gate rather
