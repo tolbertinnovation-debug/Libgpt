@@ -272,15 +272,54 @@ instruction to carry straight on — no preamble, no repetition, finish the word
 if it was cut mid-word — and keeps streaming into the same reply. The reader
 sees one continuous answer and never learns there was a break.
 
-Twice at most. Two continuations cover any question a person actually asks, and
-an unbounded loop here is somebody's money. If it is *still* unfinished after
-that, the app says so plainly and offers the rest, rather than letting a
-hanging sentence pass for the end — and says it in the warm amber of a long
-answer, not the red of a failure.
+Twice at most — or four times when the slices are small, because a low-data
+turn gets a fraction of the room and two carry-ons of a fraction is still a
+fraction. Each carry-on gets *more* room than the start did: by then the one
+thing known for certain is that the answer did not fit in the first amount, and
+handing it that same amount again is how an answer gets cut three times instead
+of once. If it is *still* unfinished after that, the app says so plainly and
+offers the rest, rather than letting a hanging sentence pass for the end — and
+says it in the warm amber of a long answer, not the red of a failure.
+
+**Three ways this still went wrong on a real phone**, all of them fixed after a
+history question in low-data mode came back cut in the middle of a heading —
+*"The republic was declared in"* — with no button under it and no error.
+
+- **The reader's own "Continue" started the answer over.** The automatic
+  carry-on was careful; the reader asking for the rest themselves was not. That
+  turn arrived as an ordinary new question, and the model — handed half a
+  sentence and a one-word request, with nothing to say what it was — began the
+  same heading again. One dangling line became two. The request is now
+  recognised and put through the same discipline the automatic carry-on uses.
+  Only when the message is *nothing but* a request to go on: "continue about the
+  civil war" is a new question and is left alone. It is matched on the words
+  with punctuation stripped, because the app's own button says *"Go on — finish
+  what you were saying"* and an em dash in a character class is exactly how a
+  button quietly stops working.
+- **A stream can stop without saying so.** A serverless host cuts a function off
+  at its time limit — sixty seconds here — and it does not cut politely: the
+  connection ends mid-word with no chance to send anything. The page only knew
+  an answer was cut off if the server *said* so at the end of the stream, so a
+  severed one looked complete. The end is now something that has to be seen, not
+  assumed; words that arrive without it are kept and marked unfinished. The same
+  goes for a connection that breaks mid-answer, which used to throw away
+  everything that had arrived and show "could not reach the server".
+- **The turn now keeps its own time** and stops starting new work while it still
+  has enough left to finish its sentence and send an honest ending. A cut-off
+  answer that says it was cut off gives the reader a button; one that says
+  nothing gives them a puzzle.
 
 The ceilings went up too, since the cheapest fix is room to finish: 1400 → 2200
-tokens for a written answer, 500 → 700 for a spoken one, 300 → 420 in low-data
-mode. Library answers are JSON, where being cut off means it does not parse at
+tokens for a written answer, 500 → 700 for a spoken one, and 300 → 420 → 900 in
+low-data mode. That last one went up twice because the tight version was doing
+the cutting itself. Low-data is about bytes, and a reader paying by the kilobyte
+is not served by being handed a truncated answer: they pay for the cut-off, pay
+again for the carry-on, and still have to guess the end — three round trips
+costing more than the one answer would have. The cap is a backstop for a model
+that ignores the brief, not the instrument for making it brief. Brevity belongs
+in the prompt, which now also says that a big question gets the *short version*
+rather than the first fifth of a long article, and that a hundred and twenty
+words is a target and not a guillotine. Library answers are JSON, where being cut off means it does not parse at
 all and the reader gets *nothing* rather than most of something — so a story
 went 1100 → 1600 and a recipe 1100 → 1500.
 

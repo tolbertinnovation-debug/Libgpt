@@ -293,9 +293,94 @@ const CREATIVE = new RegExp([
   'teach me something', 'tell me something',
 ].join('|'), 'i');
 
+// ---- picking up a dropped thread ----------------------------------------
+// An answer can still run out of room after everything below has been tried,
+// and then the reader does the obvious thing: they say "continue".
+//
+// That used to start the answer over. The model was handed a conversation
+// ending in half a sentence and a one-word request, and what it did with it —
+// reasonably enough, having been given no instruction — was begin the last
+// heading again. So the reader got the same dangling line twice, which is
+// worse than getting it once.
+//
+// The turn is recognised here instead and put through the same discipline the
+// automatic carry-on uses. Only when the message is ONLY a request to go on:
+// "continue about the civil war" is a new question and is left alone.
+//
+// Matched against the words alone. Punctuation is stripped first because the
+// app's own button says "Go on — finish what you were saying." and an em dash
+// in a character class is exactly the kind of detail that makes a button
+// quietly stop working — which is the bug this whole section exists to fix, so
+// it would be a poor place to plant another one.
+const inWordsAlone = (text) => String(text || '')
+  .toLowerCase()
+  .replace(/[^a-z\s]+/g, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const GO_ON = new RegExp(
+  '^(please |ok |okay |yes |yeah |alright )*'
+  + '('
+  + 'continue|carry on|go on|go ahead|keep going|more|say more|and then|next'
+  + '|finish|finish it|finish that|finish up|complete it|complete that'
+  + '|the rest|rest of it|hear the rest|tell me the rest'
+  + '|go on finish what you were saying'
+  + '|finish what you (were|was) saying'
+  + ')'
+  + '( please| now| grandpa| na| o| ya)*$',
+);
+
+const JUST_GO_ON = { test: (text) => GO_ON.test(inWordsAlone(text)) };
+
+// An answer that ran out of room ends in the middle of something. One that
+// finished ends the way writing ends — with a stop, or a question mark, or the
+// end of a list item. This is the difference between the two, and it is read
+// rather than remembered because the browser may have been closed and reopened
+// since, and a fact about the text is still true then.
+const ENDS_MID_THOUGHT = (text) => {
+  const end = String(text || '').trimEnd();
+  if (!end) return false;
+  return !/[.!?:;)\]"'\u2019\u201d]$/.test(end);
+};
+
+/**
+ * Is this turn a reader asking for the rest of a cut-off answer?
+ *
+ * Both halves have to hold: the answer before it stopped mid-thought, and the
+ * message is nothing but a request to go on.
+ */
+function isCarryingOn(messages) {
+  if (messages.length < 2) return false;
+  const last = messages[messages.length - 1];
+  const before = messages[messages.length - 2];
+  if (last.role !== 'user' || before.role !== 'assistant') return false;
+  if (!JUST_GO_ON.test(last.content)) return false;
+  return ENDS_MID_THOUGHT(before.content);
+}
+
 // ---- streaming chat -----------------------------------------------------
 // How many times a cut-off answer may be picked up and carried on.
+//
+// Two was enough when every slice was a full-length answer. It is not enough
+// when the slices are small — a low-data turn gets a fraction of the room, so
+// two carry-ons buy a fraction of an answer and the reader is back to a
+// hanging sentence. The number is chosen against the room, so that what a
+// reader gets is about the same either way.
 const MAX_CONTINUATIONS = 2;
+const MAX_THRIFTY_CONTINUATIONS = 4;
+
+// How long the whole turn may take before it stops starting new work.
+//
+// A serverless host cuts a function off at a fixed wall — sixty seconds, in
+// this one's vercel.json — and it does not cut politely. The connection simply
+// ends, mid-word, with no chance to say anything. The reader is left looking at
+// half a sentence that looks like a whole one.
+//
+// So the turn keeps its own time and stops short of that wall, with enough
+// left to finish the sentence it is on and send an honest ending. A cut-off
+// answer that SAYS it was cut off gives the reader a button. A cut-off answer
+// that says nothing gives them a puzzle.
+const TURN_DEADLINE_MS = Number(process.env.TURN_DEADLINE_MS || 45_000);
 
 // What to say to a model whose answer was cut mid-thought. The join is a plain
 // concatenation, so everything here is about not repeating and not restarting.
@@ -335,9 +420,15 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   const asked = messages.filter((m) => m.role === 'user').at(-1)?.content || '';
   const reader = await lookupModel();
 
+  // "Continue", typed under an answer that stopped mid-sentence. Worked out
+  // before anything else, because it changes what this turn is: not a new
+  // question, but the tail of the last one.
+  const carryingOn = isCarryingOn(messages);
+
   // Not const: a search that cannot happen falls back to an ordinary answer
   // below, and then every one of these has to change with it.
   let searched = Boolean(reader)
+    && !carryingOn
     && (req.body?.search === true || needsLookingUp(asked));
   const promptFor = (didSearch) => buildSystemPrompt({
     persona,
@@ -374,10 +465,30 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   const controller = new AbortController();
   res.on('close', () => controller.abort());
 
+  const startedAt = Date.now();
+
   try {
     send('start', { model, lowData, spoken, searched, dropped });
 
-    const budget = lowData ? 420 : spoken ? 700 : 2200;
+    // The room to answer in. Low-data and spoken answers are meant to be
+    // short, and the prompt asks for short — this is the backstop for when the
+    // model does not listen, not the instrument for making it brief.
+    //
+    // The backstop used to be tight enough to do the cutting itself: a history
+    // question in low-data mode came back as a full headed essay and was
+    // guillotined in the middle of "The republic was declared in". A reader
+    // paying by the kilobyte is not served by that. They pay for the cut-off
+    // answer, pay again for the carry-on, and still have to guess the end —
+    // three round trips costing more than the one answer would have. So there
+    // is real headroom over what is asked for, and brevity is left to the
+    // prompt, where it belongs.
+    const budget = lowData ? 900 : spoken ? 700 : 2200;
+
+    // Carrying on has more room than starting did, always. By the time a
+    // continuation is running, the one thing known for certain is that the
+    // answer did not fit in the first amount — handing it that same amount
+    // again is how an answer gets cut three times instead of once.
+    const carryBudget = Math.max(budget, 1200);
 
     // How much room the model has to choose different words.
     //
@@ -404,12 +515,12 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
       send('delta', { text: delta });
     };
 
-    const runOnce = async (conversation) => {
+    const runOnce = async (conversation, room = budget) => {
       stopped = '';
       for await (const delta of streamChat({
         model,
         messages: conversation,
-        maxTokens: budget,
+        maxTokens: room,
         temperature,
         signal: controller.signal,
         onFinish: (reason) => { stopped = reason; },
@@ -417,12 +528,12 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     };
 
     // The same turn, but allowed to go and read the web first.
-    const runSearch = async (conversation) => {
+    const runSearch = async (conversation, room = budget) => {
       stopped = '';
       for await (const delta of streamSearch({
         model,
         messages: conversation,
-        maxTokens: budget,
+        maxTokens: room,
         signal: controller.signal,
         onFinish: (reason) => { stopped = reason; },
         onSearched: () => { didSearch = true; },
@@ -432,9 +543,21 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
       })) take(delta);
     };
 
-    const run = async (conversation) => (searched ? runSearch(conversation) : runOnce(conversation));
+    const run = async (conversation, room = budget) => (
+      searched ? runSearch(conversation, room) : runOnce(conversation, room));
 
-    const opening = () => [{ role: 'system', content: system }, ...messages];
+    // A reader who asked for the rest is asking for exactly what the automatic
+    // carry-on does, so they get exactly that: the same rules, against the
+    // half-answer already on their screen. Their own words are kept in front
+    // of it — they asked, and the request is theirs — but the rules are what
+    // the model acts on.
+    const opening = () => (carryingOn
+      ? [
+        { role: 'system', content: system },
+        ...messages.slice(0, -1),
+        { role: 'user', content: CONTINUE_PROMPT },
+      ]
+      : [{ role: 'system', content: system }, ...messages]);
 
     if (searched) {
       try {
@@ -465,16 +588,22 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     //
     // Twice at most: two continuations are enough for any question a person
     // actually asks, and an unbounded loop here is somebody's money.
-    for (let carried = 0; stopped === 'length' && carried < MAX_CONTINUATIONS; carried += 1) {
+    const mayCarry = budget < 1000 ? MAX_THRIFTY_CONTINUATIONS : MAX_CONTINUATIONS;
+    const outOfTime = () => Date.now() - startedAt > TURN_DEADLINE_MS;
+
+    for (let carried = 0; stopped === 'length' && carried < mayCarry; carried += 1) {
       if (controller.signal.aborted) break;
+      // Better to hand over a short answer that admits it is short than to be
+      // cut off mid-word by the host with nothing said.
+      if (outOfTime()) break;
       send('continuing', { carried: carried + 1 });
 
       await run([
         { role: 'system', content: system },
-        ...messages,
+        ...messages.slice(0, carryingOn ? -1 : undefined),
         { role: 'assistant', content: answer },
         { role: 'user', content: CONTINUE_PROMPT },
-      ]);
+      ], carryBudget);
     }
 
     // Where he read it. Sent before "done" so the browser has them by the time

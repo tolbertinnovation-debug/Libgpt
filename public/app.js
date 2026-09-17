@@ -657,6 +657,13 @@ async function streamReply(chat, hooks = {}) {
   let failed = false;
   let trouble = '';   // what went wrong, for a listener who cannot see it
   let unfinished = false;   // ran out of room even after being carried on
+  // Did the server get to the end of its own sentence? A stream can stop
+  // without saying so: a serverless host cuts a function off at its time
+  // limit, a phone changes mast, a proxy gives up on a connection that has
+  // been open too long. What arrives then is an answer that simply stops, with
+  // nothing to say it stopped — which is worse than an error, because it looks
+  // finished. So the end is something that has to be SEEN, not assumed.
+  let sawTheEnd = false;
   let searched = false;     // this answer was read off the web, not remembered
   let sources = [];         // and these are the pages it was read from
 
@@ -742,6 +749,7 @@ async function streamReply(chat, hooks = {}) {
           if (stick) el.thread.scrollTop = el.thread.scrollHeight;
           hooks.onDelta?.(payload.text, text);
         } else if (event === 'done') {
+          sawTheEnd = true;
           // The server carries a cut-off answer on by itself, twice. This flag
           // means even that was not enough.
           unfinished = Boolean(payload.truncated);
@@ -762,15 +770,27 @@ async function streamReply(chat, hooks = {}) {
         }
       }
     }
+    // Words arrived, and then the line went quiet without the server ever
+    // saying it had finished. Keep the words — they are most of an answer —
+    // but do not let them pass for the whole of it.
+    if (!sawTheEnd && !failed && text.trim() && !controller.signal.aborted) unfinished = true;
   } catch (error) {
     if (error.name !== 'AbortError') {
-      failed = true;
-      trouble = navigator.onLine === false
-        ? 'You are offline. Your message is saved — send it again when the network comes back.'
-        : error.message || 'Could not reach the server.';
-      target.closest('.turn')?.remove();
-      sounds.error();
-      showError(trouble);
+      // A connection that broke after some of the answer had already been
+      // read is not a failure to report — it is an answer to finish. Throwing
+      // away what arrived and showing "could not reach the server" loses work
+      // the reader has already paid for.
+      if (text.trim()) {
+        unfinished = true;
+      } else {
+        failed = true;
+        trouble = navigator.onLine === false
+          ? 'You are offline. Your message is saved — send it again when the network comes back.'
+          : error.message || 'Could not reach the server.';
+        target.closest('.turn')?.remove();
+        sounds.error();
+        showError(trouble);
+      }
     }
   } finally {
     target.classList.remove('cursor');

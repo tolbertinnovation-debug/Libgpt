@@ -277,7 +277,9 @@ export const LANGUAGES = {
 const LOW_DATA_PROMPT = `LOW-DATA MODE IS ON. The user is on a 2G or metered connection and pays for every kilobyte.
 - Answer in 120 words or fewer.
 - No headings, no tables, no preamble, no closing pleasantries.
-- Give only the most useful part of the answer, and offer to say more if they ask.`;
+- Give only the most useful part of the answer, and offer to say more if they ask.
+- This holds for every question, including a big one. Asked for the history of a country, give the short version — the few things that matter most, in plain sentences — not the first fifth of a long article.
+- A hundred and twenty words is a target, not a guillotine. Always finish the sentence and the thought you are on; go a little over rather than stop half-way. A short whole answer costs the reader less than a long one they have to ask for twice.`;
 
 // A spoken answer is a different thing from a written one. Nobody can skim it,
 // scroll back, or see a bulleted list — it arrives one word at a time and then
