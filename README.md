@@ -239,6 +239,26 @@ away, and a microphone left open with nobody speaking pauses itself after a
 minute. Chrome, Edge and Safari can do this; where the browser cannot, the way
 in is not offered at all rather than failing when tapped.
 
+### The same question twice
+
+Asked for wisdom twice, it gave back the same proverb in the same words. Three
+separate faults behind one symptom, and all three had to go:
+
+- **It was searching the web for a proverb** (above). One search, one first result,
+  one answer, forever.
+- **One temperature for every kind of question.** A rate or a date wants the same
+  answer every time; a proverb, a story, a name or a piece of advice wants a different
+  one. Creative asks now run at 1.0 and everything else at 0.7 — and a turn that
+  searched keeps the default, because facts are not improved by variety.
+- **Nothing told it not to repeat itself.** The prompt now says so outright: never
+  give the proverb you gave before, treat one already used in this conversation as
+  spent, and go easy on the famous handful — the baobab, one hand tying a bundle, the
+  child who is not embraced — so the less-worn ones get their turn.
+
+The **Give Wisdom** chip was the fourth: it sent one fixed sentence, and the same
+sentence in gets the same sentence back. It now asks six different ways and never
+twice running.
+
 ### Answers that finish
 
 Every model has a token ceiling, and when it hits one it stops — often
@@ -287,6 +307,15 @@ web before answering. That turn gets a different set of instructions: name the p
 they exist (FrontPage Africa, the Daily Observer, the New Dawn, the Liberian
 Investigator, the Liberia News Agency), give both sides where reports disagree, and
 say plainly when the search came back with nothing rather than filling the gap.
+
+**And some things are never looked up, whatever words they arrive in.** "Give me
+wisdom for today, and explain it" has the word *today* in it, so it was being searched
+— and the search found a listicle of African proverbs on an American entertainment
+site and returned the same one every single time, sourced to `parade.com`. A proverb
+is not news. Wisdom, a folktale, a saying, advice, anything asked of a grandparent:
+those come from what the elder knows, and going to the web for them makes the answer
+both worse and identical on every asking. Being told outright to search still wins,
+and so does the globe.
 
 Two ways in. A question is looked up when it is **about now** — the news, today's rate,
 who won last night, a deadline, anything naming this year or later — or when it **asks
@@ -950,6 +979,12 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   letter in a circle, and the globe: hidden where the web cannot be read, off to
   begin with, searching a question whose words would never have triggered it,
   and turning itself off again afterwards.
+- **The same question twice (server)** — 14 checks: wisdom, stories, sayings,
+  advice and anything asked of a grandparent staying off the web however many
+  time words are in them, while a real question about today still goes and an
+  outright "search the web" still wins; a creative ask given room to choose
+  different words while a plain one keeps the steady setting; and the prompt
+  itself carrying the rule against repeating a proverb.
 - **Access gate** — 33 checks: the page saying what this is rather than only
   that it is locked, a label that stays put rather than a placeholder that
   vanishes the moment you type, a field at 16px so a phone does not zoom the

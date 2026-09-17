@@ -69,6 +69,31 @@ const ASKED_TO_LOOK = new RegExp([
   'list (?:the |some |all )?(?:best|current|available|open)',
 ].join('|'), 'i');
 
+// Things the web is the wrong place to look for, whatever words they arrive in.
+//
+// "Give me wisdom for today, and explain it" has the word TODAY in it, so it
+// was being searched — and the search found a listicle of African proverbs on
+// an American entertainment site, and returned the same one every single time,
+// because the same search returns the same first result. Asked twice, it gave
+// the identical answer, sourced to parade.com.
+//
+// A proverb is not news. Wisdom, a folktale, a story, an explanation of a
+// saying: these come from what the elder knows, not from a page published
+// this morning, and going to the web for them makes the answer worse AND the
+// same every time. This wins over the time words below — though not over
+// somebody asking outright to search, or tapping the globe.
+const NOT_ON_THE_WEB = new RegExp([
+  'wisdom', 'proverb', 'parable', 'saying', 'folktale', 'folk tale',
+  'story', 'stori', 'tale', 'riddle', 'moral',
+  'advise me', 'encourage me', 'comfort', 'what should i do about my',
+  'teach me something', 'tell me something',
+  // Asking after an elder is asking for what an elder knows, whatever time
+  // word is in the sentence — "what would my grandfather tell me this
+  // morning" was going to the web for want of this line.
+  'grandfather', 'grandmother', 'grandpa', 'grandma',
+  'what would (?:you|an? elder|the elder)',
+].join('|'), 'i');
+
 // Words that mean "as things stand now" rather than "as things are". These are
 // the cheap, certain cases — a question with one of these in it is asking
 // about a world the model has not seen.
@@ -109,6 +134,10 @@ export function needsLookingUp(text, now = new Date()) {
 
   // Being asked outright beats every guess below it.
   if (ASKED_TO_LOOK.test(asked)) return true;
+
+  // And a proverb is never news, however many times the word "today" is in it.
+  if (NOT_ON_THE_WEB.test(asked)) return false;
+
   if (ASKING_NOW.test(asked)) return true;
 
   // "in 2026" — anything from this year or later is past what a model can be

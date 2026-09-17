@@ -284,6 +284,15 @@ function readConversation(body) {
   return { messages, dropped };
 }
 
+// Work where the same answer twice is a failure rather than consistency: a
+// proverb, a story, a name, a piece of advice. There are thousands of each.
+const CREATIVE = new RegExp([
+  'wisdom', 'proverb', 'parable', 'saying', 'folktale', 'folk tale',
+  'story', 'stori', 'tale', 'riddle', 'joke', 'poem', 'song',
+  'advise me', 'encourage me', 'inspire', 'name for', 'names for',
+  'teach me something', 'tell me something',
+].join('|'), 'i');
+
 // ---- streaming chat -----------------------------------------------------
 // How many times a cut-off answer may be picked up and carried on.
 const MAX_CONTINUATIONS = 2;
@@ -369,6 +378,19 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     send('start', { model, lowData, spoken, searched, dropped });
 
     const budget = lowData ? 420 : spoken ? 700 : 2200;
+
+    // How much room the model has to choose different words.
+    //
+    // Asked for wisdom twice, it gave back the same proverb, in the same
+    // words, both times. Some of that was going to the web for a proverb — a
+    // search returns the same first result forever — but the rest is this:
+    // one steady temperature for every kind of question. A rate or a date
+    // wants the same answer every time; a proverb, a story or a piece of
+    // advice wants a different one, because there are thousands and an elder
+    // who knows one saying is not an elder.
+    const creative = CREATIVE.test(asked);
+    const temperature = searched ? undefined   // facts: leave their default
+      : creative ? 1 : 0.7;
     let answer = '';
     let stopped = '';
     const sources = [];
@@ -388,6 +410,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
         model,
         messages: conversation,
         maxTokens: budget,
+        temperature,
         signal: controller.signal,
         onFinish: (reason) => { stopped = reason; },
       })) take(delta);

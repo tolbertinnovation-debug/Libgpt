@@ -1925,9 +1925,34 @@ el.thread.addEventListener('scroll', closeGlossary, { passive: true });
 /* ---- Chips and the two hearth buttons ---- */
 const CHIP_PROMPTS = {
   story: { persona: 'culture', text: 'Tell me a story from long-long time.' },
-  wisdom: { persona: 'general', text: 'Give me wisdom for today, and explain it.' },
+  // Not one fixed sentence. The same words in gives the same words back, and
+  // this chip is the one people press more than once — so it asks for the same
+  // thing a different way each time, the way a person would.
+  wisdom: {
+    persona: 'general',
+    text: [
+      'Give me wisdom for today, and explain it.',
+      'Give me a proverb to carry with me today, and tell me what it means.',
+      'Teach me a saying from home, and what it is really about.',
+      'What would my grandfather tell me this morning? Explain it to me.',
+      'Give me one piece of old wisdom I have not heard before, and unpack it.',
+      'A proverb about work, or money, or family — your choice. Then explain it.',
+    ],
+  },
   history: { persona: 'culture', text: 'Tell me something true from Liberia\'s history.' },
 };
+
+// The last phrasing each chip used, so the next press is a different one.
+// Not random: random repeats, and being handed the same sentence twice running
+// is exactly the thing this is here to stop.
+const lastPhrasing = new Map();
+
+function nextPhrasing(chip, options) {
+  const at = ((lastPhrasing.get(chip) ?? Math.floor(Math.random() * options.length)) + 1)
+    % options.length;
+  lastPhrasing.set(chip, at);
+  return options[at];
+}
 
 el.chipRow.addEventListener('click', (event) => {
   const chip = event.target.closest('[data-chip]');
@@ -1941,7 +1966,10 @@ el.chipRow.addEventListener('click', (event) => {
   state.prefs.persona = ask.persona;
   savePreferences();
   renderComposerPersona();
-  send(ask.text);
+
+  // A chip that always sends the same sentence gets the same answer back.
+  // Where it offers several phrasings, one that is not the last one used.
+  send(Array.isArray(ask.text) ? nextPhrasing(chip.dataset.chip, ask.text) : ask.text);
 });
 
 /* ---- The Library ---- */
