@@ -27,6 +27,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Glossary** | Liberian terms in an answer (*small-small*, *palava hut*, *susu*, *dumboy*) are underlined; tapping one explains it, so a reader from outside can follow without the vernacular being translated away. |
 | **Daylight & Twilight** | Daylight is linen `#FAF3E0`, terracotta `#C62828`, palm gold `#FF8F00`, wood brown `#4E342E`. Twilight is deep mahogany `#140C0B` with warm amber, for evening storytelling. |
 | **Interface sounds** | Taps, sends and chimes synthesised with Web Audio oscillators — no audio files to download on a metered connection. |
+| **The question picks the model** | No picker to get wrong. "Good morning" goes to the cheapest model on the account; "how do I plant rice" to the everyday one; a folktale, a sum, a letter or a plan to the best one — decided by the words in the question, not by a list of forty model names. Settings shows which model each kind of question gets. |
 | **Multilingual chatbot** | Liberian English vernacular by default, standard English alongside it. Kpelle, Vai and Bassa appear in the picker as roadmap languages — the assistant says plainly that they are still being built rather than faking them. |
 | **Talking with Grandpa** | A hands-free spoken conversation: talk, stop talking, and he answers out loud — then listens again by himself, with nothing to press. **Talk over him and he stops**, the way a person does. He waits when you pause on "and" or "because" instead of cutting you off. Each sentence is spoken as it arrives, and the exchange is left behind as an ordinary conversation you can read. See below. |
 | **Live news** | Ask what happened today and he goes and reads it, then says which paper carried it and when — Liberian papers first. Only questions that are actually about *now* are looked up; everything else is answered from what he knows, and still refused honestly when he does not know it. Being told to "search", "look up" or "find me" is enough on its own, and there is a globe on the composer for the times the guess is wrong. See below. |
@@ -138,6 +139,13 @@ and the picker says so. If a model is refused anyway, the error names it and quo
 OpenAI's own wording rather than replacing it.
 
 ### A model for each job
+
+**There is no model picker.** There was one, and it was a list of every model on the
+account — forty names with dated snapshots among them, `gpt-4o-2024-08-06` beside
+`gpt-5-nano-2025-08-07`. Nobody can choose from that: the names do not say which is
+better, and every wrong choice is either a worse answer or a bigger bill than the
+question deserved. So the question chooses, and Settings shows the working instead of
+asking anyone to do it — three rows naming which model each kind of question gets.
 
 The picker's default is **Automatic**, and it is the right answer for almost
 everybody: the server picks a model per task from that same account list.
@@ -738,11 +746,19 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   `javascript:` links), emphasis, code spans, tables, lists, and half-streamed fences.
 - **Server** — streaming, upstream 404 and missing-key errors surfacing as readable
   messages, empty-message rejection, system-role stripping, and the title endpoint.
-- **Model choice (unit)** — 31 checks: a model id read for family, generation and
+- **Model choice (unit)** — 52 checks, twenty of them on the question itself:
+  greetings and thank-yous to the cheapest model, ordinary questions to the
+  everyday one, and anything with something to work out — a sum, a letter, a
+  comparison, a plan, four lines of typing, or arithmetic no keyword would
+  catch — to the best one; plus low-data and the storytelling persona still
+  overriding the words entirely. And, as before: a model id read for family, generation and
   size, an unfamiliar future name still placing sensibly, a current mini beating an
   older flagship for conversation, reasoning models kept out of the automatic picks
   but used when they are all there is, pins honoured and impossible pins ignored.
-- **Model choice (end to end)** — 17 checks through the running server: the tier
+- **Model choice (end to end)** — 20 checks through the running server,
+  including a greeting, an ordinary question and a sum each arriving at a
+  different model — because the question reaching the chooser was the part
+  that was missing. Also: the tier
   each endpoint really used, low-data overriding the storytelling persona, a hand
   picked model winning everywhere, and one the account lacks falling back.
 - **Adapting to a model** — 16 checks: `max_tokens` renamed and `temperature`
