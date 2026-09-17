@@ -27,7 +27,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Glossary** | Liberian terms in an answer (*small-small*, *palava hut*, *susu*, *dumboy*) are underlined; tapping one explains it, so a reader from outside can follow without the vernacular being translated away. |
 | **Daylight & Twilight** | Daylight is linen `#FAF3E0`, terracotta `#C62828`, palm gold `#FF8F00`, wood brown `#4E342E`. Twilight is deep mahogany `#140C0B` with warm amber, for evening storytelling. |
 | **Interface sounds** | Taps, sends and chimes synthesised with Web Audio oscillators — no audio files to download on a metered connection. |
-| **The question picks the model** | No picker to get wrong. "Good morning" goes to the cheapest model on the account; "how do I plant rice" to the everyday one; a folktale, a sum, a letter or a plan to the best one — decided by the words in the question, not by a list of forty model names. Settings shows which model each kind of question gets. |
+| **The question picks the model** | No picker, and nothing to read about it. "Good morning" goes to the cheapest model on the account; "how do I plant rice" to the everyday one; a folktale, a sum, a letter or a plan to the best one — decided by the words in the question. Settings says nothing about models at all, because which one answered is the app's business and not the reader's. |
 | **Multilingual chatbot** | Liberian English vernacular by default, standard English alongside it. Kpelle, Vai and Bassa appear in the picker as roadmap languages — the assistant says plainly that they are still being built rather than faking them. |
 | **Talking with Grandpa** | A hands-free spoken conversation: talk, stop talking, and he answers out loud — then listens again by himself, with nothing to press. **Talk over him and he stops**, the way a person does. He waits when you pause on "and" or "because" instead of cutting you off. Each sentence is spoken as it arrives, and the exchange is left behind as an ordinary conversation you can read. See below. |
 | **Live news** | Ask what happened today and he goes and reads it, then says which paper carried it and when — Liberian papers first. Only questions that are actually about *now* are looked up; everything else is answered from what he knows, and still refused honestly when he does not know it. Being told to "search", "look up" or "find me" is enough on its own, and there is a globe on the composer for the times the guess is wrong. See below. |
@@ -140,12 +140,19 @@ OpenAI's own wording rather than replacing it.
 
 ### A model for each job
 
-**There is no model picker.** There was one, and it was a list of every model on the
-account — forty names with dated snapshots among them, `gpt-4o-2024-08-06` beside
-`gpt-5-nano-2025-08-07`. Nobody can choose from that: the names do not say which is
-better, and every wrong choice is either a worse answer or a bigger bill than the
-question deserved. So the question chooses, and Settings shows the working instead of
-asking anyone to do it — three rows naming which model each kind of question gets.
+**There is no model picker, and no model names anywhere in the interface.** There was a
+picker: every model on the account, sixty-seven of them on a real key, dated snapshots
+among them. Nobody can choose from that — the names do not say which is better, and
+every wrong choice is either a worse answer or a bigger bill than the question
+deserved.
+
+What replaced it, briefly, was three rows in Settings naming which model each kind of
+question gets. That was better and still wrong: `gpt-5.4-nano` and `gpt-6-astra` mean
+nothing to somebody who came here to ask why their cassava is yellowing, and a setting
+that cannot be acted on is furniture. Which model answered is the app's business.
+
+So the question chooses, silently, and the rest of this section is for whoever is
+running the deployment rather than for anyone using it.
 
 The picker's default is **Automatic**, and it is the right answer for almost
 everybody: the server picks a model per task from that same account list.

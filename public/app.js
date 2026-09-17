@@ -95,8 +95,6 @@ const el = {
   settings: $('settings-modal'),
   settingsClose: $('settings-close'),
   setLanguage: $('settings-language'),
-  setModelHint: $('settings-model-hint'),
-  setModelTiers: $('settings-model-tiers'),
   setLowData: $('settings-lowdata'),
   setSize: $('settings-size'),
   setTheme: $('settings-theme'),
@@ -1419,8 +1417,6 @@ function renderSettings() {
   el.setSize.value = prefs.textSize;
   el.setTheme.value = prefs.theme || 'system';
 
-  el.setModelHint.textContent = modelSourceHint();
-  renderModelTiers();
 
   const chats = state.chats.length;
   const messages = state.chats.reduce((sum, chat) => sum + chat.messages.length, 0);
@@ -1494,44 +1490,6 @@ el.setLanguage.addEventListener('change', () => {
   announceRoadmapLanguage();
 });
 
-/**
- * Where the model list came from. A picker showing a list we invented looks
- * like the account's limit, so it should never be silent about which it is.
- */
-function modelSourceHint() {
-  const n = state.catalogue.models?.length || 0;
-  const source = state.catalogue.modelsFromAccount
-    ? `${n} model${n === 1 ? '' : 's'} your key can use`
-    : 'default list — add your API key to see what your account really has';
-
-  return `Chosen by the question you ask, from the ${source}.`;
-}
-
-/**
- * Which model does what, as three plain rows.
- *
- * There used to be a picker here: every model on the account, dated snapshots
- * and all, forty of them. Nobody can choose from that — the names do not say
- * which is better, and every wrong choice is either a worse answer or a bigger
- * bill than the question deserved. So the question chooses, and this shows the
- * working rather than asking anybody to do it.
- */
-function renderModelTiers() {
-  const t = state.catalogue.tiers || {};
-  if (!t.deep) {
-    el.setModelTiers.innerHTML = '';
-    return;
-  }
-
-  const rows = [
-    ['A greeting, or naming a conversation', t.fast],
-    ['An ordinary question', t.balanced],
-    ['A folktale, a sum, a plan, a letter', t.deep],
-  ];
-  el.setModelTiers.innerHTML = rows
-    .map(([job, model]) => `<li><span>${escapeHtml(job)}</span><code>${escapeHtml(model)}</code></li>`)
-    .join('');
-}
 
 /**
  * What the real voice is actually doing right now. A switch that says "on"
