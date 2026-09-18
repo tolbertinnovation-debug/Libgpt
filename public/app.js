@@ -17,6 +17,7 @@ import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary } from './library.js';
+import { Dictation, canRecord } from './dictate.js';
 
 /* ========================================================================
    State
@@ -1163,9 +1164,83 @@ function stopListening() {
   el.input.focus();
 }
 
+/* ---- Listening by recording ---------------------------------------------
+   The way that works on every phone. The browser's own recogniser is kept
+   below it, for a deployment with no key to send a recording to — but where
+   there is one, this is what runs, because the other one is why somebody in
+   Monrovia watched "Listening…" and got nothing three times over. */
+
+const dictation = new Dictation({
+  headers: apiHeaders,
+  onLevel: (level) => {
+    // Something moving while they talk. A microphone that is working and one
+    // that is dead look identical without it, which is the whole complaint.
+    el.listeningBar.style.setProperty('--heard', level.toFixed(2));
+  },
+});
+
+let transcribing = false;
+
+const canSendRecording = () => Boolean(state.catalogue.dictation) && canRecord();
+
+async function startRecording() {
+  speaker.stop();                 // never listen and talk at once
+  baseText = el.input.value.trim();
+
+  try {
+    await dictation.start();
+  } catch (error) {
+    el.listeningBar.style.removeProperty('--heard');
+    toast(error.message);
+    return;
+  }
+
+  setListening(true);
+  el.listeningText.textContent = 'Listening… tap Done when you finish';
+  sounds.listen();
+}
+
+async function finishRecording() {
+  if (transcribing) return;
+  transcribing = true;
+  setListening(false);
+  el.listeningBar.hidden = false;         // still busy, just not listening
+  el.listeningText.textContent = 'Working out what you said…';
+
+  try {
+    const heard = await dictation.stop();
+    if (!heard) {
+      toast('Nothing was heard. Try again, closer to the phone.');
+      return;
+    }
+    // Whatever was already typed keeps its place in front.
+    el.input.value = `${baseText ? `${baseText} ` : ''}${heard}`.trim();
+    autoGrow();
+    updateSendState();
+    el.input.focus();
+  } catch (error) {
+    toast(error.message);
+  } finally {
+    transcribing = false;
+    el.listeningBar.hidden = true;
+    el.listeningText.textContent = 'Listening… speak now';
+    // Back to the plain pulse. Left set, it would hold the dot frozen at
+    // whatever the last level was if the other way of listening ever ran.
+    el.listeningBar.style.removeProperty('--heard');
+  }
+}
+
 function toggleMic() {
+  // The good way, wherever it can be had.
+  if (canSendRecording()) {
+    if (transcribing) return;
+    if (dictation.recording) finishRecording();
+    else startRecording();
+    return;
+  }
+
   if (!SpeechRecognition) {
-    toast('Speaking your question needs Chrome, Edge or Safari.');
+    toast('This browser cannot hear you. Type your question instead.');
     return;
   }
   if (listening) {
@@ -1183,7 +1258,10 @@ function toggleMic() {
   if (!recogniser) setListening(false);
 }
 
-el.listenStop.addEventListener('click', stopListening);
+el.listenStop.addEventListener('click', () => {
+  if (dictation.recording) finishRecording();
+  else stopListening();
+});
 
 /* ========================================================================
    Talking with Grandpa — a spoken conversation

@@ -1557,6 +1557,19 @@ body {
   50% { opacity: .45; transform: scale(.75); }
 }
 
+/* While a recording is running, the dot answers the voice rather than a
+   timer. A microphone that is working and one that is dead look exactly alike
+   otherwise — which is what left somebody staring at "Listening…" wondering
+   which they had. A ring that grows when they speak is proof the phone can
+   hear them, before any words come back. */
+.listening-bar[style*="--heard"] .listening-dot {
+  animation: none;
+  box-shadow: 0 0 0 calc(var(--heard, 0) * 9px)
+    color-mix(in srgb, var(--red) 28%, transparent);
+  transform: scale(calc(1 + var(--heard, 0) * .45));
+  transition: box-shadow .09s linear, transform .09s linear;
+}
+
 #composer-input.is-hearing { color: var(--text-soft); font-style: italic; }
 
 .banner.offline {

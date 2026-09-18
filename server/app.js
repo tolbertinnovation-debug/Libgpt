@@ -14,6 +14,7 @@ import * as eleven from './elevenlabs.js';
 import { resolveTiers, tierFor } from './models.js';
 import {
   OpenAIError, complete, generateImage, listModels, speakAloud, streamChat, streamSearch,
+  transcribe,
 } from './openai.js';
 import {
   DEFAULT_LANGUAGE,
@@ -231,6 +232,10 @@ app.get('/api/config', async (_req, res) => {
     // account. Promising live news the key cannot fetch would be the same
     // lie the feature exists to stop.
     liveNews: Boolean(await lookupModel()),
+    // Whether a recording can be sent here to be turned into words. When this
+    // is false the page falls back to the browser's own speech recognition,
+    // which on a good day is worse and on most Android phones is nothing.
+    dictation: config.dictation && Boolean(config.apiKey),
   });
 });
 
@@ -844,6 +849,103 @@ function pictureBudgetLeft() {
   while (pictureTimes.length && pictureTimes[0] < cutoff) pictureTimes.shift();
   return Math.max(0, config.imagesPerHour - pictureTimes.length);
 }
+
+// ---- hearing --------------------------------------------------------------
+// The browser's own speech recognition is not a browser feature. It is a
+// Google service behind a standard's name, and where it is missing or
+// unreliable — Firefox, iOS Safari, half the Android phones this is built for
+// — a person holding the microphone button sees "Listening…" and nothing else.
+// They do not conclude that their browser lacks an API. They conclude the app
+// is broken, and they are not wrong.
+//
+// A recording is just bytes, and MediaRecorder is everywhere. So the audio
+// comes here and the words go back, the same on every phone.
+const heardSeconds = [];
+
+function hearingBudgetLeft() {
+  const cutoff = Date.now() - 3_600_000;
+  while (heardSeconds.length && heardSeconds[0].at < cutoff) heardSeconds.shift();
+  const used = heardSeconds.reduce((sum, entry) => sum + entry.n, 0);
+  return Math.max(0, config.dictationSecondsPerHour - used);
+}
+
+// About four minutes of speech at the bitrate a phone records at. Longer than
+// anybody dictates in one go, short enough that a bad request cannot cost much.
+const MAX_AUDIO = 8 * 1024 * 1024;
+
+// Opus in WebM at a phone's default runs near 24 kbit/s, so the bytes give a
+// usable estimate of the length without decoding anything. It is only used for
+// the hourly ceiling, where being roughly right is the whole requirement.
+const secondsIn = (bytes) => Math.max(1, Math.round(bytes / 3_000));
+
+// The words most likely to be said, handed to the transcriber before it
+// listens. Given them, it spells Lofa and Kpelle and palaver the way they are
+// spelled; without them it writes down something that merely sounds the same,
+// and a proverb becomes nonsense. Every one of these is a word this app
+// already knows — they are the names, places and dishes it talks about.
+const LIKELY_WORDS = [
+  'Liberia', 'Liberian', 'Monrovia', 'Lofa', 'Nimba', 'Bong', 'Grand Bassa',
+  'Sinoe', 'Maryland', 'Margibi', 'Bomi', 'Gbarpolu', 'Grand Gedeh', 'Grand Kru',
+  'River Cess', 'River Gee', 'Kpelle', 'Bassa', 'Kru', 'Vai', 'Gio', 'Mano',
+  'Mandingo', 'Grebo', 'Krahn', 'Gola', 'Loma', 'Kissi', 'Dei', 'Belleh',
+  'palaver', 'palava sauce', 'dumboy', 'fufu', 'pepper soup', 'jollof',
+  'cassava', 'potato greens', 'check rice', 'country fashion', 'Koloqua',
+  'Providence Island', 'Suah Koko', 'cotton tree', 'Grandpa', 'Grandma',
+].join(', ');
+
+app.post(
+  '/api/transcribe',
+  rateLimit,
+  requireAccess,
+  express.raw({ type: ['audio/*', 'application/octet-stream'], limit: MAX_AUDIO }),
+  async (req, res) => {
+    if (!config.dictation) {
+      res.status(503).json({ error: 'Listening is switched off on this deployment.' });
+      return;
+    }
+
+    const audio = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!audio?.length) {
+      res.status(400).json({ error: 'No recording arrived.' });
+      return;
+    }
+
+    const seconds = secondsIn(audio.length);
+    if (hearingBudgetLeft() < seconds) {
+      res.status(429).json({
+        error: 'The listening limit for this hour is used up. You can still type your question.',
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+    res.on('close', () => controller.abort());
+
+    try {
+      // Counted before the call, so two recordings arriving together cannot
+      // both slip past the ceiling.
+      heardSeconds.push({ at: Date.now(), n: seconds });
+
+      const text = await transcribe({
+        audio,
+        type: req.get('Content-Type') || 'audio/webm',
+        prompt: LIKELY_WORDS,
+        signal: controller.signal,
+      });
+
+      // Silence, or a cough. Saying so beats putting an empty string in the
+      // box and leaving somebody to wonder whether it heard them.
+      res.json({ text, heard: Boolean(text) });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      const message = error instanceof OpenAIError
+        ? error.message
+        : 'Could not make out the recording. Try again, or type it.';
+      if (!(error instanceof OpenAIError)) console.error('[transcribe]', error);
+      res.status(error.status === 429 ? 429 : 502).json({ error: message });
+    }
+  },
+);
 
 app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
   if (!config.imagesEnabled) {

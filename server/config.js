@@ -70,6 +70,20 @@ export const config = {
   // default because an elder who sounds like a robot is not the product — but
   // it is a switch, for anyone who would rather not spend it.
   realVoice: !/^(0|false|no|off)$/i.test(process.env.ENABLE_REAL_VOICE?.trim() || 'true'),
+
+  // Hearing, as opposed to speaking.
+  //
+  // The browser's own speech recognition is a Google service wearing a web
+  // standard's name — missing on Firefox, thin on iOS, and erratic on the
+  // Android phones that are most of this audience. Sending a recording here
+  // instead works the same on every browser, and costs about half a US cent a
+  // minute. On by default, because listening that does not work is the same
+  // as no listening at all.
+  dictation: !/^(0|false|no|off)$/i.test(process.env.ENABLE_DICTATION?.trim() || 'true'),
+  transcribeModel: process.env.OPENAI_TRANSCRIBE_MODEL?.trim() || 'gpt-4o-mini-transcribe',
+  // A ceiling across the whole deployment, the same as the voice has, so a
+  // public address cannot empty the account. An hour of talking.
+  dictationSecondsPerHour: int(process.env.DICTATION_SECONDS_PER_HOUR, 3_600),
   voiceModel: process.env.OPENAI_VOICE_MODEL?.trim() || 'gpt-4o-mini-tts',
   // A ceiling across the whole deployment, so a public address cannot read the
   // account dry. Roughly 150 spoken answers an hour.

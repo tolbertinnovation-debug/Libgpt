@@ -41,7 +41,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Grandpa's own voice** | Not the phone's robot: a real voice, one per elder, told how an old man on his porch talks. The phone's own voice stays underneath and takes over when the network is gone or on a metered connection. See below. |
 | **Voice out** | Press **Listen** on any answer, or turn on auto-read. Long answers are split into sentence-sized chunks, which is what stops browsers cutting them off part-way. Pause, continue and stop from a bar above the composer. |
 | **Check the microphone** | A talking screen that says "Listening…" and never hears anything cannot be debugged from the outside. Settings has a check that asks the phone and prints what it says — whether this browser has speech recognition at all, what the permission is, whether the microphone opens, every event the recogniser fires with the millisecond it happened, and whether a single word ever arrived — plus a Copy button, so the answer can be sent to whoever is fixing it. |
-| **Voice in** | Hold a conversation with the microphone: continuous dictation with the words appearing as you speak, so a pause for breath does not end it. Pick the accent closest to your own; if a device cannot do it, it falls back rather than failing. |
+| **Voice in** | Tap the microphone and talk; tap Done and the words appear. The recording goes to the server to be turned into text, so it works on every browser rather than only the ones with Google's speech service behind them. Where a deployment has no key for it, the browser's own recogniser is still there underneath. |
 | **Grandpa's voice** | Choose from the voices your device has. The default is the closest to Liberia the device offers — West African first, then British, then whatever exists. Speed and depth are adjustable, with a test button. |
 | **Share an answer** | Sends it through the phone's own share sheet — WhatsApp and the rest — or copies it where that is unavailable. |
 | **Works offline-aware** | A clear banner when the network drops, your history still readable, and a **Try again** button on any message that failed. |
@@ -180,6 +180,58 @@ Newer models also reject settings the older ones require: `max_tokens` has to be
 table of which model wants what, the server reads the refusal, sends the request
 again without the offending setting, and remembers what each model refused — so that
 round trip is paid once, not on every message.
+
+### Hearing, without the browser's help
+
+The microphone used to go through `SpeechRecognition` — the Web Speech API.
+That API is not really a browser feature. On Chrome it is a Google service
+wearing a standard's name; Firefox has never shipped it; iOS Safari's is thin
+and half-supported; and on Android it answers, stops listening after a breath,
+refuses to share the microphone with anything else on the page, and reports
+errors whose names mean nothing. Three rounds of fixes went into it — the
+Android `continuous = false` rule, the reopen delay, arm/disarm so nothing else
+holds the microphone — and somebody in Monrovia was still looking at
+*"Listening…"* doing nothing.
+
+At that point the API is the bug. A recording, by contrast, is just bytes, and
+`MediaRecorder` is on every browser that matters. So `public/dictate.js` opens
+the microphone, records, and posts the audio to `/api/transcribe`; the words
+come back as text. It costs about half a US cent a minute and behaves the same
+on every phone.
+
+Some details that decide whether it works for a real person:
+
+- **The format follows the device.** Android and desktop give Opus in WebM;
+  Safari records mp4 and nothing else, and asking a browser for a format it has
+  not got throws rather than falling back. The file is named for what actually
+  came out, because the ending is what the API reads.
+- **The transcriber is told the words it is about to hear.** Handed the county
+  names, the languages, the dishes and the places this app talks about, it
+  writes *Lofa* and *Kpelle* and *palava sauce* rather than something that
+  merely sounds the same. Without that, a proverb comes back as nonsense.
+- **An account without the newest model still works.** `gpt-4o-mini-transcribe`
+  is recent; `whisper-1` has been on every account for years. A refusal naming
+  the model is read and the older one tried, rather than making somebody work
+  that out from an HTTP 400.
+- **The dot answers the voice.** A microphone that is working and one that is
+  dead look identical while you wait, which is exactly the state the old one
+  left people in. The listening dot now grows with what the microphone hears,
+  so there is proof before any words arrive.
+- **The microphone is closed after every recording**, not held open. An Android
+  browser will not give the same microphone to two things at once — the lesson
+  that cost this app a working recogniser once already — and a phone shows a
+  recording dot for as long as anything holds it.
+- **Silence is an outcome, not an error.** Tapping the microphone and saying
+  nothing leaves the box alone and says so, rather than sending an empty
+  question.
+- **A ceiling, the same as the voice has.** `DICTATION_SECONDS_PER_HOUR`
+  defaults to an hour of listening across the whole deployment, counted before
+  the call so two recordings arriving together cannot both slip past. Set
+  `ENABLE_DICTATION=false` to switch it off; the page is told, and falls back to
+  the browser's own recogniser rather than offering what is not there.
+
+The old path is still in the file underneath, for a deployment with no key.
+Two ways of hearing is one more than ideal; none is worse.
 
 ### Talking with Grandpa
 
@@ -798,6 +850,7 @@ public/
   styles.css    Brand palette, light and dark, mobile-first breakpoints
   app.js        State, streaming, history, settings, sharing
   speech.js     Text-to-speech chunking, voice ranking, dictation locales
+  dictate.js    The microphone as a recording — the way that works everywhere
   converse.js   The hands-free loop: turn-taking, silence detection, cutting in
   ear.js        The microphone as a volume meter — never as words
   pronounce.js  The accent: what the voice is handed, not what the page shows
@@ -961,6 +1014,24 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   and — where echo cancellation fails — three interruptions with nobody behind
   them switching the feature off and saying why, while an interruption somebody
   does follow up on is not held against it.
+- **Hearing (server)** — 21 checks: a recording coming back as words, the audio
+  actually arriving, the file named for the format the device gave (webm,
+  Safari's mp4, a codec on the media type not confusing the ending), the
+  transcriber told the county and dish names before it listens, an account
+  without the newest model falling back to whisper-1 by itself, silence coming
+  back as silence rather than as an empty question, an empty recording refused
+  before it is charged for, the hourly ceiling holding and saying what the
+  reader can still do, a failure worded for listening rather than for the voice
+  — they are opposite ends of the same conversation — and the page told whether
+  any of it is switched on. It starts its own servers for the ceiling checks, so
+  it passes the second time it is run as well as the first.
+- **Listening, in the browser (Playwright)** — 15 checks against a stubbed
+  MediaRecorder and microphone: the microphone opened and then *closed* again,
+  the bytes posted as audio, the words landing in the box behind whatever was
+  already typed, a refused microphone saying where to turn it back on instead of
+  sitting on "Listening…", silence leaving the box alone, and the whole path
+  working with no AudioContext at all — the level meter is a nicety and must not
+  be load-bearing.
 - **Checking the microphone (Playwright)** — 9 checks against four stubbed
   browsers: one that hears, one whose recogniser starts and then never returns
   a word, one that refuses the microphone outright, and one with no speech

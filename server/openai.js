@@ -48,12 +48,22 @@ async function toError(response, asked = '', path = '') {
     429: 'Rate limit or quota reached on the OpenAI account. Wait a moment, or check your billing.',
     // Named for what the reader was doing. "OpenAI had a server error" means
     // nothing to someone who was listening to an elder talk.
-    500: /audio/.test(path)
-      ? 'Grandpa\'s voice could not be reached. Try again.'
-      : 'OpenAI had a server error. Try again.',
-    503: /audio/.test(path)
-      ? 'Grandpa\'s voice is busy right now. Try again in a moment.'
-      : 'OpenAI is overloaded right now. Try again in a moment.',
+    //
+    // Speaking and hearing both live under /audio and are opposite ends of the
+    // same conversation, so they are told apart: somebody who just held the
+    // microphone down and talked is not helped by being told the voice could
+    // not be reached, and has nothing to act on unless they are told they can
+    // type it instead.
+    500: /transcriptions/.test(path)
+      ? 'Your words could not be made out just now. Try again, or type it.'
+      : /audio/.test(path)
+        ? 'Grandpa\'s voice could not be reached. Try again.'
+        : 'OpenAI had a server error. Try again.',
+    503: /transcriptions/.test(path)
+      ? 'The listening is busy right now. Try again in a moment, or type it.'
+      : /audio/.test(path)
+        ? 'Grandpa\'s voice is busy right now. Try again in a moment.'
+        : 'OpenAI is overloaded right now. Try again in a moment.',
   }[response.status];
 
   const error = new OpenAIError(
@@ -441,6 +451,86 @@ export async function speakAloud({ text, voice = 'onyx', delivery = '', speed, s
 
   const response = await post('/audio/speech', body, signal);
   return Buffer.from(await response.arrayBuffer());
+}
+
+/**
+ * Turn a recording of somebody talking into the words they said.
+ *
+ * This exists because the browser's own speech recognition does not. It is a
+ * Google service wearing a web standard's name: absent on Firefox, barely
+ * present on iOS Safari, and on Android it answers, stops listening after a
+ * breath, refuses a second microphone in the same page, and reports errors
+ * that mean nothing. Somebody in Monrovia holding down a button and watching
+ * "Listening…" do nothing is not having a browser-support problem they can
+ * read about. They are being told the app does not work.
+ *
+ * A recording, on the other hand, is just bytes. MediaRecorder is on every
+ * browser that matters, the audio comes here, and the words go back. It costs
+ * a fraction of a penny a minute and it works the same everywhere — which,
+ * for the half of this audience on a borrowed Android phone, is the whole
+ * point.
+ *
+ * Multipart is assembled here rather than pulled in as a dependency: one
+ * FormData with one file is not worth a package, and this project has four.
+ */
+export async function transcribe({ audio, type = 'audio/webm', prompt = '', signal }) {
+  if (!config.apiKey) {
+    throw new OpenAIError(
+      'No OpenAI API key is configured. Copy .env.example to .env and set OPENAI_API_KEY.',
+      500,
+      'missing_api_key',
+    );
+  }
+
+  // The extension matters to them more than the media type does, so it is
+  // derived from the type rather than trusted from the browser.
+  const ending = {
+    'audio/webm': 'webm',
+    'audio/ogg': 'ogg',
+    'audio/mp4': 'mp4',
+    'audio/mpeg': 'mp3',
+    'audio/wav': 'wav',
+    'audio/x-wav': 'wav',
+  }[type.split(';')[0].trim().toLowerCase()] || 'webm';
+
+  const send = async (model) => {
+    const form = new FormData();
+    form.append('file', new Blob([audio], { type }), `speech.${ending}`);
+    form.append('model', model);
+    form.append('response_format', 'json');
+    // What the speaker is likely to say. A transcriber given the words it is
+    // about to hear spells them the way they are spelled here rather than
+    // inventing something that sounds the same — which is the difference
+    // between "Lofa County" and "Lofer County", and between a proverb and
+    // nonsense.
+    if (prompt) form.append('prompt', prompt.slice(0, 900));
+
+    return fetch(`${config.baseUrl}/audio/transcriptions`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${config.apiKey}` },
+      body: form,
+      signal,
+    });
+  };
+
+  let response = await send(config.transcribeModel);
+
+  // An account without the newer transcription model still has whisper-1,
+  // which has been there for years. Rather than making somebody find that out
+  // from a 400, the older one is simply tried.
+  if (!response.ok && response.status === 400 && config.transcribeModel !== 'whisper-1') {
+    const first = await toError(response, config.transcribeModel, '/audio/transcriptions');
+    if (/model/i.test(first.detail || first.message || '')) {
+      response = await send('whisper-1');
+    } else {
+      throw first;
+    }
+  }
+
+  if (!response.ok) throw await toError(response, config.transcribeModel, '/audio/transcriptions');
+
+  const body = await response.json();
+  return String(body?.text || '').trim();
 }
 
 /**
