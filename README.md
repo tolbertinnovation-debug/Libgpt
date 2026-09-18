@@ -22,7 +22,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Read the Library aloud** | Every result has a Listen control — a story (at the fork as well as at the end, with the choices read out, since a listener cannot see the buttons), the names, a recipe read as numbered steps for someone whose hands are in the pot, the quiz question with its options, and the picture's note. In Grandpa's own voice, like everything else. |
 | **Journal** | Keep any story, name list, recipe or picture; read it back later. Stored in the browser. |
 | **The hearth** | A welcome screen in the Liberian register: the elder's portrait, a greeting by name, a proverb that holds for the whole day, and four topic cards — The Family Hearth, The Hustle, Ancestral Soil, Deep Paths. |
-| **Who is talking** | Five elders — Grandpa, Grandma, Northern Elder, Market Auntie, Coastal Sage — and four tones: Classic Warmth, Playful, Solemn, Strict Proverbial. |
+| **Who is talking** | Six elders — Grandpa, Grandma, Northern Elder, Market Auntie, Market Uncle, Coastal Sage — each with a voice of their own, and four tones: Classic Warmth, Playful, Solemn, Strict Proverbial. |
 | **What it can do** | The line under the composer shows one thing the app is actually for — a folktale you choose the ending of, homework with the method worked through, the answer read aloud in an elder's voice — and moves on to another every few seconds. It holds still while you type, while an answer is arriving, and while you are talking. A line that needs something this deployment has not switched on is simply never shown. |
 | **Glossary** | Liberian terms in an answer (*small-small*, *palava hut*, *susu*, *dumboy*) are underlined; tapping one explains it, so a reader from outside can follow without the vernacular being translated away. |
 | **Daylight & Twilight** | Daylight is linen `#FAF3E0`, terracotta `#C62828`, palm gold `#FF8F00`, wood brown `#4E342E`. Twilight is deep mahogany `#140C0B` with warm amber, for evening storytelling. |
@@ -684,6 +684,16 @@ wrong guess costs the listener the sentence. The trap list in the tests now
 holds every pair that was really in the file, alongside the ones that never
 were.
 
+**The Market Uncle is not the Market Auntie an octave down.** In a Monrovia
+market the women hold the produce stalls — greens, pepper, fish — and she is
+blunt about waste in a household's money. The man beside them is in another
+trade: goods, parts, stock, somebody else's margin. He is who you ask what a
+thing is really worth, where to buy it and who will cheat you, and he is
+practical to the bone about buying, selling and what will not move off a shelf.
+Two different uses, which is the only reason to have both. He is the loudest
+voice here — thirty years of talking over other people's noise — and he drops
+the pace for one thing only: the real price.
+
 **Grandpa's accent** in Settings is Full, Light (the *th* only) or Off, and the
 hint shows you the sentence rather than describing it. **Light is the default.**
 Full is every layer at once, and while each rule is safe on its own now, all of
@@ -1183,7 +1193,8 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   and, both ways round, a deployment with pictures and live news switched off
   never offering either of them. Plus the two that keep this honest about who
   is talking: no line and nothing in the settings says "he", because the elder
-  answering may be Grandma, the Market Auntie or the Coastal Sage.
+  answering may be Grandma, the Market Auntie, the Market Uncle or the Coastal
+  Sage.
 - **The conversation list, as a thing to read (Playwright)** — 16 checks: two
   conversations genuinely sharing a name and the opening line telling them
   apart, a clock time for today and a weekday for older, the name keeping
