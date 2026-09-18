@@ -63,6 +63,15 @@ export const config = {
   elevenStability: num(process.env.ELEVENLABS_STABILITY, 0.5),
   elevenSimilarity: num(process.env.ELEVENLABS_SIMILARITY, 0.75),
   elevenStyle: num(process.env.ELEVENLABS_STYLE, 0),
+  // How the audio comes back.
+  //
+  // This was mp3 at 22kHz and 32kbps, chosen to be small on a metered line.
+  // Thirty-two kilobits is genuinely low, though: it is where MP3 starts
+  // adding a fine grain of its own around a voice, and on a phone loudspeaker
+  // that grain is heard as noise rather than as a smaller file. Sixty-four at
+  // 44kHz is about double the bytes and clean; drop it back if the data
+  // matters more than the grain does.
+  elevenFormat: process.env.ELEVENLABS_FORMAT?.trim() || 'mp3_44100_64',
 
   // Grandpa's own voice. The phone's built-in text-to-speech is free but
   // sounds like a machine reading; this is a real recorded-sounding voice from

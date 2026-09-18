@@ -50,11 +50,38 @@ export const DEFAULT_LOUDNESS = 'loud';
 export const isLoudness = (id) => LOUDNESS.some((l) => l.id === id);
 
 // threshold and ratio do the evening-out; makeup is what you actually hear.
+//
+// The releases are slow on purpose. A compressor that lets go quickly rides
+// its own gain up and down between syllables, and what you hear in the gaps is
+// the noise floor breathing in and out behind the voice — the "pumping" that
+// makes a loud voice sound cheap rather than close.
 const LEVELS = {
   normal: null,
-  loud: { threshold: -24, knee: 8, ratio: 4, attack: 0.005, release: 0.2, makeup: 1.9 },
-  full: { threshold: -34, knee: 6, ratio: 9, attack: 0.003, release: 0.15, makeup: 3.1 },
+  loud: { threshold: -24, knee: 8, ratio: 4, attack: 0.005, release: 0.32, makeup: 1.9 },
+  full: { threshold: -34, knee: 6, ratio: 9, attack: 0.003, release: 0.28, makeup: 3.1 },
 };
+
+// ---- cleaning up before it is made louder --------------------------------
+// Anything that lifts a voice lifts everything underneath it too, and a
+// synthesised voice arriving as a small MP3 has two things underneath it that
+// nobody wants louder.
+//
+// Below about eighty hertz there is no voice at all — only rumble, the
+// encoder's low-frequency wash, and whatever DC offset came with the file. A
+// phone's loudspeaker cannot reproduce any of it and turns it into distortion
+// in the parts you CAN hear, so it is money spent on making the rest worse.
+//
+// And above about seven kilohertz a low-bitrate MP3 keeps very little that is
+// voice and a good deal that is artefact — the fine sizzle that reads as
+// "noise" on a small speaker. Speech is intelligible on 500 Hz to 4 kHz; a few
+// decibels off the top costs nothing anybody can hear as words and takes the
+// hiss with it.
+//
+// Both sit BEFORE the compressor, so what gets lifted is the voice rather
+// than the voice and its noise together.
+const RUMBLE_HZ = 85;
+const HISS_HZ = 7200;
+const HISS_CUT = -4.5;
 
 /**
  * A reverb tail, made rather than downloaded: noise that decays.
@@ -98,6 +125,8 @@ export class Room {
     this.output = null;
     this.level = null;        // compressor, when anything above normal is asked for
     this.makeup = null;
+    this.rumble = null;       // what a voice has nothing below
+    this.hiss = null;         // and very little above
     this.id = DEFAULT_ROOM;
     this.loudness = DEFAULT_LOUDNESS;
     this.attached = new WeakSet();
@@ -153,9 +182,25 @@ export class Room {
       // between it and the loudspeaker — so the room is shaped first and then
       // the whole of it is lifted, rather than the reverb being lifted on its
       // own into a roar.
+      // Clean first, then squeeze, then lift. In the other order the noise is
+      // made louder and then filtered, which leaves the compressor having
+      // ridden its gain against noise that is no longer there.
+      this.rumble = this.ctx.createBiquadFilter();
+      this.rumble.type = 'highpass';
+      this.rumble.frequency.value = RUMBLE_HZ;
+      this.rumble.Q.value = 0.7;
+
+      this.hiss = this.ctx.createBiquadFilter();
+      this.hiss.type = 'highshelf';
+      this.hiss.frequency.value = HISS_HZ;
+      this.hiss.gain.value = HISS_CUT;
+
       this.level = this.ctx.createDynamicsCompressor();
       this.makeup = this.ctx.createGain();
-      this.output.connect(this.level);
+
+      this.output.connect(this.rumble);
+      this.rumble.connect(this.hiss);
+      this.hiss.connect(this.level);
       this.level.connect(this.makeup);
       this.makeup.connect(this.ctx.destination);
 

@@ -121,10 +121,18 @@ export async function resolveVoice(wanted, { signal } = {}) {
 /**
  * Say it.
  *
- * The output format is the low one on purpose. mp3 at 22kHz and 32kbps is
- * about a quarter of the bytes of the default and the difference is barely
- * audible through a phone loudspeaker — which is what this will be heard
- * through, on a connection somebody is paying for by the megabyte.
+ * The output format is a setting, and the default moved once already.
+ *
+ * It was mp3 at 22kHz and 32kbps, on the reasoning that the difference would
+ * be barely audible through a phone loudspeaker and the bytes matter to
+ * somebody paying by the megabyte. The first half of that turned out to be
+ * wrong: thirty-two kilobits is where MP3 starts laying a fine grain of its
+ * own around a voice, and on a small speaker that grain is exactly what gets
+ * heard — reported, accurately, as noise. The bytes were being saved at the
+ * cost of the thing they were being spent on.
+ *
+ * So the default is 64kbps at 44kHz, and ELEVENLABS_FORMAT drops it back for a
+ * deployment where the data really is the binding constraint.
  */
 export async function speakAloud({ text, voice, speed, signal }) {
   const voiceId = await resolveVoice(voice || config.elevenVoice, { signal });
@@ -148,7 +156,8 @@ export async function speakAloud({ text, voice, speed, signal }) {
   };
 
   const send = (payload) => fetch(
-    `${base()}/text-to-speech/${encodeURIComponent(voiceId)}?output_format=mp3_22050_32`,
+    `${base()}/text-to-speech/${encodeURIComponent(voiceId)}`
+      + `?output_format=${encodeURIComponent(config.elevenFormat)}`,
     {
       method: 'POST',
       headers: {

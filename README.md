@@ -730,6 +730,22 @@ The phone's own voice is still there underneath, and takes over by itself when:
 - the hourly ceiling is spent;
 - the listener turns it off in Settings.
 
+**Cleaning up before it is made louder.** Anything that lifts a voice lifts what
+is underneath it too, and a synthesised voice arriving as a small MP3 has two
+things underneath it that nobody wants louder. Below about eighty hertz there is
+no voice at all — only rumble, the encoder's low-frequency wash and whatever DC
+offset came with the file; a phone's loudspeaker cannot reproduce any of it and
+turns it into distortion in the parts you *can* hear. Above about seven kilohertz
+a low-bitrate MP3 keeps very little that is voice and a good deal that is
+artefact: the fine sizzle that reads as noise on a small speaker.
+
+So a high-pass at 85 Hz and a gentle shelf off the top sit **before** the
+compressor, and what gets lifted is the voice rather than the voice and its noise
+together. Nothing is touched between 500 Hz and 4 kHz, which is where being
+understood actually happens. The compressor releases were lengthened at the same
+time: one that lets go quickly rides its own gain between syllables, and what you
+hear in the gaps is the noise floor breathing behind the voice.
+
 That fallback also got the fix it needed: a man's voice now outranks everything
 else when choosing among the phone's own, including a closer accent, because a
 device answering in a woman's voice gets the one thing wrong that everybody
@@ -800,6 +816,16 @@ Four things it does carefully:
   in some other voice would be answering as somebody nobody chose.
 - **Settings say which engine is talking**, because the two do not sound alike and
   someone wondering why it changed deserves to be told.
+
+**On the bitrate, which was set wrong.** The audio came back as mp3 at 22kHz and
+32kbps, chosen to be small on a metered line on the reasoning that the difference
+would be inaudible through a phone loudspeaker. The first half of that was wrong.
+Thirty-two kilobits is where MP3 starts laying a fine grain of its own around a
+voice, and on a small speaker that grain is precisely what gets heard — reported
+from a phone, accurately, as *noise in the voice*. The bytes were being saved at
+the cost of the thing they were being spent on. It is 64kbps at 44kHz now, about
+double the bytes and clean; `ELEVENLABS_FORMAT` drops it back for a deployment
+where the data really is the binding constraint.
 
 Mind the plan: their free tier is about 10,000 characters a month — fifteen or twenty
 spoken answers — and does not allow commercial use.
