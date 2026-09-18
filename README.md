@@ -684,6 +684,22 @@ wrong guess costs the listener the sentence. The trap list in the tests now
 holds every pair that was really in the file, alongside the ones that never
 were.
 
+**Every elder carries.** The Market Auntie was the one that sounded right, and
+for a reason nobody had noticed: she was the *only* one whose delivery said her
+voice **carries** — she talks across a stall all day. The others were told
+"quiet", "long silences", "nothing in it is hurried", and the rule they all
+share said "never brisk". Give a voice model that and it mumbles. A mumble
+through a phone's loudspeaker, in a room with a generator and a road outside
+and other people talking, is a voice somebody gives up on.
+
+So every one of them is now told to carry, and told why: *slow is a pace, quiet
+is a failure*. An old man can be unhurried and still reach the back of the room
+— that is what being listened to for fifty years does to a voice. Each keeps
+their own pace and their own character; what they no longer have is permission
+to be small. The shared rule changed with them: warmth is still not the
+up-and-down of an advertisement, but a voice with no life in it is not dignified
+either, it is just tired, and nobody sits down to listen to it.
+
 **The Market Uncle is not the Market Auntie an octave down.** In a Monrovia
 market the women hold the produce stalls — greens, pepper, fish — and she is
 blunt about waste in a household's money. The man beside them is in another
