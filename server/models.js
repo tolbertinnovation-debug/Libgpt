@@ -120,16 +120,11 @@ const JUST_TALK = new RegExp(
 /**
  * Which tier a piece of work wants.
  *
- * Low-data mode overrides everything: someone paying for each kilobyte on a
- * 2G connection wants the quick, short answer, whatever else is true.
- *
  * `asked` is the question itself, where there is one. A chat turn is sized by
  * what was actually asked rather than by the fact that it was a chat turn —
  * which is the whole of what "let the model be chosen by the question" means.
  */
-export function tierFor(task, { lowData = false, persona = '', asked = '' } = {}) {
-  if (lowData) return 'fast';
-
+export function tierFor(task, { persona = '', asked = '' } = {}) {
   switch (task) {
     // Three words in a sidebar. Never worth a large model.
     case 'title':

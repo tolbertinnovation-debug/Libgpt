@@ -362,10 +362,10 @@ function isCarryingOn(messages) {
 // How many times a cut-off answer may be picked up and carried on.
 //
 // Two was enough when every slice was a full-length answer. It is not enough
-// when the slices are small — a low-data turn gets a fraction of the room, so
+// when the slices are small — a spoken turn gets a fraction of the room, so
 // two carry-ons buy a fraction of an answer and the reader is back to a
 // hanging sentence. The number is chosen against the room, so that what a
-// reader gets is about the same either way.
+// listener gets is about the same either way.
 const MAX_CONTINUATIONS = 2;
 const MAX_THRIFTY_CONTINUATIONS = 4;
 
@@ -401,7 +401,6 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     return;
   }
 
-  const lowData = Boolean(req.body?.lowData);
   const persona = req.body?.persona;
   // A spoken turn is heard once and cannot be skimmed, so it is asked for
   // shorter and given a smaller ceiling than a written one.
@@ -436,7 +435,6 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     speaker: req.body?.speaker,
     tone: req.body?.tone,
     userName: req.body?.userName,
-    lowData,
     spoken,
     register: req.body?.register,
     task: 'chat',
@@ -448,7 +446,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   // is. Nobody should have to pick that from a list of forty names.
   let model = searched
     ? reader
-    : await pickModel(req.body?.model, 'chat', { lowData, persona, asked });
+    : await pickModel(req.body?.model, 'chat', { persona, asked });
   let system = promptFor(searched);
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -468,21 +466,18 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   const startedAt = Date.now();
 
   try {
-    send('start', { model, lowData, spoken, searched, dropped });
+    send('start', { model, spoken, searched, dropped });
 
-    // The room to answer in. Low-data and spoken answers are meant to be
-    // short, and the prompt asks for short — this is the backstop for when the
-    // model does not listen, not the instrument for making it brief.
+    // The room to answer in. A spoken answer is meant to be short, and the
+    // prompt asks for short — this is the backstop for when the model does not
+    // listen, not the instrument for making it brief.
     //
-    // The backstop used to be tight enough to do the cutting itself: a history
-    // question in low-data mode came back as a full headed essay and was
-    // guillotined in the middle of "The republic was declared in". A reader
-    // paying by the kilobyte is not served by that. They pay for the cut-off
-    // answer, pay again for the carry-on, and still have to guess the end —
-    // three round trips costing more than the one answer would have. So there
-    // is real headroom over what is asked for, and brevity is left to the
-    // prompt, where it belongs.
-    const budget = lowData ? 900 : spoken ? 700 : 2200;
+    // A backstop tight enough to do the cutting itself is worse than no
+    // backstop: a history question once came back as a full headed essay and
+    // was guillotined in the middle of "The republic was declared in". So
+    // there is real headroom over what is asked for, and brevity is left to
+    // the prompt, where it belongs.
+    const budget = spoken ? 700 : 2200;
 
     // Carrying on has more room than starting did, always. By the time a
     // continuation is running, the one thing known for certain is that the
@@ -572,12 +567,12 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
         console.error('[search] falling back to an ordinary answer:', error.message);
 
         searched = false;
-        model = await pickModel(req.body?.model, 'chat', { lowData, persona, asked });
+        model = await pickModel(req.body?.model, 'chat', { persona, asked });
         system = promptFor(false);
         // Correct what the browser was told: no badge, and he is back to
         // saying he has not heard the news — which, having failed to read it,
         // is true again.
-        send('start', { model, lowData, spoken, searched, dropped });
+        send('start', { model, spoken, searched, dropped });
       }
     }
 
@@ -677,9 +672,7 @@ app.post('/api/structured', rateLimit, requireAccess, async (req, res) => {
   const spec = KINDS[kind];
   const { system, user } = spec.build(req.body?.input || {});
   // A folktale is worth the account's best model; a quiz question is not.
-  const model = await pickModel(req.body?.model, kind, {
-    lowData: Boolean(req.body?.lowData),
-  });
+  const model = await pickModel(req.body?.model, kind);
 
   const controller = new AbortController();
   res.on('close', () => controller.abort());

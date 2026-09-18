@@ -92,13 +92,6 @@
       <h1 class="chat-title sr-only" id="chat-title">New conversation</h1>
 
       <div class="topbar-right">
-        <button class="pill" id="lowdata-toggle" type="button" aria-pressed="false"
-                aria-label="Low-data mode"
-                title="Short answers for 2G and metered connections">
-          <span class="pill-dot" aria-hidden="true"></span>
-          <span>Low-data</span>
-        </button>
-
         <div class="select-wrap sr-only">
           <label class="sr-only" for="language-select">Language</label>
           <select id="language-select" title="Answer language"></select>
@@ -281,11 +274,6 @@
         <span><strong>Answer language</strong><small>Choose how Grandpa replies</small></span>
         <select id="settings-language"></select>
       </label>
-      <label class="setting-row setting-toggle" for="settings-lowdata">
-        <span><strong>Low-data mode</strong><small>Shorter answers for metered connections</small></span>
-        <input type="checkbox" id="settings-lowdata">
-        <span class="toggle-track" aria-hidden="true"></span>
-      </label>
     </div>
 
     <div class="settings-group">
@@ -321,7 +309,7 @@
         <span class="toggle-track" aria-hidden="true"></span>
       </label>
       <label class="setting-row" for="settings-voice">
-        <span><strong>Fallback voice</strong><small id="settings-voice-hint">Used when the internet is gone, or in low-data mode</small></span>
+        <span><strong>Fallback voice</strong><small id="settings-voice-hint">Used when the internet is gone</small></span>
         <select id="settings-voice"></select>
       </label>
       <label class="setting-row" for="settings-rate">

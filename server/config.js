@@ -68,7 +68,7 @@ export const config = {
   // sounds like a machine reading; this is a real recorded-sounding voice from
   // OpenAI, and it costs about a US cent for four or five answers. On by
   // default because an elder who sounds like a robot is not the product — but
-  // it is a switch, and low-data mode turns it off by itself.
+  // it is a switch, for anyone who would rather not spend it.
   realVoice: !/^(0|false|no|off)$/i.test(process.env.ENABLE_REAL_VOICE?.trim() || 'true'),
   voiceModel: process.env.OPENAI_VOICE_MODEL?.trim() || 'gpt-4o-mini-tts',
   // A ceiling across the whole deployment, so a public address cannot read the

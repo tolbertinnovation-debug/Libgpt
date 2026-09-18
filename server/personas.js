@@ -1,7 +1,6 @@
 // The "Cultural Intelligence Layer" from the Grandpa AI dossier, expressed as
-// system prompts. A conversation is shaped by three dials — persona (what the
-// user came for), language (how the answer should sound) and low-data mode
-// (how long the answer may be).
+// system prompts. A conversation is shaped by two dials — persona (what the
+// user came for) and language (how the answer should sound).
 
 import {
   DEFAULT_REGISTER, liberianVoice, registerCatalogue, registerFor,
@@ -274,13 +273,6 @@ export const LANGUAGES = {
   },
 };
 
-const LOW_DATA_PROMPT = `LOW-DATA MODE IS ON. The user is on a 2G or metered connection and pays for every kilobyte.
-- Answer in 120 words or fewer.
-- No headings, no tables, no preamble, no closing pleasantries.
-- Give only the most useful part of the answer, and offer to say more if they ask.
-- This holds for every question, including a big one. Asked for the history of a country, give the short version — the few things that matter most, in plain sentences — not the first fifth of a long article.
-- A hundred and twenty words is a target, not a guillotine. Always finish the sentence and the thought you are on; go a little over rather than stop half-way. A short whole answer costs the reader less than a long one they have to ask for twice.`;
-
 // A spoken answer is a different thing from a written one. Nobody can skim it,
 // scroll back, or see a bulleted list — it arrives one word at a time and then
 // it is gone. So it has to be short, plainly built, and shaped like talk.
@@ -297,7 +289,7 @@ export const DEFAULT_PERSONA = 'general';
 export const DEFAULT_LANGUAGE = 'liberian-english';
 
 export function buildSystemPrompt({
-  persona, language, lowData, speaker, tone, userName, spoken, register, task,
+  persona, language, speaker, tone, userName, spoken, register, task,
   searched = false,
 }) {
   const p = PERSONAS[persona] || PERSONAS[DEFAULT_PERSONA];
@@ -330,7 +322,6 @@ export function buildSystemPrompt({
   if (typeof userName === 'string' && /^[\p{L}\p{M}' -]{1,40}$/u.test(userName.trim())) {
     parts.push(`THE PERSON YOU ARE TALKING TO\nTheir name is ${userName.trim()}. Use it now and then, the way an elder does — not in every sentence.`);
   }
-  if (lowData) parts.push(LOW_DATA_PROMPT);
   // Last, so it is the rule closest to the answer.
   if (spoken) parts.push(SPOKEN_PROMPT);
   return parts.join('\n\n---\n\n');

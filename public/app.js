@@ -50,7 +50,6 @@ const state = {
     persona: 'general',
     language: 'liberian-english',
     model: '',
-    lowData: false,
     theme: null,        // 'light' | 'dark' | null = follow the phone
     textSize: 'md',     // 'sm' | 'md' | 'lg'
     autoSpeak: false,
@@ -89,13 +88,11 @@ const el = {
   themeIcon: $('theme-icon'),
   themeLabel: $('theme-label'),
   title: $('chat-title'),
-  lowData: $('lowdata-toggle'),
   language: $('language-select'),
   settingsOpen: $('settings-toggle'),
   settings: $('settings-modal'),
   settingsClose: $('settings-close'),
   setLanguage: $('settings-language'),
-  setLowData: $('settings-lowdata'),
   setSize: $('settings-size'),
   setTheme: $('settings-theme'),
   setAutoSpeak: $('settings-autospeak'),
@@ -684,7 +681,6 @@ async function streamReply(chat, hooks = {}) {
         persona: chat.persona || state.prefs.persona,
         language: state.prefs.language,
         model: state.prefs.model,
-        lowData: state.prefs.lowData,
         register: state.prefs.register,
         spoken: Boolean(hooks.spoken),
         // Asked for outright. The server works out for itself when a question
@@ -1023,12 +1019,10 @@ const room = new Room((message) => toast(message));
 const speaker = new VoiceOut({
   device: deviceVoice,
   room,
-  // Off when the deployment has no key for it, when the user has asked for the
-  // phone's voice, and always in low-data mode: a spoken answer is tens of
-  // kilobytes of audio, which is not a thing to send down a 2G line unasked.
+  // Off when the deployment has no key for it, or when the user has asked for
+  // the phone's voice instead.
   wanted: () => Boolean(state.catalogue.realVoice)
-    && state.prefs.realVoice !== false
-    && !state.prefs.lowData,
+    && state.prefs.realVoice !== false,
   speaker: () => state.prefs.speaker,
   accent: () => state.prefs.accent,
   headers: apiHeaders,
@@ -1409,7 +1403,6 @@ function renderSettings() {
   const { prefs } = state;
 
   el.setLanguage.value = prefs.language;
-  el.setLowData.checked = prefs.lowData;
   el.setAutoSpeak.checked = prefs.autoSpeak;
   el.setRate.value = prefs.voiceRate;
   el.setRateValue.textContent = RATE_WORDS.find(([limit]) => prefs.voiceRate < limit)[1];
@@ -1511,10 +1504,6 @@ el.setLanguage.addEventListener('change', () => {
 });
 
 
-/**
- * What the real voice is actually doing right now. A switch that says "on"
- * while low-data mode quietly overrides it would be a lie.
- */
 /** What the chosen register actually changes, in one line. */
 function registerHint() {
   const chosen = state.catalogue.registers?.find((r) => r.id === state.prefs.register);
@@ -1545,7 +1534,7 @@ function spokenAccentHint() {
 function roomHint() {
   const chosen = ROOMS.find((r) => r.id === state.prefs.room);
   if (state.prefs.room === DEFAULT_ROOM) return chosen?.blurb || '';
-  if (!state.catalogue.realVoice || state.prefs.realVoice === false || state.prefs.lowData) {
+  if (!state.catalogue.realVoice || state.prefs.realVoice === false) {
     return `${chosen?.blurb}. Needs Grandpa's own voice — the phone's cannot be put in a room.`;
   }
   return chosen?.blurb || '';
@@ -1559,9 +1548,7 @@ function roomHint() {
  */
 function loudnessHint() {
   const chosen = LOUDNESS.find((l) => l.id === state.prefs.loudness);
-  const onPhoneVoice = !state.catalogue.realVoice
-    || state.prefs.realVoice === false
-    || state.prefs.lowData;
+  const onPhoneVoice = !state.catalogue.realVoice || state.prefs.realVoice === false;
 
   if (state.prefs.loudness === 'normal') return chosen?.blurb || '';
   if (onPhoneVoice) {
@@ -1575,7 +1562,6 @@ function realVoiceHint() {
     return 'Not available on this deployment — the phone\'s own voice is used.';
   }
   if (state.prefs.realVoice === false) return 'Off. The phone\'s own voice is used.';
-  if (state.prefs.lowData) return 'Held back while low-data mode is on — speech is heavy to download.';
   // Which engine, because the two do not sound alike and somebody wondering
   // why it changed deserves to be told rather than left guessing.
   if (state.catalogue.voiceFrom === 'elevenlabs') {
@@ -1584,13 +1570,6 @@ function realVoiceHint() {
   return 'On. Costs about a US cent for every four or five answers.';
 }
 
-
-el.setLowData.addEventListener('change', () => {
-  state.prefs.lowData = el.setLowData.checked;
-  el.lowData.setAttribute('aria-pressed', String(state.prefs.lowData));
-  savePreferences();
-  el.setRealVoiceHint.textContent = realVoiceHint();
-});
 
 el.setSize.addEventListener('change', () => {
   state.prefs.textSize = el.setSize.value;
@@ -2241,16 +2220,6 @@ el.thread.addEventListener('click', async (event) => {
   if (again) regenerate(Number(again.dataset.regen));
 });
 
-el.lowData.addEventListener('click', () => {
-  state.prefs.lowData = !state.prefs.lowData;
-  el.lowData.setAttribute('aria-pressed', String(state.prefs.lowData));
-  el.setLowData.checked = state.prefs.lowData;
-  savePreferences();
-  toast(state.prefs.lowData
-    ? 'Low-data mode on — short answers, less data used.'
-    : 'Low-data mode off — full answers.');
-});
-
 /** Kpelle, Vai and Bassa are declared, not trained — say so when picked. */
 function announceRoadmapLanguage() {
   const language = state.catalogue.languages.find((l) => l.id === state.prefs.language);
@@ -2392,7 +2361,7 @@ document.addEventListener('keydown', (event) => {
 
 window.addEventListener('beforeunload', () => speaker.stop());
 
-/* Connection awareness — these users are the reason low-data mode exists. */
+/* Connection awareness. */
 /**
  * The same missing key means two different things. On a laptop it is a file to
  * write; on a hosted address it is a setting in the host's dashboard, and a
@@ -2542,7 +2511,6 @@ async function boot() {
     // The Album tab appears only where pictures are actually switched on.
     const albumTab = el.libraryTabs.querySelector('[data-tab="album"]');
     if (albumTab) albumTab.hidden = !config.imagesEnabled;
-    el.lowData.setAttribute('aria-pressed', String(state.prefs.lowData));
     renderSettings();
   } catch {
     el.banner.hidden = false;

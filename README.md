@@ -50,11 +50,11 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Business Advisor** | Pricing, bookkeeping you can keep in a paper exercise book, and loan readiness. Shows the arithmetic so you can redo it with your own numbers. |
 | **Farming Assistant** | Crop problems, planting seasons, storage. A market price or a forecast is looked up where live news is switched on, with the source named; where it is not, he says plainly that he has no feed rather than guessing, and points to the extension officer. |
 | **Cultural storytelling** | Proverbs, folktales and oral history — careful with sacred matters, and never inventing an attribution. |
-| **Low-data mode** | A real switch, not a label: answers are capped at 120 words and 300 tokens, with no headings or tables. The whole front end is dependency-free, so nothing is pulled from a CDN. |
+| **Light on data** | The whole front end is dependency-free — no framework, no build step, nothing pulled from a CDN — so the page is a few tens of kilobytes and loads on 2G. |
 | **Long conversations keep going** | A thread that outgrows the send limit used to be refused — "this conversation is too long, start a new chat" — which threw away the question just typed and told you to abandon the thread to ask it. The oldest turns are dropped instead, the newest part is what travels (so a long thread stops re-uploading itself on a metered connection), and the answer says plainly that earlier messages were left out. |
 | **The list folds away** | On a wide screen the conversation list is a column beside the page, and the menu button folds it away so the reading column takes the space back — Ctrl/Cmd+B as well, the way every tool with a side panel does it. The choice is remembered. On a phone the same button opens the list as a drawer, because there it is a different thing. |
 | **Conversation history** | Kept in the browser's `localStorage`, grouped by date, searchable, and never sent anywhere but to the model. Each one is listed by name, by what was actually asked, and by when — because ask about scholarships twice and both conversations come back called "Liberia Student Scholarships", and a list of names alone is then a list you cannot navigate. |
-| **Settings panel** | Language, model, low-data, text size, appearance, voice and your saved data, in one place behind the gear. |
+| **Settings panel** | Language, text size, appearance, voice and your saved data, in one place behind the gear. |
 | **Bigger text** | Three sizes. It moves the root font size, so the whole layout scales like browser zoom rather than only the letters — for older eyes and small phones. |
 | **Answers read aloud** | Turn on *Read answers aloud* and every reply is spoken, at a speed you choose, for anyone who reads slowly. |
 | **Download your conversations** | One button saves everything as a Markdown file — a student keeps their homework help, a farmer keeps the planting advice. |
@@ -113,7 +113,7 @@ All of it is in `.env` (see `.env.example`):
 | `OPENAI_API_KEY` | — | Required. Your key from <https://platform.openai.com/api-keys>. |
 | `OPENAI_MODEL` | `gpt-4o-mini` | Last-resort model, used only when the account's model list cannot be read. Normally the server chooses per task — see below. |
 | `OPENAI_TITLE_MODEL` | `gpt-4o-mini` | Same, for naming conversations. |
-| `MODEL_FAST` | *(automatic)* | Pin the model used for short, high-volume work: naming a conversation, a quiz question, low-data mode. |
+| `MODEL_FAST` | *(automatic)* | Pin the model used for short, high-volume work: naming a conversation, a quiz question. |
 | `MODEL_BALANCED` | *(automatic)* | Pin the model used for ordinary conversation, recipes and names. |
 | `MODEL_DEEP` | *(automatic)* | Pin the model used for folktales and the storytelling persona. |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Point at a compatible gateway if you use one. |
@@ -159,7 +159,7 @@ everybody: the server picks a model per task from that same account list.
 
 | Work | Tier | Why |
 | --- | --- | --- |
-| Naming a conversation, a quiz question, anything in low-data mode | fast | Three words in a sidebar is never worth a large model. |
+| Naming a conversation, a quiz question | fast | Three words in a sidebar is never worth a large model. |
 | Ordinary conversation, recipes, naming traditions | balanced | A current `mini` — the flagship is more than a conversation needs, `nano` is less. |
 | Folktales, branching stories, the storytelling persona | deep | The best model on the account. This is the work the platform is judged on. |
 
@@ -272,8 +272,8 @@ instruction to carry straight on — no preamble, no repetition, finish the word
 if it was cut mid-word — and keeps streaming into the same reply. The reader
 sees one continuous answer and never learns there was a break.
 
-Twice at most — or four times when the slices are small, because a low-data
-turn gets a fraction of the room and two carry-ons of a fraction is still a
+Twice at most — or four times when the slices are small, because a spoken turn
+gets a fraction of the room and two carry-ons of a fraction is still a
 fraction. Each carry-on gets *more* room than the start did: by then the one
 thing known for certain is that the answer did not fit in the first amount, and
 handing it that same amount again is how an answer gets cut three times instead
@@ -282,8 +282,8 @@ offers the rest, rather than letting a hanging sentence pass for the end — and
 says it in the warm amber of a long answer, not the red of a failure.
 
 **Three ways this still went wrong on a real phone**, all of them fixed after a
-history question in low-data mode came back cut in the middle of a heading —
-*"The republic was declared in"* — with no button under it and no error.
+history question came back cut in the middle of a heading — *"The republic was
+declared in"* — with no button under it and no error.
 
 - **The reader's own "Continue" started the answer over.** The automatic
   carry-on was careful; the reader asking for the rest themselves was not. That
@@ -310,16 +310,12 @@ history question in low-data mode came back cut in the middle of a heading —
   nothing gives them a puzzle.
 
 The ceilings went up too, since the cheapest fix is room to finish: 1400 → 2200
-tokens for a written answer, 500 → 700 for a spoken one, and 300 → 420 → 900 in
-low-data mode. That last one went up twice because the tight version was doing
-the cutting itself. Low-data is about bytes, and a reader paying by the kilobyte
-is not served by being handed a truncated answer: they pay for the cut-off, pay
-again for the carry-on, and still have to guess the end — three round trips
-costing more than the one answer would have. The cap is a backstop for a model
-that ignores the brief, not the instrument for making it brief. Brevity belongs
-in the prompt, which now also says that a big question gets the *short version*
-rather than the first fifth of a long article, and that a hundred and twenty
-words is a target and not a guillotine. Library answers are JSON, where being cut off means it does not parse at
+tokens for a written answer, 500 → 700 for a spoken one. A cap is a backstop for
+a model that ignores the brief, not the instrument for making it brief — one
+tight enough to do the cutting itself is worse than none, because what it
+produces is a truncated answer rather than a short one. Brevity belongs in the
+prompt, where a spoken answer is told that sixty words is a target and not a
+guillotine. Library answers are JSON, where being cut off means it does not parse at
 all and the reader gets *nothing* rather than most of something — so a story
 went 1100 → 1600 and a recipe 1100 → 1500.
 
@@ -632,8 +628,6 @@ The phone's own voice is still there underneath, and takes over by itself when:
 - the network is gone, or the voice service fails, or the audio will not play
   (the words already fetched go to it too, so nothing is lost mid-answer);
 - the hourly ceiling is spent;
-- **low-data mode is on** — speech is tens of kilobytes, which is not a thing
-  to send down a 2G line unasked;
 - the listener turns it off in Settings.
 
 That fallback also got the fix it needed: a man's voice now outranks everything
@@ -762,7 +756,7 @@ instances rather than one continuous server:
   than letting a weakened guard look like a real one.
 - **A long answer streams for as long as it takes.** `maxDuration` is set to 60
   seconds in `vercel.json`; if your plan caps it lower, a long reply is cut off
-  mid-sentence. Low-data mode keeps answers short enough that this rarely bites.
+  mid-sentence.
 
 For a pilot with real users, a host that runs a normal server — Render, Railway,
 Fly — keeps both ceilings real. Vercel is a good fit for showing the thing to
@@ -794,7 +788,7 @@ server/
   openai.js     OpenAI client: streaming parser, one-shot completions, error
                 translation, and adapting to what each model will accept
   models.js     Which model each task deserves, ranked from the account's own list
-  personas.js   The system prompts — persona x language x low-data
+  personas.js   The system prompts — persona x language x register
   liberian.js   The register itself: phonology, grammar, lexicon, discourse
   config.js     Environment, the fallback model list and the chat-model filter
   structured.js The Library's prompts and reply validators (stories, names,
@@ -827,7 +821,7 @@ holds the key and streams the reply back over Server-Sent Events.
 
 **The browser cannot change the persona prompt.** `/api/chat` accepts only `user` and
 `assistant` turns and drops anything else, so a crafted request cannot install its own
-system prompt. The persona, language and low-data dials are ids that select a prompt
+system prompt. The persona and language dials are ids that select a prompt
 written on the server.
 
 **Markdown is escaped before any markup is produced**, so model output cannot inject
@@ -851,7 +845,7 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   greetings and thank-yous to the cheapest model, ordinary questions to the
   everyday one, and anything with something to work out — a sum, a letter, a
   comparison, a plan, four lines of typing, or arithmetic no keyword would
-  catch — to the best one; plus low-data and the storytelling persona still
+  catch — to the best one; plus the storytelling persona still
   overriding the words entirely. And, as before: a model id read for family, generation and
   size, an unfamiliar future name still placing sensibly, a current mini beating an
   older flagship for conversation, reasoning models kept out of the automatic picks
@@ -860,7 +854,7 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   including a greeting, an ordinary question and a sum each arriving at a
   different model — because the question reaching the chooser was the part
   that was missing. Also: the tier
-  each endpoint really used, low-data overriding the storytelling persona, a hand
+  each endpoint really used, a hand
   picked model winning everywhere, and one the account lacks falling back.
 - **Adapting to a model** — 16 checks: `max_tokens` renamed and `temperature`
   dropped when a model refuses them, the fix remembered so the second request is
@@ -892,7 +886,7 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
 - **Whole answers (server)** — 19 checks: a finished answer left alone, a
   cut-off one carried on and the halves joined in order with nothing repeated
   and no apology at the seam, a runaway answer carried exactly twice and then
-  reported unfinished rather than passed off as whole, and spoken and low-data
+  reported unfinished rather than passed off as whole, and spoken
   turns finishing their thought like any other.
 - **The Liberian register (unit)** — 56 checks: every layer reaching the model
   with its examples intact, the density caps on phonetic spelling, each of the
@@ -943,7 +937,7 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   holding and saying the phone's voice still works.
 - **Grandpa's voice (Playwright)** — 21 checks against both engines stubbed:
   the real voice used and the phone's untouched, and the other way round when
-  it is switched off; low-data holding it back but the answer still read;
+  it is switched off;
   the fallback taking over when the voice cannot be reached, when the browser
   refuses to play it and when the audio will not decode — with the words
   already fetched handed over rather than lost.
@@ -1000,7 +994,7 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   surviving a reload — and, on a phone, the same button still opening the list
   as a drawer with something to close it.
 - **Settings (Playwright)** — 33 checks: opening and closing three ways, text size
-  moving the root size and surviving reload, the three-way theme, low-data staying
+  moving the root size and surviving reload, the three-way theme, settings staying
   in step between the pill and the switch, language syncing both ways, the spoken
   speed label, conversation counts, the download's name and contents, two-tap
   delete, and the mobile sheet without horizontal overflow.
