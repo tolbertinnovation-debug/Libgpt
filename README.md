@@ -640,7 +640,7 @@ shift can be as complete as the accent really is, because nobody is reading it:
 | --- | --- |
 | "Good day, my friend." | "Good day, my fren." |
 | "I think that thing will be better after the water comes." | "I tink dat ting will be betta afta de wata comes." |
-| "Ask the doctor, and remember to take the medicine small-small." | "Aks de docta, an rememba to take de medicine small-small." |
+| "Ask the doctor, and remember to take the medicine small-small." | "Ask de docta, an rememba to take de medicine small-small." |
 
 Three features carry most of the sound, and each is applied by a named list or
 a guarded rule — never by ear:
@@ -652,12 +652,48 @@ a guarded rule — never by ear:
 
 The clusters are a list rather than a suffix rule on purpose. "-nd → -n" would
 correctly give *han* and *husban*, and would also turn **brand** into **bran**,
-which is a different word. A rule that can quietly swap one real word for
-another is not in that file, and the tests name eight such traps and check each
-one.
+which is a different word.
+
+**And that rule was broken in about twenty places.** It was stated in the file
+and then not kept, and the tests did not catch it because they only guarded
+words the lists never touched. Reported from a phone as *words Grandpa can't
+call well*, and every one of them really was:
+
+| Written | Became | Heard as |
+| --- | --- | --- |
+| "I think three things" | "I tink **tree** tings" | a forest |
+| "Thank you" | "**Tank** you" | a vehicle |
+| "The paper is thin" | "De **papa** is **tin**" | somebody's father, and metal |
+| "Nothing is through" | "**Noting** is **tru**" | taking notes, and true |
+| "The third path" | "De **tird** **pat**" | a word no elder should say |
+
+Some were worse than ambiguous. *papa* makes the engine say PAH-pah, which is
+not the sound of "paper" at all; *noting* gives NOH- where the word is NUH-;
+*aks* for "asked" threw the past tense away and came out as "axe". And the
+general *-er* rule hardened every soft consonant in front of it — **danger**
+became *danga*, **cancer** *canka* — which in a question about somebody's health
+is not a small thing.
+
+All of them are gone. The rule the file now keeps is: a respelling is allowed
+only if the engine, reading the letters, makes the sound the word really has in
+Monrovia, **and** what a listener hears cannot be taken for a different word.
+The function words are the exception and a safe one — *the*, *this*, *that*,
+*then*, *them*, *they*, *there* carry no picture of their own and sit where no
+content word can. It is the content words, the ones you could point at, where a
+wrong guess costs the listener the sentence. The trap list in the tests now
+holds every pair that was really in the file, alongside the ones that never
+were.
 
 **Grandpa's accent** in Settings is Full, Light (the *th* only) or Off, and the
-hint shows you the sentence rather than describing it.
+hint shows you the sentence rather than describing it. **Light is the default.**
+Full is every layer at once, and while each rule is safe on its own now, all of
+them on every sentence is a lot to follow for somebody who came to be helped
+rather than to admire the accent. Light is the loudest marker of how Liberian
+English really sounds and costs a listener nothing:
+
+> "De old man told me de water will come after de rain, and I tink it is a good ting."
+
+Full is one tap away for anyone who wants the whole of it.
 
 The instruction sent with the voice names the accent too — Liberian English,
 non-rhotic, syllable-timed and even rather than the stress-timed bounce of
@@ -1016,6 +1052,16 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   and no apology at the seam, a runaway answer carried exactly twice and then
   reported unfinished rather than passed off as whole, and spoken
   turns finishing their thought like any other.
+- **Plain words, everywhere.** The rule that says use the everyday word —
+  *plenty* not *abundant*, *start* not *commence*, *use* not *utilise*, *about*
+  not *approximately* — used to apply only to spoken answers. It is in the base
+  prompt now, so a written one gets it too, with the one exception that earns
+  it: a long word is allowed when it is the real name of the thing (a medicine,
+  a crop disease, a ministry), and then it has to be explained in the same
+  breath. That is not talking down. The people reading this can follow
+  anything; what they should not have to do is stop and work out what a word
+  means before they can use the answer.
+
 - **The Liberian register (unit)** — 56 checks: every layer reaching the model
   with its examples intact, the density caps on phonetic spelling, each of the
   eight ruled-out pidgin words named, the three registers and which one a

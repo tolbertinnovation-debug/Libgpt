@@ -18,8 +18,33 @@
 //      never → neva, doctor → docta.
 //
 // Everything here is a whole-word substitution against a known list, or a
-// suffix rule with a guard. Nothing is done by ear. A rule that could turn one
-// real word into a different real word is not in this file.
+// suffix rule with a guard. Nothing is done by ear.
+//
+// THE RULE THIS FILE HAS TO KEEP, AND DID NOT.
+//
+// A respelling is allowed only if the engine, reading the letters, makes the
+// sound the word really has in Monrovia — AND what a listener hears cannot be
+// taken for a different word.
+//
+// It was broken in about twenty places, and every one was a word somebody
+// could not understand:
+//
+//   "I think three things"  became  "I tink TREE tings"
+//   "Thank you"             became  "TANK you"
+//   "The paper is thin"     became  "De PAPA is TIN"
+//   "Nothing is through"    became  "NOTING is TRU"
+//   "The third path"        became  "De TIRD PAT"
+//
+// Trees, tanks, fathers, note-taking — and "tird", which an engine says as a
+// word no elder should be made to say. Some were worse than ambiguous: "papa"
+// makes the engine say PAH-pah, which is not the sound of "paper" at all, and
+// "noting" gives NOH- where the word is NUH-.
+//
+// The function words are the exception, and a safe one. "the", "this", "that",
+// "then", "them", "they", "there" carry no picture of their own and sit where
+// no content word can, so nothing is mistaken for them. It is the content
+// words — a thing you could point at — where a wrong guess costs the listener
+// the whole sentence.
 
 /** How much of it to apply. */
 export const ACCENTS = [
@@ -28,7 +53,19 @@ export const ACCENTS = [
   { id: 'off', label: 'Off', blurb: 'Plain English pronunciation' },
 ];
 
-export const DEFAULT_ACCENT = 'full';
+// Light, not full.
+//
+// Asked for "simple Liberian English, or English that can be easy understand".
+// Full is every layer at once — the interdentals, the dropped final clusters,
+// and every unstressed -er turned to -a — and while each rule is now safe on
+// its own, all of them together on every sentence is a lot to follow for
+// somebody who came here to be helped rather than to admire the accent.
+//
+// Light is the interdentals alone: "de", "dat", "dis", "tink", "ting". That is
+// the single loudest marker of how Liberian English actually sounds, it is the
+// layer that costs a listener nothing, and Full is still one tap away in
+// Settings for anyone who wants the whole of it.
+export const DEFAULT_ACCENT = 'light';
 
 export const isAccent = (id) => ACCENTS.some((a) => a.id === id);
 
@@ -38,28 +75,30 @@ export const isAccent = (id) => ACCENTS.some((a) => a.id === id);
  * that would mislead a listener. This set alone is the "light" setting.
  */
 const TH_WORDS = [
-  // voiced — /ð/ becomes d
+  // voiced /ð/ becomes d. Nearly all of these are function words, which is
+  // why they are safe: nothing else can stand where they stand.
   ['the', 'de'], ['this', 'dis'], ['that', 'dat'], ['these', 'dese'],
-  ['those', 'dose'], ['they', 'dey'], ['them', 'dem'], ['their', 'dey'],
+  ['they', 'dey'], ['them', 'dem'], ['their', 'dey'],
   ['there', 'dere'], ['then', 'den'], ['than', 'dan'], ['though', 'doh'],
   ['mother', 'moda'], ['father', 'fada'], ['brother', 'broda'],
   ['other', 'oda'], ['another', 'anoda'], ['together', 'togeda'],
   ['weather', 'weda'], ['whether', 'weda'], ['rather', 'rada'],
-  ['either', 'eeda'], ['neither', 'needa'], ['further', 'furda'],
+  ['further', 'furda'],
 
-  // unvoiced — /θ/ becomes t
+  // unvoiced /θ/ becomes t — but only where the result is not another word.
+  // "three" would be a tree, "thank" a tank, "thin" tin, "thick" a tick,
+  // "path" a pat, "tooth" a toot, "faith" fate, "through" true, and "third"
+  // something else entirely.
   ['think', 'tink'], ['thinking', 'tinking'], ['thought', 'tought'],
-  ['thing', 'ting'], ['things', 'tings'], ['three', 'tree'],
-  ['through', 'tru'], ['throw', 'trow'], ['thank', 'tank'],
-  ['thanks', 'tanks'], ['thousand', 'tousand'], ['thick', 'tick'],
-  ['thin', 'tin'], ['thirty', 'tirty'], ['third', 'tird'],
-  ['something', 'someting'], ['nothing', 'noting'],
+  ['thing', 'ting'], ['things', 'tings'],
+  ['thousand', 'tousand'], ['thirty', 'tirty'],
+  ['something', 'someting'],
   ['anything', 'anyting'], ['everything', 'everyting'],
-  ['both', 'bot'], ['mouth', 'mout'], ['teeth', 'teet'], ['tooth', 'toot'],
+  ['mouth', 'mout'], ['teeth', 'teet'],
   ['south', 'sout'], ['north', 'nort'], ['earth', 'eart'],
-  ['month', 'mont'], ['path', 'pat'], ['truth', 'trut'],
-  ['faith', 'fait'], ['youth', 'yout'], ['health', 'helt'],
+  ['truth', 'trut'], ['youth', 'yout'], ['health', 'helt'],
   ['with', 'wit'], ['without', 'witout'],
+
 ];
 
 /* ---- 2. final clusters --------------------------------------------------
@@ -70,16 +109,22 @@ const TH_WORDS = [
  */
 const CLUSTER_WORDS = [
   ['and', 'an'], ['hand', 'han'], ['stand', 'stan'], ['understand', 'understan'],
-  ['find', 'fin'], ['mind', 'min'], ['behind', 'behin'], ['friend', 'fren'],
+  ['behind', 'behin'], ['friend', 'fren'],
   ['second', 'secon'], ['husband', 'husban'], ['round', 'roun'], ['ground', 'groun'],
   ['last', 'las'], ['first', 'firs'], ['just', 'jus'], ['must', 'mus'],
   ['best', 'bes'], ['rest', 'res'], ['west', 'wes'], ['east', 'eas'],
-  ['most', 'mos'], ['cost', 'cos'], ['past', 'pas'], ['fast', 'fas'],
-  ['left', 'lef'], ['soft', 'sof'], ['lift', 'lif'], ['gift', 'gif'],
+  ['past', 'pas'], ['fast', 'fas'],
+  ['left', 'lef'], ['soft', 'sof'], ['lift', 'lif'],
   ['old', 'ol'], ['cold', 'col'], ['told', 'tol'], ['hold', 'hol'],
-  ['world', 'worl'], ['child', 'chil'], ['field', 'fiel'], ['build', 'buil'],
-  ['kept', 'kep'], ['slept', 'slep'], ['accept', 'accep'],
-  ['help', 'hep'], ['asked', 'aks'], ['ask', 'aks'],
+  ['world', 'worl'], ['child', 'chil'],
+  ['kept', 'kep'], ['slept', 'slep'],
+  ['help', 'hep'],
+  // Gone from here, and why: "find" gave a fish fin, "mind" gave "min" — which
+  // the number layer reads as minutes — "cost" gave "cos", "most" gave moss,
+  // "gift" gave the picture format, "field" and "build" and "accept" gave
+  // letters with no sound at all, and "ask"/"asked" both gave "aks", which an
+  // engine says as "axe" and which threw the past tense away.
+
 ];
 
 /* ---- 3. non-rhotic -er --------------------------------------------------
@@ -88,12 +133,22 @@ const CLUSTER_WORDS = [
  * ("her", "per") and off words where "er" is not the ending sound.
  */
 const ER_SAFE = /^[a-z]{4,}er$/;
+
+// A c or a g before the ending is soft BECAUSE the e is there. Take the e away
+// and the engine hardens it: danger became "danga", dancer "danca", cancer
+// "canka". The sound of the word is gone, and in a question about somebody's
+// health that is not a small thing. The ones where the g really is hard —
+// finger, and its like — are named in the list above instead.
+const ER_SOFTENS = /[cg]er$/;
 const ER_KEEP = new Set([
   'her', 'per', 'were', 'there', 'where', 'here', 'ever', 'never', 'over',
   'other', 'under', 'after', 'water', 'mother', 'father', 'brother',
   // The ones above are either handled in the lists already or would lose
   // their sense; the two below simply are not "-er" agent nouns.
   'answer', 'summer',
+  // And this one, whose -a form is a different thing people say out loud:
+  // "shoulda" is "should have", not a part of the body.
+  'shoulder',
 ]);
 
 // …except these, which are so common in speech that the -a form is the form.
@@ -102,10 +157,13 @@ const ER_ALWAYS = [
   ['under', 'unda'], ['ever', 'eva'], ['whatever', 'whateva'],
   ['remember', 'rememba'], ['doctor', 'docta'], ['sister', 'sista'],
   ['daughter', 'dauta'], ['better', 'betta'], ['later', 'lata'],
-  ['together', 'togeda'], ['number', 'numba'], ['paper', 'papa'],
+  ['together', 'togeda'], ['number', 'numba'],
   ['proper', 'propa'], ['answer', 'ansa'], ['summer', 'summa'],
-  ['winter', 'winta'], ['finger', 'finga'], ['shoulder', 'shoulda'],
-  ['morning', 'mawnin'], ['nothing', 'noting'],
+  ['winter', 'winta'], ['finger', 'finga'],
+  ['morning', 'mawnin'],
+  // "paper" gave "papa" — PAH-pah, and it means father. "shoulder" gave
+  // "shoulda", which is "should have".
+
 ];
 
 /** Keep the shape of the original: HE → DE, He → De, he → de. */
@@ -150,7 +208,7 @@ export function forSpeaking(text, strength = DEFAULT_ACCENT) {
   // The general -er rule, for everything the lists did not name.
   out = out.replace(/\b[A-Za-z]+\b/g, (word) => {
     const lower = word.toLowerCase();
-    if (ER_KEEP.has(lower) || !ER_SAFE.test(lower)) return word;
+    if (ER_KEEP.has(lower) || !ER_SAFE.test(lower) || ER_SOFTENS.test(lower)) return word;
     return matchCase(word, `${lower.slice(0, -2)}a`);
   });
 
