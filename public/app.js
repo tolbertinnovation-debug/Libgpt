@@ -18,6 +18,7 @@ import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary } from './library.js';
 import { Dictation, canRecord } from './dictate.js';
+import { shrink, thumbnail } from './photo.js';
 
 /* ========================================================================
    State
@@ -157,6 +158,13 @@ const el = {
   send: $('send-btn'),
   stop: $('stop-btn'),
   mic: $('mic-btn'),
+  photo: $('photo-btn'),
+  photoInput: $('photo-input'),
+  photoWaiting: $('photo-waiting'),
+  photoThumb: $('photo-thumb'),
+  photoName: $('photo-name'),
+  photoSize: $('photo-size'),
+  photoDrop: $('photo-drop'),
   talkBtn: $('talk-btn'),
   startTalking: $('start-talking'),
   talk: $('talk'),
@@ -542,7 +550,13 @@ function renderThread() {
   el.thread.innerHTML = chat.messages
     .map((message, index) => {
       if (message.role === 'user') {
-        return `<div class="turn turn-user"><div class="bubble">${escapeHtml(message.content)}</div></div>`;
+        // The picture goes above the words, the way it does in every other
+        // messaging app on the phone this is being read on.
+        return `<div class="turn turn-user"><div class="bubble">${
+          message.photo
+            ? `<img class="bubble-photo" src="${escapeHtml(message.photo)}" alt="The picture you sent">`
+            : ''
+        }${escapeHtml(message.content)}</div></div>`;
       }
       return `
         <div class="turn turn-ai">
@@ -684,6 +698,10 @@ async function streamReply(chat, hooks = {}) {
         model: state.prefs.model,
         register: state.prefs.register,
         spoken: Boolean(hooks.spoken),
+        // Sent once, with the turn it belongs to. Sending it again with every
+        // later message would pay for the same picture over and over, and the
+        // conversation already carries what Grandpa said about it.
+        ...(hooks.photo ? { photo: hooks.photo } : {}),
         // Asked for outright. The server works out for itself when a question
         // needs looking up; this is for when it guesses wrong.
         search: state.lookItUp === true,
@@ -759,6 +777,12 @@ async function streamReply(chat, hooks = {}) {
             sources = [];
             unmarkLookedUp(target);
           }
+        } else if (event === 'notice' && payload.message) {
+          // Something the answer itself will not say: a picture that could not
+          // be looked at, most often. Said out loud rather than dropped —
+          // somebody who photographed their homework and got an answer about
+          // nothing would have no idea why.
+          toast(payload.message);
         } else if (event === 'error') {
           failed = true;
           trouble = payload.message || 'Something went wrong. Try again.';
@@ -869,15 +893,31 @@ function ensureChat() {
 }
 
 function send(rawText) {
-  const text = (rawText ?? el.input.value).trim();
-  if (!text || state.streaming) return;
+  const typed = (rawText ?? el.input.value).trim();
+  // A picture with nothing typed beside it is the commonest way this is used:
+  // photograph the page, press send. The words are supplied so the turn reads
+  // like a question rather than arriving empty.
+  const text = typed || (waiting ? 'Look at this and tell me what you see.' : '');
+  if ((!text && !waiting) || state.streaming) return;
 
   speaker.stop();   // a new question means the old answer stops talking
   if (listening) stopListening();
 
+  const photo = waiting;
+  dropPhoto();
+
   const chat = ensureChat();
-  if (!chat.title) chat.title = text.slice(0, 48);
-  chat.messages.push({ role: 'user', content: text });
+  if (!chat.title) chat.title = typed.slice(0, 48) || 'A picture';
+  chat.messages.push({
+    role: 'user',
+    content: text,
+    // The small copy, not the one that was sent. History lives in
+    // localStorage, which is a few megabytes for everything a person has ever
+    // asked — a dozen full photographs would fill it and start losing their
+    // conversations. The thumbnail remembers what was asked about; the answer,
+    // which is the part worth keeping, is text.
+    ...(photo ? { photo: photo.small } : {}),
+  });
   chat.updatedAt = Date.now();
 
   el.input.value = '';
@@ -888,8 +928,9 @@ function send(rawText) {
   renderSidebar();
   sounds.send();
 
-  // The error is already on screen; this only stops an unhandled rejection.
-  streamReply(chat).catch(() => {});
+  // The full-size copy goes to the server once, with this turn, and is not
+  // kept anywhere after that.
+  streamReply(chat, { photo: photo?.url }).catch(() => {});
 }
 
 function regenerate(index) {
@@ -911,7 +952,9 @@ function autoGrow() {
 }
 
 function updateSendState() {
-  el.send.disabled = el.input.value.trim().length === 0;
+  // A picture on its own is a question. Somebody who photographs a page and
+  // presses send is asking what it says, and should not have to type that.
+  el.send.disabled = el.input.value.trim().length === 0 && !waiting;
 }
 
 /* ---- looking it up on purpose -------------------------------------------
@@ -953,6 +996,7 @@ function buildCanDo() {
     voice: speaker.supported,
     liveNews: Boolean(state.catalogue.liveNews),
     images: Boolean(state.catalogue.imagesEnabled),
+    vision: Boolean(state.catalogue.vision),
   }));
   canDoAt = 0;
 }
@@ -1163,6 +1207,63 @@ function stopListening() {
   try { active?.stop(); } catch { /* already stopped */ }
   el.input.focus();
 }
+
+/* ---- A picture to look at ------------------------------------------------
+   The app already offers to work through homework and to say what is wrong
+   with a crop. Both are things a person is LOOKING at, and putting what you
+   can see into words is the hard part — often the whole of what they cannot
+   do. So they can show it instead.
+
+   The photograph is shrunk here, on the phone, before it goes anywhere: a
+   camera makes four megabytes, and four megabytes down a metered line is real
+   money to the people this is for. */
+
+// The picture on this turn: the full one to send, and a small one to keep.
+let waiting = null;
+
+function showWaitingPhoto() {
+  el.photoWaiting.hidden = !waiting;
+  el.photo.classList.toggle('is-on', Boolean(waiting));
+  if (!waiting) {
+    el.photoThumb.removeAttribute('src');
+    return;
+  }
+  el.photoThumb.src = waiting.small;
+  el.photoName.textContent = waiting.name;
+  // Said in kilobytes on purpose. Somebody paying by the megabyte should be
+  // able to see what this costs them before they send it.
+  el.photoSize.textContent = `${Math.round(waiting.bytes / 1024)} KB to send`;
+}
+
+function dropPhoto() {
+  waiting = null;
+  el.photoInput.value = '';   // so the same file can be chosen again
+  showWaitingPhoto();
+  updateSendState();
+}
+
+async function choosePhoto(file) {
+  if (!file) return;
+  try {
+    const shrunk = await shrink(file);
+    waiting = {
+      url: shrunk.url,
+      small: await thumbnail(shrunk.url),
+      bytes: shrunk.bytes,
+      name: file.name?.slice(0, 40) || 'Picture',
+    };
+    showWaitingPhoto();
+    updateSendState();
+    el.input.focus();
+  } catch (error) {
+    toast(error.message || 'That picture could not be used.');
+    dropPhoto();
+  }
+}
+
+el.photo.addEventListener('click', () => el.photoInput.click());
+el.photoInput.addEventListener('change', () => choosePhoto(el.photoInput.files?.[0]));
+el.photoDrop.addEventListener('click', dropPhoto);
 
 /* ---- Listening by recording ---------------------------------------------
    The way that works on every phone. The browser's own recogniser is kept
@@ -2585,6 +2686,9 @@ async function boot() {
     // worse than no button.
     el.look.hidden = !config.liveNews;
     setLookItUp(false);
+
+    // Likewise the camera: only where this key has a model that can look.
+    el.photo.hidden = !config.vision;
 
     // The Album tab appears only where pictures are actually switched on.
     const albumTab = el.libraryTabs.querySelector('[data-tab="album"]');

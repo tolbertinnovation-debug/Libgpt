@@ -11,7 +11,7 @@ import express from 'express';
 
 import { FALLBACK_MODELS, config, isChatModel, sortModels } from './config.js';
 import * as eleven from './elevenlabs.js';
-import { resolveTiers, tierFor } from './models.js';
+import { canSee, resolveTiers, tierFor } from './models.js';
 import {
   OpenAIError, complete, generateImage, listModels, speakAloud, streamChat, streamSearch,
   transcribe,
@@ -30,7 +30,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
 app.disable('x-powered-by');
-app.use(express.json({ limit: '1mb' }));
+// A megabyte was the whole budget when every request was words. A photograph
+// of somebody's homework is bigger than that on its own once it is base64, so
+// there is room for one — and only one, since the picture ceiling below is
+// well under what this allows.
+app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
 
 // ---- simple per-IP rate limit -------------------------------------------
@@ -168,7 +172,16 @@ async function pickModel(requested, task, context = {}) {
   if (typeof requested === 'string' && ids.includes(requested)) return requested;
 
   const tiers = known.length ? modelCache.tiers : resolveTiers(ids, config.modelPins);
-  return tiers[tierFor(task, context)] || config.model;
+  return tiers[tierFor(task, context)] || tiers.balanced || config.model;
+}
+
+/** Can the model this turn landed on actually look at a picture? */
+async function canSeeWith(model) {
+  if (!model) return false;
+  if (canSee(model)) return true;
+  // A pinned or hand-picked model that cannot see is the answer on its own;
+  // there is no point asking the account about it.
+  return false;
 }
 
 // ---- optional access code -----------------------------------------------
@@ -236,6 +249,10 @@ app.get('/api/config', async (_req, res) => {
     // is false the page falls back to the browser's own speech recognition,
     // which on a good day is worse and on most Android phones is nothing.
     dictation: config.dictation && Boolean(config.apiKey),
+    // True only where the switch is on AND something on this account can
+    // actually look. A camera button that leads to "I cannot see pictures" is
+    // worse than no camera button.
+    vision: config.vision && Boolean(tiers.seeing),
   });
 });
 
@@ -396,6 +413,86 @@ const CONTINUE_PROMPT = `Your answer above was cut off because it ran out of roo
 - If it stopped in the middle of a word, finish that word first.
 - Finish the thought properly this time, and stop when it is done.`;
 
+/**
+ * Put the photograph on the turn it belongs to.
+ *
+ * Only the newest one, and only once. An image sent again with every
+ * subsequent message would cost its tokens over and over for a picture the
+ * model has already described — and the description, which is in the
+ * conversation, is what the rest of the talk actually needs.
+ */
+function withPhoto(messages, photo) {
+  if (!photo) return messages;
+  const last = messages[messages.length - 1];
+  if (!last || last.role !== 'user') return messages;
+
+  return [
+    ...messages.slice(0, -1),
+    {
+      role: 'user',
+      content: [
+        // The words first: what somebody typed beside a picture is usually the
+        // actual question, and the picture is what it is about.
+        { type: 'text', text: last.content || 'Look at this and tell me what you see.' },
+        // "low" would be a quarter of the tokens, and unreadable for the thing
+        // this is most for — a page of a child's handwriting.
+        { type: 'image_url', image_url: { url: photo, detail: 'high' } },
+      ],
+    },
+  ];
+}
+
+// ---- looking at a photograph ----------------------------------------------
+// A page of sums, a sick cassava leaf, a letter somebody cannot read. This app
+// already offers help with all three, and until now it asked people to put
+// what they are looking at into words first — which is the hard part, and for
+// a child with a maths page in front of them is most of the question.
+//
+// The picture arrives already shrunk: the browser does that before it sends,
+// because a phone camera makes four megabytes and this is a 2G app. What
+// arrives here is checked anyway, since what the browser sends is what the
+// browser chose to send.
+const photoTimes = [];
+
+function photosLeft() {
+  const cutoff = Date.now() - 3_600_000;
+  while (photoTimes.length && photoTimes[0] < cutoff) photoTimes.shift();
+  return Math.max(0, config.photosPerHour - photoTimes.length);
+}
+
+// A data URL, which is what a canvas produces. Around 1.3 MB of base64 — a
+// generous ceiling for a picture the browser was asked to keep under 200 KB,
+// so an honest client is never refused and a dishonest one cannot send a file.
+const MAX_PHOTO = 1_400_000;
+const PHOTO_URL = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/;
+
+/**
+ * The photograph on this turn, if there is one and it is allowed.
+ *
+ * Returns { photo, why } and never throws: a picture that cannot be used is a
+ * reason to answer the words alone, not to lose the turn. `why` is what to
+ * tell the reader, because a photograph that is silently ignored leaves
+ * somebody who photographed their homework wondering why the answer is about
+ * nothing. It is empty when nothing was sent, which needs no explaining.
+ */
+function photoFrom(body) {
+  const photo = typeof body?.photo === 'string' ? body.photo.trim() : '';
+  if (!photo) return { photo: '', why: '' };
+
+  // A page open since before the operator switched it off still has a camera
+  // button on it.
+  if (!config.vision) {
+    return { photo: '', why: 'Looking at pictures is switched off here, so I am answering from your words alone.' };
+  }
+  if (photo.length > MAX_PHOTO) {
+    return { photo: '', why: 'That picture is too big to send, so I am answering from your words alone.' };
+  }
+  if (!PHOTO_URL.test(photo)) {
+    return { photo: '', why: 'That did not arrive as a picture I can open, so I am answering from your words alone.' };
+  }
+  return { photo, why: '' };
+}
+
 app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   let messages;
   let dropped = 0;
@@ -429,12 +526,26 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   // question, but the tail of the last one.
   const carryingOn = isCarryingOn(messages);
 
+  // A photograph on this turn. Checked here rather than trusted, and counted
+  // before the call so two arriving together cannot both slip past the hour.
+  let { photo, why: photoRefused } = photoFrom(req.body);
+  if (photo && !photosLeft()) {
+    photo = '';
+    photoRefused = 'The picture limit for this hour is used up, so I am answering from your words alone.';
+  }
+  if (photo) photoTimes.push(Date.now());
+
   // Not const: a search that cannot happen falls back to an ordinary answer
   // below, and then every one of these has to change with it.
+  //
+  // A photograph is never searched for. The thing being asked about is in the
+  // picture, not on the web, and the search path cannot carry one anyway.
   let searched = Boolean(reader)
     && !carryingOn
+    && !photo
     && (req.body?.search === true || needsLookingUp(asked));
   const promptFor = (didSearch) => buildSystemPrompt({
+    photo: Boolean(photo),
     persona,
     language: req.body?.language,
     speaker: req.body?.speaker,
@@ -451,7 +562,15 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   // is. Nobody should have to pick that from a list of forty names.
   let model = searched
     ? reader
-    : await pickModel(req.body?.model, 'chat', { persona, asked });
+    : await pickModel(req.body?.model, 'chat', { persona, asked, seeing: Boolean(photo) });
+
+  // Nothing on this account can look at a picture. Better to say so and answer
+  // the words than to send it to a model that will refuse the whole turn.
+  if (photo && !(await canSeeWith(model))) {
+    photo = '';
+    photoRefused = 'None of the models on this key can look at pictures, so I am answering from your words alone.';
+    model = await pickModel(req.body?.model, 'chat', { persona, asked });
+  }
   let system = promptFor(searched);
 
   res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
@@ -471,7 +590,12 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   const startedAt = Date.now();
 
   try {
-    send('start', { model, spoken, searched, dropped });
+    // A picture that could not be used is said out loud rather than quietly
+    // dropped: somebody who photographed their homework and got an answer
+    // about nothing would have no idea why.
+    if (photoRefused) send('notice', { message: photoRefused });
+
+    send('start', { model, spoken, searched, dropped, saw: Boolean(photo) });
 
     // The room to answer in. A spoken answer is meant to be short, and the
     // prompt asks for short — this is the backstop for when the model does not
@@ -557,7 +681,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
         ...messages.slice(0, -1),
         { role: 'user', content: CONTINUE_PROMPT },
       ]
-      : [{ role: 'system', content: system }, ...messages]);
+      : [{ role: 'system', content: system }, ...withPhoto(messages, photo)]);
 
     if (searched) {
       try {
@@ -577,7 +701,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
         // Correct what the browser was told: no badge, and he is back to
         // saying he has not heard the news — which, having failed to read it,
         // is true again.
-        send('start', { model, spoken, searched, dropped });
+        send('start', { model, spoken, searched, dropped, saw: Boolean(photo) });
       }
     }
 
@@ -621,6 +745,8 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     // hanging and letting the reader think that was the whole answer.
     send('done', {
       model,
+      // Whether the picture was actually looked at, not whether one was sent.
+      saw: Boolean(photo),
       // What happened, not what was asked for.
       searched: searched && didSearch,
       truncated: stopped === 'length',

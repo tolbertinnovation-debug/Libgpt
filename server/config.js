@@ -80,6 +80,20 @@ export const config = {
   // minute. On by default, because listening that does not work is the same
   // as no listening at all.
   dictation: !/^(0|false|no|off)$/i.test(process.env.ENABLE_DICTATION?.trim() || 'true'),
+
+  // Looking at a photograph.
+  //
+  // This app already offers to work through somebody's homework and to say
+  // what is wrong with their cassava. Both of those are things a person is
+  // LOOKING AT — a page of sums, a sick leaf — and without this they have to
+  // put what they can see into words first, which is the hard part and often
+  // the part they cannot do. A photograph costs more than a sentence, so the
+  // picture is shrunk on the phone before it is sent and there is a ceiling
+  // here, but it is on by default because the features that need it are
+  // already on the front of the app.
+  vision: !/^(0|false|no|off)$/i.test(process.env.ENABLE_VISION?.trim() || 'true'),
+  // Across the whole deployment, like the voice and the listening.
+  photosPerHour: int(process.env.PHOTOS_PER_HOUR, 60),
   transcribeModel: process.env.OPENAI_TRANSCRIBE_MODEL?.trim() || 'gpt-4o-mini-transcribe',
   // A ceiling across the whole deployment, the same as the voice has, so a
   // public address cannot empty the account. An hour of talking.

@@ -181,6 +181,54 @@ table of which model wants what, the server reads the refusal, sends the request
 again without the offending setting, and remembers what each model refused — so that
 round trip is paid once, not on every message.
 
+### Showing him something
+
+The composer already promised two things a person cannot easily type. *"Homework:
+see the method worked through"* — but the homework is on paper. *"Farming: sick
+cassava, planting time"* — but a sick cassava leaf is a thing you look at. Both
+asked somebody to put what they were seeing into words first, which is the hard
+part, and for a child with a maths page in front of them is most of the question.
+
+So there is a camera button. Take or attach a photograph, type a question beside
+it or nothing at all, and it goes with the turn.
+
+The obstacle was never the model. It is that a phone camera makes four megabytes,
+and four megabytes down a metered line is real money to the people this is for —
+enough that sending one by accident would be a betrayal of the whole point. So:
+
+- **The picture is shrunk on the phone, before it goes anywhere.** `public/photo.js`
+  draws it onto a canvas at 1024px on the long edge and steps the JPEG quality down
+  until it is under 200 KB. In the browser test a 6.7 MB photograph becomes **189 KB
+  sent** — a thirty-fifth of the bytes, and no worse to answer from, because past
+  about a thousand pixels the model tiles the image and charges per tile without
+  reading any more of a page of handwriting.
+- **What it costs is on the screen before you send it.** The picture waiting in the
+  composer says *"189 KB to send"*. Somebody paying by the megabyte should be able
+  to see the price beforehand, not after.
+- **What is kept is smaller again.** Chat history lives in `localStorage`, which is
+  a few megabytes for everything a person has ever asked — a dozen full photographs
+  would fill it and start losing their conversations. So a 2 KB thumbnail goes into
+  the history and the sent copy is not kept at all. The answer, which is the part
+  worth having, is text.
+- **It is sent once.** With its own turn, and never again. A later message in the
+  same conversation carries the words but not the image: paying for the same
+  picture on every subsequent turn would be money for nothing, and the conversation
+  already holds what Grandpa said about it.
+- **A model that can actually look is chosen** — and not the cheapest one that
+  qualifies. The commonest thing anybody photographs is a page of a child's
+  handwriting, and a nano model will confidently misread a number and then work the
+  whole sum from it, which is worse than refusing. Where nothing on the key can see,
+  the camera button does not appear at all, and a picture that arrives anyway is
+  answered from the words with a line saying why.
+- **The elder is told how to look.** Work through the *method* on homework rather
+  than writing the answers out; say what is wrong with a crop and what can be done
+  this week, naming the extension officer for anything a picture cannot settle; read
+  a document out plainly and say what it means. Never guess at a person's identity,
+  health, age or tribe from a photograph, and say what one picture cannot tell.
+
+`ENABLE_VISION=false` switches it off; `PHOTOS_PER_HOUR` caps the deployment, counted
+before the call so two arriving together cannot both slip past.
+
 ### Hearing, without the browser's help
 
 The microphone used to go through `SpeechRecognition` — the Web Speech API.
@@ -851,6 +899,7 @@ public/
   app.js        State, streaming, history, settings, sharing
   speech.js     Text-to-speech chunking, voice ranking, dictation locales
   dictate.js    The microphone as a recording — the way that works everywhere
+  photo.js      Shrinking a photograph on the phone before it is ever sent
   converse.js   The hands-free loop: turn-taking, silence detection, cutting in
   ear.js        The microphone as a volume meter — never as words
   pronounce.js  The accent: what the voice is handed, not what the page shows
@@ -1014,6 +1063,18 @@ The behaviour was checked against a mock OpenAI endpoint and in a real browser:
   and — where echo cancellation fails — three interruptions with nobody behind
   them switching the feature off and saying why, while an interruption somebody
   does follow up on is not held against it.
+- **Looking at a picture (server)** — 21 checks: the image reaching the model
+  with the typed words in front of it, a model that can see being chosen and not
+  the cheapest that qualifies, the elder given the rules for homework and crops
+  and people, an ordinary turn left as plain text and not given those rules, the
+  picture sent once and absent from every later turn, a data URL that is not an
+  image refused rather than forwarded, one past the size limit refused, and the
+  whole thing switched off cleanly with the words still answered.
+- **Looking at a picture (Playwright)** — 21 checks: a 6.7 MB photograph becoming
+  189 KB before it is sent, the cost shown in kilobytes beforehand, a picture on
+  its own being a question with nothing typed, taking it off again, the sent copy
+  being the shrunk one, the kept copy being smaller still and surviving a reload,
+  and a file that is not a picture refused in words.
 - **Hearing (server)** — 21 checks: a recording coming back as words, the audio
   actually arriving, the file named for the format the device gave (webm,
   Safari's mp4, a codec on the media type not confusing the ending), the

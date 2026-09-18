@@ -35,6 +35,12 @@ export const CAN_DO = [
   { text: 'Hold the microphone and just talk — the answer comes back out loud.', needs: 'voice' },
   { text: 'Ask what is in the news today, and it is looked up just now.', needs: 'liveNews' },
   { text: 'Ask for a painted scene of Liberian life.', needs: 'images' },
+
+  // The two the app already promised but could only half-do, because both are
+  // things a person is LOOKING at rather than something they can easily type.
+  { text: 'Photograph your homework and see the method worked through.', needs: 'vision' },
+  { text: 'Photograph a sick crop and ask what is wrong with it.', needs: 'vision' },
+  { text: 'Photograph a letter or a sign, and have it read out plainly.', needs: 'vision' },
 ];
 
 /**

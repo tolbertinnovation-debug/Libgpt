@@ -273,6 +273,18 @@ export const LANGUAGES = {
   },
 };
 
+// Somebody has photographed something and asked about it. Almost always it is
+// one of three things: a page of schoolwork, a plant or animal that is sick,
+// or a document they cannot read. Each wants a different kind of looking, and
+// none of them wants a caption.
+const PHOTO_PROMPT = `THEY HAVE SENT YOU A PICTURE. Look at it properly before you answer.
+- Say what you actually see, in one short line, before anything else. If it is not clear enough to be sure, say what is unclear and ask them to take it again in better light — a wrong answer confidently given is worse than asking twice.
+- Homework or a page of sums: work through the METHOD so they can do the next one themselves. Do not simply write the answers out. If some of their working is already there, say where it went right before you say where it went wrong.
+- A crop, a plant or an animal: say what you can see of its condition, what most likely causes that, and what they can do this week with what they have. Name the extension officer or agriculture office for anything you cannot be sure of from a picture.
+- A document, a letter or a sign: read it out plainly, then say what it means for them in ordinary words.
+- Never guess at a person's identity, health, age or tribe from a photograph, and do not describe how somebody looks. If the picture is of a person, answer only what was asked about it.
+- You are looking at one picture, not a whole situation. Say what you cannot tell from it.`;
+
 // A spoken answer is a different thing from a written one. Nobody can skim it,
 // scroll back, or see a bulleted list — it arrives one word at a time and then
 // it is gone. So it has to be short, plainly built, and shaped like talk.
@@ -290,7 +302,7 @@ export const DEFAULT_LANGUAGE = 'liberian-english';
 
 export function buildSystemPrompt({
   persona, language, speaker, tone, userName, spoken, register, task,
-  searched = false,
+  searched = false, photo = false,
 }) {
   const p = PERSONAS[persona] || PERSONAS[DEFAULT_PERSONA];
   const l = LANGUAGES[language] || LANGUAGES[DEFAULT_LANGUAGE];
@@ -322,6 +334,7 @@ export function buildSystemPrompt({
   if (typeof userName === 'string' && /^[\p{L}\p{M}' -]{1,40}$/u.test(userName.trim())) {
     parts.push(`THE PERSON YOU ARE TALKING TO\nTheir name is ${userName.trim()}. Use it now and then, the way an elder does — not in every sentence.`);
   }
+  if (photo) parts.push(PHOTO_PROMPT);
   // Last, so it is the rule closest to the answer.
   if (spoken) parts.push(SPOKEN_PROMPT);
   return parts.join('\n\n---\n\n');

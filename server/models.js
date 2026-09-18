@@ -37,6 +37,29 @@ export function describe(id) {
 /** Higher is more capable. */
 export const capability = (m) => m.generation * 10 + m.size * 3 + (m.reasoning ? 4 : 0);
 
+/**
+ * Can this model look at a photograph?
+ *
+ * Not every model on an account can, and one that cannot does not answer
+ * politely — it refuses the request outright, which would put an error in
+ * front of somebody who has just photographed their homework.
+ *
+ * As everywhere else in this file, the id is read rather than a list kept:
+ * a list would be wrong again within the year. Everything from gpt-4o onward
+ * sees, and gpt-4 and earlier do not. A model too old to name a generation is
+ * assumed not to, because guessing wrong in that direction costs an error
+ * message and guessing wrong in the other costs nothing but a better model.
+ */
+export function canSee(id) {
+  const m = describe(id);
+  if (/^chatgpt-4o/.test(m.lower)) return true;
+  // gpt-4-turbo could see; plain gpt-4 and gpt-3.5 could not, and "4o" is a
+  // different thing from "4" that the number alone does not separate.
+  if (/^gpt-4o/.test(m.lower)) return true;
+  if (m.generation >= 4.1) return true;
+  return false;
+}
+
 /** Higher is cheaper and quicker. */
 export const thrift = (m) => (2 - m.size) * 10 + m.generation;
 
@@ -67,16 +90,31 @@ export function resolveTiers(ids, pinned = {}) {
   const fast = best(pool, thrift);
   const deep = best(pool, capability);
 
-  // Balanced wants a current mini: the flagship is more than a conversation
-  // needs, and nano is less. Prefer mini, then plain, then nano, and within
-  // that the newest generation — a current mini beats last year's flagship.
+  // Prefer a current mini: the flagship is more than a conversation needs, and
+  // nano is less. Within that the newest generation — a current mini beats
+  // last year's flagship.
   const middling = (m) => (m.mini ? 20 : m.nano ? 0 : 10) + m.generation;
+
   const balanced = best(pool, middling);
+
+  // A model that can look at a photograph.
+  //
+  // Not the cheapest that can. The commonest thing anybody will photograph is
+  // a page of a child's handwriting, and reading pencil on ruled paper is the
+  // job a nano model is worst at — it will confidently misread a number and
+  // then work the whole sum from it, which is worse than refusing. So this
+  // takes the same middling preference as ordinary conversation: a current
+  // mini, not the flagship and not the smallest thing that qualifies.
+  const seeing = pool.filter((m) => canSee(m.id));
+  const eyes = best(seeing.length ? seeing : pool, middling);
 
   return {
     fast: has(pinned.fast) ? pinned.fast : fast,
     balanced: has(pinned.balanced) ? pinned.balanced : balanced,
     deep: has(pinned.deep) ? pinned.deep : deep,
+    // Empty when nothing on the account can see, so the app can say so rather
+    // than sending a photograph to a model that will refuse it.
+    seeing: seeing.length ? eyes : '',
   };
 }
 
@@ -124,7 +162,11 @@ const JUST_TALK = new RegExp(
  * what was actually asked rather than by the fact that it was a chat turn —
  * which is the whole of what "let the model be chosen by the question" means.
  */
-export function tierFor(task, { persona = '', asked = '' } = {}) {
+export function tierFor(task, { persona = '', asked = '', seeing = false } = {}) {
+  // A photograph decides it before the words do. Whatever was typed beside it,
+  // the turn cannot be answered by a model that cannot look.
+  if (seeing) return 'seeing';
+
   switch (task) {
     // Three words in a sidebar. Never worth a large model.
     case 'title':
