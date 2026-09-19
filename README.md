@@ -22,7 +22,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Read the Library aloud** | Every result has a Listen control — a story (at the fork as well as at the end, with the choices read out, since a listener cannot see the buttons), the names, a recipe read as numbered steps for someone whose hands are in the pot, the quiz question with its options, and the picture's note. In Grandpa's own voice, like everything else. |
 | **Journal** | Keep any story, name list, recipe or picture; read it back later. Stored in the browser. |
 | **The hearth** | A welcome screen in the Liberian register: the elder's portrait, a greeting by name, a proverb that holds for the whole day, and four topic cards — The Family Hearth, The Hustle, Ancestral Soil, Deep Paths. |
-| **Who is talking** | Six elders — Grandpa, Grandma, Northern Elder, Market Auntie, Market Uncle, Coastal Sage — each with a voice of their own, and four tones: Classic Warmth, Playful, Solemn, Strict Proverbial. |
+| **Who is talking** | Six elders — Grandpa, Grandma, the Northern Elder of Lofa, Market Auntie, Market Uncle, Coastal Sage — each a particular person with a voice of their own, and four tones: Classic Warmth, Playful, Solemn, Strict Proverbial. |
 | **What it can do** | The line under the composer shows one thing the app is actually for — a folktale you choose the ending of, homework with the method worked through, the answer read aloud in an elder's voice — and moves on to another every few seconds. It holds still while you type, while an answer is arriving, and while you are talking. A line that needs something this deployment has not switched on is simply never shown. |
 | **Glossary** | Liberian terms in an answer (*small-small*, *palava hut*, *susu*, *dumboy*) are underlined; tapping one explains it, so a reader from outside can follow without the vernacular being translated away. |
 | **Daylight & Twilight** | Daylight is linen `#FAF3E0`, terracotta `#C62828`, palm gold `#FF8F00`, wood brown `#4E342E`. Twilight is deep mahogany `#140C0B` with warm amber, for evening storytelling. |
@@ -699,6 +699,25 @@ their own pace and their own character; what they no longer have is permission
 to be small. The shared rule changed with them: warmth is still not the
 up-and-down of an advertisement, but a voice with no life in it is not dignified
 either, it is just tired, and nobody sits down to listen to it.
+
+**The Northern Elder was a set of adjectives**, and the Market Uncle was a man.
+"Measured, formal, careful with words, from up-country" describes nobody —
+up-country is a direction, not a place — while the Uncle had Waterside, a trade,
+thirty years of it, and one habit you remember him by. That is the whole
+difference between a character and a description, so the Elder is built the same
+way now: an elder of **Lofa County** who has sat in the palaver hut for forty
+years, and what people bring him is a **quarrel**. Land, boundaries, a family
+matter, two people who have to go on living beside each other once it is
+settled. So he hears the whole thing before he says anything, and he says what
+both sides can live with rather than only what is correct.
+
+That is a different use from the Uncle's price or the Auntie's waste: it is for
+the questions where being right is not the same as being finished. His habit,
+the one a listener notices: he does not repeat himself for emphasis, so when he
+*does* say a thing twice, that is the one to carry home. And he begins from the
+far side — the season, the land, the way it has always been done — and arrives
+at the answer rather than opening with it. His voice moved from `ash` to
+`ballad`, which carries more weight.
 
 **The Market Uncle is not the Market Auntie an octave down.** In a Monrovia
 market the women hold the produce stalls — greens, pepper, fish — and she is
