@@ -158,6 +158,8 @@ const el = {
   send: $('send-btn'),
   stop: $('stop-btn'),
   mic: $('mic-btn'),
+  more: $('more-btn'),
+  moreMenu: $('more-menu'),
   photo: $('photo-btn'),
   photoInput: $('photo-input'),
   photoWaiting: $('photo-waiting'),
@@ -646,9 +648,32 @@ function showError(message, { retry = true } = {}) {
 }
 
 function setBusy(busy) {
-  el.send.hidden = busy;
   el.stop.hidden = !busy;
   el.input.disabled = false; // let the user type their next question while waiting
+  showTheRightCircle();
+}
+
+/**
+ * One filled circle on the right, holding whichever of three things the
+ * moment calls for.
+ *
+ * There used to be five icons around the text box, and on a phone that left
+ * "Ask Grandpa anything…" wrapping onto two lines — in the one box that has
+ * to be easy to type in. Talk and Send are never both useful at the same
+ * instant: with nothing to send, the circle is how you start talking; the
+ * moment there is something, it is how you send it. So they share the place.
+ */
+let canTalk = true;   // false where the browser has no speech recognition
+
+function showTheRightCircle() {
+  const busy = !el.stop.hidden;
+  const hasSomething = el.input.value.trim().length > 0 || Boolean(waiting);
+
+  // Where a hands-free conversation is not possible at all, Send keeps the
+  // place to itself and sits disabled — an empty hole where a button belongs
+  // reads as something broken.
+  el.send.hidden = busy || (!hasSomething && canTalk);
+  el.talkBtn.hidden = busy || hasSomething || !canTalk;
 }
 
 /**
@@ -955,6 +980,7 @@ function updateSendState() {
   // A picture on its own is a question. Somebody who photographs a page and
   // presses send is asking what it says, and should not have to type that.
   el.send.disabled = el.input.value.trim().length === 0 && !waiting;
+  showTheRightCircle();
 }
 
 /* ---- looking it up on purpose -------------------------------------------
@@ -1261,7 +1287,43 @@ async function choosePhoto(file) {
   }
 }
 
-el.photo.addEventListener('click', () => el.photoInput.click());
+/* ---- the plus ------------------------------------------------------------
+   Five icons round a text box left "Ask Grandpa anything…" wrapping onto two
+   lines on a phone, in the one box that has to be easy to type in. What a
+   person reaches for now and then lives behind here; what they reach for every
+   time stays out. */
+
+function showMore(open) {
+  el.moreMenu.hidden = !open;
+  el.more.setAttribute('aria-expanded', String(open));
+}
+
+/** The plus is only worth a place if there is something behind it. */
+function refreshMore() {
+  const anything = !el.photo.hidden || !el.look.hidden;
+  el.more.hidden = !anything;
+  if (!anything) showMore(false);
+}
+
+el.more.addEventListener('click', (event) => {
+  event.stopPropagation();
+  showMore(el.moreMenu.hidden);
+});
+
+// Anywhere else, and the menu is done with.
+document.addEventListener('click', (event) => {
+  if (el.moreMenu.hidden) return;
+  if (event.target.closest('#more-menu') || event.target.closest('#more-btn')) return;
+  showMore(false);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.key === 'Escape' && !el.moreMenu.hidden) showMore(false);
+});
+
+el.photo.addEventListener('click', () => {
+  showMore(false);
+  el.photoInput.click();
+});
 el.photoInput.addEventListener('change', () => choosePhoto(el.photoInput.files?.[0]));
 el.photoDrop.addEventListener('click', dropPhoto);
 
@@ -1834,6 +1896,7 @@ el.setRoom.addEventListener('change', () => {
 el.look.addEventListener('click', () => {
   setLookItUp(!state.lookItUp);
   sounds.tap();
+  showMore(false);
   el.input.focus();
 });
 
@@ -2607,8 +2670,10 @@ async function boot() {
   // No microphone, no spoken conversation — say so by leaving the way in out
   // of reach rather than letting it fail when tapped.
   if (!SpeechRecognitionAPI) {
+    canTalk = false;
     el.talkBtn.hidden = true;
     el.startTalking.hidden = true;
+    showTheRightCircle();
   }
 
   // Voices arrive asynchronously — fill the picker once they do.
@@ -2689,6 +2754,9 @@ async function boot() {
 
     // Likewise the camera: only where this key has a model that can look.
     el.photo.hidden = !config.vision;
+
+    // And the plus itself is only worth a place if either of them is there.
+    refreshMore();
 
     // The Album tab appears only where pictures are actually switched on.
     const albumTab = el.libraryTabs.querySelector('[data-tab="album"]');

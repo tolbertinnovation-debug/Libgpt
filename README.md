@@ -30,7 +30,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **The question picks the model** | No picker, and nothing to read about it. "Good morning" goes to the cheapest model on the account; "how do I plant rice" to the everyday one; a folktale, a sum, a letter or a plan to the best one — decided by the words in the question. Settings says nothing about models at all, because which one answered is the app's business and not the reader's. |
 | **Multilingual chatbot** | Liberian English vernacular by default, standard English alongside it. Kpelle, Vai and Bassa appear in the picker as roadmap languages — the assistant says plainly that they are still being built rather than faking them. |
 | **Talking with Grandpa** | A hands-free spoken conversation: talk, stop talking, and he answers out loud — then listens again by himself, with nothing to press. **Talk over him and he stops**, the way a person does. He waits when you pause on "and" or "because" instead of cutting you off. Each sentence is spoken as it arrives, and the exchange is left behind as an ordinary conversation you can read. See below. |
-| **Live news** | Ask what happened today and he goes and reads it, then says which paper carried it and when — Liberian papers first. Only questions that are actually about *now* are looked up; everything else is answered from what he knows, and still refused honestly when he does not know it. Being told to "search", "look up" or "find me" is enough on its own, and there is a globe on the composer for the times the guess is wrong. See below. |
+| **Live news** | Ask what happened today and he goes and reads it, then says which paper carried it and when — Liberian papers first. Only questions that are actually about *now* are looked up; everything else is answered from what he knows, and still refused honestly when he does not know it. Being told to "search", "look up" or "find me" is enough on its own, and there is a globe behind the **+** for the times the guess is wrong. See below. |
 | **Whole answers** | A reply that runs out of room is picked up and carried on — twice if it needs it — and the halves are joined with no seam. An answer that stops mid-sentence is not an answer. See below. |
 | **How Grandpa talks** | Not an accent filter over standard English. A register with its own sound, grammar, vocabulary and way of arranging a thought — three registers, in fact, from broadcast-standard to family talk to ceremonial. See below. |
 | **How loud the voice is** | Louder than a phone can go on its own. `audio.volume` stops at 1 and is already there, so the voice is run through a compressor and a makeup gain instead — the loud syllables held back so the quiet trailing ones can come up with them, which is what actually makes a voice carry over a generator. Three steps, **Loud by default**, and turning it up lands on the words being spoken right now. See below. |
@@ -180,6 +180,30 @@ Newer models also reject settings the older ones require: `max_tokens` has to be
 table of which model wants what, the server reads the refusal, sends the request
 again without the offending setting, and remembers what each model refused — so that
 round trip is paid once, not on every message.
+
+### The box you type in
+
+It had five icons around it — globe, camera, microphone, waveform, send — and on
+a phone that left *"Ask Grandpa anything…"* wrapping onto two lines. In the one
+box the whole app depends on being easy to use.
+
+So it is a pill now, and the crowd is gone:
+
+- **A `+` on the left** holds what a person reaches for now and then: *Send a
+  photo*, *Look it up on the web*. Named in words rather than left as icons to
+  guess at. The plus is not shown at all where the deployment can do neither.
+- **One filled circle on the right**, holding whichever of three things the
+  moment calls for. With an empty box there is nothing to send, so it offers to
+  **talk**; the instant there is something, it becomes **send**; while he is
+  answering, it is **stop**. They are never all useful at once, so they share
+  the place — which is what removed the fifth icon.
+- **The microphone stays out**, because that is reached for every time.
+- **Everything that is not the question moved above the box** — the persona
+  badge and the waiting photograph — so the box itself stays one clean line.
+
+The radius is half the resting height, so at one line it is a true pill and when
+the text grows it becomes a soft rectangle rather than a lozenge, with the
+buttons held to the last line where the cursor is.
 
 ### Showing him something
 

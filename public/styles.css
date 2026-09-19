@@ -123,7 +123,7 @@ body {
 }
 
 /* Generic icon strokes. Fills are set explicitly where a shape needs one. */
-.icon-btn svg, .new-chat svg, .send-btn svg, .search-icon, .chat-row svg {
+.icon-btn svg, .new-chat svg, .round-btn svg, .search-icon, .chat-row svg {
   fill: none;
   stroke: currentColor;
   stroke-width: 2;
@@ -919,18 +919,27 @@ body {
   background: linear-gradient(to top, var(--bg) 60%, transparent);
 }
 
+/* Anything that is not the question sits above the box, outside it, so the box
+   itself stays one clean line. */
+.composer-extras {
+  max-width: var(--measure);
+  margin: 0 auto;
+}
+
+/* A pill. The radius is half the resting height, so at one line it is a true
+   pill and when the text grows it becomes a soft rectangle rather than a
+   lozenge — which is what happens in every app that gets this right. */
 .composer {
   max-width: var(--measure);
   margin: 0 auto;
   border: 1px solid color-mix(in srgb, var(--navy) 28%, var(--border-strong));
-  border-radius: var(--radius);
+  border-radius: 26px;
   background: var(--bg-raised);
   box-shadow: 0 10px 30px rgba(23, 37, 85, .12);
-  padding: .5rem .5rem .5rem .85rem;
+  padding: .3rem .35rem .3rem .4rem;
   display: flex;
   align-items: flex-end;
-  gap: .4rem;
-  flex-wrap: wrap;
+  gap: .15rem;
   transition: border-color .15s, box-shadow .15s;
 }
 .composer:focus-within {
@@ -939,11 +948,10 @@ body {
 }
 
 .composer-persona {
-  flex: 0 0 100%;
   display: flex;
   align-items: center;
   gap: .35rem;
-  padding: 0 0 .35rem;
+  padding: 0 .9rem .4rem;
   font-size: .74rem;
   color: var(--navy);
   font-weight: 600;
@@ -951,21 +959,87 @@ body {
 [data-theme="dark"] .composer-persona { color: var(--gold); }
 
 #composer-input {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   border: none;
   background: transparent;
   color: var(--text);
   font: inherit;
-  line-height: 1.55;
-  padding: .4rem 0;
+  line-height: 1.5;
+  /* The left padding is what keeps the words off the plus, and the vertical
+     padding is what centres one line inside the pill. */
+  padding: .6rem .3rem .6rem .45rem;
   resize: none;
   max-height: 40vh;
   outline: none;
 }
 #composer-input::placeholder { color: var(--text-faint); }
 
-.composer-actions { display: flex; align-items: center; gap: .25rem; }
+.composer-actions {
+  display: flex;
+  align-items: center;
+  gap: .1rem;
+  /* Held against the bottom of a box that has grown, so the buttons stay on
+     the last line with the cursor rather than floating beside the middle. */
+  padding-bottom: 1px;
+}
+
+/* ---- the plus, and what lives behind it ---- */
+.composer-more { position: relative; display: flex; align-items: center; padding-bottom: 1px; }
+
+.more-menu {
+  position: absolute;
+  bottom: calc(100% + .5rem);
+  left: 0;
+  z-index: 40;
+  min-width: 15rem;
+  padding: .35rem;
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-lg, 0 16px 40px rgba(23, 37, 85, .22));
+  display: flex;
+  flex-direction: column;
+  gap: .1rem;
+}
+.more-item {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  width: 100%;
+  padding: .6rem .7rem;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: .9rem;
+  text-align: left;
+  cursor: pointer;
+}
+.more-item:hover { background: var(--bg-hover); }
+.more-item svg { flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.more-btn[aria-expanded="true"] { background: var(--bg-hover); color: var(--text); }
+
+/* ---- the one filled circle on the right ---- */
+.round-btn {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 36px; height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: var(--navy);
+  color: #fff;
+  cursor: pointer;
+  transition: background .15s, opacity .15s, transform .12s;
+}
+.round-btn:hover:not(:disabled) { background: var(--navy-deep); }
+.round-btn:active:not(:disabled) { transform: scale(.94); }
+.round-btn:disabled { opacity: .35; cursor: not-allowed; }
+.round-btn svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+[data-theme="dark"] .round-btn { background: var(--gold); color: #201412; }
+[data-theme="dark"] .round-btn:hover:not(:disabled) { background: var(--gold-deep); }
 
 .mic-btn.is-listening {
   background: color-mix(in srgb, var(--red) 15%, transparent);
@@ -977,27 +1051,15 @@ body {
   50% { box-shadow: 0 0 0 6px transparent; }
 }
 
-.send-btn {
-  display: grid;
-  place-items: center;
-  width: 32px; height: 32px;
-  border: none; border-radius: var(--radius-sm);
-  background: var(--navy);
-  color: #fff;
-  cursor: pointer;
-  transition: background .15s, opacity .15s;
-}
-.send-btn:hover:not(:disabled) { background: var(--navy-deep); }
-.send-btn:disabled { opacity: .35; cursor: not-allowed; }
-[data-theme="dark"] .send-btn { background: var(--gold); color: #201412; }
-/* The look-it-up switch. Off it is one more quiet icon; on it is unmistakable,
-   because it is the one button here that spends more than an answer costs. */
+/* The look-it-up switch. Off it is one more quiet row; on it is unmistakable,
+   because it is the one thing here that spends more than an answer costs. */
 .look-btn.is-on {
-  background: var(--gold);
-  color: #201412;
-  border-color: var(--gold-deep);
+  background: color-mix(in srgb, var(--gold) 22%, transparent);
+  color: var(--gold-deep);
+  font-weight: 600;
 }
-.look-btn.is-on:hover { background: var(--gold-deep); }
+[data-theme="dark"] .look-btn.is-on { color: var(--gold); }
+.look-btn.is-on:hover { background: color-mix(in srgb, var(--gold) 30%, transparent); }
 
 .stop-btn { background: var(--red); }
 .stop-btn:hover { background: #a91f1f; }
@@ -1613,7 +1675,9 @@ body {
 }
 .photo-waiting-said small { font-size: .72rem; color: var(--text-soft); }
 
-.photo-btn.is-on { color: var(--red); border-color: var(--red); }
+/* A picture already waiting. The row is a menu row now rather than a loose
+   icon, so it is marked the way the other one is. */
+.photo-btn.is-on { color: var(--red); font-weight: 600; }
 
 /* The picture in the conversation, above the words — the way it sits in every
    other messaging app on the phone this is read on. */
