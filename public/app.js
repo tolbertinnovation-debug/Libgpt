@@ -19,6 +19,7 @@ import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary } from './library.js';
 import { Dictation, canRecord } from './dictate.js';
 import { shrink, thumbnail } from './photo.js';
+import { readPaper } from './papers.js';
 
 /* ========================================================================
    State
@@ -163,6 +164,12 @@ const el = {
   camera: $('camera-btn'),
   cameraInput: $('camera-input'),
   think: $('think-btn'),
+  paper: $('paper-btn'),
+  paperInput: $('paper-input'),
+  paperWaiting: $('paper-waiting'),
+  paperName: $('paper-name'),
+  paperSize: $('paper-size'),
+  paperDrop: $('paper-drop'),
   draw: $('draw-btn'),
   photo: $('photo-btn'),
   photoInput: $('photo-input'),
@@ -494,7 +501,19 @@ const SEND_LIMIT = 24_000;
  * exchanges, not on how the talk began an hour ago.
  */
 function forSending(messages) {
-  const list = messages.map(({ role, content }) => ({ role, content }));
+  // A document travels WITH the turn it was attached to, every time that turn
+  // is sent — which is what makes it possible to keep asking about it rather
+  // than getting one answer and losing it. The screen shows a chip and the
+  // words the person typed; the model gets the paper itself in front of them.
+  const list = messages.map(({ role, content, paper }) => ({
+    role,
+    content: paper
+      ? `THE PERSON HAS ATTACHED A DOCUMENT CALLED "${paper.name}".`
+        + ` Read it, and answer about it.${paper.clipped
+          ? ' It was long, so this is the first part of it — say so if the answer depends on what came after.'
+          : ''}\n\n--- the document ---\n${paper.text}\n--- end of the document ---\n\n${content}`
+      : content,
+  }));
   const size = () => list.reduce((n, m) => n + m.content.length, 0);
   let dropped = 0;
   while (list.length > 1 && size() > SEND_LIMIT) {
@@ -561,6 +580,14 @@ function renderThread() {
         return `<div class="turn turn-user"><div class="bubble">${
           message.photo
             ? `<img class="bubble-photo" src="${escapeHtml(message.photo)}" alt="The picture you sent">`
+            : ''
+        }${
+          // The paper itself is in what was sent, not on the screen. A bubble
+          // holding a whole syllabus is not a conversation.
+          message.paper
+            ? `<span class="bubble-paper"><svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">`
+              + `<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>`
+              + `${escapeHtml(message.paper.name)}</span>`
             : ''
         }${escapeHtml(message.content)}</div></div>`;
       }
@@ -671,7 +698,7 @@ let canTalk = true;   // false where the browser has no speech recognition
 
 function showTheRightCircle() {
   const busy = !el.stop.hidden;
-  const hasSomething = el.input.value.trim().length > 0 || Boolean(waiting);
+  const hasSomething = el.input.value.trim().length > 0 || Boolean(waiting) || Boolean(paper);
 
   // Where a hands-free conversation is not possible at all, Send keeps the
   // place to itself and sits disabled — an empty hole where a button belongs
@@ -930,17 +957,21 @@ function send(rawText) {
   // A picture with nothing typed beside it is the commonest way this is used:
   // photograph the page, press send. The words are supplied so the turn reads
   // like a question rather than arriving empty.
-  const text = typed || (waiting ? 'Look at this and tell me what you see.' : '');
-  if ((!text && !waiting) || state.streaming) return;
+  const text = typed
+    || (waiting ? 'Look at this and tell me what you see.' : '')
+    || (paper ? 'Read this and tell me what it says.' : '');
+  if ((!text && !waiting && !paper) || state.streaming) return;
 
   speaker.stop();   // a new question means the old answer stops talking
   if (listening) stopListening();
 
   const photo = waiting;
+  const attached = paper;
   dropPhoto();
+  dropPaper();
 
   const chat = ensureChat();
-  if (!chat.title) chat.title = typed.slice(0, 48) || 'A picture';
+  if (!chat.title) chat.title = typed.slice(0, 48) || attached?.name || 'A picture';
   chat.messages.push({
     role: 'user',
     content: text,
@@ -950,6 +981,9 @@ function send(rawText) {
     // conversations. The thumbnail remembers what was asked about; the answer,
     // which is the part worth keeping, is text.
     ...(photo ? { photo: photo.small } : {}),
+    // Kept whole, not as a thumbnail: this is what goes back up with every
+    // later turn so the talk can carry on about it. The screen shows a chip.
+    ...(attached ? { paper: attached } : {}),
   });
   chat.updatedAt = Date.now();
 
@@ -987,7 +1021,7 @@ function autoGrow() {
 function updateSendState() {
   // A picture on its own is a question. Somebody who photographs a page and
   // presses send is asking what it says, and should not have to type that.
-  el.send.disabled = el.input.value.trim().length === 0 && !waiting;
+  el.send.disabled = el.input.value.trim().length === 0 && !waiting && !paper;
   showTheRightCircle();
 }
 
@@ -1338,6 +1372,56 @@ el.think.addEventListener('click', () => {
   if (state.thinkHarder) toast('This one goes to the best model your key has.');
   el.input.focus();
 });
+
+/* ---- a document to read --------------------------------------------------
+   A student has a syllabus, a trader has a price list, somebody has a letter
+   from a ministry they cannot follow. Those are exactly what an elder who
+   reads well is for, and until now the only way to ask about one was to type
+   it out first — which for a four-page form nobody does.
+
+   It stays with the turn it was attached to, so the talk can go on about it
+   rather than ending after one answer. */
+
+let paper = null;   // the document on this turn
+
+function showWaitingPaper() {
+  el.paperWaiting.hidden = !paper;
+  el.paper.classList.toggle('is-on', Boolean(paper));
+  if (!paper) return;
+  el.paperName.textContent = paper.name;
+  el.paperSize.textContent = paper.clipped
+    ? `${paper.words} words — the first part of it`
+    : `${paper.words} words`;
+}
+
+function dropPaper() {
+  paper = null;
+  el.paperInput.value = '';
+  showWaitingPaper();
+  updateSendState();
+}
+
+async function choosePaper(file) {
+  if (!file) return;
+  try {
+    paper = await readPaper(file);
+    showWaitingPaper();
+    updateSendState();
+    if (paper.clipped) toast('That document is long, so only the first part goes with your question.');
+    el.input.focus();
+  } catch (error) {
+    // Every one of these says the other way in: take a picture of the page.
+    toast(error.message || 'That document could not be read.');
+    dropPaper();
+  }
+}
+
+el.paper.addEventListener('click', () => {
+  showMore(false);
+  el.paperInput.click();
+});
+el.paperInput.addEventListener('change', () => choosePaper(el.paperInput.files?.[0]));
+el.paperDrop.addEventListener('click', dropPaper);
 
 el.draw.addEventListener('click', () => {
   showMore(false);

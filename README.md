@@ -196,6 +196,7 @@ So it is a pill now, and the crowd is gone:
   | --- | --- |
   | **Camera** | Opens the camera outright. A single file box makes the phone ask which you meant every time; asking for the camera *asks for the camera*. |
   | **Photos** | Choose one already taken. |
+  | **Files** | Hand over a PDF or a text file and then talk about it. |
   | **Search the web** | The globe, for when the server's own guess about whether a question needs looking up is wrong. |
   | **Think harder** | This one turn goes to the best model the key has. |
   | **Draw a picture** | Opens the Album, where pictures are switched on. |
@@ -215,6 +216,48 @@ So it is a pill now, and the crowd is gone:
 The radius is half the resting height, so at one line it is a true pill and when
 the text grows it becomes a soft rectangle rather than a lozenge, with the
 buttons held to the last line where the cursor is.
+
+### Handing him a document
+
+A student has a syllabus. A trader has a price list. Somebody has a letter from
+a ministry, or a scholarship form, or a contract they have been asked to sign
+and cannot follow. Those are exactly the questions an elder who reads well is
+for — and until now the only way to ask about one was to type it out first,
+which for a four-page form is not a thing anybody does.
+
+**PDF is the format that matters**, because a document that reaches a phone in
+Liberia is nearly always a PDF. The usual answer is to pull in a parsing
+library, and that answer is not available here: this project has two
+dependencies and intends to keep them. So `public/papers.js` does the narrow
+job by hand, the same way the MP4 audio extractor does. A PDF is a set of
+objects, the text lives in compressed streams, and the compression is zlib —
+which every browser can now undo on its own through `DecompressionStream`. Find
+the streams, inflate them, and take what the text-drawing operators are
+drawing, using the kerning numbers inside a `TJ` array to put the spaces back
+where they belong.
+
+Two details in that, both of which produce *nothing at all* when missed. A PDF
+writes `stream\n<data>\nendstream`, and that last newline is punctuation
+rather than data: left on, the inflater stops with "trailing junk after the end
+of the compressed stream" and the whole document reads as empty — which is
+exactly how it failed the first time it was run against a real file. And while
+FlateDecode means zlib, some producers write it raw, so a failure is worth one
+second try.
+
+**And you can keep asking about it.** The document travels with the turn it was
+attached to, every time that turn is sent, so a second and third question still
+have the paper in front of them. The screen shows a chip with the file's name;
+a bubble holding a whole syllabus is not a conversation. Long papers are cut
+rather than refused — most of a syllabus answered beats a syllabus rejected —
+and both the reader and the model are told it happened.
+
+**What it cannot do, and says so.** A scanned PDF is photographs of paper. It
+has no text in it to find and no amount of parsing will invent any, so it says
+that plainly and points at the way that *does* work: take a picture of the
+page, which this app can already read. The same for a PDF whose text is stored
+in an embedded subset font that comes back as the font's own numbering rather
+than as letters — better to say so than to send a page of rubbish and let him
+answer it seriously.
 
 **Think harder, and why it is a row rather than a setting.** The question
 chooses the model by itself, and that is right nearly always: nobody should
@@ -1054,6 +1097,7 @@ public/
   app.js        State, streaming, history, settings, sharing
   speech.js     Text-to-speech chunking, voice ranking, dictation locales
   dictate.js    The microphone as a recording — the way that works everywhere
+  papers.js     Reading a PDF or a text file, with nothing installed
   photo.js      Shrinking a photograph on the phone before it is ever sent
   converse.js   The hands-free loop: turn-taking, silence detection, cutting in
   ear.js        The microphone as a volume meter — never as words
