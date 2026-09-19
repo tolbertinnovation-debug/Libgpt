@@ -238,6 +238,46 @@ function setCurrent(id) {
   state.currentId = id;
 }
 
+/* ------------------------------------------------------------------------
+   Coming back from an accident
+   ------------------------------------------------------------------------
+   A refresh starts a new conversation. But a phone also reloads the page on
+   its own: a pull-to-refresh while scrolling, or the browser throwing the tab
+   away to save memory. Losing a half-typed question that way is maddening, so
+   the page leaves a note when it goes away in the middle of something — an
+   answer still arriving, or a question still in the box — and picks the note
+   up if it comes straight back. The note lives in sessionStorage, which
+   belongs to this tab alone and goes when the tab goes.
+   ------------------------------------------------------------------------ */
+
+const MIDTURN_KEY = 'grandpa-ai:midturn';
+const STRAIGHT_BACK_MS = 2 * 60 * 1000; // away longer than this is not an accident
+
+/** Leave a note, if the page is going away in the middle of something. */
+function noteWhereWeWere() {
+  const draft = el.input.value.trim();
+  const midTurn = Boolean(state.streaming) || Boolean(draft);
+  try {
+    if (!midTurn) { sessionStorage.removeItem(MIDTURN_KEY); return; }
+    sessionStorage.setItem(MIDTURN_KEY, JSON.stringify({
+      id: state.currentId || null,
+      at: Date.now(),
+      draft,
+    }));
+  } catch { /* private window: the note is a kindness, not a duty */ }
+}
+
+/** The note, if a fresh one was left. Reading it also uses it up. */
+function whereWeWere() {
+  let note = null;
+  try {
+    note = JSON.parse(sessionStorage.getItem(MIDTURN_KEY) || 'null');
+    sessionStorage.removeItem(MIDTURN_KEY);
+  } catch { return null; }
+  if (!note || Date.now() - (note.at || 0) > STRAIGHT_BACK_MS) return null;
+  return note;
+}
+
 /* ========================================================================
    Small helpers
    ======================================================================== */
@@ -2900,6 +2940,18 @@ async function boot() {
     el.banner.innerHTML = '<strong>Cannot reach the server.</strong> <span>Is it still running?</span>';
   }
 
+  // Away in the middle of something and straight back again: that was an
+  // accident, not a fresh start. Pick up where it was.
+  const back = whereWeWere();
+  if (back) {
+    if (back.id && state.chats.some((c) => c.id === back.id)) {
+      state.currentId = back.id;
+      const chat = currentChat();
+      if (chat?.persona) state.prefs.persona = chat.persona;
+    }
+    if (back.draft) el.input.value = back.draft;
+  }
+
   renderComposerPersona();
   renderThread();
   renderSidebar();
@@ -2912,5 +2964,10 @@ async function boot() {
   setNavHidden(!onPhone() && state.prefs.navHidden === true);
   el.input.focus();
 }
+
+window.addEventListener('pagehide', noteWhereWeWere);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') noteWhereWeWere();
+});
 
 boot();
