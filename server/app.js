@@ -560,16 +560,20 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   // The question decides which model answers it. "Good morning" is not
   // worth the best model on the account; working out the interest on a loan
   // is. Nobody should have to pick that from a list of forty names.
+  // Asked to think harder on this one turn. The question normally chooses the
+  // model by itself; this is for the hard question whose words do not look it.
+  const think = req.body?.think === true;
+
   let model = searched
     ? reader
-    : await pickModel(req.body?.model, 'chat', { persona, asked, seeing: Boolean(photo) });
+    : await pickModel(req.body?.model, 'chat', { persona, asked, seeing: Boolean(photo), think });
 
   // Nothing on this account can look at a picture. Better to say so and answer
   // the words than to send it to a model that will refuse the whole turn.
   if (photo && !(await canSeeWith(model))) {
     photo = '';
     photoRefused = 'None of the models on this key can look at pictures, so I am answering from your words alone.';
-    model = await pickModel(req.body?.model, 'chat', { persona, asked });
+    model = await pickModel(req.body?.model, 'chat', { persona, asked, think });
   }
   let system = promptFor(searched);
 
@@ -595,7 +599,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     // about nothing would have no idea why.
     if (photoRefused) send('notice', { message: photoRefused });
 
-    send('start', { model, spoken, searched, dropped, saw: Boolean(photo) });
+    send('start', { model, spoken, searched, dropped, saw: Boolean(photo), thought: think });
 
     // The room to answer in. A spoken answer is meant to be short, and the
     // prompt asks for short — this is the backstop for when the model does not
@@ -696,12 +700,12 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
         console.error('[search] falling back to an ordinary answer:', error.message);
 
         searched = false;
-        model = await pickModel(req.body?.model, 'chat', { persona, asked });
+        model = await pickModel(req.body?.model, 'chat', { persona, asked, think });
         system = promptFor(false);
         // Correct what the browser was told: no badge, and he is back to
         // saying he has not heard the news — which, having failed to read it,
         // is true again.
-        send('start', { model, spoken, searched, dropped, saw: Boolean(photo) });
+        send('start', { model, spoken, searched, dropped, saw: Boolean(photo), thought: think });
       }
     }
 

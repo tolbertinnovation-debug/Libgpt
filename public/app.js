@@ -160,6 +160,10 @@ const el = {
   mic: $('mic-btn'),
   more: $('more-btn'),
   moreMenu: $('more-menu'),
+  camera: $('camera-btn'),
+  cameraInput: $('camera-input'),
+  think: $('think-btn'),
+  draw: $('draw-btn'),
   photo: $('photo-btn'),
   photoInput: $('photo-input'),
   photoWaiting: $('photo-waiting'),
@@ -730,6 +734,9 @@ async function streamReply(chat, hooks = {}) {
         // Asked for outright. The server works out for itself when a question
         // needs looking up; this is for when it guesses wrong.
         search: state.lookItUp === true,
+        // One turn at a time. Reset below, the same as looking it up, so
+        // neither can spend a second time without being asked for again.
+        think: state.thinkHarder === true,
         speaker: state.prefs.speaker,
         tone: state.prefs.tone,
         userName: state.prefs.userName,
@@ -864,9 +871,10 @@ async function streamReply(chat, hooks = {}) {
     target.closest('.turn')?.remove();
   }
 
-  // One question at a time: it is a decision about the thing being asked, not
-  // a mode to be left on and forgotten about spending money.
+  // One question at a time, both of them: each is a decision about the thing
+  // being asked, not a mode to be left on and forgotten about spending money.
   setLookItUp(false);
+  setThinkHarder(false);
 
   if (!chat.titled && chat.messages.length >= 2) nameConversation(chat);
 
@@ -1250,6 +1258,7 @@ let waiting = null;
 function showWaitingPhoto() {
   el.photoWaiting.hidden = !waiting;
   el.photo.classList.toggle('is-on', Boolean(waiting));
+  el.camera.classList.toggle('is-on', Boolean(waiting));
   if (!waiting) {
     el.photoThumb.removeAttribute('src');
     return;
@@ -1263,7 +1272,9 @@ function showWaitingPhoto() {
 
 function dropPhoto() {
   waiting = null;
-  el.photoInput.value = '';   // so the same file can be chosen again
+  // Both, so the same picture can be chosen again from either way in.
+  el.photoInput.value = '';
+  el.cameraInput.value = '';
   showWaitingPhoto();
   updateSendState();
 }
@@ -1300,10 +1311,44 @@ function showMore(open) {
 
 /** The plus is only worth a place if there is something behind it. */
 function refreshMore() {
-  const anything = !el.photo.hidden || !el.look.hidden;
+  const rows = [...el.moreMenu.querySelectorAll('.more-item')];
+  const anything = rows.some((row) => !row.hidden);
   el.more.hidden = !anything;
   if (!anything) showMore(false);
 }
+
+/* ---- think harder --------------------------------------------------------
+   The question chooses the model by itself, and that is right nearly always —
+   nobody should have to pick from a list of forty names. But the choice is
+   made from the words, and words are a thin thing to judge a hard question
+   by: "work out whether this loan is worth taking" is eleven ordinary ones.
+   This is the case the guess cannot cover.
+
+   One turn at a time, never a setting. A switch that spends more on every
+   question is a switch people leave on and forget. */
+function setThinkHarder(on) {
+  state.thinkHarder = Boolean(on);
+  el.think.setAttribute('aria-pressed', String(state.thinkHarder));
+}
+
+el.think.addEventListener('click', () => {
+  setThinkHarder(!state.thinkHarder);
+  sounds.tap();
+  showMore(false);
+  if (state.thinkHarder) toast('This one goes to the best model your key has.');
+  el.input.focus();
+});
+
+el.draw.addEventListener('click', () => {
+  showMore(false);
+  openLibrary('album');
+});
+
+el.camera.addEventListener('click', () => {
+  showMore(false);
+  el.cameraInput.click();
+});
+el.cameraInput.addEventListener('change', () => choosePhoto(el.cameraInput.files?.[0]));
 
 el.more.addEventListener('click', (event) => {
   event.stopPropagation();
@@ -2751,11 +2796,17 @@ async function boot() {
     // worse than no button.
     el.look.hidden = !config.liveNews;
     setLookItUp(false);
+    setThinkHarder(false);
 
     // Likewise the camera: only where this key has a model that can look.
     el.photo.hidden = !config.vision;
+    el.camera.hidden = !config.vision;
 
-    // And the plus itself is only worth a place if either of them is there.
+    // Drawing costs cents rather than fractions of a penny, so it is only
+    // offered where pictures are actually switched on.
+    el.draw.hidden = !config.imagesEnabled;
+
+    // And the plus itself is only worth a place if something is behind it.
     refreshMore();
 
     // The Album tab appears only where pictures are actually switched on.

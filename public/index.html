@@ -202,14 +202,19 @@
       </div>
 
       <div class="composer" id="composer">
+        <!-- Two inputs, not one. A single file box makes the phone ask
+             which you meant every time; asking for the camera outright opens
+             it outright, which is what a person tapping "Camera" wanted. -->
         <input type="file" id="photo-input" accept="image/*" hidden>
+        <input type="file" id="camera-input" accept="image/*" capture="environment" hidden>
 
-        <!-- The plus. Five icons around a text box left "Ask Grandpa
-             anything" wrapping onto two lines on a phone, which is the one
-             thing this box has to do well. The things you reach for now and
-             then live behind here; the things you reach for every time stay
-             out. The plus itself is not shown when this deployment can do
-             neither of them. -->
+        <!-- The plus. Five icons round a text box left "Ask Grandpa
+             anything…" wrapping onto two lines on a phone, which is the one
+             thing this box has to do well. The things reached for now and
+             then live behind here; the things reached for every time stay
+             out. Each row is named in words, and each row is shown only where
+             this deployment can really do it — a menu that offers what the
+             key cannot do is worse than a shorter menu. -->
         <div class="composer-more">
           <button class="icon-btn more-btn" id="more-btn" type="button" hidden
                   aria-haspopup="true" aria-expanded="false"
@@ -219,23 +224,58 @@
             </svg>
           </button>
           <div class="more-menu" id="more-menu" hidden role="menu">
-            <!-- Shown only where this key has a model that can actually look
-                 at a picture. -->
-            <button class="more-item photo-btn" id="photo-btn" type="button" role="menuitem" hidden>
-              <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
-                <path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1.2-2h8.2l1.2 2h2.2A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/>
-                <circle cx="12" cy="13" r="3.4"/>
-              </svg>
-              <span>Send a photo</span>
+            <button class="more-item camera-btn" id="camera-btn" type="button" role="menuitem" hidden>
+              <span class="more-icon">
+                <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+                  <path d="M3 8.5A1.5 1.5 0 0 1 4.5 7h2.2l1.2-2h8.2l1.2 2h2.2A1.5 1.5 0 0 1 21 8.5v9A1.5 1.5 0 0 1 19.5 19h-15A1.5 1.5 0 0 1 3 17.5z"/>
+                  <circle cx="12" cy="13" r="3.4"/>
+                </svg>
+              </span>
+              <span>Camera</span>
             </button>
-            <!-- Shown only where the deployment can actually read the web. -->
+            <button class="more-item photo-btn" id="photo-btn" type="button" role="menuitem" hidden>
+              <span class="more-icon">
+                <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+                  <rect x="3" y="5" width="18" height="14" rx="2.5"/>
+                  <circle cx="8.5" cy="10" r="1.6"/>
+                  <path d="M21 16l-5-5-6 6"/>
+                </svg>
+              </span>
+              <span>Photos</span>
+            </button>
             <button class="more-item look-btn" id="look-btn" type="button" role="menuitem" hidden
                     aria-pressed="false">
-              <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
-                <circle cx="12" cy="12" r="9"/>
-                <path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"/>
-              </svg>
-              <span>Look it up on the web</span>
+              <span class="more-icon">
+                <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9"/>
+                  <path d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"/>
+                </svg>
+              </span>
+              <span>Search the web</span>
+            </button>
+            <!-- The question normally chooses the model by itself. This is for
+                 the hard one whose words do not look hard. One turn only. -->
+            <button class="more-item think-btn" id="think-btn" type="button" role="menuitem"
+                    aria-pressed="false">
+              <span class="more-icon">
+                <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+                  <circle cx="12" cy="12" r="9"/>
+                  <path d="M12 12l4.5-4"/>
+                  <circle cx="12" cy="12" r="1.4" fill="currentColor" stroke="none"/>
+                </svg>
+              </span>
+              <span>Think harder</span>
+            </button>
+            <!-- Only where pictures are switched on, because they cost cents
+                 rather than fractions of a penny. -->
+            <button class="more-item draw-btn" id="draw-btn" type="button" role="menuitem" hidden>
+              <span class="more-icon">
+                <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+                  <path d="M15.5 4.5l4 4L8 20H4v-4z"/>
+                  <path d="M13.5 6.5l4 4"/>
+                </svg>
+              </span>
+              <span>Draw a picture</span>
             </button>
           </div>
         </div>

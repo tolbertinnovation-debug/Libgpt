@@ -189,9 +189,20 @@ box the whole app depends on being easy to use.
 
 So it is a pill now, and the crowd is gone:
 
-- **A `+` on the left** holds what a person reaches for now and then: *Send a
-  photo*, *Look it up on the web*. Named in words rather than left as icons to
-  guess at. The plus is not shown at all where the deployment can do neither.
+- **A `+` on the left** holds what a person reaches for now and then, each row
+  named in words with its icon in a disc:
+
+  | | |
+  | --- | --- |
+  | **Camera** | Opens the camera outright. A single file box makes the phone ask which you meant every time; asking for the camera *asks for the camera*. |
+  | **Photos** | Choose one already taken. |
+  | **Search the web** | The globe, for when the server's own guess about whether a question needs looking up is wrong. |
+  | **Think harder** | This one turn goes to the best model the key has. |
+  | **Draw a picture** | Opens the Album, where pictures are switched on. |
+
+  Every row is shown only where this deployment can really do it — a menu that
+  offers what the key cannot do is worse than a shorter menu — and the plus
+  itself is not shown at all when none of them is available.
 - **One filled circle on the right**, holding whichever of three things the
   moment calls for. With an empty box there is nothing to send, so it offers to
   **talk**; the instant there is something, it becomes **send**; while he is
@@ -204,6 +215,19 @@ So it is a pill now, and the crowd is gone:
 The radius is half the resting height, so at one line it is a true pill and when
 the text grows it becomes a soft rectangle rather than a lozenge, with the
 buttons held to the last line where the cursor is.
+
+**Think harder, and why it is a row rather than a setting.** The question
+chooses the model by itself, and that is right nearly always: nobody should
+have to pick from a list of forty names, and the picker was removed for good
+reasons. But the choice is made from the *words*, and words are a thin thing to
+judge a hard question by — *"work out whether this loan is worth taking"* is
+eleven ordinary ones. This is the single case the guess cannot cover.
+
+It is asked for one turn at a time and switches itself off again afterwards,
+like looking it up on the web does. A switch that spends more on every question
+is a switch people leave on and forget, and the bill is somebody's in Monrovia.
+The turn reports `thought: true` so the page can be honest about which answers
+cost more.
 
 ### Showing him something
 

@@ -162,10 +162,18 @@ const JUST_TALK = new RegExp(
  * what was actually asked rather than by the fact that it was a chat turn —
  * which is the whole of what "let the model be chosen by the question" means.
  */
-export function tierFor(task, { persona = '', asked = '', seeing = false } = {}) {
+export function tierFor(task, { persona = '', asked = '', seeing = false, think = false } = {}) {
   // A photograph decides it before the words do. Whatever was typed beside it,
   // the turn cannot be answered by a model that cannot look.
   if (seeing) return 'seeing';
+
+  // Asked for outright. Nobody should have to choose a model, and nobody does
+  // — but the choice is made from the words, and words are a thin thing to
+  // judge a hard question by. "Work out whether this loan is worth taking" is
+  // eleven ordinary words. This is the one case the guess cannot cover, and it
+  // is asked for a turn at a time rather than set and forgotten, because a
+  // setting that spends more on every question is a setting people forget.
+  if (think) return 'deep';
 
   switch (task) {
     // Three words in a sidebar. Never worth a large model.

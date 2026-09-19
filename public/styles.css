@@ -992,7 +992,7 @@ body {
   bottom: calc(100% + .5rem);
   left: 0;
   z-index: 40;
-  min-width: 15rem;
+  min-width: 15.5rem;
   padding: .35rem;
   border: 1px solid var(--border-strong);
   border-radius: 14px;
@@ -1005,20 +1005,46 @@ body {
 .more-item {
   display: flex;
   align-items: center;
-  gap: .6rem;
+  gap: .7rem;
   width: 100%;
-  padding: .6rem .7rem;
+  padding: .4rem .55rem;
   border: none;
-  border-radius: 10px;
+  border-radius: 12px;
   background: transparent;
   color: var(--text);
   font: inherit;
-  font-size: .9rem;
+  font-size: .94rem;
   text-align: left;
   cursor: pointer;
 }
 .more-item:hover { background: var(--bg-hover); }
-.more-item svg { flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; }
+.more-item > span:last-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* The icon sits in its own soft disc, the way it does in the app people are
+   comparing this with. It is what makes a list of rows read as a set of
+   things you can do rather than as a paragraph with pictures. */
+.more-icon {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  /* Mixed against the text rather than set to a background token, so the disc
+     is visibly a disc in both themes instead of dissolving into the panel. */
+  background: color-mix(in srgb, var(--text) 11%, transparent);
+  color: var(--text-soft);
+}
+.more-item:hover .more-icon { color: var(--text); }
+.more-icon svg { fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+/* A row that is switched ON for the next turn. Both of these spend more than
+   an ordinary answer, so neither is allowed to be subtle about it. */
+.more-item[aria-pressed="true"] { font-weight: 600; }
+.more-item[aria-pressed="true"] .more-icon {
+  background: color-mix(in srgb, var(--gold) 26%, transparent);
+  color: var(--gold-deep);
+}
+[data-theme="dark"] .more-item[aria-pressed="true"] .more-icon { color: var(--gold); }
 .more-btn[aria-expanded="true"] { background: var(--bg-hover); color: var(--text); }
 
 /* ---- the one filled circle on the right ---- */
@@ -1051,15 +1077,8 @@ body {
   50% { box-shadow: 0 0 0 6px transparent; }
 }
 
-/* The look-it-up switch. Off it is one more quiet row; on it is unmistakable,
-   because it is the one thing here that spends more than an answer costs. */
-.look-btn.is-on {
-  background: color-mix(in srgb, var(--gold) 22%, transparent);
-  color: var(--gold-deep);
-  font-weight: 600;
-}
-[data-theme="dark"] .look-btn.is-on { color: var(--gold); }
-.look-btn.is-on:hover { background: color-mix(in srgb, var(--gold) 30%, transparent); }
+/* Kept for the look-it-up row, which the app also marks with a class. */
+.look-btn.is-on { font-weight: 600; }
 
 .stop-btn { background: var(--red); }
 .stop-btn:hover { background: #a91f1f; }
@@ -1675,9 +1694,8 @@ body {
 }
 .photo-waiting-said small { font-size: .72rem; color: var(--text-soft); }
 
-/* A picture already waiting. The row is a menu row now rather than a loose
-   icon, so it is marked the way the other one is. */
-.photo-btn.is-on { color: var(--red); font-weight: 600; }
+/* A picture already waiting. */
+.photo-btn.is-on, .camera-btn.is-on { color: var(--red); font-weight: 600; }
 
 /* The picture in the conversation, above the words — the way it sits in every
    other messaging app on the phone this is read on. */
