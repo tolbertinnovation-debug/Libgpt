@@ -40,11 +40,28 @@
 // makes the engine say PAH-pah, which is not the sound of "paper" at all, and
 // "noting" gives NOH- where the word is NUH-.
 //
-// The function words are the exception, and a safe one. "the", "this", "that",
-// "then", "them", "they", "there" carry no picture of their own and sit where
-// no content word can, so nothing is mistaken for them. It is the content
-// words — a thing you could point at — where a wrong guess costs the listener
-// the whole sentence.
+// The function words were treated as the exception, and a safe one: "the",
+// "this", "that", "then", "them", "they", "there" carry no picture of their
+// own and sit where no content word can, so nothing is mistaken for them. It
+// is the content words — a thing you could point at — where a wrong guess
+// costs the listener the whole sentence.
+//
+// That was half right, and the half that was wrong was the commonest word in
+// the language. "the" was respelled "de", and an engine reads the letters
+// "de" three different ways — DEE, DAY, and the one that was wanted. DAY is
+// "dey", which is how "they" is spelled two lines below it. So the sentence
+// "the man" arrived as "they man", and it arrived that way in every answer,
+// because there is no sentence without "the" in it.
+//
+// The lesson is that a function word is safe from being MISTAKEN for a
+// content word, which is not the same as being safe. What makes a respelling
+// safe is only this: the letters have one reading, and that reading is the
+// sound. Both halves are checkable against a pronouncing dictionary, and the
+// ones here have been checked. "de", "jus" (which reads as "Jew"), "bes"
+// ("bees"), "res" ("rays"), "tol" ("tall"), "neva" and "eva" (NAY-va, AY-va),
+// "lata" (LAH-ta), "summa" (SOO-ma), and "oda"/"broda" (OH-da, BROH-da, where
+// the sound is UH) all failed it, and are spelled differently now. A doubled
+// consonant is what holds the vowel short: "bess", "juss", "nevva", "udda".
 
 /** How much of it to apply. */
 export const ACCENTS = [
@@ -77,11 +94,11 @@ export const isAccent = (id) => ACCENTS.some((a) => a.id === id);
 const TH_WORDS = [
   // voiced /ð/ becomes d. Nearly all of these are function words, which is
   // why they are safe: nothing else can stand where they stand.
-  ['the', 'de'], ['this', 'dis'], ['that', 'dat'], ['these', 'dese'],
+  ['the', 'duh'], ['this', 'dis'], ['that', 'dat'], ['these', 'dese'],
   ['they', 'dey'], ['them', 'dem'], ['their', 'dey'],
   ['there', 'dere'], ['then', 'den'], ['than', 'dan'], ['though', 'doh'],
-  ['mother', 'moda'], ['father', 'fada'], ['brother', 'broda'],
-  ['other', 'oda'], ['another', 'anoda'], ['together', 'togeda'],
+  ['mother', 'mudda'], ['father', 'fada'], ['brother', 'brudda'],
+  ['other', 'udda'], ['another', 'anudda'], ['together', 'togeda'],
   ['weather', 'weda'], ['whether', 'weda'], ['rather', 'rada'],
   ['further', 'furda'],
 
@@ -108,14 +125,14 @@ const TH_WORDS = [
  * to "bran", and "bran" is a different word. Naming them is duller and safer.
  */
 const CLUSTER_WORDS = [
-  ['and', 'an'], ['hand', 'han'], ['stand', 'stan'], ['understand', 'understan'],
+  ['and', 'an'], ['hand', 'hann'], ['stand', 'stan'], ['understand', 'understan'],
   ['behind', 'behin'], ['friend', 'fren'],
   ['second', 'secon'], ['husband', 'husban'], ['round', 'roun'], ['ground', 'groun'],
-  ['last', 'las'], ['first', 'firs'], ['just', 'jus'], ['must', 'mus'],
-  ['best', 'bes'], ['rest', 'res'], ['west', 'wes'], ['east', 'eas'],
-  ['past', 'pas'], ['fast', 'fas'],
+  ['last', 'lahs'], ['first', 'furss'], ['just', 'juss'], ['must', 'mus'],
+  ['best', 'bess'], ['rest', 'ress'], ['west', 'wes'], ['east', 'eas'],
+  ['past', 'pahs'], ['fast', 'fas'],
   ['left', 'lef'], ['soft', 'sof'], ['lift', 'lif'],
-  ['old', 'ol'], ['cold', 'col'], ['told', 'tol'], ['hold', 'hol'],
+  ['old', 'ol'], ['cold', 'col'], ['told', 'tole'], ['hold', 'hol'],
   ['world', 'worl'], ['child', 'chil'],
   ['kept', 'kep'], ['slept', 'slep'],
   ['help', 'hep'],
@@ -153,12 +170,12 @@ const ER_KEEP = new Set([
 
 // …except these, which are so common in speech that the -a form is the form.
 const ER_ALWAYS = [
-  ['water', 'wata'], ['never', 'neva'], ['over', 'ova'], ['after', 'afta'],
-  ['under', 'unda'], ['ever', 'eva'], ['whatever', 'whateva'],
+  ['water', 'wata'], ['never', 'nevva'], ['over', 'ova'], ['after', 'afta'],
+  ['under', 'unda'], ['ever', 'evva'], ['whatever', 'whateva'],
   ['remember', 'rememba'], ['doctor', 'docta'], ['sister', 'sista'],
-  ['daughter', 'dauta'], ['better', 'betta'], ['later', 'lata'],
+  ['daughter', 'dauta'], ['better', 'betta'], ['later', 'layta'],
   ['together', 'togeda'], ['number', 'numba'],
-  ['proper', 'propa'], ['answer', 'ansa'], ['summer', 'summa'],
+  ['proper', 'propa'], ['answer', 'ansa'], ['summer', 'summah'],
   ['winter', 'winta'], ['finger', 'finga'],
   ['morning', 'mawnin'],
   // "paper" gave "papa" — PAH-pah, and it means father. "shoulder" gave
