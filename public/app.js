@@ -233,11 +233,9 @@ const currentChat = () => state.chats.find((c) => c.id === state.currentId) || n
 const persist = () => saveChats(state.chats);
 const savePreferences = () => savePrefs(state.prefs);
 
-/** Remember which conversation is open, so a reload comes back to it. */
+/** Open a conversation. A reload always starts fresh, so nothing is saved here. */
 function setCurrent(id) {
   state.currentId = id;
-  state.prefs.lastChatId = id;
-  savePreferences();
 }
 
 /* ========================================================================
@@ -2900,13 +2898,6 @@ async function boot() {
   } catch {
     el.banner.hidden = false;
     el.banner.innerHTML = '<strong>Cannot reach the server.</strong> <span>Is it still running?</span>';
-  }
-
-  // Come back to the conversation the user was reading, if it still exists.
-  if (state.prefs.lastChatId && state.chats.some((c) => c.id === state.prefs.lastChatId)) {
-    state.currentId = state.prefs.lastChatId;
-    const chat = currentChat();
-    if (chat?.persona) state.prefs.persona = chat.persona;
   }
 
   renderComposerPersona();
