@@ -257,7 +257,10 @@ export const TONES = {
   },
 };
 
-export const DEFAULT_SPEAKER = 'grandpa';
+// The house voice. The Market Uncle carries best through a phone's
+// loudspeaker in a noisy room, which is where most of this is heard — so he
+// is who answers until a reader says otherwise.
+export const DEFAULT_SPEAKER = 'uncle';
 export const DEFAULT_TONE = 'warmth';
 
 export const LANGUAGES = {

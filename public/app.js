@@ -42,6 +42,15 @@ const PERSONA_MARK = {
   drum: '🥁',
 };
 
+// What this phone had saved before today, kept apart from the merged prefs so
+// that boot can tell what the reader actually chose from what they were given.
+const savedPrefs = loadPrefs();
+
+// The voice everyone had before the Market Uncle became the house voice. A
+// saved 'grandpa' cannot be told apart from that old default, so it is not
+// treated as a choice.
+const FORMER_DEFAULT_SPEAKER = 'grandpa';
+
 const state = {
   catalogue: { personas: [], languages: [], models: [] },
   chats: loadChats(),
@@ -69,10 +78,10 @@ const state = {
     accent: DEFAULT_ACCENT,
     cutIn: true,
     userName: '',
-    speaker: 'grandpa',
+    speaker: 'uncle',   // until the deployment's own default arrives
     tone: 'warmth',
     sound: true,
-    ...loadPrefs(),
+    ...savedPrefs,
   },
 };
 
@@ -2030,6 +2039,7 @@ el.setName.addEventListener('change', () => {
 
 el.setSpeaker.addEventListener('change', () => {
   state.prefs.speaker = el.setSpeaker.value;
+  state.prefs.speakerChosen = true;  // chosen, so the house default leaves it alone
   savePreferences();
   const speaker = state.catalogue.speakers?.find((sp) => sp.id === state.prefs.speaker);
   if (speaker) toast(`${speaker.label} will answer from now on.`);
@@ -2896,8 +2906,17 @@ async function boot() {
     el.setTone.innerHTML = (config.tones || [])
       .map((t) => `<option value="${t.id}">${escapeHtml(t.label)}</option>`)
       .join('');
-    if (!config.speakers?.some((sp) => sp.id === state.prefs.speaker)) {
-      state.prefs.speaker = config.defaultSpeaker || 'grandpa';
+    // Who answers when nobody has said: the deployment's own default, which is
+    // the Market Uncle. A voice somebody picked is theirs, and is left alone.
+    // `speakerChosen` records that from now on; before it existed, the only
+    // way to be holding anything but Grandpa was to have gone and picked it,
+    // so that counts as a choice too. Only a saved Grandpa gives way, because
+    // it cannot be told apart from the default everyone used to be given.
+    const pickedTheirOwn = Boolean(savedPrefs.speakerChosen)
+      || Boolean(savedPrefs.speaker && savedPrefs.speaker !== FORMER_DEFAULT_SPEAKER);
+    if (!pickedTheirOwn
+        || !config.speakers?.some((sp) => sp.id === state.prefs.speaker)) {
+      state.prefs.speaker = config.defaultSpeaker || 'uncle';
     }
     if (!config.tones?.some((t) => t.id === state.prefs.tone)) {
       state.prefs.tone = config.defaultTone || 'warmth';
