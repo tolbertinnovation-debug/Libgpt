@@ -64,7 +64,7 @@ const state = {
     model: '',
     theme: null,        // 'light' | 'dark' | null = follow the phone
     textSize: 'md',     // 'sm' | 'md' | 'lg'
-    autoSpeak: false,
+    autoSpeak: true,
     voiceRate: 0.92,
     voicePitch: 0.82,   // an old man, not a newsreader
     voiceURI: '',        // '' = let the app pick the closest accent
