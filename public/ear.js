@@ -57,6 +57,8 @@ export class Ear {
     this.armedAt = 0;
     this.loudFor = 0;
     this.broken = false;
+    this.generation = 0;
+    this.starting = false;
   }
 
   get open() {
@@ -77,10 +79,12 @@ export class Ear {
    * Grandpa's own voice coming back round, and he would interrupt himself.
    */
   async start() {
-    if (this.stream || this.broken || !Ear.available) return false;
+    if (this.stream || this.starting || this.broken || !Ear.available) return false;
 
+    const generation = ++this.generation;
+    this.starting = true;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
+      const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
@@ -88,14 +92,29 @@ export class Ear {
         },
       });
 
+      if (generation !== this.generation) {
+        for (const track of stream.getTracks()) track.stop();
+        return false;
+      }
+      this.stream = stream;
       const Ctx = window.AudioContext || window.webkitAudioContext;
-      this.ctx = new Ctx();
-      if (this.ctx.state === 'suspended') await this.ctx.resume().catch(() => {});
+      const ctx = new Ctx();
+      this.ctx = ctx;
+      if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+      if (generation !== this.generation) {
+        if (this.stream === stream) {
+          for (const track of stream.getTracks()) track.stop();
+          this.stream = null;
+        }
+        try { await ctx.close(); } catch { /* already closed */ }
+        if (this.ctx === ctx) this.ctx = null;
+        return false;
+      }
 
-      this.analyser = this.ctx.createAnalyser();
+      this.analyser = ctx.createAnalyser();
       this.analyser.fftSize = 512;
       this.analyser.smoothingTimeConstant = 0.6;
-      this.ctx.createMediaStreamSource(this.stream).connect(this.analyser);
+      ctx.createMediaStreamSource(this.stream).connect(this.analyser);
       this.data = new Uint8Array(this.analyser.fftSize);
 
       this.timer = setInterval(() => this.#tick(), TICK_MS);
@@ -103,13 +122,18 @@ export class Ear {
     } catch {
       // Refused, or no microphone to open. The conversation still works —
       // it simply goes back to being interrupted by tapping.
+      if (generation !== this.generation) return false;
       this.broken = true;
       this.stop();
       return false;
+    } finally {
+      if (generation === this.generation) this.starting = false;
     }
   }
 
   stop() {
+    this.generation += 1;
+    this.starting = false;
     clearInterval(this.timer);
     this.timer = null;
     this.armed = false;
@@ -151,7 +175,7 @@ export class Ear {
   disarm() {
     this.armed = false;
     this.loudFor = 0;
-    if (this.stream) this.stop();
+    this.stop();
   }
 
   #tick() {

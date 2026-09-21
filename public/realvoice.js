@@ -138,6 +138,7 @@ export class VoiceOut {
     this.pending = [];        // text waiting to be fetched
     this.ready = [];          // { url, text } fetched and waiting to play
     this.fetching = 0;
+    this.requests = new Set();
     this.audio = null;
     this.waiting = null;   // the next piece, built while this one talks
     this.settings = {};
@@ -283,9 +284,12 @@ export class VoiceOut {
     if (!text) return;
 
     this.fetching += 1;
+    const controller = new AbortController();
+    this.requests.add(controller);
     try {
       const response = await fetch('/api/speak', {
         method: 'POST',
+        signal: controller.signal,
         headers: this.headers(),
         body: JSON.stringify({
           text,
@@ -315,10 +319,11 @@ export class VoiceOut {
       this.#toDevice(text);
       return;
     } finally {
-      this.fetching -= 1;
+      this.requests.delete(controller);
+      if (token === this.token) this.fetching -= 1;
     }
 
-    this.#pump();
+    if (token === this.token) this.#pump();
   }
 
   /**
@@ -492,6 +497,9 @@ export class VoiceOut {
 
   stop() {
     this.token += 1;
+    for (const request of this.requests) request.abort();
+    this.requests.clear();
+    this.fetching = 0;
     this.pending = [];
     this.warned = false;
     this.#dropAudio();

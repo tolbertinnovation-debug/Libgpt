@@ -82,7 +82,7 @@ const MID_THOUGHT_EXTRA = 900;
 
 // Sounds, not words. A cough, a hum or a single stray syllable is not a
 // question, and sending it as one wastes money and answers nothing.
-const FILLER_ONLY = /^(um+|uh+|er+|eh+|ah+|oh+|hm+|mm+|hmm+|yeah|yes|no|ok|okay|a|the|i|so)$/i;
+const FILLER_ONLY = /^(um+|uh+|er+|eh+|ah+|oh+|hm+|mm+|hmm+|a|the|i|so)$/i;
 
 // Cutting in by voice depends on the browser subtracting the loudspeaker from
 // the microphone. Where that fails it fires on Grandpa's own voice — so after
@@ -135,6 +135,9 @@ export class VoiceConversation {
     this.everHeard = false;
     this.deaf = null;
     this.reopen = null;
+    this.listenTimer = null;
+    this.answerController = null;
+    this.networkErrors = 0;
 
     // The microphone as a volume meter: what makes cutting in by voice
     // possible, and what makes the seal move with a real voice rather than a
@@ -153,7 +156,7 @@ export class VoiceConversation {
     });
 
     this.onVisibility = () => {
-      if (document.visibilityState === 'hidden' && this.state === 'listening') {
+      if (document.visibilityState === 'hidden' && this.active && this.state !== 'paused') {
         // Listening on in the background is not what anyone means by this.
         this.pause('Paused while you were away.');
       }
@@ -202,6 +205,11 @@ export class VoiceConversation {
     // See ANDROID above: true here is what stops a phone hearing anything.
     ear.continuous = this.continuousEar ?? !ANDROID;
     ear.interimResults = true;
+    ear.lang = this.fellBack ? FALLBACK_DICTATION : this.lang();
+    const previousWords = this.settled;
+    ear.onstart = () => {
+      if (this.ear === ear && this.state === 'listening') this.onReady?.();
+    };
 
     ear.onresult = (event) => {
       if (this.ear !== ear || this.state !== 'listening') return;
@@ -210,12 +218,14 @@ export class VoiceConversation {
       // interim is rebuilt rather than appended to — and kept, because the
       // last phrase is often still interim when the silence runs out.
       let interim = '';
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+      this.settled = previousWords;
+      for (let i = 0; i < event.results.length; i += 1) {
         const result = event.results[i];
         if (result.isFinal) this.settled += `${result[0].transcript.trim()} `;
         else interim += result[0].transcript;
       }
       this.loose = interim;
+      this.networkErrors = 0;
 
       const heard = `${this.settled}${this.loose}`.replace(/\s+/g, ' ').trim();
       // Even half a word proves the microphone and the speech service are
@@ -247,8 +257,16 @@ export class VoiceConversation {
         this.onNotice?.('That accent is not available on this device. Using American English.');
         return; // onend restarts, and lang() now answers with the fallback
       }
+      if (event.error === 'audio-capture' || event.error === 'language-not-supported') {
+        this.#trouble('The microphone or selected language is unavailable. Check your microphone and try again.');
+        return;
+      }
       // 'no-speech' and 'aborted' are ordinary: onend starts listening again.
       if (event.error === 'network') {
+        if (++this.networkErrors >= 3) {
+          this.#trouble('The speech service cannot connect. Check your internet, then tap Unmute to retry.');
+          return;
+        }
         this.onNotice?.('The speech service could not be reached. Trying again.');
       }
     };
@@ -257,6 +275,8 @@ export class VoiceConversation {
       // A recogniser we already replaced or deliberately closed: let it go.
       if (this.ear !== ear) return;
       this.ear = null;
+      // Keep Android's last interim phrase when its one-shot recogniser ends.
+      if (this.loose) { this.settled += `${this.loose} `; this.loose = ''; }
       // Browsers stop listening after a silence of their own, and on Android
       // after every utterance. While this is still a conversation, open it
       // again — after a beat, so a recogniser that ends the moment it opens
@@ -264,20 +284,23 @@ export class VoiceConversation {
       if (this.state === 'listening') {
         clearTimeout(this.reopen);
         this.reopen = setTimeout(() => {
-          if (this.state === 'listening' && !this.ear) this.#openEar();
+          if (this.state === 'listening' && !this.ear && !this.#openEar()) {
+            this.#trouble('The microphone stopped. Tap Unmute to try again.');
+          }
         }, REOPEN_MS);
       }
     };
 
+    this.ear = ear;
     try {
       ear.start();
     } catch {
       // Already running, or refused. Either way there is nothing to listen to.
+      this.ear = null;
       return false;
     }
 
-    this.ear = ear;
-    return true;
+    return this.ear === ear;
   }
 
   #closeEar() {
@@ -373,6 +396,8 @@ export class VoiceConversation {
   }
 
   #clearTimers() {
+    clearTimeout(this.listenTimer);
+    this.listenTimer = null;
     clearTimeout(this.silence);
     this.silence = null;
     clearTimeout(this.cutInCheck);
@@ -383,14 +408,16 @@ export class VoiceConversation {
   /* ---- the loop --------------------------------------------------------- */
 
   #listen({ delay = 0 } = {}) {
-    this.turn += 1;
+    this.#clearTimers();
+    this.#closeEar();
+    const turn = ++this.turn;
     this.settled = '';
     this.loose = '';
     this.onHeard?.('', false);
     this.#setState('listening');
 
     const open = () => {
-      if (this.state !== 'listening') return;
+      if (turn !== this.turn || this.state !== 'listening') return;
       if (!this.#openEar()) {
         this.#trouble('The microphone could not be opened. Close other apps using it and try again.');
         return;
@@ -398,11 +425,12 @@ export class VoiceConversation {
       this.#startAloneTimer();
     };
 
-    if (delay) setTimeout(open, delay);
+    if (delay) this.listenTimer = setTimeout(open, delay);
     else open();
   }
 
   async #finishTurn() {
+    if (this.state !== 'listening') return;
     const said = `${this.settled}${this.loose}`.replace(/\s+/g, ' ').trim();
     this.#clearTimers();
 
@@ -420,12 +448,15 @@ export class VoiceConversation {
     this.#setState('thinking');
 
     const turn = ++this.turn;
+    const controller = new AbortController();
+    this.answerController = controller;
     const settings = this.voiceSettings();
     this.answerDone = false;
     this.spokeSomething = false;
 
     try {
       await this.ask(said, {
+        signal: controller.signal,
         // Each finished sentence is spoken while the rest is still arriving.
         onSentence: (sentence) => {
           if (turn !== this.turn || !this.active) return;
@@ -441,6 +472,7 @@ export class VoiceConversation {
       });
 
       if (turn !== this.turn || !this.active) return;
+      this.answerController = null;
       this.answerDone = true;
 
       // An answer that produced no speech at all — empty, or refused — should
@@ -454,7 +486,9 @@ export class VoiceConversation {
       this.onNotice?.(trouble);
       // Only the first sentence: an error read out in full is worse than the
       // error. The rest of it is on the screen.
-      this.say(trouble.split(/(?<=[.!?])\s/)[0]);
+      this.answerController = null;
+      this.speaker.stop();
+      this.#trouble(trouble);
     }
   }
 
@@ -502,6 +536,8 @@ export class VoiceConversation {
     }
 
     this.fellBack = false;
+    this.everHeard = false;
+    this.networkErrors = 0;
     this.falseCutIns = 0;
     document.addEventListener('visibilitychange', this.onVisibility);
     this.#keepAwake();
@@ -514,10 +550,20 @@ export class VoiceConversation {
     return this.state === 'listening';
   }
 
+  #cancelAnswer() {
+    this.answerController?.abort();
+    this.answerController = null;
+  }
+
+  /** Send recognised words immediately without waiting for the silence timer. */
+  finishTurn() { return this.#finishTurn(); }
+
   /** Stop talking and listen again — the way to cut Grandpa off mid-answer. */
   interrupt() {
-    if (!this.active) return;
+    if (!this.active || this.state === 'listening') return;
     this.turn += 1;           // orphan the answer still arriving
+    this.#cancelAnswer();
+    this.#setState('paused');
     this.speaker.stop();
     this.#listen({ delay: 120 });
   }
@@ -528,13 +574,15 @@ export class VoiceConversation {
     this.turn += 1;
     this.#clearTimers();
     this.#closeEar();
-    this.speaker.stop();
+    this.#cancelAnswer();
     this.#setState('paused');
+    this.speaker.stop();
     if (message) this.onNotice?.(message);
   }
 
   resume() {
     if (!this.active || this.state === 'listening') return;
+    this.networkErrors = 0;
     this.#listen();
   }
 
@@ -547,7 +595,9 @@ export class VoiceConversation {
     this.turn += 1;
     this.#clearTimers();
     this.#closeEar();
+    this.#cancelAnswer();
     this.#setState('trouble');
+    this.speaker.stop();
     this.onNotice?.(message, 'trouble');
   }
 
@@ -556,11 +606,12 @@ export class VoiceConversation {
     this.turn += 1;
     this.#clearTimers();
     this.#closeEar();
+    this.#cancelAnswer();
+    this.#setState('closed');
     this.meter.stop();
     this.speaker.stop();
     this.#releaseWake();
     document.removeEventListener('visibilitychange', this.onVisibility);
-    this.#setState('closed');
   }
 
   /* ---- keep the screen on ----------------------------------------------- */
@@ -569,7 +620,9 @@ export class VoiceConversation {
 
   async #keepAwake() {
     try {
-      this.wake = await navigator.wakeLock?.request('screen');
+      const wake = await navigator.wakeLock?.request('screen');
+      if (!this.active) { await wake?.release(); return; }
+      this.wake = wake;
       this.wake?.addEventListener?.('release', () => { this.wake = null; });
     } catch {
       /* not supported, or refused — the conversation works without it */

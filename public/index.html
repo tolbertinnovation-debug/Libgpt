@@ -583,12 +583,16 @@
     <p class="talk-said" id="talk-said"></p>
   </div>
 
+  <div class="talk-tools">
+    <button class="hearth-btn" id="talk-captions" type="button" aria-pressed="true" aria-controls="talk-said">Captions</button>
+    <button class="hearth-btn" id="talk-send" type="button" disabled>Send now</button>
+  </div>
   <div class="talk-controls">
-    <button class="talk-btn-big" id="talk-hold" type="button">
+    <button class="talk-btn-big" id="talk-hold" type="button" aria-pressed="false">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
         <path d="M9 5v14M15 5v14"/>
       </svg>
-      <span id="talk-hold-label">Wait</span>
+      <span id="talk-hold-label">Mute</span>
     </button>
     <button class="talk-btn-big is-end" id="talk-end" type="button">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -598,7 +602,7 @@
     </button>
   </div>
 
-  <p class="talk-foot">Everything said here is saved in this conversation, so you can read it after.</p>
+  <p class="talk-foot">Your words and Grandpa’s replies are saved as text in this browser. Tap Done to return to the chat.</p>
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>

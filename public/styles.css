@@ -2560,3 +2560,20 @@ body.is-talking { overflow: hidden; }
   color: var(--green);
   font-weight: 600;
 }
+
+/* Voice conversation controls keep the existing Grandpa palette and seal. */
+.talk-tools { display: flex; flex-shrink: 0; justify-content: center; gap: .6rem; margin: .6rem 0 1rem; }
+.talk-tools .hearth-btn { min-height: 44px; padding: .5rem 1rem; font-size: .85rem; }
+.talk-tools [aria-pressed="true"] { border-color: var(--terracotta); background: var(--bg-active); }
+.talk-tools button:disabled { opacity: .45; cursor: default; }
+.talk-orb:disabled { cursor: default; }
+.talk-controls, .talk-top { flex-shrink: 0; }
+.talk-hint { max-width: 32rem; color: var(--text-soft); }
+.talk-heard { max-height: 5rem; overflow-y: auto; flex-shrink: 0; }
+.talk-said { overflow-y: auto; -webkit-mask-image: none; mask-image: none; flex-shrink: 0; }
+@media (max-height: 700px) {
+  .talk-stage { justify-content: flex-start; }
+  .talk-orb { width: min(100px, 20vh); margin: .5rem auto; }
+  .talk-tools { margin: .3rem 0 .6rem; }
+  .talk-said:not([hidden]) { display: block; max-height: 4rem; }
+}
