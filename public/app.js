@@ -195,6 +195,7 @@ const el = {
   talkHint: $('talk-hint'),
   talkHeard: $('talk-heard'),
   talkSaid: $('talk-said'),
+  talkDuration: $('talk-duration'),
   talkHold: $('talk-hold'),
   talkSend: $('talk-send'),
   talkCaptions: $('talk-captions'),
@@ -1631,6 +1632,23 @@ const TALK_WORDS = {
  * handed to the voice as soon as each one is whole.
  */
 let voiceReply = null;
+let talkClock = null;
+let talkStartedAt = 0;
+
+function setTalkDuration() {
+  if (!talkStartedAt) return;
+  const seconds = Math.floor((Date.now() - talkStartedAt) / 1000);
+  const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
+  el.talkDuration.textContent = `${minutes}:${(seconds % 60).toString().padStart(2, '0')}`;
+}
+
+function stopTalkClock() {
+  clearInterval(talkClock);
+  talkClock = null;
+  talkStartedAt = 0;
+  el.talkDuration.textContent = '00:00';
+}
+
 async function askAloud(said, { onSentence, onText, signal }) {
   // Let the cancelled turn save its partial transcript before adding this one.
   await voiceReply?.catch(() => {});
@@ -1728,6 +1746,7 @@ const conversation = new VoiceConversation({
     // A caption for what is being said, so it has to be the words that are
     // actually spoken — not the asterisks and hashes the voice skips over.
     el.talkSaid.textContent = stripMarkdown(text);
+    el.talkSaid.scrollTop = el.talkSaid.scrollHeight;
   },
 
   onNotice: (message, kind) => {
@@ -1764,6 +1783,9 @@ function openTalk() {
 
   el.talkHeard.textContent = '';
   el.talkSaid.textContent = '';
+  el.talkSaid.hidden = false;
+  el.talkCaptions.setAttribute('aria-pressed', 'true');
+  el.talkCaptions.textContent = 'Hide captions';
   el.talk.hidden = false;
   el.talkEnd.focus();
 
@@ -1773,6 +1795,9 @@ function openTalk() {
     return;
   }
   el.app.inert = true;
+  talkStartedAt = Date.now();
+  setTalkDuration();
+  talkClock = setInterval(setTalkDuration, 1000);
   document.body.classList.add('is-talking');
 }
 
@@ -1781,6 +1806,7 @@ function closeTalk() {
   el.talk.hidden = true;
   document.body.classList.remove('is-talking');
   el.app.inert = false;
+  stopTalkClock();
   conversation.stop();
   renderThread();
   renderSidebar();
@@ -1796,6 +1822,7 @@ el.talkCaptions.addEventListener('click', () => {
   const show = el.talkCaptions.getAttribute('aria-pressed') !== 'true';
   el.talkCaptions.setAttribute('aria-pressed', String(show));
   el.talkSaid.hidden = !show;
+  el.talkCaptions.textContent = show ? 'Hide captions' : 'Show captions';
 });
 el.talkEnd.addEventListener('click', closeTalk);
 el.talkClose.addEventListener('click', closeTalk);

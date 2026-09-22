@@ -161,6 +161,11 @@ export class VoiceConversation {
         this.pause('Paused while you were away.');
       }
     };
+    this.onOffline = () => {
+      if (this.active && this.state !== 'paused') {
+        this.pause('You are offline. Reconnect, then tap Unmute to continue.');
+      }
+    };
   }
 
   get supported() {
@@ -384,7 +389,7 @@ export class VoiceConversation {
       if (this.state !== 'listening' || this.everHeard) return;
       this.#trouble('Nothing is reaching the microphone. Check that this site is '
         + 'allowed to use it, and that no other app is holding it — then tap '
-        + 'Continue. Or tap Done and type your question instead.');
+        + 'Unmute. Or tap Done and type your question instead.');
     }, this.deafAfter?.() ?? NEVER_HEARD_MS);
   }
 
@@ -540,6 +545,7 @@ export class VoiceConversation {
     this.networkErrors = 0;
     this.falseCutIns = 0;
     document.addEventListener('visibilitychange', this.onVisibility);
+    window.addEventListener?.('offline', this.onOffline);
     this.#keepAwake();
 
     // The meter is NOT opened here. It takes the microphone only while there
@@ -612,6 +618,7 @@ export class VoiceConversation {
     this.speaker.stop();
     this.#releaseWake();
     document.removeEventListener('visibilitychange', this.onVisibility);
+    window.removeEventListener?.('offline', this.onOffline);
   }
 
   /* ---- keep the screen on ----------------------------------------------- */

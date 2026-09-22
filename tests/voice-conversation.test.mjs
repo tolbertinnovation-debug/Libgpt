@@ -99,6 +99,13 @@ test('hiding the page cancels an answer and mutes the conversation', async t => 
   pending.resolve(); await finished; assert.equal(f.c.state, 'paused');
 });
 
+test('going offline pauses the microphone with a recovery instruction', t => {
+  const f = fixture(t);
+  f.c.onOffline();
+  assert.equal(f.c.state, 'paused');
+  assert.match(f.notices.at(-1), /offline/i);
+});
+
 test('microphone granted after disarm is released immediately', async t => {
   const pending = deferred(); let stopped = 0;
   const original = navigator.mediaDevices;

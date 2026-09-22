@@ -2351,6 +2351,17 @@ body {
   text-transform: uppercase;
   color: var(--text-soft);
 }
+.talk-duration {
+  display: inline-block;
+  margin-left: .45rem;
+  padding: .2rem .5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-faint);
+  font: 600 .72rem/1 var(--font-body);
+  letter-spacing: .04em;
+  vertical-align: .08em;
+}
 
 .talk-stage {
   flex: 1;
@@ -2463,8 +2474,18 @@ body {
   color: var(--text);
   min-height: 1.5em;
 }
-.talk-heard:not(:empty)::before { content: "“"; }
-.talk-heard:not(:empty)::after { content: "”"; }
+.talk-heard:not(:empty)::before,
+.talk-said:not(:empty)::before {
+  display: block;
+  margin-bottom: .12rem;
+  color: var(--text-faint);
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.talk-heard:not(:empty)::before { content: "You"; }
+.talk-said:not(:empty)::before { content: "Grandpa"; }
 .talk-said {
   margin: .35rem 0 0;
   max-width: 32rem;
