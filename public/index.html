@@ -561,7 +561,7 @@
 <!-- ============ Talking with Grandpa ============ -->
 <div class="talk" id="talk" hidden role="dialog" aria-modal="true" aria-label="Talking with Grandpa">
   <div class="talk-top">
-    <span class="talk-badge" id="talk-badge">Talking with Grandpa</span>
+    <span class="talk-badge" id="talk-badge">Talking with Grandpa <span class="talk-duration" id="talk-duration" aria-label="Conversation duration">00:00</span></span>
     <button class="icon-btn talk-close" id="talk-close" type="button" aria-label="End the conversation">
       <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
     </button>
@@ -579,16 +579,20 @@
     <p class="talk-state" id="talk-state" role="status" aria-live="polite">Listening…</p>
     <p class="talk-hint" id="talk-hint">Just talk. Grandpa answers when you stop.</p>
 
-    <p class="talk-heard" id="talk-heard"></p>
-    <p class="talk-said" id="talk-said"></p>
+    <p class="talk-heard" id="talk-heard" aria-live="polite" aria-atomic="true"></p>
+    <p class="talk-said" id="talk-said" aria-live="polite" aria-atomic="false"></p>
   </div>
 
+  <div class="talk-tools">
+    <button class="hearth-btn" id="talk-captions" type="button" aria-pressed="true" aria-controls="talk-said">Hide captions</button>
+    <button class="hearth-btn" id="talk-send" type="button" disabled>Send now</button>
+  </div>
   <div class="talk-controls">
-    <button class="talk-btn-big" id="talk-hold" type="button">
+    <button class="talk-btn-big" id="talk-hold" type="button" aria-pressed="false">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
         <path d="M9 5v14M15 5v14"/>
       </svg>
-      <span id="talk-hold-label">Wait</span>
+      <span id="talk-hold-label">Mute</span>
     </button>
     <button class="talk-btn-big is-end" id="talk-end" type="button">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -598,7 +602,7 @@
     </button>
   </div>
 
-  <p class="talk-foot">Everything said here is saved in this conversation, so you can read it after.</p>
+  <p class="talk-foot">Your words and Grandpa’s replies are saved as text in this browser. Tap Done to return to the chat.</p>
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>

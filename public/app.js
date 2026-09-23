@@ -65,7 +65,7 @@ const state = {
     model: '',
     theme: null,        // 'light' | 'dark' | null = follow the phone
     textSize: 'md',     // 'sm' | 'md' | 'lg'
-    autoSpeak: false,
+    autoSpeak: true,
     voiceRate: 0.92,
     voicePitch: 0.82,   // an old man, not a newsreader
     voiceURI: '',        // '' = let the app pick the closest accent
@@ -196,7 +196,10 @@ const el = {
   talkHint: $('talk-hint'),
   talkHeard: $('talk-heard'),
   talkSaid: $('talk-said'),
+  talkDuration: $('talk-duration'),
   talkHold: $('talk-hold'),
+  talkSend: $('talk-send'),
+  talkCaptions: $('talk-captions'),
   talkHoldLabel: $('talk-hold-label'),
   talkEnd: $('talk-end'),
   talkClose: $('talk-close'),
@@ -765,6 +768,9 @@ function showTheRightCircle() {
  */
 async function streamReply(chat, hooks = {}) {
   const controller = new AbortController();
+  const cancel = () => controller.abort();
+  if (hooks.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
+  hooks.signal?.addEventListener('abort', cancel, { once: true });
   state.streaming = controller;
   setBusy(true);
 
@@ -835,7 +841,7 @@ async function streamReply(chat, hooks = {}) {
 
     while (true) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done || controller.signal.aborted) break;
 
       buffer += decoder.decode(value, { stream: true });
       const frames = buffer.split('\n\n');
@@ -922,8 +928,11 @@ async function streamReply(chat, hooks = {}) {
     }
   } finally {
     target.classList.remove('cursor');
-    state.streaming = null;
-    setBusy(false);
+    hooks.signal?.removeEventListener('abort', cancel);
+    if (state.streaming === controller) {
+      state.streaming = null;
+      setBusy(false);
+    }
   }
 
   if (text.trim()) {
@@ -935,12 +944,12 @@ async function streamReply(chat, hooks = {}) {
     persist();
     renderThread();
     renderSidebar();
-    if (!failed) sounds.reply();
+    if (!failed && !controller.signal.aborted) sounds.reply();
     if (unfinished && !hooks.spoken) offerTheRest();
     // Read it out for anyone who reads slowly — but never over an aborted
     // reply, and never in a spoken conversation, which is already saying it
     // sentence by sentence as it arrives.
-    if (state.prefs.autoSpeak && !failed && !hooks.spoken) speak(text);
+    if (state.prefs.autoSpeak && !failed && !hooks.spoken && !controller.signal.aborted) speak(text);
   } else if (!failed) {
     // Aborted before any text arrived — drop the empty turn.
     target.closest('.turn')?.remove();
@@ -953,7 +962,7 @@ async function streamReply(chat, hooks = {}) {
 
   if (!chat.titled && chat.messages.length >= 2) nameConversation(chat);
 
-  hooks.onDone?.(text, failed);
+  hooks.onDone?.(text, failed || controller.signal.aborted);
   if (failed && trouble) throw new Error(trouble);
 }
 
@@ -1612,10 +1621,10 @@ el.listenStop.addEventListener('click', () => {
    while it happens. */
 
 const TALK_WORDS = {
-  listening: ['Listening…', 'Just talk. Grandpa answers when you stop.'],
+  listening: ['Opening microphone…', 'Allow microphone access if your browser asks.'],
   thinking: ['Grandpa is thinking…', 'One moment.'],
   speaking: ['Grandpa is talking', 'Talk over the answer, or tap the seal, to cut in.'],
-  paused: ['Waiting', 'Tap Continue when you are ready.'],
+  paused: ['Microphone muted', 'Tap Unmute when you are ready to talk.'],
   trouble: ['Grandpa cannot hear', 'Check the microphone permission for this site.'],
 };
 
@@ -1623,7 +1632,28 @@ const TALK_WORDS = {
  * One spoken turn: the same push-and-stream as typing, plus the sentences
  * handed to the voice as soon as each one is whole.
  */
-function askAloud(said, { onSentence, onText }) {
+let voiceReply = null;
+let talkClock = null;
+let talkStartedAt = 0;
+
+function setTalkDuration() {
+  if (!talkStartedAt) return;
+  const seconds = Math.floor((Date.now() - talkStartedAt) / 1000);
+  const minutes = Math.floor(seconds / 60).toString().padStart(2, '0');
+  el.talkDuration.textContent = `${minutes}:${(seconds % 60).toString().padStart(2, '0')}`;
+}
+
+function stopTalkClock() {
+  clearInterval(talkClock);
+  talkClock = null;
+  talkStartedAt = 0;
+  el.talkDuration.textContent = '00:00';
+}
+
+async function askAloud(said, { onSentence, onText, signal }) {
+  // Let the cancelled turn save its partial transcript before adding this one.
+  await voiceReply?.catch(() => {});
+  if (signal.aborted) throw new DOMException('Cancelled', 'AbortError');
   const chat = ensureChat();
   if (!chat.title) chat.title = said.slice(0, 48);
   chat.messages.push({ role: 'user', content: said });
@@ -1634,7 +1664,8 @@ function askAloud(said, { onSentence, onText }) {
 
   const sentences = new SentenceStream();
 
-  return streamReply(chat, {
+  voiceReply = streamReply(chat, {
+    signal,
     spoken: true,
     onDelta: (delta, whole) => {
       onText(whole);
@@ -1645,6 +1676,7 @@ function askAloud(said, { onSentence, onText }) {
       if (!failed) for (const sentence of sentences.flush()) onSentence(sentence);
     },
   });
+  return voiceReply;
 }
 
 /**
@@ -1659,20 +1691,29 @@ function askAloud(said, { onSentence, onText }) {
 const listensByRecording = () => canSendRecording() && canListenByRecording();
 
 const conversation = new VoiceConversation({
-  createEar: () => (listensByRecording()
-    ? new RecordedEar({
-      endpointMs: () => patienceMs(state.prefs.patience),
-      headers: apiHeaders,
-      // While recording, the seal moves with the voice in the room. The
-      // meter cannot do it here: it has the microphone only while Grandpa
-      // is talking, because two things holding it at once is what makes an
-      // Android phone go deaf.
-      onLevel: (level) => {
-        if (el.talk.hidden) return;
-        el.talkOrb.style.setProperty('--voice', level.toFixed(2));
-      },
-    })
-    : new SpeechRecognitionAPI()),
+  createEar: (lang) => {
+    if (listensByRecording()) {
+      return new RecordedEar({
+        endpointMs: () => patienceMs(state.prefs.patience),
+        headers: apiHeaders,
+        // Kept only so both ears take the same argument. The transcriber is
+        // not told a language; it is told the words most likely to be said,
+        // and the server is what supplies those.
+        lang,
+        // While recording, the seal moves with the voice in the room. The
+        // meter cannot do it here: it has the microphone only while Grandpa
+        // is talking, because two things holding it at once is what makes an
+        // Android phone go deaf.
+        onLevel: (level) => {
+          if (el.talk.hidden) return;
+          el.talkOrb.style.setProperty('--voice', level.toFixed(2));
+        },
+      });
+    }
+    const ear = new SpeechRecognitionAPI();
+    ear.lang = lang;
+    return ear;
+  },
   speaker,
   voiceSettings: () => ({
     voice: chosenVoice(),
@@ -1698,7 +1739,10 @@ const conversation = new VoiceConversation({
     }
 
     const held = talkState === 'paused' || talkState === 'trouble';
-    el.talkHoldLabel.textContent = held ? 'Continue' : 'Wait';
+    el.talkHoldLabel.textContent = held ? 'Unmute' : 'Mute';
+    el.talkHold.setAttribute('aria-pressed', String(held));
+    el.talkSend.disabled = talkState !== 'listening' || !el.talkHeard.textContent.trim();
+    el.talkOrb.disabled = talkState === 'listening';
     el.talkHold.classList.toggle('is-on', held);
 
     // The last answer stays on screen while listening for the next question —
@@ -1706,6 +1750,11 @@ const conversation = new VoiceConversation({
     if (talkState === 'thinking') el.talkSaid.textContent = '';
     if (talkState === 'listening') sounds.listen();
     if (talkState === 'closed') closeTalk();
+  },
+
+  onReady: () => {
+    el.talkState.textContent = 'Listening…';
+    el.talkHint.textContent = 'Just talk. Grandpa answers when you pause, or tap Send now.';
   },
 
   // The seal moves with the voice the microphone is actually hearing. A circle
@@ -1722,10 +1771,14 @@ const conversation = new VoiceConversation({
     if (el.talk.hidden || !hearing) return;
     el.talkState.textContent = 'I hear you…';
     el.talkOrb.classList.add('is-hearing');
+    // There are no words on screen yet to enable Send by — the recording is
+    // still going. Somebody talking is reason enough to let them cut it short.
+    el.talkSend.disabled = false;
   },
 
   onHeard: (text, settled) => {
     el.talkHeard.textContent = text;
+    el.talkSend.disabled = conversation.state !== 'listening' || !text.trim();
     el.talkOrb.classList.toggle('is-hearing', Boolean(text) && !settled);
     if (settled) sounds.send();
   },
@@ -1734,11 +1787,13 @@ const conversation = new VoiceConversation({
     // A caption for what is being said, so it has to be the words that are
     // actually spoken — not the asterisks and hashes the voice skips over.
     el.talkSaid.textContent = stripMarkdown(text);
+    el.talkSaid.scrollTop = el.talkSaid.scrollHeight;
   },
 
   onNotice: (message, kind) => {
     if (message) toast(message);
-    if (kind === 'trouble') el.talkState.textContent = 'Grandpa cannot hear';
+    if (message) el.talkHint.textContent = message;
+    if (kind === 'trouble') el.talkState.textContent = 'Voice chat needs attention';
   },
 });
 
@@ -1753,6 +1808,7 @@ speaker.onStateChange = ((previous) => (speechState) => {
 let talkReturnFocus = null;
 
 function openTalk() {
+  if (state.streaming) { toast('Wait for the current answer, or stop it before starting voice chat.'); return; }
   if (!conversation.supported) {
     toast(!SpeechRecognitionAPI
       ? 'Talking needs Chrome, Edge or Safari. You can still type, and still tap Listen.'
@@ -1768,13 +1824,21 @@ function openTalk() {
 
   el.talkHeard.textContent = '';
   el.talkSaid.textContent = '';
+  el.talkSaid.hidden = false;
+  el.talkCaptions.setAttribute('aria-pressed', 'true');
+  el.talkCaptions.textContent = 'Hide captions';
   el.talk.hidden = false;
   el.talkEnd.focus();
 
-  if (!conversation.start()) {
+  if (!conversation.start() && !conversation.active) {
     el.talk.hidden = true;
+    talkReturnFocus?.focus?.();
     return;
   }
+  el.app.inert = true;
+  talkStartedAt = Date.now();
+  setTalkDuration();
+  talkClock = setInterval(setTalkDuration, 1000);
   document.body.classList.add('is-talking');
 }
 
@@ -1782,6 +1846,8 @@ function closeTalk() {
   if (el.talk.hidden) return;
   el.talk.hidden = true;
   document.body.classList.remove('is-talking');
+  el.app.inert = false;
+  stopTalkClock();
   conversation.stop();
   renderThread();
   renderSidebar();
@@ -1792,11 +1858,25 @@ el.talkBtn.addEventListener('click', openTalk);
 el.startTalking.addEventListener('click', openTalk);
 el.talkOrb.addEventListener('click', () => conversation.interrupt());
 el.talkHold.addEventListener('click', () => conversation.toggle());
+el.talkSend.addEventListener('click', () => conversation.finishTurn());
+el.talkCaptions.addEventListener('click', () => {
+  const show = el.talkCaptions.getAttribute('aria-pressed') !== 'true';
+  el.talkCaptions.setAttribute('aria-pressed', String(show));
+  el.talkSaid.hidden = !show;
+  el.talkCaptions.textContent = show ? 'Hide captions' : 'Show captions';
+});
 el.talkEnd.addEventListener('click', closeTalk);
 el.talkClose.addEventListener('click', closeTalk);
 
 document.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape' && !el.talk.hidden) closeTalk();
+  if (el.talk.hidden) return;
+  if (event.key === 'Escape') closeTalk();
+  if (event.key === 'Tab') {
+    const buttons = [...el.talk.querySelectorAll('button:not(:disabled)')];
+    const first = buttons[0], last = buttons.at(-1);
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  }
 });
 
 /* ========================================================================

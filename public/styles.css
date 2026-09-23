@@ -2351,6 +2351,17 @@ body {
   text-transform: uppercase;
   color: var(--text-soft);
 }
+.talk-duration {
+  display: inline-block;
+  margin-left: .45rem;
+  padding: .2rem .5rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-faint);
+  font: 600 .72rem/1 var(--font-body);
+  letter-spacing: .04em;
+  vertical-align: .08em;
+}
 
 .talk-stage {
   flex: 1;
@@ -2463,8 +2474,18 @@ body {
   color: var(--text);
   min-height: 1.5em;
 }
-.talk-heard:not(:empty)::before { content: "“"; }
-.talk-heard:not(:empty)::after { content: "”"; }
+.talk-heard:not(:empty)::before,
+.talk-said:not(:empty)::before {
+  display: block;
+  margin-bottom: .12rem;
+  color: var(--text-faint);
+  font-size: .7rem;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.talk-heard:not(:empty)::before { content: "You"; }
+.talk-said:not(:empty)::before { content: "Grandpa"; }
 .talk-said {
   margin: .35rem 0 0;
   max-width: 32rem;
@@ -2559,4 +2580,21 @@ body.is-talking { overflow: hidden; }
   background: color-mix(in srgb, var(--green) 12%, transparent);
   color: var(--green);
   font-weight: 600;
+}
+
+/* Voice conversation controls keep the existing Grandpa palette and seal. */
+.talk-tools { display: flex; flex-shrink: 0; justify-content: center; gap: .6rem; margin: .6rem 0 1rem; }
+.talk-tools .hearth-btn { min-height: 44px; padding: .5rem 1rem; font-size: .85rem; }
+.talk-tools [aria-pressed="true"] { border-color: var(--terracotta); background: var(--bg-active); }
+.talk-tools button:disabled { opacity: .45; cursor: default; }
+.talk-orb:disabled { cursor: default; }
+.talk-controls, .talk-top { flex-shrink: 0; }
+.talk-hint { max-width: 32rem; color: var(--text-soft); }
+.talk-heard { max-height: 5rem; overflow-y: auto; flex-shrink: 0; }
+.talk-said { overflow-y: auto; -webkit-mask-image: none; mask-image: none; flex-shrink: 0; }
+@media (max-height: 700px) {
+  .talk-stage { justify-content: flex-start; }
+  .talk-orb { width: min(100px, 20vh); margin: .5rem auto; }
+  .talk-tools { margin: .3rem 0 .6rem; }
+  .talk-said:not([hidden]) { display: block; max-height: 4rem; }
 }

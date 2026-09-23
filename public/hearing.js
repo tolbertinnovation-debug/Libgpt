@@ -87,7 +87,9 @@ export class RecordedEar {
    * @param {(level: number) => void} [deps.onLevel]
    * @param {(audio: Blob, headers: object) => Promise<string>} [deps.transcribe]
    */
-  constructor({ endpointMs, headers = () => ({}), onLevel = null, transcribe = null } = {}) {
+  constructor({
+    endpointMs, headers = () => ({}), onLevel = null, transcribe = null, lang = '',
+  } = {}) {
     this.endpointMs = endpointMs || (() => 1_600);
     this.headers = headers;
     this.onLevel = onLevel;
@@ -100,11 +102,15 @@ export class RecordedEar {
     // Recording has no partial words to give, and never stops on its own.
     this.continuous = true;
     this.interimResults = false;
-    this.lang = '';
+    // Taken and kept, so this has the same shape as the ear it replaces. It
+    // goes nowhere: the transcriber is not told a language, it is told the
+    // words most likely to be said, and the server supplies those.
+    this.lang = lang;
 
     this.onresult = null;
     this.onerror = null;
     this.onend = null;
+    this.onstart = null;
     this.onspeechstart = null;
 
     this.stream = null;
@@ -166,6 +172,10 @@ export class RecordedEar {
 
     this.started = Date.now();
     this.#listenForTheEnd();
+    // Opening the microphone is the slow part, and on a phone it can stop to
+    // ask permission. Saying so only once it is really open is the difference
+    // between "Listening…" meaning something and being a decoration.
+    try { this.onstart?.(); } catch { /* a listener's problem */ }
   }
 
   /** End the turn now and send what there is — the equivalent of letting go. */
