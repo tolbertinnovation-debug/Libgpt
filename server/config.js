@@ -71,7 +71,7 @@ export const config = {
   // that grain is heard as noise rather than as a smaller file. Sixty-four at
   // 44kHz is about double the bytes and clean; drop it back if the data
   // matters more than the grain does.
-  elevenFormat: process.env.ELEVENLABS_FORMAT?.trim() || 'mp3_44100_64',
+  elevenFormat: process.env.ELEVENLABS_FORMAT?.trim() || 'mp3_44100_128',
 
   // Grandpa's own voice. The phone's built-in text-to-speech is free but
   // sounds like a machine reading; this is a real recorded-sounding voice from

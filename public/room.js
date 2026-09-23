@@ -55,10 +55,14 @@ export const isLoudness = (id) => LOUDNESS.some((l) => l.id === id);
 // its own gain up and down between syllables, and what you hear in the gaps is
 // the noise floor breathing in and out behind the voice — the "pumping" that
 // makes a loud voice sound cheap rather than close.
+//
+// `hiss` is how much is taken off the top, and it belongs here rather than
+// among the constants because it is not a property of the file — it is a
+// property of how hard the file is about to be lifted. See below.
 const LEVELS = {
   normal: null,
-  loud: { threshold: -24, knee: 8, ratio: 4, attack: 0.005, release: 0.32, makeup: 1.9 },
-  full: { threshold: -34, knee: 6, ratio: 9, attack: 0.003, release: 0.28, makeup: 3.1 },
+  loud: { threshold: -24, knee: 8, ratio: 4, attack: 0.005, release: 0.32, makeup: 1.9, hiss: -2.5 },
+  full: { threshold: -34, knee: 6, ratio: 9, attack: 0.003, release: 0.28, makeup: 3.1, hiss: -5 },
 };
 
 // ---- cleaning up before it is made louder --------------------------------
@@ -71,17 +75,40 @@ const LEVELS = {
 // phone's loudspeaker cannot reproduce any of it and turns it into distortion
 // in the parts you CAN hear, so it is money spent on making the rest worse.
 //
-// And above about seven kilohertz a low-bitrate MP3 keeps very little that is
-// voice and a good deal that is artefact — the fine sizzle that reads as
-// "noise" on a small speaker. Speech is intelligible on 500 Hz to 4 kHz; a few
-// decibels off the top costs nothing anybody can hear as words and takes the
-// hiss with it.
+// High up, a low-bitrate MP3 keeps very little that is voice and a good deal
+// that is artefact — the fine sizzle that reads as "noise" on a small speaker.
 //
-// Both sit BEFORE the compressor, so what gets lifted is the voice rather
-// than the voice and its noise together.
+// This was a flat cut of four and a half decibels above 7.2 kHz, applied
+// always. Two things were wrong with that, and together they are why the
+// voice was reported as noisy AND muffled.
+//
+// The first is where. Consonants live higher than people expect: s, t, sh and
+// f are largely 4 to 8 kHz, and they are what makes speech sound crisp rather
+// than only intelligible. A shelf at 7.2 kHz is standing on them. Nine is
+// above most of that and still over the sizzle.
+//
+// The second is when. The cut exists to stop the makeup gain lifting the
+// noise floor — so at Normal, where there is no makeup gain and nothing being
+// lifted, there is nothing for it to protect against and it was simply
+// throwing the top of the voice away. It scales with the lifting now: none at
+// Normal, a little at Loud, more at Very loud. That is the only honest
+// relationship between the two.
+//
+// And a phone's loudspeaker is small, which costs the low-mids that give a
+// voice its body. What is left has to carry on clarity instead, and clarity
+// on a small speaker lives around two and a half kilohertz — the band that
+// decides whether a voice sounds close or sounds like it is behind a door. A
+// few decibels there does more for being understood across a noisy room than
+// the same few decibels of raw volume, and unlike volume it does not lift the
+// noise with it.
+//
+// All of them sit BEFORE the compressor, so what gets lifted is the voice
+// rather than the voice and its noise together.
 const RUMBLE_HZ = 85;
-const HISS_HZ = 7200;
-const HISS_CUT = -4.5;
+const HISS_HZ = 9000;
+const PRESENCE_HZ = 2600;
+const PRESENCE_LIFT = 3;
+const PRESENCE_Q = 0.9;
 
 /**
  * A reverb tail, made rather than downloaded: noise that decays.
@@ -125,6 +152,7 @@ export class Room {
     this.output = null;
     this.level = null;        // compressor, when anything above normal is asked for
     this.makeup = null;
+    this.presence = null;
     this.rumble = null;       // what a voice has nothing below
     this.hiss = null;         // and very little above
     this.id = DEFAULT_ROOM;
@@ -193,14 +221,21 @@ export class Room {
       this.hiss = this.ctx.createBiquadFilter();
       this.hiss.type = 'highshelf';
       this.hiss.frequency.value = HISS_HZ;
-      this.hiss.gain.value = HISS_CUT;
+      this.hiss.gain.value = 0;   // set with the loudness, which is what it is for
+
+      this.presence = this.ctx.createBiquadFilter();
+      this.presence.type = 'peaking';
+      this.presence.frequency.value = PRESENCE_HZ;
+      this.presence.Q.value = PRESENCE_Q;
+      this.presence.gain.value = PRESENCE_LIFT;
 
       this.level = this.ctx.createDynamicsCompressor();
       this.makeup = this.ctx.createGain();
 
       this.output.connect(this.rumble);
       this.rumble.connect(this.hiss);
-      this.hiss.connect(this.level);
+      this.hiss.connect(this.presence);
+      this.presence.connect(this.level);
       this.level.connect(this.makeup);
       this.makeup.connect(this.ctx.destination);
 
@@ -222,8 +257,11 @@ export class Room {
 
     // Normal is the compressor left wide open — present in the graph, doing
     // nothing to the sound. Rewiring it in and out would click.
-    const set = wanted || { threshold: 0, knee: 0, ratio: 1, attack: 0.003, release: 0.25, makeup: 1 };
+    const set = wanted
+      || { threshold: 0, knee: 0, ratio: 1, attack: 0.003, release: 0.25, makeup: 1, hiss: 0 };
     try {
+      // Nothing is being lifted at Normal, so nothing is taken off the top.
+      if (this.hiss) this.hiss.gain.value = set.hiss ?? 0;
       this.level.threshold.value = set.threshold;
       this.level.knee.value = set.knee;
       this.level.ratio.value = set.ratio;

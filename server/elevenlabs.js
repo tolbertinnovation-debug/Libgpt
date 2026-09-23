@@ -131,8 +131,13 @@ export async function resolveVoice(wanted, { signal } = {}) {
  * heard — reported, accurately, as noise. The bytes were being saved at the
  * cost of the thing they were being spent on.
  *
- * So the default is 64kbps at 44kHz, and ELEVENLABS_FORMAT drops it back for a
- * deployment where the data really is the binding constraint.
+ * So the default went to 64kbps at 44kHz — and that was still short. The same
+ * grain is there at 64, quieter; what makes it audible again is the makeup
+ * gain, because a voice lifted to carry across a noisy room lifts its own
+ * encoder noise with it. 128 is where it stops being a voice with something
+ * behind it. A spoken answer is a few seconds long, so the difference is tens
+ * of kilobytes, and ELEVENLABS_FORMAT still drops it back for a deployment
+ * where the data really is the binding constraint.
  */
 export async function speakAloud({ text, voice, speed, signal }) {
   const voiceId = await resolveVoice(voice || config.elevenVoice, { signal });
