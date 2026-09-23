@@ -183,7 +183,10 @@ export class VoiceConversation {
     if (state === 'speaking' && cutInAllowed) this.meter.arm();
     else this.meter.disarm();
 
-    this.onState?.(state);
+    // A listener that throws must not stop the loop. This one paints the
+    // screen and plays a sound, and either can fail on a phone; the thing it
+    // would take with it is the line that opens the microphone.
+    try { this.onState?.(state); } catch { /* the screen's problem, not the ear's */ }
   }
 
   /* ---- the ear ---------------------------------------------------------- */
@@ -200,7 +203,9 @@ export class VoiceConversation {
     }
 
     // See ANDROID above: true here is what stops a phone hearing anything.
-    ear.continuous = this.continuousEar ?? !ANDROID;
+    // An ear that records is not affected either way — it is not the browser
+    // deciding when to stop listening.
+    ear.continuous = ear.endpoints ? true : (this.continuousEar ?? !ANDROID);
     ear.interimResults = true;
 
     ear.onresult = (event) => {
@@ -230,8 +235,24 @@ export class VoiceConversation {
       if (heard) {
         this.#cutInWasReal();
         this.#stopAloneTimer();
-        this.#armSilence();
+        // An ear that works out the end of a turn for itself has already
+        // waited out the silence. Waiting out a second one here is the same
+        // pause served twice, and it is the pause people notice.
+        if (ear.endpoints) this.#finishTurn();
+        else this.#armSilence();
       }
+    };
+
+    // Recording hands back no words until the turn is over, so the proof that
+    // the microphone is alive comes from the sound itself.
+    ear.onspeechstart = () => {
+      if (this.ear !== ear || this.state !== 'listening') return;
+      this.everHeard = true;
+      clearTimeout(this.deaf);
+      this.deaf = null;
+      this.#cutInWasReal();
+      this.#stopAloneTimer();
+      this.onListening?.(true);
     };
 
     ear.onerror = (event) => {

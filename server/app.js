@@ -566,14 +566,14 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
 
   let model = searched
     ? reader
-    : await pickModel(req.body?.model, 'chat', { persona, asked, seeing: Boolean(photo), think });
+    : await pickModel(req.body?.model, 'chat', { persona, asked, seeing: Boolean(photo), think, spoken });
 
   // Nothing on this account can look at a picture. Better to say so and answer
   // the words than to send it to a model that will refuse the whole turn.
   if (photo && !(await canSeeWith(model))) {
     photo = '';
     photoRefused = 'None of the models on this key can look at pictures, so I am answering from your words alone.';
-    model = await pickModel(req.body?.model, 'chat', { persona, asked, think });
+    model = await pickModel(req.body?.model, 'chat', { persona, asked, think, spoken });
   }
   let system = promptFor(searched);
 
@@ -700,7 +700,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
         console.error('[search] falling back to an ordinary answer:', error.message);
 
         searched = false;
-        model = await pickModel(req.body?.model, 'chat', { persona, asked, think });
+        model = await pickModel(req.body?.model, 'chat', { persona, asked, think, spoken });
         system = promptFor(false);
         // Correct what the browser was told: no badge, and he is back to
         // saying he has not heard the news — which, having failed to read it,

@@ -38,6 +38,17 @@ function tone({ freq, to = freq, type = 'sine', start = 0, duration = 0.12, gain
   const ctx = ready();
   if (!ctx) return;
 
+  // Everything below is decoration, and a phone that will not make a noise —
+  // an audio context the browser has suspended, an older engine missing a
+  // method — must not take anything else down with it. This throws inside a
+  // state change in the spoken conversation, and a throw there stops the
+  // microphone ever being opened: the screen says "Listening…" and cannot.
+  try {
+    play(ctx, { freq, to, type, start, duration, gain });
+  } catch { /* no sound, and nothing else changes */ }
+}
+
+function play(ctx, { freq, to, type, start, duration, gain }) {
   const at = ctx.currentTime + start;
   const osc = ctx.createOscillator();
   const amp = ctx.createGain();

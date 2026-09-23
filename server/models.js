@@ -162,7 +162,9 @@ const JUST_TALK = new RegExp(
  * what was actually asked rather than by the fact that it was a chat turn —
  * which is the whole of what "let the model be chosen by the question" means.
  */
-export function tierFor(task, { persona = '', asked = '', seeing = false, think = false } = {}) {
+export function tierFor(task, {
+  persona = '', asked = '', seeing = false, think = false, spoken = false,
+} = {}) {
   // A photograph decides it before the words do. Whatever was typed beside it,
   // the turn cannot be answered by a model that cannot look.
   if (seeing) return 'seeing';
@@ -187,8 +189,16 @@ export function tierFor(task, { persona = '', asked = '', seeing = false, think 
     case 'story-continue':
       return 'deep';
 
-    case 'chat':
-      return chatTier(String(asked || ''), persona);
+    case 'chat': {
+      const tier = chatTier(String(asked || ''), persona);
+      // A spoken turn is a conversation, and a conversation that stops dead
+      // for eight seconds is not one. The largest model is the slowest to its
+      // first word, and the first word is the whole of what somebody sitting
+      // there with a phone to their ear is waiting for. So a question that is
+      // spoken aloud takes the next model down — unless it was asked for
+      // outright above, which is a different request and is honoured.
+      return spoken && tier === 'deep' ? 'balanced' : tier;
+    }
 
     default:
       return 'balanced';

@@ -18,6 +18,7 @@ import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary } from './library.js';
 import { Dictation, canRecord } from './dictate.js';
+import { RecordedEar, canListenByRecording } from './hearing.js';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 
@@ -1646,8 +1647,32 @@ function askAloud(said, { onSentence, onText }) {
   });
 }
 
+/**
+ * Which ear the Talk screen listens with.
+ *
+ * Recording and sending the bytes wherever the deployment can transcribe:
+ * it hears a Liberian accent, which the browser's own recogniser does not,
+ * and that is the whole difference between a conversation and being asked
+ * "did you mean…" after every question. The browser's is kept for a
+ * deployment with no key for transcription, where some ear beats none.
+ */
+const listensByRecording = () => canSendRecording() && canListenByRecording();
+
 const conversation = new VoiceConversation({
-  createEar: () => new SpeechRecognitionAPI(),
+  createEar: () => (listensByRecording()
+    ? new RecordedEar({
+      endpointMs: () => patienceMs(state.prefs.patience),
+      headers: apiHeaders,
+      // While recording, the seal moves with the voice in the room. The
+      // meter cannot do it here: it has the microphone only while Grandpa
+      // is talking, because two things holding it at once is what makes an
+      // Android phone go deaf.
+      onLevel: (level) => {
+        if (el.talk.hidden) return;
+        el.talkOrb.style.setProperty('--voice', level.toFixed(2));
+      },
+    })
+    : new SpeechRecognitionAPI()),
   speaker,
   voiceSettings: () => ({
     voice: chosenVoice(),
@@ -1689,6 +1714,14 @@ const conversation = new VoiceConversation({
   onLevel: (level) => {
     if (el.talk.hidden) return;
     el.talkOrb.style.setProperty('--voice', level.toFixed(2));
+  },
+
+  // Recording hands back nothing until the turn is over, so without this the
+  // screen says "Listening…" through the whole question and looks asleep.
+  onListening: (hearing) => {
+    if (el.talk.hidden || !hearing) return;
+    el.talkState.textContent = 'I hear you…';
+    el.talkOrb.classList.add('is-hearing');
   },
 
   onHeard: (text, settled) => {
@@ -2846,7 +2879,7 @@ async function boot() {
 
   // No microphone, no spoken conversation — say so by leaving the way in out
   // of reach rather than letting it fail when tapped.
-  if (!SpeechRecognitionAPI) {
+  if (!SpeechRecognitionAPI && !listensByRecording()) {
     canTalk = false;
     el.talkBtn.hidden = true;
     el.startTalking.hidden = true;
