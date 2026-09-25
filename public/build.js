@@ -488,6 +488,34 @@ export function singleFile(project) {
     : clean.replace(/<head>/i, `<head>\n<title>${title}</title>`);
 }
 
+/**
+ * One file, on its own.
+ *
+ * The project would only come out whole — as a zip, or folded into one page.
+ * Neither is any use to somebody who wants the stylesheet to send to a friend,
+ * or their index.html to put on a host that expects exactly that file. A
+ * person who can see a file listed in front of them reasonably expects to be
+ * able to take it.
+ */
+export function downloadFile(file) {
+  if (!file?.path) return false;
+  const name = file.path.split('/').pop() || 'file.txt';
+  const type = /\.html?$/i.test(name) ? 'text/html'
+    : /\.css$/i.test(name) ? 'text/css'
+      : /\.m?js$/i.test(name) ? 'text/javascript'
+        : /\.json$/i.test(name) ? 'application/json'
+          : 'text/plain';
+  const url = URL.createObjectURL(new Blob([String(file.body ?? '')], { type: `${type};charset=utf-8` }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  return true;
+}
+
 export function downloadSingleFile(project) {
   const html = singleFile(project);
   if (!html) return false;

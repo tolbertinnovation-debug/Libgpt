@@ -3222,3 +3222,50 @@ body.is-talking { overflow: hidden; }
   opacity: 0;
   pointer-events: none;
 }
+
+/* ---- taking the work away -----------------------------------------------
+   These were only in the three-dot menu, which on a phone is where things go
+   to be never found again. They sit above the files now, where somebody
+   looking at their work can see that it can be taken. */
+.build-take {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.build-take::-webkit-scrollbar { display: none; }
+
+.take-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--bg);
+  font: inherit;
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--text);
+  padding: 8px 14px;
+  min-height: 40px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.take-btn:hover { background: var(--bg-hover); border-color: var(--gold); }
+.take-btn svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; flex: none; }
+
+/* The open file's own download, in the header beside its name. */
+.take-one { margin-left: auto; flex: none; }
+.take-one svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+.editor-saved { margin-left: auto; }
+/* Only when Saved is actually showing. An adjacent-sibling rule still applies
+   to a hidden sibling, so this was overriding the auto margin every time and
+   leaving the arrow stranded in the middle of the header. */
+.editor-saved:not([hidden]) + .take-one { margin-left: 8px; }

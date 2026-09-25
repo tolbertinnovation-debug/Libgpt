@@ -218,11 +218,35 @@
 
         <!-- The files -->
         <div class="build-pane" id="pane-files" role="tabpanel" aria-labelledby="view-files" hidden>
+          <!-- Taking the work away, where the work is. This was only ever in
+               the three-dot menu, which on a phone is a place things go to be
+               never found again. -->
+          <div class="build-take" id="build-take" hidden>
+            <button class="take-btn" id="take-all" type="button">
+              <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                <path d="M12 3v12M7 11l5 5 5-5M4 20h16"/>
+              </svg>
+              All files
+            </button>
+            <button class="take-btn" id="take-page" type="button">
+              <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+                <path d="M12 3v12M7 11l5 5 5-5M4 20h16"/>
+              </svg>
+              One page, to share
+            </button>
+          </div>
+
           <div class="build-tree" id="build-tree" aria-label="Files in this build"></div>
           <div class="build-editor">
             <div class="editor-head">
               <span class="editor-path" id="editor-path">No file open</span>
               <span class="editor-saved" id="editor-saved" hidden>Saved</span>
+              <button class="icon-btn take-one" id="take-one" type="button" hidden
+                      aria-label="Download this file">
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                  <path d="M12 3v12M7 11l5 5 5-5M4 20h16"/>
+                </svg>
+              </button>
             </div>
             <div class="editor-wrap" id="editor-wrap">
               <pre class="editor-paint" id="editor-paint" aria-hidden="true"></pre>

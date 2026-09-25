@@ -11,9 +11,9 @@
 // else. There is no second pipeline to keep in step.
 
 import {
-  applyChanges, danglingLinks, describeChanges, downloadProject, downloadSingleFile, filesFrom,
-  forSending, highlightFile, loadProjects, looksEmpty, makeProject, previewDocument, previewState,
-  restoreVersion, saveProjects, tidyPath,
+  applyChanges, danglingLinks, describeChanges, downloadFile, downloadProject, downloadSingleFile,
+  filesFrom, forSending, highlightFile, loadProjects, looksEmpty, makeProject, previewDocument,
+  previewState, restoreVersion, saveProjects, tidyPath,
 } from './build.js';
 import { renderMarkdown } from './markdown.js';
 
@@ -161,6 +161,29 @@ function proposalHtml(files, index, applied) {
   </div>`;
 }
 
+/**
+ * What can be taken away right now, and what to say when it cannot.
+ *
+ * The menu and the buttons in the Code view both ask this, so they can never
+ * disagree with each other about whether there is anything to download.
+ */
+function takeable() {
+  const files = project()?.files || [];
+  return {
+    any: files.length > 0,
+    // One page only means something when there is a page. Offering it for a
+    // project of loose text files would hand somebody an empty file.
+    page: previewState(files).can,
+  };
+}
+
+function renderTake() {
+  const can = takeable();
+  el.take.hidden = !can.any;
+  $('take-page').hidden = !can.page;
+  el.takeOne.hidden = !state.openPath;
+}
+
 function renderTree() {
   const p = project();
   const files = [...p.files].sort((a, b) => a.path.localeCompare(b.path));
@@ -177,6 +200,7 @@ function renderTree() {
 
 function renderEditor() {
   const p = project();
+  renderTake();
   const file = p.files.find((f) => f.path === state.openPath);
   if (!file) {
     el.editorPath.textContent = p.files.length ? 'Pick a file' : 'No file open';
@@ -914,6 +938,21 @@ export function newBuild() {
   announce();
 }
 
+function takeAll() {
+  if (!project()?.files.length) { deps.toast('There are no files to download yet.'); return; }
+  downloadProject(project());
+  deps.toast('All your files, in one zip.');
+}
+
+function takePage() {
+  if (!project()?.files.length) { deps.toast('There is nothing to share yet.'); return; }
+  if (!downloadSingleFile(project())) {
+    deps.toast('This build has no index.html, so there is no single page to make.');
+    return;
+  }
+  deps.toast('Saved as one page. You can send that file to anybody.');
+}
+
 export function mount(options = {}) {
   deps = { ...deps, ...options };
 
@@ -930,6 +969,8 @@ export function mount(options = {}) {
     editorSaved: $('editor-saved'),
     editorInput: $('editor-input'),
     editorPaint: $('editor-paint'),
+    take: $('build-take'),
+    takeOne: $('take-one'),
     previewNote: $('preview-note'),
     previewFrame: $('preview-frame'),
     checkFrame: $('check-frame'),
@@ -950,6 +991,15 @@ export function mount(options = {}) {
   el.build.addEventListener('click', (event) => {
     const view = event.target.closest('[data-view]');
     if (view) { ensureView(view.dataset.view); return; }
+
+    if (event.target.closest('#take-one')) {
+      const file = project()?.files.find((f) => f.path === state.openPath);
+      if (downloadFile(file)) deps.toast(`${file.path.split('/').pop()} downloaded.`);
+      return;
+    }
+
+    if (event.target.closest('#take-all')) { takeAll(); return; }
+    if (event.target.closest('#take-page')) { takePage(); return; }
 
     const open = event.target.closest('[data-open]');
     if (open) {
@@ -1016,18 +1066,8 @@ export function mount(options = {}) {
     $('build-menu-btn').setAttribute('aria-expanded', 'false');
 
     if (item.id === 'build-new') newBuild();
-    if (item.id === 'build-share') {
-      if (!project().files.length) deps.toast('There is nothing to share yet.');
-      else if (!downloadSingleFile(project())) {
-        deps.toast('This build has no index.html, so there is no single page to make.');
-      } else {
-        deps.toast('Saved as one page. You can send that file to anybody.');
-      }
-    }
-    if (item.id === 'build-download') {
-      if (!project().files.length) deps.toast('There are no files to download yet.');
-      else downloadProject(project());
-    }
+    if (item.id === 'build-share') takePage();
+    if (item.id === 'build-download') takeAll();
     if (item.id === 'build-history') showHistory();
     if (item.id === 'build-github') showGitHub();
   });
