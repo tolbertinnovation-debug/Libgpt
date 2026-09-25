@@ -13,7 +13,7 @@
 import {
   applyChanges, danglingLinks, describeChanges, downloadFile, downloadProject, downloadSingleFile,
   filesFrom, forSending, highlightFile, loadProjects, looksEmpty, makeProject, previewDocument,
-  previewState, restoreVersion, saveProjects, tidyPath,
+  previewState, repairPaths, restoreVersion, saveProjects, tidyPath,
 } from './build.js';
 import { renderMarkdown } from './markdown.js';
 
@@ -543,11 +543,21 @@ async function buildTheWholeThing(asked) {
 
         const left = await faultsIn(p.files);
         run.note = left.length
-          ? `Built and checked. ${left.length} thing${left.length === 1 ? '' : 's'} still need a look — `
-            + `ask about ${left[0].split(' ')[0]} and Grandpa will explain.`
+          ? `Built and checked. ${left.length === 1 ? 'One thing still needs' : `${left.length} things still need`}`
+            + ` a look — ask about ${left[0].split(' ')[0]} and Grandpa will explain.`
           : 'Built it, opened it, found problems, fixed them. It runs.';
       } else if (!stop()) {
         run.note = 'Built it and opened it. It runs, with nothing wrong.';
+      }
+
+      // A step with a cross beside it and "nothing wrong" underneath is the
+      // screen contradicting itself, and the reader believes the sentence
+      // over the mark. What ran is not the same as what was asked for.
+      const missed = run.marks.filter((m) => m.state === 'failed');
+      if (missed.length && !stop()) {
+        run.note = `${run.note} But ${missed.length === 1 ? 'one part' : `${missed.length} parts`} `
+          + `of the plan did not get made — ${missed.map((m) => `"${m.title}"`).join(', ')}. `
+          + 'Ask for that on its own and Grandpa will add it.';
       }
     }
 
@@ -980,6 +990,27 @@ export function mount(options = {}) {
   };
 
   state.projects = loadProjects();
+
+  // Builds saved while the fence parser was misreading filenames have files
+  // called "=style.css" sitting in them, and a page linking to "style.css"
+  // renders unstyled forever. Fixing the parser does nothing for those; they
+  // are repaired here, once, on the way in.
+  let mended = 0;
+  for (const p of state.projects) {
+    const fixed = repairPaths(p.files || []);
+    if (!fixed.renamed.length && !fixed.dropped.length) continue;
+    p.files = fixed.files;
+    mended += fixed.renamed.length + fixed.dropped.length;
+  }
+  if (mended) {
+    saveProjects(state.projects);
+    // Said out loud rather than done silently: files changed name, and
+    // somebody who knew their build was broken deserves to know it was mended.
+    setTimeout(() => deps.toast(
+      `Repaired ${mended} file${mended === 1 ? '' : 's'} that had been saved under a wrong name.`,
+    ), 900);
+  }
+
   if (state.projects.length) state.currentId = state.projects[0].id;
   el.modes.hidden = false;
 

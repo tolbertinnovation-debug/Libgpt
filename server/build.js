@@ -236,3 +236,27 @@ export function fixPrompt(faults) {
     'Then say, in one short line and in plain words, what was wrong.',
   ].join('\n');
 }
+
+
+/**
+ * What to say to a model whose answer was cut off in the middle of a FILE.
+ *
+ * The ordinary continuation prompt is written for prose — carry on from where
+ * you stopped, finish the thought. Handed to a turn that stopped halfway
+ * through an HTML file, that produces a paragraph where the rest of the file
+ * should be, the fence never closes, and the browser drops the file as
+ * unfinished. Which is what happened: "one file was cut off before it
+ * finished, so it is not offered here", and the reader was handed the job of
+ * asking for it again.
+ */
+export const BUILD_CONTINUE_PROMPT = `Your answer above was cut off because it ran out of room, and it stopped in the middle of a file.
+
+- Carry straight on from the exact character it stopped at. Do not repeat a
+  single line of what is already there, and do not start the file again.
+- You are still INSIDE a fenced code block. Do not open a new fence for the
+  part you are continuing — just carry on with the file's contents.
+- Finish that file, then close it with a line containing only three backticks.
+- After it is closed, write any remaining files in their own fenced blocks with
+  their paths, exactly as before.
+- No preamble and no apology: the two halves are joined end to end, and the
+  reader will never know there was a break.`;

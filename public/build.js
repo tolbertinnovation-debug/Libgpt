@@ -95,7 +95,55 @@ export function makeProject(name = 'Untitled build') {
 // a fence without one is a snippet to look at rather than a file to write,
 // which is the difference between showing somebody a command and silently
 // creating a file called "bash".
-const FENCE = /^([ \t]*)(`{3,}|~{3,})[ \t]*([\w+-]*)[ \t]*(?:path[ \t]*=[ \t]*)?([^\s`~]*)[ \t]*$/;
+//
+// This was one regex, and the regex was wrong in a way that took a real build
+// to find. It read the language with [\w+-]*, which happily matches the word
+// "path" — so a model that left the language off and wrote ```path=index.html
+// had "path" taken as its language and "=index.html" as its filename. Every
+// file landed beside the real one under a name beginning with an equals sign.
+//
+// Nothing about that failure looked like a failure. Files appeared, were
+// saved, and were reported saved. But index.html went on linking to a
+// style.css that was never written, so the page rendered unstyled; the menu
+// went on pointing at a products.html that did not exist; and each fixing
+// pass wrote its fix to the phantom copy and reported success. The loop could
+// not win, because it was repairing a file nobody was reading.
+//
+// So the fence marker is matched, and the rest of the line — the info string —
+// is read separately, by something that can be reasoned about.
+const FENCE = /^([ \t]*)(`{3,}|~{3,})[ \t]*(.*)$/;
+
+// path=, file=, filename=, src= — every shape a model reaches for.
+const NAMED = /\b(?:path|file|filename|name|src)[ \t]*=[ \t]*["']?([^\s"'`~]+)/i;
+
+// A bare word with no dot and no slash is a language, not a file.
+const LOOKS_LIKE_A_LANGUAGE = /^[\w+#-]+$/;
+
+/**
+ * The filename out of a fence's info string, if there is one.
+ *
+ * Deliberately generous about the shape and strict about the result: a build
+ * that misreads a filename does damage that looks like success, so a fence
+ * this cannot read confidently is treated as a snippet rather than guessed at.
+ */
+export function pathFromFence(info) {
+  const text = String(info || '').trim();
+  if (!text) return '';
+
+  // Named, in any of its forms. The last one wins, so a stray "path=" earlier
+  // in the line cannot shadow the real one.
+  let found = '';
+  for (const match of text.matchAll(new RegExp(NAMED, 'gi'))) found = match[1];
+  if (found) return tidyPath(found);
+
+  // Otherwise the first token that looks like a file rather than a language.
+  for (const token of text.split(/[ \t]+/)) {
+    const bare = token.replace(/^["']|["']$/g, '');
+    if (!bare || LOOKS_LIKE_A_LANGUAGE.test(bare)) continue;
+    if (/[./]/.test(bare)) return tidyPath(bare);
+  }
+  return '';
+}
 
 /** A path that is safe to write inside a project of our own making. */
 export function tidyPath(raw) {
@@ -111,6 +159,10 @@ export function tidyPath(raw) {
   // drive or a host. These files are only ever written into localStorage and
   // a zip, and both take a path apart on the way out.
   if (path.includes('..') || /^[a-zA-Z]:/.test(path) || path.startsWith('//')) return '';
+  // A filename does not begin with punctuation. This is the shape a misread
+  // fence produced — "=index.html" — and it is worth refusing here as well as
+  // fixing there, because a second way in should not reopen the same hole.
+  if (/^[=:@|&<>*?"']/.test(path)) return '';
   if (path.length > 180) return '';
   return path.split('/').filter(Boolean).join('/');
 }
@@ -133,9 +185,11 @@ export function filesFrom(answer) {
     const fence = FENCE.exec(line);
 
     if (open) {
-      // Only a fence of the same kind, at least as long, closes this one.
-      const closes = fence && fence[2][0] === open.marker[0] && fence[2].length >= open.marker.length
-        && !fence[4];
+      // Only a fence of the same kind, at least as long, closes this one — and
+      // a closing fence carries nothing after it.
+      const closes = fence && fence[2][0] === open.marker[0]
+        && fence[2].length >= open.marker.length
+        && !fence[3].trim();
       if (closes) {
         if (open.path) files.push({ path: open.path, body: open.body.join('\n') });
         else prose.push('```', ...open.body, '```');
@@ -147,7 +201,7 @@ export function filesFrom(answer) {
     }
 
     if (fence) {
-      open = { marker: fence[2], path: tidyPath(fence[4]), body: [] };
+      open = { marker: fence[2], path: pathFromFence(fence[3]), body: [] };
       continue;
     }
 
@@ -161,6 +215,55 @@ export function filesFrom(answer) {
   if (open && !open.path) prose.push('```', ...open.body);
 
   return { files, prose: prose.join('\n').replace(/\n{3,}/g, '\n\n').trim(), unfinished };
+}
+
+/**
+ * Undo the damage a misread fence already did.
+ *
+ * Fixing the parser stops new files being saved under a wrong name. It does
+ * nothing for the builds already sitting on somebody's phone, where a
+ * stylesheet is called "=style.css" and the page linking to "style.css"
+ * therefore renders unstyled. Those builds are the whole reason the bug was
+ * found; leaving them broken would be a strange way to answer it.
+ *
+ * Renaming only where the real name is free. Where both exist, an identical
+ * copy is dropped and a different one is kept under a name that says what it
+ * is — a repair that quietly overwrites somebody's working page with an older
+ * draft would be a worse bug than the one being fixed.
+ */
+export function repairPaths(files = []) {
+  const damaged = files.filter((f) => /^[=:@|&]/.test(f.path || ''));
+  if (!damaged.length) return { files, renamed: [], dropped: [] };
+
+  const out = files.filter((f) => !damaged.includes(f));
+  const taken = new Set(out.map((f) => f.path));
+  const renamed = [];
+  const dropped = [];
+
+  for (const file of damaged) {
+    const clean = tidyPath(String(file.path).replace(/^[=:@|&]+/, ''));
+    if (!clean) { dropped.push(file.path); continue; }
+
+    if (!taken.has(clean)) {
+      out.push({ ...file, path: clean });
+      taken.add(clean);
+      renamed.push(`${file.path} → ${clean}`);
+      continue;
+    }
+
+    const already = out.find((f) => f.path === clean);
+    if (already && already.body === file.body) { dropped.push(file.path); continue; }
+
+    const at = clean.lastIndexOf('.');
+    let kept = at > 0 ? `${clean.slice(0, at)}-recovered${clean.slice(at)}` : `${clean}-recovered`;
+    let n = 2;
+    while (taken.has(kept)) { kept = `${clean}-recovered-${n}`; n += 1; }
+    out.push({ ...file, path: kept });
+    taken.add(kept);
+    renamed.push(`${file.path} → ${kept}`);
+  }
+
+  return { files: out, renamed, dropped };
 }
 
 /* ==========================================================================

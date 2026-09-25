@@ -24,8 +24,8 @@ import {
   voiceFor,
 } from './personas.js';
 import {
-  BUILD_BUDGET, BUILD_PROMPT, PLAN_PROMPT, fitProject, fixPrompt, projectContext,
-  readPlan, stepPrompt,
+  BUILD_BUDGET, BUILD_CONTINUE_PROMPT, BUILD_PROMPT, PLAN_PROMPT, fitProject, fixPrompt,
+  projectContext, readPlan, stepPrompt,
 } from './build.js';
 import * as github from './github.js';
 import { needsLookingUp, searchModelFrom } from './search.js';
@@ -956,7 +956,10 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
         { role: 'system', content: system },
         ...messages.slice(0, carryingOn ? -1 : undefined),
         { role: 'assistant', content: answer },
-        { role: 'user', content: CONTINUE_PROMPT },
+        // A turn cut off mid-file needs different words from one cut off
+        // mid-sentence: it has a fence to close, and prose in the middle of
+        // an HTML file is not a continuation, it is damage.
+        { role: 'user', content: building ? BUILD_CONTINUE_PROMPT : CONTINUE_PROMPT },
       ], carryBudget);
     }
 
