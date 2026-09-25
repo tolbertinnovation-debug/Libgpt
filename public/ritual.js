@@ -128,7 +128,7 @@ function renderThread() {
       return `<div class="build-turn build-turn-you">${escapeHtml(turn.content)}</div>`;
     }
     const proposal = turn.proposal
-      ? proposalHtml(turn.proposal, index, turn.applied)
+      ? proposalHtml(turn.proposal, index, turn.applied, turn.checked)
       : '';
     return `<div class="build-turn build-turn-ai">
       <div class="prose">${renderMarkdown(turn.content || '')}</div>${proposal}
@@ -137,7 +137,7 @@ function renderThread() {
   el.thread.scrollTop = el.thread.scrollHeight;
 }
 
-function proposalHtml(files, index, applied) {
+function proposalHtml(files, index, applied, checked) {
   const p = project();
   const shape = describeChanges(p.files, files);
   const rows = shape.map((f) => `
@@ -149,6 +149,21 @@ function proposalHtml(files, index, applied) {
         : `${f.delta > 0 ? '+' : ''}${f.delta} lines`}</span>
     </div>`).join('');
 
+  // What happened when the saved files were actually opened. Saying "Saved"
+  // and nothing else is what let a build go on reporting success while its
+  // pages pointed at files that were never written.
+  const after = !applied ? '' : checked === 'checking'
+    ? '<p class="proposal-checking">Opening it to see whether it still runs…</p>'
+    : Array.isArray(checked) && checked.length
+      ? `<div class="proposal-faults">
+          <strong>${checked.length === 1 ? 'One thing is wrong' : `${checked.length} things are wrong`}:</strong>
+          <ul>${checked.map((f) => `<li>${escapeHtml(f)}</li>`).join('')}</ul>
+          <button class="proposal-apply" type="button" data-mend="${index}">Fix it</button>
+        </div>`
+      : Array.isArray(checked)
+        ? '<p class="proposal-done">Opened it. It still runs, with nothing wrong.</p>'
+        : '';
+
   return `<div class="proposal ${applied ? 'is-applied' : ''}">
     <h4>${applied ? 'These files were saved' : `${files.length} file${files.length === 1 ? '' : 's'} to save`}</h4>
     ${rows}
@@ -158,6 +173,7 @@ function proposalHtml(files, index, applied) {
         : `<button class="proposal-apply" type="button" data-apply="${index}">Save these files</button>
            <button class="proposal-look" type="button" data-peek="${index}">Look at them first</button>`}
     </div>
+    ${after}
   </div>`;
 }
 
@@ -631,6 +647,58 @@ async function oneBuildTurn(instruction, p, faults = []) {
   return files;
 }
 
+/**
+ * Open what was just saved, and say what happened.
+ *
+ * Only the whole-build run did this before, so a turn where somebody typed
+ * "fix the menu" and pressed Save was never opened at all — it just said
+ * "Saved" and left them to find out. That is how a build went on reporting
+ * success while its pages pointed at files that were never written, three
+ * times over.
+ *
+ * The looking is free: a static read of what the pages point at, and running
+ * them in the off-screen sandbox. Nothing is sent anywhere and nothing is
+ * paid for. Only the mending costs, so only the mending is asked for.
+ */
+async function checkAfterSaving(turn) {
+  const p = project();
+  turn.checked = 'checking';
+  renderThread();
+  try {
+    turn.checked = await faultsIn(p.files);
+  } catch {
+    // A check that falls over must not look like a build that failed.
+    turn.checked = [];
+  }
+  persist();
+  renderThread();
+  if (state.view === 'preview') renderPreview();
+}
+
+/** Ask for the fix, as an ordinary turn that still waits to be saved. */
+async function mendIt(faults) {
+  const p = project();
+  if (!p || state.streaming || ritualRun?.running) return;
+
+  p.messages.push({ role: 'user', content: 'Fix what is wrong.' });
+  renderThread();
+  document.dispatchEvent(new CustomEvent('ritual:busy', { detail: true }));
+  try {
+    const files = await oneBuildTurn('Fix what is wrong, as described.', p, faults);
+    if (files.length) {
+      const answer = p.messages[p.messages.length - 1];
+      if (answer?.role === 'assistant') answer.proposal = files;
+      else p.messages.push({ role: 'assistant', content: 'Here are the files.', proposal: files });
+    }
+  } catch (error) {
+    deps.toast(error?.message || 'That did not go through.');
+  } finally {
+    document.dispatchEvent(new CustomEvent('ritual:busy', { detail: false }));
+    persist();
+    renderThread();
+  }
+}
+
 export const isStreaming = () => Boolean(state.streaming);
 export const stop = () => {
   if (ritualRun?.running) ritualRun.running = false;
@@ -1050,7 +1118,15 @@ export function mount(options = {}) {
         persist();
         render();
         deps.toast('Saved. You can go back to the version before this.');
+        checkAfterSaving(turn);
       }
+      return;
+    }
+
+    const mend = event.target.closest('[data-mend]');
+    if (mend) {
+      const turn = project().messages[Number(mend.dataset.mend)];
+      if (turn?.checked?.length) mendIt(turn.checked);
       return;
     }
 

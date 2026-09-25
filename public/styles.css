@@ -3269,3 +3269,32 @@ body.is-talking { overflow: hidden; }
    to a hidden sibling, so this was overriding the auto margin every time and
    leaving the arrow stranded in the middle of the header. */
 .editor-saved:not([hidden]) + .take-one { margin-left: 8px; }
+
+/* What the check found after a save. Saying only "Saved" is what let a build
+   go on reporting success while its pages pointed at files that were never
+   written — three times over, while somebody kept saying it was still wrong. */
+.proposal-checking {
+  margin: 10px 0 0;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+  color: var(--text-soft);
+  font-size: .88rem;
+}
+
+.proposal-faults {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.proposal-faults strong { display: block; color: var(--red); font-size: .9rem; }
+
+.proposal-faults ul {
+  margin: 6px 0 10px;
+  padding-left: 20px;
+  color: var(--text);
+  font-size: .88rem;
+  line-height: 1.5;
+}
+
+.proposal-faults li { margin: 3px 0; overflow-wrap: anywhere; }

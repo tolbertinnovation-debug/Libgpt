@@ -567,7 +567,11 @@ export function looksEmpty(files = []) {
   // Something to look at counts as content even with no words beside it.
   const shows = /<(img|svg|canvas|video|iframe|input|button|form)\b/i.test(page.body);
 
-  return (text.length < 5 && !shows)
+  // Nothing AT ALL, not "not much". This was five characters, and it fired on
+  // a page whose heading read "Shop" — four characters, and a finished page.
+  // Judging whether a page says enough is not this check's business and never
+  // could be; the only thing it can know is whether there is anything there.
+  return (text.length === 0 && !shows)
     ? ['index.html opens with nothing on it at all — no words and nothing to look at.']
     : [];
 }
