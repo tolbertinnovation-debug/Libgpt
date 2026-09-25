@@ -2611,14 +2611,34 @@ body.is-talking { overflow: hidden; }
    genuinely does.
    ========================================================================== */
 
-/* ---- the mode switch ---------------------------------------------------- */
+/* ---- the mode switch ----------------------------------------------------
+   The top bar holds four things on a 400px phone: the menu, the brand, this,
+   and two round buttons. That is more than fits, and what it did instead was
+   let the wordmark run under the switch — "Grandpa AI" reading as "Grandpa A"
+   with a pill sitting on top of the rest of it.
+
+   So the wordmark gives way first. The seal stays, which is the part that
+   says whose app this is at a glance; the name comes back as soon as there is
+   room for it. Nothing else on the bar can be dropped: the menu and the mode
+   switch are the only ways to get anywhere. */
 .modes {
   display: flex;
+  flex: 0 0 auto;
   gap: 2px;
   margin: 0 auto;
   padding: 3px;
   border-radius: 999px;
   background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+}
+
+/* The bar never spills, whatever is in it. */
+.topbar { overflow: hidden; }
+.topbar-brand { overflow: hidden; flex: 0 1 auto; }
+.topbar-brand strong { overflow: hidden; text-overflow: ellipsis; }
+
+@media (max-width: 560px) {
+  .topbar-brand strong { display: none; }
+  .topbar { gap: .35rem; padding-left: .6rem; padding-right: .6rem; }
 }
 
 .mode {
@@ -2641,6 +2661,17 @@ body.is-talking { overflow: hidden; }
   color: var(--text);
   background: var(--bg-raised);
   box-shadow: var(--shadow-sm);
+}
+
+/* On the dark theme the raised surface and the bar are nearly the same brown,
+   so the chosen mode was carried by the underline alone. A border gives it an
+   edge to sit on without making it glow. */
+[data-theme="dark"] .modes { background: rgba(255, 255, 255, .06); }
+
+[data-theme="dark"] .mode[aria-selected="true"] {
+  background: color-mix(in srgb, var(--bg-raised) 70%, #fff 6%);
+  border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent);
+  padding: 6px 15px;
 }
 
 /* The current mode is also underlined, so it does not rest on colour alone. */
