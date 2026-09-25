@@ -43,7 +43,7 @@ let deps = { headers: () => ({}), toast: () => {}, onMode: () => {} };
 let saveTimer = null;
 
 const project = () => state.projects.find((p) => p.id === state.currentId) || null;
-const persist = () => saveProjects(state.projects);
+const persist = () => { const ok = saveProjects(state.projects); announce(); return ok; };
 
 const escapeHtml = (text) => String(text)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -625,16 +625,6 @@ const ago = (at) => {
   return new Date(at).toLocaleDateString();
 };
 
-function showBuilds() {
-  const rows = state.projects.map((p) => `
-    <button class="sheet-row" type="button" data-build="${p.id}">
-      <span><strong>${escapeHtml(p.name)}</strong>
-        <small>${p.files.length} file${p.files.length === 1 ? '' : 's'}</small></span>
-      <span class="sheet-when">${ago(p.updatedAt)}</span>
-    </button>`).join('');
-  openSheet('Your builds', rows || '<p class="sheet-note">Nothing built yet.</p>');
-}
-
 function showHistory() {
   const p = project();
   const versions = [...(p.versions || [])].reverse();
@@ -815,6 +805,115 @@ function showPushable() {
    Wiring
    ========================================================================== */
 
+/* ==========================================================================
+   The builds, for the sidebar
+   ==========================================================================
+   Builds used to live two taps inside a menu, while conversations sat in the
+   sidebar with search, dates, rename and delete. There was no reason for the
+   difference except the order the two were written in — and one real cost:
+   there was no way to delete a build at all. They simply fell off the end at
+   twelve, silently, oldest first.
+
+   So the sidebar holds whichever of the two the person is looking at. The row
+   markup is the same either way, which is not laziness: it means a build gets
+   everything a conversation already had, and nobody has to learn a second
+   list.
+   ========================================================================== */
+
+/** Who to tell when the builds change under the sidebar's feet. */
+let announce = () => {};
+export const onChange = (fn) => { announce = fn || (() => {}); };
+
+/** The builds, newest first, as much as a list row needs to know. */
+export function builds(query = '') {
+  const want = String(query).trim().toLowerCase();
+  const matches = want
+    ? state.projects.filter((p) =>
+      (p.name || '').toLowerCase().includes(want)
+      || (p.files || []).some((f) => f.path.toLowerCase().includes(want)
+        || (f.body || '').toLowerCase().includes(want)))
+    : state.projects;
+
+  return [...matches]
+    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    .map((p) => ({
+      id: p.id,
+      name: p.name || 'Untitled build',
+      files: (p.files || []).length,
+      updatedAt: p.updatedAt || p.createdAt || 0,
+      createdAt: p.createdAt || 0,
+      // The one distinction worth a word here: will this open as a website,
+      // or is it still loose files? "1 file · files" said nothing at all.
+      what: (p.files || []).some((f) => /(^|\/)index\.html?$/i.test(f.path))
+        ? 'a website'
+        : ((p.files || []).length ? 'no page yet' : 'nothing yet'),
+      current: p.id === state.currentId,
+    }));
+}
+
+export const openBuildId = () => state.currentId;
+
+/** Open one, from wherever the person was. */
+export function openBuild(id) {
+  if (!state.projects.some((p) => p.id === id)) return false;
+  ritualRun = null;
+  renderPlan(null);
+  state.currentId = id;
+  state.openPath = '';
+  if (state.mode !== 'build') setMode('build');
+  ensureView('chat');
+  render();
+  announce();
+  return true;
+}
+
+export function renameBuild(id, name) {
+  const found = state.projects.find((p) => p.id === id);
+  if (!found || !String(name || '').trim()) return false;
+  found.name = String(name).trim().slice(0, 80);
+  found.named = true;
+  persist();
+  if (found.id === state.currentId) el.nameText.textContent = found.name;
+  announce();
+  return true;
+}
+
+/**
+ * Remove one, for good.
+ *
+ * Deleting the build you are standing in leaves you somewhere: the next one,
+ * or a fresh empty one. Being dropped onto a blank screen with no explanation
+ * is how a delete comes to feel like a crash.
+ */
+export function deleteBuild(id) {
+  const had = state.projects.length;
+  state.projects = state.projects.filter((p) => p.id !== id);
+  if (state.projects.length === had) return false;
+
+  if (state.currentId === id) {
+    ritualRun = null;
+    renderPlan(null);
+    state.openPath = '';
+    if (state.projects.length) state.currentId = state.projects[0].id;
+    else startProject();
+    render();
+  }
+  persist();
+  announce();
+  return true;
+}
+
+/** A fresh one, from the sidebar's own New button. */
+export function newBuild() {
+  ritualRun = null;
+  renderPlan(null);
+  startProject();
+  state.view = 'chat';
+  ensureView('chat');
+  render();
+  announce();
+}
+
 export function mount(options = {}) {
   deps = { ...deps, ...options };
 
@@ -916,15 +1015,7 @@ export function mount(options = {}) {
     el.menu.hidden = true;
     $('build-menu-btn').setAttribute('aria-expanded', 'false');
 
-    if (item.id === 'build-new') {
-      ritualRun = null;
-      renderPlan(null);
-      startProject();
-      state.view = 'chat';
-      ensureView('chat');
-      render();
-    }
-    if (item.id === 'build-open') showBuilds();
+    if (item.id === 'build-new') newBuild();
     if (item.id === 'build-share') {
       if (!project().files.length) deps.toast('There is nothing to share yet.');
       else if (!downloadSingleFile(project())) {
@@ -970,18 +1061,6 @@ export function mount(options = {}) {
   el.sheet.addEventListener('click', async (event) => {
     if (event.target.closest('[data-sheet-close]') || event.target.closest('#sheet-close')) {
       closeSheet();
-      return;
-    }
-
-    const build = event.target.closest('[data-build]');
-    if (build) {
-      ritualRun = null;
-      renderPlan(null);
-      state.currentId = build.dataset.build;
-      state.openPath = '';
-      closeSheet();
-      ensureView('chat');
-      render();
       return;
     }
 

@@ -96,6 +96,7 @@ const el = {
   menuBtn: $('menu-btn'),
   sidebarClose: $('sidebar-close'),
   newChat: $('new-chat'),
+  newChatLabel: $('new-chat-label'),
   search: $('chat-search'),
   chatList: $('chat-list'),
   themeToggle: $('theme-toggle'),
@@ -386,7 +387,69 @@ function openingLine(chat) {
   return clean.length > 58 ? `${clean.slice(0, 57)}…` : clean;
 }
 
+/**
+ * One sidebar, holding whichever list the person is looking at.
+ *
+ * The rows are the same markup either way, so a build gets the search, the
+ * date grouping, the rename and the delete that conversations already had —
+ * rather than a second, thinner list somewhere else that has to be learnt.
+ */
 function renderSidebar() {
+  if (ritual.currentMode() === 'build') { renderBuildList(); return; }
+  renderChatList();
+}
+
+function renderBuildList() {
+  const query = el.search.value.trim();
+  const found = ritual.builds(query);
+
+  if (!found.length) {
+    el.chatList.innerHTML = `<p class="empty-hint">${
+      query ? 'No build matches that.' : 'Your builds will show here.'
+    }</p>`;
+    return;
+  }
+
+  // Grouped by when they were last touched, the same as conversations — a
+  // list of a dozen things with no days in it is a list you have to read.
+  const asChats = found.map((b) => ({ ...b, updatedAt: b.updatedAt }));
+  el.chatList.innerHTML = groupByDate(asChats)
+    .map((group) => {
+      const rows = group.chats.map((build) => {
+        const name = escapeHtml(build.name);
+        const sub = `${build.files} file${build.files === 1 ? '' : 's'} · ${escapeHtml(build.what)}`;
+        const when = escapeHtml(whenLabel(build.updatedAt));
+        return `
+        <div class="chat-row ${build.current ? 'is-active' : ''}">
+          <button class="chat-row-open" data-build-open="${build.id}" type="button">
+            <span class="chat-row-title">${name}</span>
+            <span class="chat-row-sub">
+              <span class="chat-row-opening">${sub}</span>
+              <span class="chat-row-when">${when}</span>
+            </span>
+          </button>
+          <span class="chat-row-tools">
+            <span class="chat-row-del" data-build-rename="${build.id}" role="button" tabindex="0"
+                  aria-label="Rename ${name}">
+              <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+                <path d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z"/>
+              </svg>
+            </span>
+            <span class="chat-row-del" data-build-del="${build.id}" role="button" tabindex="0"
+                  aria-label="Delete ${name}">
+              <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+                <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>
+              </svg>
+            </span>
+          </span>
+        </div>`;
+      }).join('');
+      return `<div class="chat-group-label">${group.label}</div>${rows}`;
+    })
+    .join('');
+}
+
+function renderChatList() {
   const query = el.search.value.trim().toLowerCase();
   const matches = query
     ? state.chats.filter((chat) =>
@@ -2631,6 +2694,14 @@ el.stop.addEventListener('click', () => {
 el.mic.addEventListener('click', toggleMic);
 
 el.newChat.addEventListener('click', () => {
+  if (ritual.currentMode() === 'build') {
+    ritual.newBuild();
+    renderSidebar();
+    closeNav();
+    el.input.focus();
+    return;
+  }
+
   state.streaming?.abort();
   speaker.stop();
   if (listening) stopListening();
@@ -2683,6 +2754,45 @@ function startRename(row, chat) {
 }
 
 el.chatList.addEventListener('click', (event) => {
+  // A build's row does the same three things a conversation's does.
+  const buildOpen = event.target.closest('[data-build-open]');
+  if (buildOpen) {
+    ritual.openBuild(buildOpen.dataset.buildOpen);
+    renderSidebar();
+    closeNav();
+    return;
+  }
+
+  const buildRename = event.target.closest('[data-build-rename]');
+  if (buildRename) {
+    event.stopPropagation();
+    const build = ritual.builds().find((b) => b.id === buildRename.dataset.buildRename);
+    const name = window.prompt('Name this build', build?.name || '');
+    if (name && name.trim()) {
+      ritual.renameBuild(buildRename.dataset.buildRename, name);
+      renderSidebar();
+    }
+    return;
+  }
+
+  const buildDel = event.target.closest('[data-build-del]');
+  if (buildDel) {
+    event.stopPropagation();
+    const build = ritual.builds().find((b) => b.id === buildDel.dataset.buildDel);
+    // A build is files somebody made, and there is no copy of it anywhere
+    // else — so this one asks, where deleting a conversation does not.
+    const sure = window.confirm(
+      `Delete "${build?.name || 'this build'}" and its ${build?.files || 0} file(s)?\n\n`
+      + 'This cannot be undone. Download the files first if you want to keep them.',
+    );
+    if (sure) {
+      ritual.deleteBuild(buildDel.dataset.buildDel);
+      renderSidebar();
+      toast('Build deleted.');
+    }
+    return;
+  }
+
   const rename = event.target.closest('[data-rename]');
   if (rename) {
     event.stopPropagation();
@@ -3096,13 +3206,27 @@ async function boot() {
     // own — the same one answers both — so the only reason it would be absent
     // is the switch being off or there being no key at all.
     if (config.building) {
+      ritual.onChange(() => {
+        if (ritual.currentMode() === 'build') renderSidebar();
+      });
       ritual.mount({
         headers: apiHeaders,
         toast,
         onMode: (mode) => {
-          el.input.placeholder = mode === 'build'
+          const building = mode === 'build';
+          el.input.placeholder = building
             ? 'Say what you want to build…'
             : 'Ask Grandpa anything…';
+          // The sidebar holds builds now, so everything around it has to
+          // agree — a New button offering a conversation above a list of
+          // builds is the kind of small lie that makes a thing feel untended.
+          el.newChatLabel.textContent = building ? 'New build' : 'New conversation';
+          el.search.placeholder = building ? 'Search builds' : 'Search conversations';
+          el.search.setAttribute('aria-label', el.search.placeholder);
+          el.sidebar.setAttribute('aria-label', building ? 'Builds' : 'Conversations');
+          el.chatList.setAttribute('aria-label', building ? 'Your builds' : 'Conversation history');
+          el.search.value = '';
+          renderSidebar();
           updateSendState();
         },
       });
