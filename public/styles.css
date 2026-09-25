@@ -2598,3 +2598,503 @@ body.is-talking { overflow: hidden; }
   .talk-tools { margin: .3rem 0 .6rem; }
   .talk-said:not([hidden]) { display: block; max-height: 4rem; }
 }
+
+/* ==========================================================================
+   Ritual Coding
+   --------------------------------------------------------------------------
+   The same paper, the same gold, the same serif for headings. Only the code
+   itself gets a surface of its own, because code wants a tighter line and a
+   background that says "this is not prose".
+
+   Everything is sized for a phone held in one hand: the panes are tabs, the
+   targets are 44px, and nothing needs a horizontal scroll except code, which
+   genuinely does.
+   ========================================================================== */
+
+/* ---- the mode switch ---------------------------------------------------- */
+.modes {
+  display: flex;
+  gap: 2px;
+  margin: 0 auto;
+  padding: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-hover) 70%, transparent);
+}
+
+.mode {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  font-size: .92rem;
+  color: var(--text-faint);
+  padding: 7px 16px;
+  min-height: 34px;
+  border-radius: 999px;
+  transition: color .15s, background .15s;
+}
+
+.mode:hover { color: var(--text-soft); }
+
+.mode[aria-selected="true"] {
+  color: var(--text);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-sm);
+}
+
+/* The current mode is also underlined, so it does not rest on colour alone. */
+.mode[aria-selected="true"]::after {
+  content: "";
+  display: block;
+  width: 18px;
+  height: 2px;
+  margin: 3px auto -5px;
+  border-radius: 2px;
+  background: var(--gold);
+}
+
+/* ---- the workbench ------------------------------------------------------ */
+.build {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.build-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.build-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  max-width: 34vw;
+  min-height: 34px;
+}
+
+.build-name span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.build-name:hover { background: var(--bg-hover); }
+.build-name svg { fill: none; stroke: currentColor; stroke-width: 1.8; opacity: .5; flex: none; }
+
+.build-views {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  padding: 3px;
+  border-radius: 999px;
+  background: var(--bg-hover);
+}
+
+.build-view {
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--text-soft);
+  padding: 6px 12px;
+  min-height: 32px;
+  border-radius: 999px;
+}
+
+.build-view.is-on {
+  background: var(--bg-raised);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.build-menu {
+  position: absolute;
+  top: 100%;
+  right: 12px;
+  z-index: 40;
+  min-width: 230px;
+  padding: 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  box-shadow: var(--shadow-md);
+}
+
+.build-bar { position: relative; }
+
+.build-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text);
+  padding: 11px 12px;
+  min-height: 44px;
+  border-radius: var(--radius-sm);
+}
+
+.build-item:hover { background: var(--bg-hover); }
+.build-item[disabled] { color: var(--text-faint); cursor: not-allowed; }
+.build-sep { height: 1px; margin: 5px 8px; background: var(--border); }
+
+.build-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.build-pane {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: none;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.build-pane.is-on { display: flex; }
+
+/* ---- talking about the build -------------------------------------------- */
+.build-thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 14px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.build-empty {
+  padding: 8vh 18px 24px;
+  text-align: center;
+  max-width: 34rem;
+  margin: 0 auto;
+}
+
+.build-empty h2 {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  margin: 0 0 8px;
+  color: var(--text);
+}
+
+.build-empty p { color: var(--text-soft); margin: 0 0 18px; line-height: 1.6; }
+
+.build-starters { display: grid; gap: 8px; }
+
+.build-starter {
+  border: 1px solid var(--border);
+  background: var(--bg-raised);
+  border-radius: var(--radius);
+  padding: 13px 15px;
+  text-align: left;
+  font: inherit;
+  color: var(--text);
+  cursor: pointer;
+  min-height: 46px;
+}
+
+.build-starter:hover { border-color: var(--gold); background: var(--bg-hover); }
+
+.build-turn { max-width: 100%; }
+.build-turn-you {
+  align-self: flex-end;
+  max-width: 85%;
+  background: var(--user-bubble);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.build-turn-ai { align-self: stretch; }
+.build-turn-ai .prose { overflow-wrap: anywhere; }
+
+/* ---- a proposal, before it is applied ----------------------------------- */
+.proposal {
+  border: 1px solid color-mix(in srgb, var(--gold) 55%, var(--border));
+  border-left: 3px solid var(--gold);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--gold) 8%, var(--bg-raised));
+  padding: 12px 14px;
+  margin-top: 10px;
+}
+
+.proposal h4 {
+  margin: 0 0 8px;
+  font-size: .95rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.proposal-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-family: var(--font-mono);
+  font-size: .82rem;
+  overflow-wrap: anywhere;
+}
+
+.proposal-kind {
+  flex: none;
+  font-family: var(--font);
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+.proposal-kind.is-new { background: color-mix(in srgb, var(--green) 20%, transparent); color: var(--green); }
+.proposal-kind.is-changed { background: color-mix(in srgb, var(--gold) 26%, transparent); color: var(--gold-deep); }
+.proposal-kind.is-same { background: var(--bg-hover); color: var(--text-faint); }
+
+.proposal-delta { margin-left: auto; color: var(--text-soft); flex: none; font-size: .78rem; }
+.proposal-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+
+.proposal-apply, .proposal-look {
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-raised);
+  font: inherit;
+  font-weight: 600;
+  padding: 9px 14px;
+  min-height: 42px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.proposal-apply { background: var(--gold); border-color: var(--gold); color: #2e1f1a; }
+.proposal-apply:hover { background: var(--gold-deep); }
+.proposal-look:hover { background: var(--bg-hover); }
+.proposal.is-applied { border-color: var(--border); background: var(--bg-raised); }
+.proposal-done { color: var(--green); font-weight: 600; font-size: .88rem; }
+
+/* ---- files and the editor ----------------------------------------------- */
+#pane-files { flex-direction: column; }
+
+.build-tree {
+  flex: none;
+  max-height: 34%;
+  overflow-y: auto;
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+.tree-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: .84rem;
+  color: var(--text);
+  padding: 9px 10px;
+  min-height: 40px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.tree-file:hover { background: var(--bg-hover); }
+.tree-file.is-on { background: var(--bg-active); font-weight: 700; }
+.tree-empty { padding: 14px; color: var(--text-soft); font-size: .9rem; }
+
+.build-editor { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+.editor-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: .8rem;
+  color: var(--text-soft);
+}
+
+.editor-saved { margin-left: auto; color: var(--green); font-family: var(--font); font-weight: 600; }
+
+/* The painted copy sits exactly under the textarea, and the textarea's own
+   text is transparent. Every property that decides where a glyph lands has to
+   match in both, or the colours drift away from the letters as you type. */
+.editor-wrap { position: relative; flex: 1; min-height: 0; background: var(--bg-code); }
+
+.editor-paint,
+.editor-input {
+  margin: 0;
+  border: 0;
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: .84rem;
+  line-height: 1.55;
+  tab-size: 2;
+  white-space: pre;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.editor-paint {
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+  pointer-events: none;
+  color: var(--text);
+}
+
+.editor-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  overflow: auto;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  outline: none;
+}
+
+.editor-input::selection { background: color-mix(in srgb, var(--gold) 40%, transparent); }
+
+.tok-comment { color: var(--text-faint); font-style: italic; }
+.tok-key { color: #9a4f00; font-weight: 600; }
+.tok-string { color: #3f6f2f; }
+.tok-number { color: #8a4b8a; }
+.tok-atom { color: #a33; }
+.tok-tag { color: #1b5a8a; font-weight: 600; }
+.tok-attr { color: #9a4f00; }
+.tok-call { color: #1b5a8a; }
+
+[data-theme="dark"] .tok-key { color: #ffb86b; }
+[data-theme="dark"] .tok-string { color: #9ed07a; }
+[data-theme="dark"] .tok-number { color: #d9a2e0; }
+[data-theme="dark"] .tok-atom { color: #ff8f8f; }
+[data-theme="dark"] .tok-tag { color: #79c0ff; }
+[data-theme="dark"] .tok-attr { color: #ffb86b; }
+[data-theme="dark"] .tok-call { color: #79c0ff; }
+
+/* ---- the preview -------------------------------------------------------- */
+#pane-preview { background: #fff; }
+[data-theme="dark"] #pane-preview { background: #1b1210; }
+
+.preview-note {
+  flex: none;
+  padding: 10px 14px;
+  font-size: .86rem;
+  line-height: 1.5;
+  color: var(--text);
+  background: color-mix(in srgb, var(--gold) 14%, var(--bg-raised));
+  border-bottom: 1px solid var(--border);
+}
+
+.preview-frame { flex: 1; width: 100%; border: 0; background: #fff; min-height: 0; }
+
+/* ---- the sheet ---------------------------------------------------------- */
+.sheet-body { padding: 4px 4px 12px; overflow-y: auto; }
+
+.sheet-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font: inherit;
+  color: var(--text);
+  text-align: left;
+  padding: 12px;
+  min-height: 48px;
+  cursor: pointer;
+}
+
+.sheet-row:hover { background: var(--bg-hover); }
+.sheet-row small { display: block; color: var(--text-soft); font-size: .82rem; margin-top: 2px; }
+.sheet-row strong { font-weight: 600; overflow-wrap: anywhere; }
+.sheet-row .sheet-when { margin-left: auto; color: var(--text-faint); font-size: .8rem; flex: none; }
+.sheet-note { padding: 12px; color: var(--text-soft); line-height: 1.6; }
+.sheet-note code {
+  font-family: var(--font-mono);
+  font-size: .85em;
+  background: var(--bg-code);
+  padding: 1px 5px;
+  border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+
+.sheet-go {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 12px;
+  padding: 11px 16px;
+  min-height: 46px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: var(--gold);
+  color: #2e1f1a;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.sheet-go:hover { background: var(--gold-deep); }
+.sheet-danger { color: var(--red); }
+
+/* ---- bigger screens ------------------------------------------------------
+   Chat beside the work, rather than instead of it. The view buttons then only
+   switch the right-hand column, which is why Talk hides itself here. */
+@media (min-width: 900px) {
+  .build-body { flex-direction: row; }
+  #pane-chat {
+    display: flex;
+    flex: 0 0 40%;
+    max-width: 480px;
+    border-right: 1px solid var(--border);
+  }
+  #view-chat { display: none; }
+  .build-tree { max-height: 30%; }
+}
+
+@media (max-width: 380px) {
+  .build-name { max-width: 26vw; }
+  .build-view { padding: 6px 9px; font-size: .8rem; }
+}
+
+/* In Build, the conversation and the welcome step aside for the workbench. */
+.app[data-mode="build"] #welcome,
+.app[data-mode="build"] #thread,
+.app[data-mode="build"] .composer-extras { display: none !important; }
+.app[data-mode="build"] .build { display: flex; }

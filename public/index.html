@@ -91,6 +91,15 @@
 
       <h1 class="chat-title sr-only" id="chat-title">New conversation</h1>
 
+      <!-- Two ways to use Grandpa AI, and it must be obvious which one you are
+           in. On a phone this is the only thing in the middle of the bar. -->
+      <div class="modes" id="modes" role="tablist" aria-label="What you are here to do" hidden>
+        <button class="mode" id="mode-ask" type="button" role="tab" aria-selected="true"
+                aria-controls="thread" data-mode="ask">Ask</button>
+        <button class="mode" id="mode-build" type="button" role="tab" aria-selected="false"
+                aria-controls="build" data-mode="build">Build</button>
+      </div>
+
       <div class="topbar-right">
         <div class="select-wrap sr-only">
           <label class="sr-only" for="language-select">Language</label>
@@ -163,6 +172,74 @@
     <section class="thread" id="thread" hidden aria-live="polite" aria-label="Conversation"></section>
 
     <!-- Composer -->
+    <!-- ============ Ritual Coding ============ -->
+    <section class="build" id="build" hidden aria-label="Ritual Coding">
+      <div class="build-bar">
+        <button class="build-name" id="build-name" type="button" title="Rename this build">
+          <span id="build-name-text">Untitled build</span>
+          <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16v4Z"/></svg>
+        </button>
+
+        <div class="build-views" role="tablist" aria-label="Chat, code or preview">
+          <button class="build-view is-on" id="view-chat" type="button" role="tab" aria-selected="true" data-view="chat">Talk</button>
+          <button class="build-view" id="view-files" type="button" role="tab" aria-selected="false" data-view="files">Code</button>
+          <button class="build-view" id="view-preview" type="button" role="tab" aria-selected="false" data-view="preview">Look</button>
+        </div>
+
+        <button class="icon-btn" id="build-menu-btn" type="button" aria-label="Builds and tools" aria-haspopup="menu" aria-expanded="false">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <circle cx="12" cy="5" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="12" cy="19" r="1.6"/>
+          </svg>
+        </button>
+
+        <div class="build-menu" id="build-menu" role="menu" hidden>
+          <button class="build-item" id="build-new" type="button" role="menuitem">New build</button>
+          <button class="build-item" id="build-open" type="button" role="menuitem">Open a build…</button>
+          <button class="build-item" id="build-download" type="button" role="menuitem">Download the files</button>
+          <button class="build-item" id="build-history" type="button" role="menuitem">Go back to an earlier version…</button>
+          <div class="build-sep" role="separator"></div>
+          <button class="build-item" id="build-github" type="button" role="menuitem">Connect GitHub</button>
+        </div>
+      </div>
+
+      <div class="build-body">
+        <!-- Talking about what to build -->
+        <div class="build-pane is-on" id="pane-chat" role="tabpanel" aria-labelledby="view-chat">
+          <div class="build-thread" id="build-thread" aria-live="polite"></div>
+          <div class="build-empty" id="build-empty">
+            <h2>What do you want to build?</h2>
+            <p>Say it the way you would say it to a person. Grandpa writes the files,
+               shows you what would change, and nothing is saved until you say so.</p>
+            <div class="build-starters" id="build-starters"></div>
+          </div>
+        </div>
+
+        <!-- The files -->
+        <div class="build-pane" id="pane-files" role="tabpanel" aria-labelledby="view-files" hidden>
+          <div class="build-tree" id="build-tree" aria-label="Files in this build"></div>
+          <div class="build-editor">
+            <div class="editor-head">
+              <span class="editor-path" id="editor-path">No file open</span>
+              <span class="editor-saved" id="editor-saved" hidden>Saved</span>
+            </div>
+            <div class="editor-wrap" id="editor-wrap">
+              <pre class="editor-paint" id="editor-paint" aria-hidden="true"></pre>
+              <textarea class="editor-input" id="editor-input" spellcheck="false"
+                        autocapitalize="off" autocorrect="off" autocomplete="off"
+                        aria-label="The file you are editing"></textarea>
+            </div>
+          </div>
+        </div>
+
+        <!-- Seeing it run -->
+        <div class="build-pane" id="pane-preview" role="tabpanel" aria-labelledby="view-preview" hidden>
+          <div class="preview-note" id="preview-note" hidden></div>
+          <iframe class="preview-frame" id="preview-frame" title="What your project looks like"
+                  sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe>
+        </div>
+      </div>
+    </section>
+
     <div class="composer-zone">
       <div class="speaking-bar" id="speaking-bar" hidden>
         <span class="speaking-wave" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
@@ -518,6 +595,25 @@
     </div>
 
     <div class="library-body" id="library-body"></div>
+  </section>
+</div>
+
+<!-- ============ Ritual Coding: lists, history, GitHub ============ -->
+<!-- One sheet, filled by whichever thing opened it. A phone has room for a
+     list or a panel, not for five separate modals that mostly look alike. -->
+<div class="settings-modal" id="build-sheet" hidden>
+  <div class="settings-backdrop" data-sheet-close></div>
+  <section class="settings-panel sheet-panel" role="dialog" aria-modal="true" aria-labelledby="sheet-title">
+    <div class="settings-head">
+      <div>
+        <p class="settings-kicker">Ritual Coding</p>
+        <h2 id="sheet-title">Builds</h2>
+      </div>
+      <button class="icon-btn" id="sheet-close" type="button" aria-label="Close">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>
+      </button>
+    </div>
+    <div class="sheet-body" id="sheet-body"></div>
   </section>
 </div>
 

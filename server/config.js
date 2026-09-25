@@ -117,6 +117,41 @@ export const config = {
   // unpredictably and cannot be relied on. The app says so rather than
   // pretending the guard still holds.
   serverless: Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME),
+
+  // ---- Ritual Coding ------------------------------------------------------
+  // Building things, as opposed to asking about them. On by default: it needs
+  // no key of its own beyond the one the rest of the app already uses.
+  building: !/^(0|false|no|off)$/i.test(process.env.ENABLE_BUILDING?.trim() || 'true'),
+
+  // The optional GitHub connection. All three are needed before the switch
+  // does anything, and where they are missing the app says which — a switch
+  // that fails only after somebody has signed in somewhere is worse than a
+  // switch that says it is not set up yet.
+  //
+  // GITHUB_SEAL_KEY is this server's own secret, not GitHub's. The access
+  // token is sealed with it and kept in a cookie the browser cannot read, so
+  // the token never exists anywhere page JavaScript can reach.
+  githubClientId: process.env.GITHUB_CLIENT_ID?.trim() || '',
+  githubClientSecret: process.env.GITHUB_CLIENT_SECRET?.trim() || '',
+  githubSealKey: process.env.GITHUB_SEAL_KEY?.trim() || '',
+
+  // What to ask GitHub for. `public_repo` is the smaller ask and covers public
+  // repositories; a private one needs `repo`, which GitHub does not break down
+  // any further. The default is the smaller of the two, because the bigger one
+  // should be a decision somebody makes rather than one made for them.
+  githubScope: process.env.GITHUB_SCOPE?.trim() || 'public_repo',
+
+  // Overridable so the suite can point at a stand-in rather than the real
+  // GitHub — the same reason the voice service's address is overridable.
+  githubApi: (process.env.GITHUB_API_URL || 'https://api.github.com').replace(/\/+$/, ''),
+  githubOauth: (process.env.GITHUB_OAUTH_URL || 'https://github.com/login/oauth').replace(/\/+$/, ''),
+
+  // Cookies are marked Secure everywhere but a local http server, where that
+  // flag would stop them being set at all.
+  secureCookies: !/^(0|false|no|off)$/i.test(
+    process.env.SECURE_COOKIES?.trim()
+      || (process.env.VERCEL || process.env.NODE_ENV === 'production' ? 'true' : 'false'),
+  ),
 };
 
 // Models offered in the UI picker. The account still has to have access to

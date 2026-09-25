@@ -19,6 +19,7 @@ import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary } from './library.js';
 import { Dictation, canRecord } from './dictate.js';
 import { RecordedEar, canListenByRecording } from './hearing.js';
+import * as ritual from './ritual.js';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 
@@ -751,12 +752,23 @@ function showTheRightCircle() {
   const busy = !el.stop.hidden;
   const hasSomething = el.input.value.trim().length > 0 || Boolean(waiting) || Boolean(paper);
 
+  // Building is typed, not spoken — there is no hands-free way to dictate a
+  // file — so in that mode the circle is always Send.
+  const talkable = canTalk && ritual.currentMode() !== 'build';
+
   // Where a hands-free conversation is not possible at all, Send keeps the
   // place to itself and sits disabled — an empty hole where a button belongs
   // reads as something broken.
-  el.send.hidden = busy || (!hasSomething && canTalk);
-  el.talkBtn.hidden = busy || hasSomething || !canTalk;
+  el.send.hidden = busy || (!hasSomething && talkable);
+  el.talkBtn.hidden = busy || hasSomething || !talkable;
 }
+
+// The workbench streams its own answers, so it says when it is busy and the
+// shared Stop button answers for it the same as it does for a chat turn.
+document.addEventListener('ritual:busy', (event) => {
+  el.stop.hidden = !event.detail;
+  showTheRightCircle();
+});
 
 /**
  * Ask for a reply and stream it into the thread.
@@ -1011,6 +1023,19 @@ function ensureChat() {
 
 function send(rawText) {
   const typed = (rawText ?? el.input.value).trim();
+
+  // One message box for both modes. Which one it goes to is whichever the
+  // person is looking at — a second box under the first would be one more
+  // thing to explain, and on a phone there is no room for it.
+  if (ritual.currentMode() === 'build') {
+    if (!typed || ritual.isStreaming()) return;
+    el.input.value = '';
+    autoGrow();
+    updateSendState();
+    ritual.ask(typed);
+    return;
+  }
+
   // A picture with nothing typed beside it is the commonest way this is used:
   // photograph the page, press send. The words are supplied so the turn reads
   // like a question rather than arriving empty.
@@ -2598,7 +2623,11 @@ el.input.addEventListener('keydown', (event) => {
 });
 
 el.send.addEventListener('click', () => send());
-el.stop.addEventListener('click', () => state.streaming?.abort());
+el.stop.addEventListener('click', () => {
+  // Stop belongs to whichever stream is actually running.
+  if (ritual.currentMode() === 'build') ritual.stop();
+  else state.streaming?.abort();
+});
 el.mic.addEventListener('click', toggleMic);
 
 el.newChat.addEventListener('click', () => {
@@ -3062,6 +3091,22 @@ async function boot() {
 
     // And the plus itself is only worth a place if something is behind it.
     refreshMore();
+
+    // Ritual Coding, where this deployment can do it. It needs no key of its
+    // own — the same one answers both — so the only reason it would be absent
+    // is the switch being off or there being no key at all.
+    if (config.building) {
+      ritual.mount({
+        headers: apiHeaders,
+        toast,
+        onMode: (mode) => {
+          el.input.placeholder = mode === 'build'
+            ? 'Say what you want to build…'
+            : 'Ask Grandpa anything…';
+          updateSendState();
+        },
+      });
+    }
 
     // The Album tab appears only where pictures are actually switched on.
     const albumTab = el.libraryTabs.querySelector('[data-tab="album"]');

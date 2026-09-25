@@ -23,6 +23,8 @@ import {
   publicCatalogue,
   voiceFor,
 } from './personas.js';
+import { BUILD_BUDGET, BUILD_PROMPT, fitProject, projectContext } from './build.js';
+import * as github from './github.js';
 import { needsLookingUp, searchModelFrom } from './search.js';
 import { KINDS, isKind, libraryCatalogue } from './structured.js';
 
@@ -253,12 +255,195 @@ app.get('/api/config', async (_req, res) => {
     // actually look. A camera button that leads to "I cannot see pictures" is
     // worse than no camera button.
     vision: config.vision && Boolean(tiers.seeing),
+    // Ritual Coding needs nothing beyond the key the rest of the app uses.
+    building: config.building && Boolean(config.apiKey),
+    // And the GitHub connection inside it is a separate matter: a deployment
+    // with no GitHub app configured shows what to set rather than a switch
+    // that fails once somebody has already signed in.
+    github: {
+      ready: github.githubReady(),
+      missing: github.githubReady() ? [] : github.githubSetup(),
+      scope: config.githubScope,
+    },
   });
 });
 
 app.get('/api/health', (_req, res) => {
   res.json({ status: 'ok', keyConfigured: Boolean(config.apiKey) });
 });
+
+/* ==========================================================================
+   Ritual Coding — the optional GitHub connection
+   ==========================================================================
+   The access token never leaves this file's side of the wire. It arrives from
+   GitHub here, is sealed with this server's own key, and goes back to the
+   browser in a cookie marked HttpOnly — which the browser will send with every
+   request and page JavaScript cannot read. Everything below unseals it, calls
+   GitHub, and sends back only what is being asked for.
+
+   Nothing writes to a repository except the one route that says so in its
+   name, and that route refuses unless the body says, that time, that this was
+   meant. There is no commit-on-save.
+   ========================================================================== */
+
+const STATE_COOKIE = 'grandpa_gh_state';
+
+/** Where GitHub sends somebody back to. Built from the request, not guessed. */
+function callbackUrl(req) {
+  const proto = (req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0].trim();
+  const host = req.get('x-forwarded-host') || req.get('host');
+  return `${proto}://${host}/api/github/callback`;
+}
+
+/** Whoever is asking has to be connected; everything else is the same shape. */
+function withToken(handler) {
+  return async (req, res) => {
+    if (!github.githubReady()) {
+      res.status(503).json({ error: 'GitHub is not set up on this deployment.', setup: github.githubSetup() });
+      return;
+    }
+    const token = github.tokenFrom(req);
+    if (!token) {
+      res.status(401).json({ error: 'Not connected to GitHub yet.', connect: true });
+      return;
+    }
+    try {
+      await handler(req, res, token);
+    } catch (error) {
+      // The message is the one github.js wrote for a person to read; anything
+      // else is logged here and described plainly there.
+      if (!/GitHub|expired|folder|not text/i.test(error?.message || '')) {
+        console.error('[github]', error?.message || error);
+      }
+      res.status(502).json({ error: error?.message || 'GitHub could not be reached.' });
+    }
+  };
+}
+
+app.get('/api/github/status', async (req, res) => {
+  const ready = github.githubReady();
+  if (!ready) {
+    res.json({ ready: false, connected: false, missing: github.githubSetup(), scope: config.githubScope });
+    return;
+  }
+  const token = github.tokenFrom(req);
+  if (!token) { res.json({ ready: true, connected: false, scope: config.githubScope }); return; }
+  try {
+    const who = await github.whoami(token);
+    res.json({ ready: true, connected: true, scope: config.githubScope, ...who });
+  } catch {
+    // A token that no longer works is the same to a reader as no token, and
+    // leaving a dead one in place would keep failing every call after this.
+    github.clearTokenCookie(res);
+    res.json({ ready: true, connected: false, scope: config.githubScope });
+  }
+});
+
+app.get('/api/github/start', rateLimit, (req, res) => {
+  if (!github.githubReady()) {
+    res.status(503).send('GitHub is not set up on this deployment.');
+    return;
+  }
+  const { url, state } = github.authorizeUrl(callbackUrl(req));
+  const bits = [`${STATE_COOKIE}=${encodeURIComponent(state)}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=600'];
+  if (config.secureCookies) bits.push('Secure');
+  res.append('Set-Cookie', bits.join('; '));
+  res.redirect(url);
+});
+
+app.get('/api/github/callback', rateLimit, async (req, res) => {
+  const back = (how) => res.redirect(`/?github=${how}#build`);
+  if (!github.githubReady()) { back('unavailable'); return; }
+
+  // Somebody pressed Cancel on GitHub's own page. Not an error to report.
+  if (req.query.error) { back('cancelled'); return; }
+
+  const expected = github.readCookie(req, STATE_COOKIE);
+  res.append('Set-Cookie', `${STATE_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  if (!github.stateIsGood(String(req.query.state || ''), expected)) { back('expired'); return; }
+
+  try {
+    const token = await github.exchangeCode(String(req.query.code || ''), callbackUrl(req));
+    github.setTokenCookie(res, token);
+    back('connected');
+  } catch (error) {
+    // Never the detail: whatever GitHub said here can carry the code that was
+    // being exchanged, and this lands in a URL somebody may paste.
+    console.error('[github] token exchange failed:', error?.message || error);
+    back('failed');
+  }
+});
+
+app.post('/api/github/disconnect', (req, res) => {
+  github.clearTokenCookie(res);
+  res.json({ ok: true });
+});
+
+app.get('/api/github/repos', rateLimit, withToken(async (_req, res, token) => {
+  res.json({ repos: await github.listRepos(token) });
+}));
+
+app.get('/api/github/branches', rateLimit, withToken(async (req, res, token) => {
+  const repo = String(req.query.repo || '');
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) { res.status(400).json({ error: 'Which repository?' }); return; }
+  res.json({ branches: await github.listBranches(token, repo) });
+}));
+
+app.get('/api/github/tree', rateLimit, withToken(async (req, res, token) => {
+  const repo = String(req.query.repo || '');
+  const branch = String(req.query.branch || '');
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !branch) {
+    res.status(400).json({ error: 'Which repository and branch?' });
+    return;
+  }
+  res.json(await github.listTree(token, repo, branch));
+}));
+
+app.get('/api/github/file', rateLimit, withToken(async (req, res, token) => {
+  const repo = String(req.query.repo || '');
+  const branch = String(req.query.branch || '');
+  const file = String(req.query.path || '');
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !branch || !file) {
+    res.status(400).json({ error: 'Which file?' });
+    return;
+  }
+  res.json(await github.readFile(token, repo, branch, file));
+}));
+
+/**
+ * The only route here that changes anything.
+ *
+ * `confirm` is not ceremony. Everything else in Ritual Coding is undoable
+ * inside the phone; this one reaches a real branch that other people may be
+ * working from, so it takes a separate, explicit yes for that one commit, and
+ * the page asks for it in as many words.
+ */
+app.post('/api/github/commit', rateLimit, requireAccess, withToken(async (req, res, token) => {
+  const { repo, branch, path: file, body, message, sha, confirm } = req.body || {};
+  if (confirm !== true) {
+    res.status(400).json({ error: 'A commit has to be confirmed before it is made.' });
+    return;
+  }
+  if (!/^[\w.-]+\/[\w.-]+$/.test(String(repo || '')) || !branch || !file) {
+    res.status(400).json({ error: 'Which repository, branch and file?' });
+    return;
+  }
+  if (typeof body !== 'string') { res.status(400).json({ error: 'There is nothing to commit.' }); return; }
+
+  const written = await github.commitFile(token, {
+    repo: String(repo),
+    branch: String(branch),
+    path: String(file),
+    body,
+    message: String(message || '').trim() || `Update ${file} from Grandpa AI`,
+    sha: sha ? String(sha) : '',
+  });
+  res.json({
+    ok: true,
+    sha: written?.content?.sha,
+    url: written?.commit?.html_url,
+  });
+}));
 
 // ---- validation ---------------------------------------------------------
 const MAX_MESSAGES = 40;
@@ -508,6 +693,13 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   // shorter and given a smaller ceiling than a written one.
   const spoken = Boolean(req.body?.spoken);
 
+  // Ritual Coding: the same stream, a different job. Writing a file is not
+  // answering a question, so it takes its own prompt, its own room, and the
+  // most capable model on the account — code that is nearly right does not
+  // run, where an answer that is nearly right is still worth having.
+  const building = config.building && req.body?.mode === 'build';
+  const project = building ? fitProject(req.body?.files) : { kept: [], dropped: [] };
+
   // Does this question need something the model cannot remember — this
   // morning's news, today's rate, who won last night? If so, and if the
   // account has a model that can go and read, that model takes this one turn.
@@ -543,8 +735,19 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   let searched = Boolean(reader)
     && !carryingOn
     && !photo
+    && !building
     && (req.body?.search === true || needsLookingUp(asked));
-  const promptFor = (didSearch) => buildSystemPrompt({
+  const buildingPrompt = () => [
+    BUILD_PROMPT,
+    '',
+    projectContext(project.kept),
+    project.dropped.length
+      ? `\nThese files are in the project but were too large to include here, `
+        + `so do not rewrite them from memory: ${project.dropped.join(', ')}.`
+      : '',
+  ].join('\n');
+
+  const promptFor = (didSearch) => (building ? buildingPrompt() : buildSystemPrompt({
     photo: Boolean(photo),
     persona,
     language: req.body?.language,
@@ -555,7 +758,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     register: req.body?.register,
     task: 'chat',
     searched: didSearch,
-  });
+  }));
 
   // The question decides which model answers it. "Good morning" is not
   // worth the best model on the account; working out the interest on a loan
@@ -566,7 +769,14 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
 
   let model = searched
     ? reader
-    : await pickModel(req.body?.model, 'chat', { persona, asked, seeing: Boolean(photo), think, spoken });
+    : await pickModel(
+      req.body?.model,
+      // Building is the work this account's best model is for. Not the
+      // question's length or its keywords — writing a whole working file is
+      // simply harder than answering, every time.
+      building && !photo ? 'story' : 'chat',
+      { persona, asked, seeing: Boolean(photo), think, spoken },
+    );
 
   // Nothing on this account can look at a picture. Better to say so and answer
   // the words than to send it to a model that will refuse the whole turn.
@@ -610,7 +820,10 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     // was guillotined in the middle of "The republic was declared in". So
     // there is real headroom over what is asked for, and brevity is left to
     // the prompt, where it belongs.
-    const budget = spoken ? 700 : 2200;
+    // A page of HTML with its styles is comfortably more than an answer's
+    // worth of room, and a file that stops in the middle of a tag is not a
+    // partial answer — it is broken, and the person cannot tell which.
+    const budget = building ? BUILD_BUDGET : (spoken ? 700 : 2200);
 
     // Carrying on has more room than starting did, always. By the time a
     // continuation is running, the one thing known for certain is that the
