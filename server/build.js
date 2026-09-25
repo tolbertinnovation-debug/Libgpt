@@ -134,3 +134,105 @@ export function fitProject(files = [], room = 60_000) {
 
   return { kept, dropped };
 }
+
+
+/* ==========================================================================
+   One prompt, a whole site
+   ==========================================================================
+   "Make me a website for my shop" should end with a website, not with the
+   first file of one. The difference is not a better prompt — it is that
+   somebody has to decide what the pieces are, write each of them, and then
+   check the result actually runs. A person doing this for themselves does all
+   three. A tool that does only the middle one has handed them a job.
+
+   So a build runs as a plan. The plan is small on purpose: two to four steps,
+   because every step is a model call, and the reader is on a phone paying for
+   the connection. Four pages of a shop site is a website; forty is a bill.
+   ========================================================================== */
+
+export const PLAN_PROMPT = `You are Grandpa AI, planning a small website before building it.
+
+Answer ONLY with JSON in this exact shape:
+
+{
+  "name": "a short name for this build, 2-4 words",
+  "summary": "one sentence a beginner understands, saying what they will have at the end",
+  "steps": [
+    { "title": "what this step makes, in plain words", "files": ["index.html"], "asks": "what to write in these files" }
+  ]
+}
+
+Rules:
+- TWO to FOUR steps. Never more. Each step is a slow, paid request on a phone.
+- The first step must produce a working index.html. If everything stops after
+  step one, the person must still have something that opens and looks finished.
+- Every file is plain HTML, CSS or JavaScript that runs by opening index.html.
+  No build step, no npm, no framework, no CDN, no server.
+- Later steps add pages or behaviour. A page a step creates must be linked
+  from a page an earlier step already made, or nobody will ever find it.
+- "asks" is instructions to yourself for that step: what goes in those files,
+  what it must link to, what it must match. Be specific about content, not
+  about code.
+- Use whatever real details they gave — shop name, phone number, what they
+  sell, their town. Where they gave none, choose something sensible and
+  Liberian rather than "Lorem ipsum" or "Company Name".
+- The name and summary are read by somebody who has never written code.`;
+
+/** A plan we are willing to run, or nothing. */
+export function readPlan(raw) {
+  const text = (value, max) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
+
+  const steps = (Array.isArray(raw?.steps) ? raw.steps : [])
+    .map((step) => ({
+      title: text(step?.title, 120),
+      asks: text(step?.asks, 1200),
+      files: (Array.isArray(step?.files) ? step.files : [])
+        .map((f) => text(f, 180))
+        .filter(Boolean)
+        .slice(0, 8),
+    }))
+    .filter((step) => step.title && step.files.length)
+    // Four is the ceiling the prompt asks for, and the ceiling is enforced
+    // here too: a model that ignores it must not be able to spend somebody's
+    // afternoon and their money on twelve requests.
+    .slice(0, 4);
+
+  if (!steps.length) return null;
+  return {
+    name: text(raw?.name, 60) || 'New build',
+    summary: text(raw?.summary, 300),
+    steps,
+  };
+}
+
+/** What a step is told, on top of the ordinary building prompt. */
+export function stepPrompt(plan, index) {
+  const step = plan.steps[index];
+  const done = plan.steps.slice(0, index).map((s) => s.title);
+  return [
+    `You are building: ${plan.name}. ${plan.summary}`,
+    '',
+    `This is step ${index + 1} of ${plan.steps.length}: ${step.title}`,
+    done.length ? `Already done: ${done.join('; ')}.` : '',
+    '',
+    `Write these files, whole: ${step.files.join(', ')}.`,
+    step.asks,
+    '',
+    'Write only the files for THIS step. Keep what earlier steps made working —',
+    'if a page you write links to them, use the paths they really have.',
+    'Say one short line about what this step added. No preamble.',
+  ].filter(Boolean).join('\n');
+}
+
+/** What a fixing pass is told, given what actually went wrong when it ran. */
+export function fixPrompt(faults) {
+  return [
+    'The project was opened in a browser and these problems came out of it:',
+    '',
+    ...faults.map((f) => `- ${f}`),
+    '',
+    'Fix them. Write out the WHOLE of every file you change.',
+    'Change as little as possible — the rest of it works.',
+    'Then say, in one short line and in plain words, what was wrong.',
+  ].join('\n');
+}

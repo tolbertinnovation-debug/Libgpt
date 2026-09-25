@@ -23,7 +23,10 @@ import {
   publicCatalogue,
   voiceFor,
 } from './personas.js';
-import { BUILD_BUDGET, BUILD_PROMPT, fitProject, projectContext } from './build.js';
+import {
+  BUILD_BUDGET, BUILD_PROMPT, PLAN_PROMPT, fitProject, fixPrompt, projectContext,
+  readPlan, stepPrompt,
+} from './build.js';
 import * as github from './github.js';
 import { needsLookingUp, searchModelFrom } from './search.js';
 import { KINDS, isKind, libraryCatalogue } from './structured.js';
@@ -700,6 +703,15 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   const building = config.building && req.body?.mode === 'build';
   const project = building ? fitProject(req.body?.files) : { kept: [], dropped: [] };
 
+  // What went wrong when the browser actually ran what was built. The page
+  // sends the faults; the words telling the model what to do about them are
+  // written here, the same as every other prompt in this app. Folding it into
+  // this turn rather than a request of its own saves a round trip, which on a
+  // 2G connection is the part that is felt.
+  const faults = building && Array.isArray(req.body?.faults)
+    ? req.body.faults.map((f) => String(f).slice(0, 400)).filter(Boolean).slice(0, 12)
+    : [];
+
   // Does this question need something the model cannot remember — this
   // morning's news, today's rate, who won last night? If so, and if the
   // account has a model that can go and read, that model takes this one turn.
@@ -745,6 +757,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
       ? `\nThese files are in the project but were too large to include here, `
         + `so do not rewrite them from memory: ${project.dropped.join(', ')}.`
       : '',
+    faults.length ? `\n${fixPrompt(faults)}` : '',
   ].join('\n');
 
   const promptFor = (didSearch) => (building ? buildingPrompt() : buildSystemPrompt({
@@ -1006,6 +1019,45 @@ app.post('/api/title', rateLimit, requireAccess, async (req, res) => {
   } catch (error) {
     // A missing title is cosmetic — never fail the chat over it.
     res.status(error.status || 500).json({ error: error.message });
+  }
+});
+
+// ---- Ritual Coding: what a whole build is made of -----------------------
+//
+// Asked once, before any file is written. The answer is a plan the browser
+// then works through step by step, so that "make me a website for my shop"
+// ends with a website rather than with the first page of one.
+app.post('/api/plan', rateLimit, requireAccess, async (req, res) => {
+  if (!config.building) { res.status(503).json({ error: 'Building is switched off here.' }); return; }
+
+  const asked = String(req.body?.asked || '').trim().slice(0, 2_000);
+  if (!asked) { res.status(400).json({ error: 'What should it build?' }); return; }
+
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+
+  try {
+    const raw = await complete({
+      // Planning is the turn that decides what every other turn does, so it
+      // is worth the best model on the account — and it is only ever one.
+      model: await pickModel(req.body?.model, 'story'),
+      messages: [
+        { role: 'system', content: PLAN_PROMPT },
+        { role: 'user', content: asked },
+      ],
+      maxTokens: 900,
+      temperature: 0.4,
+      json: true,
+      signal: controller.signal,
+    });
+
+    const plan = readPlan(JSON.parse(raw));
+    if (!plan) { res.status(502).json({ error: 'That plan came back in a shape I could not use.' }); return; }
+    res.json({ plan, steps: plan.steps.map((_, i) => stepPrompt(plan, i)) });
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    console.error('[plan]', error?.message || error);
+    res.status(502).json({ error: 'The plan could not be made. Try saying it another way.' });
   }
 });
 

@@ -195,6 +195,7 @@
         <div class="build-menu" id="build-menu" role="menu" hidden>
           <button class="build-item" id="build-new" type="button" role="menuitem">New build</button>
           <button class="build-item" id="build-open" type="button" role="menuitem">Open a build…</button>
+          <button class="build-item" id="build-share" type="button" role="menuitem">Save as one page, to share</button>
           <button class="build-item" id="build-download" type="button" role="menuitem">Download the files</button>
           <button class="build-item" id="build-history" type="button" role="menuitem">Go back to an earlier version…</button>
           <div class="build-sep" role="separator"></div>
@@ -205,11 +206,13 @@
       <div class="build-body">
         <!-- Talking about what to build -->
         <div class="build-pane is-on" id="pane-chat" role="tabpanel" aria-labelledby="view-chat">
+          <div class="build-plan" id="build-plan" hidden aria-live="polite"></div>
           <div class="build-thread" id="build-thread" aria-live="polite"></div>
           <div class="build-empty" id="build-empty">
             <h2>What do you want to build?</h2>
-            <p>Say it the way you would say it to a person. Grandpa writes the files,
-               shows you what would change, and nothing is saved until you say so.</p>
+            <p>Say it the way you would say it to a person. Grandpa works out the pieces,
+               writes them, then opens the result to check it runs — and fixes it if it
+               does not. One thing said, a whole website back.</p>
             <div class="build-starters" id="build-starters"></div>
           </div>
         </div>
@@ -238,6 +241,12 @@
                   sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe>
         </div>
       </div>
+
+      <!-- Where a build is opened to see whether it runs. Off screen rather
+           than display:none, so it certainly executes, and sandboxed the same
+           as the preview: no origin of its own, no reach into this page. -->
+      <iframe class="check-frame" id="check-frame" title="Checking the build" aria-hidden="true"
+              tabindex="-1" sandbox="allow-scripts allow-forms allow-modals"></iframe>
     </section>
 
     <div class="composer-zone">

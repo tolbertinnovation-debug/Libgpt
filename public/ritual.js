@@ -11,18 +11,20 @@
 // else. There is no second pipeline to keep in step.
 
 import {
-  applyChanges, describeChanges, downloadProject, filesFrom, forSending, highlightFile,
-  loadProjects, makeProject, previewDocument, previewState, restoreVersion, saveProjects,
-  tidyPath,
+  applyChanges, danglingLinks, describeChanges, downloadProject, downloadSingleFile, filesFrom,
+  forSending, highlightFile, loadProjects, looksEmpty, makeProject, previewDocument, previewState,
+  restoreVersion, saveProjects, tidyPath,
 } from './build.js';
 import { renderMarkdown } from './markdown.js';
 
 const $ = (id) => document.getElementById(id);
 
+// Said the way somebody would actually say it, and each one is a whole site
+// rather than a single file — because a whole site is what comes back.
 const STARTERS = [
-  'Make me a one-page website for my shop, with my phone number and what I sell.',
-  'Build a simple form that works out how much change to give a customer.',
-  'Make a page where a teacher can mark who came to school today.',
+  'Make a website for my shop in Monrovia. I sell rice, oil and pepper. My number is 0770-000-000.',
+  'Build me a site for my tailoring business, with a page of my work and a page to contact me.',
+  'A website for my school: the classes we teach, the fees, and where to find us.',
 ];
 
 const state = {
@@ -240,7 +242,15 @@ function ensureView(view) {
 async function send(text) {
   const said = String(text || '').trim();
   const p = project();
-  if (!said || !p || state.streaming) return;
+  if (!said || !p || state.streaming || ritualRun?.running) return;
+
+  // The first thing said to an empty build is a description of a whole
+  // website, not a request for one file. Treating it as the latter is what
+  // made "make me a website for my shop" hand back one page and stop.
+  if (!p.files.length && !p.messages.length) {
+    buildTheWholeThing(said);
+    return;
+  }
 
   p.messages.push({ role: 'user', content: said });
   if (!p.named && p.messages.length === 1) {
@@ -331,8 +341,267 @@ async function send(text) {
   }
 }
 
+/* ==========================================================================
+   One prompt, start to finish
+   ==========================================================================
+   "Make me a website for my shop" should end with a website. What stands
+   between the two is not a cleverer prompt — it is that somebody has to
+   decide what the pieces are, write each one, and then open the result to see
+   whether it works. This does all three, and the third is the one that makes
+   it finished rather than generated.
+
+   It stays honest about cost. The plan is capped at four steps because every
+   step is a slow paid request on a phone, and there is exactly ONE fixing
+   pass: a loop that keeps paying to re-fix its own work until something
+   passes is a loop that can empty somebody's account while they watch.
+   ========================================================================== */
+
+// How long to let a built page run before deciding it is quiet. The page says
+// 'ran' when it finishes loading, so this is only ever the worst case.
+const RUN_MS = 2_500;
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let ritualRun = null;   // the run in progress, so it can be called off
+
+/** Draw the checklist, which IS the progress: no spinner, no percentage. */
+function renderPlan(run) {
+  if (!run) { el.plan.hidden = true; return; }
+  el.plan.hidden = false;
+
+  // The panel goes up before the plan comes back, so that the wait for it is
+  // visible rather than a dead screen. Until then there is a heading and a
+  // line, and no list to draw.
+  if (!run.plan) {
+    el.plan.innerHTML = `<h4>Working it out</h4>
+      <p>${escapeHtml(run.note || 'One moment.')}</p>
+      ${run.running ? '<button class="proposal-look" type="button" id="plan-stop">Stop</button>' : ''}`;
+    return;
+  }
+
+  el.plan.innerHTML = `
+    <h4>${escapeHtml(run.plan.name)}</h4>
+    ${run.plan.summary ? `<p>${escapeHtml(run.plan.summary)}</p>` : ''}
+    <ol class="plan-steps">
+      ${run.marks.map((mark, i) => `
+        <li class="plan-step is-${mark.state}">
+          <span class="plan-tick" aria-hidden="true">${
+            mark.state === 'done' ? '✓' : mark.state === 'doing' ? '…' : mark.state === 'failed' ? '!' : ''
+          }</span>
+          <span>${escapeHtml(run.plan.steps[i]?.title || mark.title)}</span>
+        </li>`).join('')}
+    </ol>
+    ${run.note ? `<p class="plan-note">${escapeHtml(run.note)}</p>` : ''}
+    ${run.running
+      ? '<button class="proposal-look" type="button" id="plan-stop">Stop</button>'
+      : ''}`;
+  el.plan.scrollIntoView({ block: 'nearest' });
+}
+
+/** Run the built project in the sandbox and collect what comes back. */
+async function runAndWatch(files) {
+  const faults = [];
+  const heard = (event) => {
+    const data = event.data;
+    if (data?.grandpa === 'fault' && data.what) faults.push(String(data.what));
+  };
+  window.addEventListener('message', heard);
+
+  let finished = false;
+  const done = (event) => { if (event.data?.grandpa === 'ran') finished = true; };
+  window.addEventListener('message', done);
+
+  // Its own frame, off screen, so the checklist stays where somebody can
+  // watch it. Sandboxed the same as the preview: no same-origin, so it cannot
+  // reach this page, its storage or its session, and nothing runs on a server.
+  el.checkFrame.srcdoc = previewDocument(files);
+
+  const until = Date.now() + RUN_MS;
+  // A page that loads cleanly still gets a moment afterwards, because the
+  // errors worth catching are usually thrown by script that runs on load.
+  while (Date.now() < until && !(finished && Date.now() > until - RUN_MS + 900)) {
+    await sleep(120);
+  }
+
+  window.removeEventListener('message', heard);
+  window.removeEventListener('message', done);
+  // Nothing should go on running after it has been looked at.
+  el.checkFrame.srcdoc = '';
+  return faults;
+}
+
+/** Everything wrong with the project, as sentences a model can act on. */
+async function faultsIn(files) {
+  return [
+    ...danglingLinks(files),
+    ...looksEmpty(files),
+    ...(previewState(files).can ? await runAndWatch(files) : []),
+  ];
+}
+
+/**
+ * One prompt, worked through to the end.
+ *
+ * Each step is applied as it lands rather than waiting to be approved. That
+ * is the one place this departs from the rest of Ritual Coding, and it is the
+ * point of it: somebody who asked for a whole website is not asking to press
+ * Save four times. Every apply still keeps the version before it, so the
+ * whole run can be undone step by step afterwards.
+ */
+async function buildTheWholeThing(asked) {
+  const p = project();
+  if (!p || state.streaming || ritualRun?.running) return;
+
+  p.messages.push({ role: 'user', content: asked });
+  renderThread();
+
+  const run = { plan: null, marks: [], running: true, note: 'Working out what to build…', asked };
+  ritualRun = run;
+  renderPlan(run);
+  document.dispatchEvent(new CustomEvent('ritual:busy', { detail: true }));
+
+  const stop = () => !run.running;
+
+  try {
+    // ---- 1. the plan ------------------------------------------------------
+    const planned = await fetch('/api/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...deps.headers() },
+      body: JSON.stringify({ asked }),
+    });
+    const planBody = await planned.json();
+    if (!planned.ok) throw new Error(planBody.error || 'The plan could not be made.');
+
+    run.plan = planBody.plan;
+    run.marks = run.plan.steps.map((s) => ({ title: s.title, state: 'waiting' }));
+    run.note = '';
+    if (!p.named) { p.name = run.plan.name; p.named = true; el.nameText.textContent = p.name; }
+    renderPlan(run);
+
+    // ---- 2. each step -----------------------------------------------------
+    for (let i = 0; i < run.plan.steps.length; i += 1) {
+      if (stop()) break;
+      run.marks[i].state = 'doing';
+      renderPlan(run);
+
+      const files = await oneBuildTurn(planBody.steps[i], p);
+      if (stop()) break;
+
+      if (files.length) {
+        applyChanges(p, files, `Before step ${i + 1}: ${run.plan.steps[i].title}`);
+        run.marks[i].state = 'done';
+      } else {
+        // A step that produced nothing is not a reason to stop: what came
+        // before it still stands, and saying so beats a silent gap.
+        run.marks[i].state = 'failed';
+      }
+      persist();
+      renderPlan(run);
+      renderTree();
+    }
+
+    // ---- 3. open it and see ----------------------------------------------
+    if (!stop() && p.files.length) {
+      run.note = 'Opening it to see whether it works…';
+      renderPlan(run);
+      const faults = await faultsIn(p.files);
+
+      if (faults.length && !stop()) {
+        // Exactly one. Two would be a loop that can spend somebody's money
+        // while they watch it fail.
+        run.note = `Found ${faults.length} problem${faults.length === 1 ? '' : 's'}. Fixing…`;
+        renderPlan(run);
+        const fixed = await oneBuildTurn(
+          'Fix what is wrong, as described.', p, faults,
+        );
+        if (fixed.length) applyChanges(p, fixed, 'Before the fixing pass');
+        persist();
+
+        const left = await faultsIn(p.files);
+        run.note = left.length
+          ? `Built and checked. ${left.length} thing${left.length === 1 ? '' : 's'} still need a look — `
+            + `ask about ${left[0].split(' ')[0]} and Grandpa will explain.`
+          : 'Built it, opened it, found problems, fixed them. It runs.';
+      } else if (!stop()) {
+        run.note = 'Built it and opened it. It runs, with nothing wrong.';
+      }
+    }
+
+    if (stop()) run.note = 'Stopped. Everything finished so far is kept.';
+  } catch (error) {
+    run.note = error?.message || 'That did not go through.';
+    deps.toast(run.note);
+  } finally {
+    run.running = false;
+    renderPlan(run);
+    document.dispatchEvent(new CustomEvent('ritual:busy', { detail: false }));
+    persist();
+    render();
+    ensureView(project()?.files.length ? 'preview' : 'chat');
+  }
+}
+
+/** One turn of the build stream, returning the files it proposed. */
+async function oneBuildTurn(instruction, p, faults = []) {
+  const controller = new AbortController();
+  state.streaming = controller;
+  let whole = '';
+
+  try {
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...deps.headers() },
+      signal: controller.signal,
+      body: JSON.stringify({
+        mode: 'build',
+        messages: [{ role: 'user', content: instruction }],
+        files: forSending(p.files),
+        ...(faults.length ? { faults } : {}),
+      }),
+    });
+    if (!response.ok || !response.body) {
+      const body = await response.json().catch(() => ({}));
+      throw new Error(body.error || 'Grandpa could not be reached.');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split('\n\n');
+      buffer = frames.pop() || '';
+      for (const frame of frames) {
+        let event = 'message';
+        let data = '';
+        for (const line of frame.split('\n')) {
+          if (line.startsWith('event:')) event = line.slice(6).trim();
+          else if (line.startsWith('data:')) data += line.slice(5).trim();
+        }
+        if (!data) continue;
+        let payload;
+        try { payload = JSON.parse(data); } catch { continue; }
+        if (event === 'delta') whole += payload.text || '';
+        if (event === 'error') throw new Error(payload.message || 'That did not go through.');
+      }
+    }
+  } finally {
+    state.streaming = null;
+  }
+
+  const { files, prose } = filesFrom(whole);
+  if (prose) p.messages.push({ role: 'assistant', content: prose });
+  renderThread();
+  return files;
+}
+
 export const isStreaming = () => Boolean(state.streaming);
-export const stop = () => state.streaming?.abort();
+export const stop = () => {
+  if (ritualRun?.running) ritualRun.running = false;
+  state.streaming?.abort();
+};
 export const ask = (text) => send(text);
 
 /* ==========================================================================
@@ -553,6 +822,7 @@ export function mount(options = {}) {
     build: $('build'),
     modes: $('modes'),
     nameText: $('build-name-text'),
+    plan: $('build-plan'),
     thread: $('build-thread'),
     empty: $('build-empty'),
     starters: $('build-starters'),
@@ -563,6 +833,7 @@ export function mount(options = {}) {
     editorPaint: $('editor-paint'),
     previewNote: $('preview-note'),
     previewFrame: $('preview-frame'),
+    checkFrame: $('check-frame'),
     menu: $('build-menu'),
     sheet: $('build-sheet'),
     sheetBody: $('sheet-body'),
@@ -616,6 +887,8 @@ export function mount(options = {}) {
       return;
     }
 
+    if (event.target.closest('#plan-stop')) { stop(); return; }
+
     const starter = event.target.closest('.build-starter');
     if (starter) { send(starter.textContent.trim()); return; }
 
@@ -643,8 +916,23 @@ export function mount(options = {}) {
     el.menu.hidden = true;
     $('build-menu-btn').setAttribute('aria-expanded', 'false');
 
-    if (item.id === 'build-new') { startProject(); state.view = 'chat'; ensureView('chat'); render(); }
+    if (item.id === 'build-new') {
+      ritualRun = null;
+      renderPlan(null);
+      startProject();
+      state.view = 'chat';
+      ensureView('chat');
+      render();
+    }
     if (item.id === 'build-open') showBuilds();
+    if (item.id === 'build-share') {
+      if (!project().files.length) deps.toast('There is nothing to share yet.');
+      else if (!downloadSingleFile(project())) {
+        deps.toast('This build has no index.html, so there is no single page to make.');
+      } else {
+        deps.toast('Saved as one page. You can send that file to anybody.');
+      }
+    }
     if (item.id === 'build-download') {
       if (!project().files.length) deps.toast('There are no files to download yet.');
       else downloadProject(project());
@@ -687,6 +975,8 @@ export function mount(options = {}) {
 
     const build = event.target.closest('[data-build]');
     if (build) {
+      ritualRun = null;
+      renderPlan(null);
       state.currentId = build.dataset.build;
       state.openPath = '';
       closeSheet();

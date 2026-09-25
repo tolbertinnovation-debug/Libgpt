@@ -295,6 +295,7 @@ export function previewDocument(files = []) {
   var show = function (what) {
     var box = document.getElementById('__grandpa_error');
     if (!box) {
+      if (!document.body && !document.documentElement) return;
       box = document.createElement('div');
       box.id = '__grandpa_error';
       box.style.cssText = 'position:fixed;left:0;right:0;bottom:0;z-index:2147483647;'
@@ -304,18 +305,37 @@ export function previewDocument(files = []) {
     }
     box.textContent = what;
   };
+  // Out through the sandbox wall as well as onto the page. The frame has no
+  // origin of its own, so postMessage is the only way anything gets out of it
+  // — which is the point — and it is how the build loop learns that what it
+  // wrote does not run. Without this, checking would mean asking the person.
+  var tell = function (what) {
+    show(what);
+    try { parent.postMessage({ grandpa: 'fault', what: String(what).slice(0, 400) }, '*'); }
+    catch (e) { /* nothing out there listening */ }
+  };
   window.addEventListener('error', function (e) {
-    show('Line ' + (e.lineno || '?') + ': ' + (e.message || 'Something went wrong'));
+    tell('Line ' + (e.lineno || '?') + ': ' + (e.message || 'Something went wrong'));
   });
   window.addEventListener('unhandledrejection', function (e) {
-    show('Something did not finish: ' + ((e.reason && e.reason.message) || e.reason));
+    tell('Something did not finish: ' + ((e.reason && e.reason.message) || e.reason));
+  });
+  // And a word when nothing went wrong, so waiting can stop early rather than
+  // always costing the full timeout.
+  window.addEventListener('load', function () {
+    try { parent.postMessage({ grandpa: 'ran' }, '*'); } catch (e) { /* nobody there */ }
   });
 }());
 </script>`;
 
-  return /<\/body>/i.test(html)
-    ? html.replace(/<\/body>/i, `${reporter}\n</body>`)
-    : html + reporter;
+  // FIRST, not last. A project's own script runs as the parser reaches it, so
+  // a reporter added at the end of the body is installed after the very
+  // errors it exists to catch have already been thrown — which is exactly
+  // what happened: a page with a broken line in its body reported nothing at
+  // all, and the build loop concluded it ran cleanly.
+  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (tag) => `${tag}\n${reporter}`);
+  if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (tag) => `${tag}\n${reporter}`);
+  return reporter + html;
 }
 
 /* ==========================================================================
@@ -351,3 +371,135 @@ export function forSending(files = []) {
 }
 
 export { highlightFile, languageOf };
+
+
+/* ==========================================================================
+   Checking what was built
+   ==========================================================================
+   The difference between a generated website and a finished one is that
+   somebody opened it. These are the two kinds of looking.
+
+   The first is static, and it catches the fault that browsers are silent
+   about: a page linking to a file that does not exist. A <link> to a missing
+   stylesheet renders as an unstyled page, an <a href> to a missing page gives
+   a blank tab, and neither raises an error anywhere. On a generated
+   multi-page site this is far and away the commonest thing to be wrong, and
+   the reader has no way to know it is not simply how it looks.
+
+   The second is running it, which needs the sandbox and lives in ritual.js.
+   ========================================================================== */
+
+/** Every path a page points at, other than the ones that leave the site. */
+function pointsAt(html) {
+  const out = [];
+  const add = (raw) => {
+    const href = String(raw || '').trim();
+    if (!href) return;
+    // Somewhere else entirely, or not a file at all.
+    if (/^(https?:|data:|mailto:|tel:|sms:|javascript:|#|\/\/)/i.test(href)) return;
+    out.push(href.split('#')[0].split('?')[0]);
+  };
+
+  for (const m of html.matchAll(/<link\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi)) {
+    add(m[1]);
+  }
+  for (const m of html.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) add(m[1]);
+  for (const m of html.matchAll(/<img\b[^>]*\bsrc\s*=\s*["']([^"']+)["']/gi)) add(m[1]);
+  for (const m of html.matchAll(/<a\b[^>]*\bhref\s*=\s*["']([^"']+)["']/gi)) add(m[1]);
+  return out;
+}
+
+/**
+ * What is pointed at but is not there.
+ *
+ * Reported in the words of the page doing the pointing, because that is the
+ * file somebody has to change.
+ */
+export function danglingLinks(files = []) {
+  const have = new Set(files.map((f) => f.path));
+  const shortNames = new Set(files.map((f) => f.path.split('/').pop()));
+  const faults = [];
+
+  for (const file of files) {
+    if (!/\.html?$/i.test(file.path)) continue;
+    const from = file.path.split('/').slice(0, -1).join('/');
+
+    for (const href of pointsAt(file.body)) {
+      const asWritten = tidyPath(href);
+      const beside = tidyPath(from ? `${from}/${href}` : href);
+      if (!asWritten) continue;
+      if (have.has(asWritten) || have.has(beside)) continue;
+      // A picture that was never going to be in the project is not a fault
+      // worth a whole fixing pass; a missing page or stylesheet is.
+      if (/\.(png|jpe?g|gif|webp|svg|ico|woff2?|mp4|mp3)$/i.test(asWritten)) continue;
+      if (shortNames.has(asWritten.split('/').pop())) continue;
+      faults.push(`${file.path} points at "${href}", and there is no such file in the project.`);
+    }
+  }
+  return faults;
+}
+
+/**
+ * A page that opens to nothing at all.
+ *
+ * This asks whether there is ANYTHING, not whether there is enough. A shop
+ * page whose whole content is a name and two links is finished, not thin, and
+ * a check that calls it thin would spend a paid fixing pass on padding out
+ * somebody's perfectly good page. So the bar is on the floor: no words worth
+ * the name, and nothing to look at either.
+ */
+export function looksEmpty(files = []) {
+  const page = files.find((f) => /(^|\/)index\.html?$/i.test(f.path));
+  if (!page) return [];
+
+  const text = page.body
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z]+;|&#\d+;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Something to look at counts as content even with no words beside it.
+  const shows = /<(img|svg|canvas|video|iframe|input|button|form)\b/i.test(page.body);
+
+  return (text.length < 5 && !shows)
+    ? ['index.html opens with nothing on it at all — no words and nothing to look at.']
+    : [];
+}
+
+/**
+ * One page, standing on its own.
+ *
+ * Everything folded in and nothing pointing outward, so it opens from a
+ * Downloads folder, from a memory card, or straight out of WhatsApp — which
+ * is how a thing like this actually travels here. A zip of four files is a
+ * developer's idea of sharing; one file that opens is everybody else's.
+ */
+export function singleFile(project) {
+  const html = previewDocument(project.files || []);
+  if (!html) return '';
+  const title = String(project.name || 'My website').replace(/[<>]/g, '');
+  // The error box belongs to the preview, not to the thing being shared.
+  const clean = html.replace(/<script>\s*\(function \(\) \{[\s\S]*?\}\(\)\);?\s*<\/script>/g, '');
+  return /<title>/i.test(clean)
+    ? clean
+    : clean.replace(/<head>/i, `<head>\n<title>${title}</title>`);
+}
+
+export function downloadSingleFile(project) {
+  const html = singleFile(project);
+  if (!html) return false;
+  const safe = String(project.name || 'website').toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'website';
+  const url = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${safe}.html`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1_000);
+  return true;
+}

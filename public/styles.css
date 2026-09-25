@@ -3129,3 +3129,96 @@ body.is-talking { overflow: hidden; }
 .app[data-mode="build"] #thread,
 .app[data-mode="build"] .composer-extras { display: none !important; }
 .app[data-mode="build"] .build { display: flex; }
+
+/* ---- the build checklist ------------------------------------------------
+   Progress as a list of real things, ticked off. A spinner says "wait"; this
+   says what is being made and how much of it is left, which is the only kind
+   of waiting anybody can judge. */
+.build-plan {
+  flex: none;
+  margin: 12px 14px 0;
+  padding: 13px 15px;
+  border: 1px solid color-mix(in srgb, var(--gold) 45%, var(--border));
+  border-left: 3px solid var(--gold);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--gold) 8%, var(--bg-raised));
+}
+
+.build-plan h4 {
+  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  color: var(--text);
+}
+
+.build-plan > p { margin: 0 0 10px; color: var(--text-soft); line-height: 1.5; font-size: .9rem; }
+
+.plan-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+
+.plan-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 5px 0;
+  color: var(--text-faint);
+  line-height: 1.45;
+  font-size: .92rem;
+}
+
+.plan-tick {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  display: grid;
+  place-items: center;
+  font-size: .72rem;
+  font-weight: 700;
+}
+
+.plan-step.is-doing { color: var(--gold-deep); font-weight: 600; }
+[data-theme="dark"] .plan-step.is-doing { color: var(--gold); }
+.plan-step.is-done { color: var(--text); }
+.plan-step.is-done .plan-tick { background: var(--green); border-color: var(--green); color: #fff; }
+.plan-step.is-failed { color: var(--red); }
+.plan-step.is-failed .plan-tick { border-color: var(--red); }
+
+/* The one that is running breathes, so a long step does not read as a stuck
+   one. */
+.plan-step.is-doing .plan-tick { animation: plan-pulse 1.4s ease-in-out infinite; }
+
+@keyframes plan-pulse {
+  0%, 100% { opacity: .45; }
+  50% { opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plan-step.is-doing .plan-tick { animation: none; opacity: 1; }
+}
+
+.plan-note {
+  margin: 10px 0 0;
+  padding-top: 9px;
+  border-top: 1px solid var(--border);
+  color: var(--text-soft);
+  font-size: .88rem;
+  line-height: 1.5;
+}
+
+.build-plan .proposal-look { margin-top: 10px; }
+
+/* The frame a build is checked in. Off screen, not display:none — a frame
+   that is not displayed is not guaranteed to run its scripts, and running
+   them is the entire point of it. */
+.check-frame {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  width: 420px;
+  height: 640px;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
