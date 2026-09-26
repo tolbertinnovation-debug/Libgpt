@@ -228,6 +228,9 @@ app.get('/api/config', async (_req, res) => {
   res.json({
     ready: Boolean(config.apiKey),
     requiresCode: Boolean(config.accessCode),
+    // Which round of the code this is. A browser holding a different one is
+    // asked for the code again, even though the code itself has not changed.
+    codeRound: config.accessCodeRound,
     // Empty means automatic: the server chooses per task. A named model here
     // would quietly turn that off.
     defaultModel: '',

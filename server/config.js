@@ -32,6 +32,20 @@ export const config = {
   // chat — the difference between a public URL and a public bill.
   accessCode: process.env.ACCESS_CODE?.trim() || '',
 
+  // Turning everybody out, without changing the code.
+  //
+  // A code kept in a browser is remembered until it stops matching, which is
+  // the right behaviour — nobody wants to retype it every morning. But it
+  // means the only way to make people enter it again is to change it, and
+  // there are reasons to want the one without the other: a phone was lost, a
+  // code was passed further than intended, or a group has simply changed and
+  // it is time everyone said the word again.
+  //
+  // So this is a round. Change it to anything — a date, a number — and every
+  // browser is asked for the code once more, the same code as before. Leaving
+  // it unset is the ordinary state and turns nobody out.
+  accessCodeRound: process.env.ACCESS_CODE_ROUND?.trim() || '',
+
   // Pictures are a different order of cost from text — cents each rather than
   // hundredths of a cent — so they are off unless deliberately switched on.
   imagesEnabled: /^(1|true|yes|on)$/i.test(process.env.ENABLE_IMAGES?.trim() || ''),

@@ -120,6 +120,7 @@ All of it is in `.env` (see `.env.example`):
 | `PORT` | `3000` | Port to listen on. |
 | `RATE_LIMIT_PER_MINUTE` | `30` | Requests allowed per IP per minute. `0` disables the limit. |
 | `ACCESS_CODE` | *(blank)* | When set, visitors must enter this code before they can chat. Leave blank locally; set it on any public address. |
+| `ACCESS_CODE_ROUND` | *(blank)* | Change it to anything to make **everybody** enter the code again — including people already using the site — without changing the code itself. An ordinary redeploy turns nobody out. |
 | `ENABLE_REAL_VOICE` | `true` | Grandpa's own voice instead of the phone's robot. See below. |
 | `OPENAI_VOICE_MODEL` | `gpt-4o-mini-tts` | The only family that takes an instruction about *how* to say it. |
 | `VOICE_CHARS_PER_HOUR` | `60000` | A ceiling across the whole deployment — roughly 150 spoken answers an hour. |

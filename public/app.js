@@ -220,12 +220,28 @@ const el = {
 // The access code, when the deployment sets one. Kept per-browser so a visitor
 // enters it once; it is not a login, only a gate on who can spend the API key.
 const CODE_KEY = 'grandpa-ai:code';
+
+// Which round of the code this browser last answered for. The server can
+// change the round without changing the code, and every browser holding a
+// different one is asked again — see ACCESS_CODE_ROUND.
+const ROUND_KEY = 'grandpa-ai:code-round';
+
 const readCode = () => {
   try { return localStorage.getItem(CODE_KEY) || ''; } catch { return ''; }
 };
-const writeCode = (code) => {
-  try { if (code) localStorage.setItem(CODE_KEY, code); else localStorage.removeItem(CODE_KEY); }
-  catch { /* private window — the code just will not be remembered */ }
+const readRound = () => {
+  try { return localStorage.getItem(ROUND_KEY) || ''; } catch { return ''; }
+};
+const writeCode = (code, round = '') => {
+  try {
+    if (code) {
+      localStorage.setItem(CODE_KEY, code);
+      localStorage.setItem(ROUND_KEY, String(round || ''));
+    } else {
+      localStorage.removeItem(CODE_KEY);
+      localStorage.removeItem(ROUND_KEY);
+    }
+  } catch { /* private window — the code just will not be remembered */ }
 };
 
 /** Headers for any request that spends money. */
@@ -2947,7 +2963,9 @@ el.gateForm.addEventListener('submit', async (event) => {
       body: JSON.stringify({ code }),
     });
     if (response.ok) {
-      writeCode(code);
+      // Remembered against the round it was accepted for, so the next round
+      // turns this browser out again.
+      writeCode(code, state.catalogue.codeRound || '');
       el.gate.hidden = true;
       el.input.focus();
     } else {
@@ -3121,17 +3139,23 @@ async function boot() {
 
     if (config.requiresCode) {
       const stored = readCode();
+      // A browser that answered for an earlier round is turned out even
+      // though its code is still the right one. That is the whole point of a
+      // round: making everybody say the word again without changing the word.
+      const sameRound = readRound() === String(config.codeRound || '');
       let valid = false;
-      if (stored) {
+      if (stored && sameRound) {
         const check = await fetch('/api/verify', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ code: stored }),
         }).catch(() => null);
         valid = Boolean(check?.ok);
-        if (!valid) writeCode('');
       }
-      if (!valid) showGate('');
+      if (!valid) {
+        writeCode('');
+        showGate('');
+      }
     }
 
     const languageOptions = config.languages
