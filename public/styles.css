@@ -3298,3 +3298,17 @@ body.is-talking { overflow: hidden; }
 }
 
 .proposal-faults li { margin: 3px 0; overflow-wrap: anywhere; }
+
+/* Something moving while a turn is in flight. The only sign of life during a
+   build used to be the words "Writing the files…" sitting perfectly still,
+   which on a slow line is indistinguishable from a screen that has stopped. */
+.build-live {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  color: var(--text-soft);
+  font-size: .92rem;
+}
+
+.build-live .thinking { flex: none; }

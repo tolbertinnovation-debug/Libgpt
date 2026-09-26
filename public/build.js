@@ -638,3 +638,22 @@ export function downloadSingleFile(project) {
   setTimeout(() => URL.revokeObjectURL(url), 1_000);
   return true;
 }
+
+
+/**
+ * What to say while a turn is still arriving.
+ *
+ * Counting the finished files is the one honest measure of progress a stream
+ * offers: nothing else about it says how far through it is, and "2 done" is a
+ * thing a person can watch move. Before the first fence opens there is
+ * nothing to count, so it says what it is doing instead.
+ *
+ * All of this replaced the words "Writing the files…" sitting perfectly
+ * still — which on a phone at eleven kilobytes a second is indistinguishable
+ * from a screen that has stopped working.
+ */
+export function writingWhat(done = 0, whole = '') {
+  if (done > 0) return `Writing the files — ${done} done`;
+  if (/```|~~~/.test(whole)) return 'Writing the first file…';
+  return String(whole).trim() ? 'Writing…' : 'Thinking about what to build…';
+}

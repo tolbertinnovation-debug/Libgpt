@@ -13,7 +13,7 @@
 import {
   applyChanges, danglingLinks, describeChanges, downloadFile, downloadProject, downloadSingleFile,
   filesFrom, forSending, highlightFile, loadProjects, looksEmpty, makeProject, previewDocument,
-  previewState, repairPaths, restoreVersion, saveProjects, tidyPath,
+  previewState, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
 } from './build.js';
 import { renderMarkdown } from './markdown.js';
 
@@ -34,6 +34,11 @@ const state = {
   openPath: '',
   view: 'chat',
   streaming: null,
+  // What is going on this moment, while a turn is in flight. Without it the
+  // only sign of life during a build was the words "Writing the files…" sitting
+  // perfectly still — and on a slow line that is indistinguishable from a
+  // screen that has stopped working.
+  live: null,
   github: { ready: false, connected: false, missing: [] },
   repo: null,          // { full, branch }
 };
@@ -123,6 +128,15 @@ function renderThread() {
     return;
   }
 
+  const live = state.live
+    ? `<div class="build-turn build-turn-ai">
+        <p class="build-live">
+          <span class="thinking" aria-hidden="true"><span></span><span></span><span></span></span>
+          <span>${escapeHtml(state.live.what)}</span>
+        </p>
+      </div>`
+    : '';
+
   el.thread.innerHTML = p.messages.map((turn, index) => {
     if (turn.role === 'user') {
       return `<div class="build-turn build-turn-you">${escapeHtml(turn.content)}</div>`;
@@ -133,7 +147,7 @@ function renderThread() {
     return `<div class="build-turn build-turn-ai">
       <div class="prose">${renderMarkdown(turn.content || '')}</div>${proposal}
     </div>`;
-  }).join('');
+  }).join('') + live;
   el.thread.scrollTop = el.thread.scrollHeight;
 }
 
@@ -305,6 +319,10 @@ async function send(text) {
 
   const controller = new AbortController();
   state.streaming = controller;
+  // Set before the request goes out, not when the first word comes back. The
+  // wait that looks like a broken screen is the one before anything arrives.
+  let mine = mark('Thinking about what to build…');
+  renderThread();
   document.dispatchEvent(new CustomEvent('ritual:busy', { detail: true }));
 
   try {
@@ -352,8 +370,13 @@ async function send(text) {
         if (event === 'delta') {
           whole += payload.text || '';
           // Only the prose is shown while it streams. Half a file scrolling
-          // past is not information, it is noise with a scrollbar.
-          answer.content = filesFrom(whole).prose || 'Writing the files…';
+          // past is not information, it is noise with a scrollbar. But the
+          // reader still needs to see that something is happening, and how
+          // much of it is done — so the count of finished files is the
+          // progress, and it moves.
+          const sofar = filesFrom(whole);
+          answer.content = sofar.prose;
+          mine = mark(writingWhat(sofar.files.length, whole));
           renderThread();
         } else if (event === 'error') {
           throw new Error(payload.message || 'That did not go through.');
@@ -374,6 +397,7 @@ async function send(text) {
       deps.toast(answer.content);
     }
   } finally {
+    unmark(mine);
     state.streaming = null;
     document.dispatchEvent(new CustomEvent('ritual:busy', { detail: false }));
     touch();
@@ -401,6 +425,16 @@ async function send(text) {
 const RUN_MS = 2_500;
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Two things can be waiting at once — a turn streaming and a check running —
+// and whichever finishes first must not take the other's indicator with it.
+let liveToken = 0;
+function mark(what) {
+  liveToken += 1;
+  state.live = { what, id: liveToken };
+  return liveToken;
+}
+const unmark = (id) => { if (state.live?.id === id) state.live = null; };
 
 let ritualRun = null;   // the run in progress, so it can be called off
 
@@ -582,6 +616,7 @@ async function buildTheWholeThing(asked) {
     run.note = error?.message || 'That did not go through.';
     deps.toast(run.note);
   } finally {
+    state.live = null;   // the whole run is over; nothing else is waiting
     run.running = false;
     renderPlan(run);
     document.dispatchEvent(new CustomEvent('ritual:busy', { detail: false }));
@@ -595,6 +630,8 @@ async function buildTheWholeThing(asked) {
 async function oneBuildTurn(instruction, p, faults = []) {
   const controller = new AbortController();
   state.streaming = controller;
+  let mine = mark(faults.length ? 'Working out the fix…' : 'Thinking about what to build…');
+  renderThread();
   let whole = '';
 
   try {
@@ -633,11 +670,20 @@ async function oneBuildTurn(instruction, p, faults = []) {
         if (!data) continue;
         let payload;
         try { payload = JSON.parse(data); } catch { continue; }
-        if (event === 'delta') whole += payload.text || '';
+        if (event === 'delta') {
+          whole += payload.text || '';
+          // A step of a plan, or a fix asked for by hand, used to show nothing
+          // at all while it streamed — the checklist moved once per step and
+          // was still in between. On a slow line that is a long time to look
+          // at a screen that is not moving.
+          mine = mark(writingWhat(filesFrom(whole).files.length, whole));
+          renderThread();
+        }
         if (event === 'error') throw new Error(payload.message || 'That did not go through.');
       }
     }
   } finally {
+    unmark(mine);
     state.streaming = null;
   }
 
@@ -663,6 +709,11 @@ async function oneBuildTurn(instruction, p, faults = []) {
 async function checkAfterSaving(turn) {
   const p = project();
   turn.checked = 'checking';
+  // Whose indicator this is. A check takes a couple of seconds, and in that
+  // time somebody can ask for the next thing — at which point clearing the
+  // indicator on the way out would wipe the new turn's one and leave that
+  // turn looking dead. So it is only ever cleared by whoever set it.
+  const mine = mark('Opening it to see whether it runs…');
   renderThread();
   try {
     turn.checked = await faultsIn(p.files);
@@ -670,6 +721,7 @@ async function checkAfterSaving(turn) {
     // A check that falls over must not look like a build that failed.
     turn.checked = [];
   }
+  unmark(mine);
   persist();
   renderThread();
   if (state.view === 'preview') renderPreview();
