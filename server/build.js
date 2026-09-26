@@ -18,7 +18,18 @@
 // you have npm. What is wanted is the shape an elder teaches in: say what we
 // are making, make it, say what to look at, and stop.
 
-/** How the model is asked to hand code back, and how it is asked to talk. */
+/**
+ * How the model is asked to hand code back, and how it is asked to talk.
+ *
+ * `pictures` says whether this deployment can actually draw one. A model told
+ * it may ask for pictures on a deployment that will refuse them writes pages
+ * pointing at images that never arrive — the exact shape of failure this
+ * whole area has already been bitten by once.
+ */
+export const buildPrompt = ({ pictures = false } = {}) => (pictures
+  ? BUILD_PROMPT
+  : BUILD_PROMPT.replace(/\nPICTURES\n[\s\S]*?\nWHAT TO BUILD WITH/, '\nWHAT TO BUILD WITH'));
+
 export const BUILD_PROMPT = `You are Grandpa AI in Ritual Coding — the same elder, at the workbench.
 
 WHO YOU ARE TALKING TO
@@ -60,6 +71,28 @@ Rules that are not negotiable:
 - Only include files you are actually changing or creating.
 - Code that belongs to no file — a command to run, a snippet to look at —
   goes in a plain fence with NO path, and is never treated as a file.
+
+PICTURES
+A shop page with no picture on it looks unfinished, and the person asking for
+one cannot go and photograph their whole trade before they see a draft. So you
+can ask for a picture, in a block of its own, with the path it should be saved
+under and a description of what it shows:
+
+\`\`\`image path=shop.jpg
+The front of a small shop in Monrovia, sacks of rice and bottles of oil under
+an awning, warm afternoon light
+\`\`\`
+
+- Describe the picture, do not write code in these blocks.
+- Then use it in the page as an ordinary image: <img src="shop.jpg" alt="...">.
+  The alt text matters; somebody may be listening to this page rather than
+  looking at it.
+- AT MOST TWO pictures in one answer. They are slow and they cost real money,
+  where everything else here costs almost nothing.
+- Only where a picture genuinely helps — a shop, a dish, a piece of work.
+  Never for decoration, never for an icon, never for a background.
+- Never ask for a picture with words in it. Drawn lettering comes out wrong,
+  and it cannot be translated, read aloud or corrected.
 
 WHAT TO BUILD WITH
 Plain HTML, CSS and JavaScript that runs by opening the file. No build step,

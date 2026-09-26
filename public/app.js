@@ -3212,6 +3212,7 @@ async function boot() {
       ritual.mount({
         headers: apiHeaders,
         toast,
+        canDraw: Boolean(config.buildPictures),
         onMode: (mode) => {
           const building = mode === 'build';
           el.input.placeholder = building

@@ -177,6 +177,7 @@ export function tidyPath(raw) {
 export function filesFrom(answer) {
   const lines = String(answer || '').split('\n');
   const files = [];
+  const pictures = [];
   const prose = [];
 
   let open = null;   // the fence we are inside, if any
@@ -191,8 +192,13 @@ export function filesFrom(answer) {
         && fence[2].length >= open.marker.length
         && !fence[3].trim();
       if (closes) {
-        if (open.path) files.push({ path: open.path, body: open.body.join('\n') });
-        else prose.push('```', ...open.body, '```');
+        if (open.path && open.picture) {
+          pictures.push({ path: open.path, about: open.body.join(' ').trim() });
+        } else if (open.path) {
+          files.push({ path: open.path, body: open.body.join('\n') });
+        } else {
+          prose.push('```', ...open.body, '```');
+        }
         open = null;
         continue;
       }
@@ -201,7 +207,14 @@ export function filesFrom(answer) {
     }
 
     if (fence) {
-      open = { marker: fence[2], path: pathFromFence(fence[3]), body: [] };
+      open = {
+        marker: fence[2],
+        path: pathFromFence(fence[3]),
+        // A block labelled `image` is not a file — it is a description of a
+        // picture that has to be drawn before there is anything to save.
+        picture: /(^|[ \t])image([ \t]|$)/i.test(fence[3]),
+        body: [],
+      };
       continue;
     }
 
@@ -214,7 +227,14 @@ export function filesFrom(answer) {
   const unfinished = Boolean(open && open.path);
   if (open && !open.path) prose.push('```', ...open.body);
 
-  return { files, prose: prose.join('\n').replace(/\n{3,}/g, '\n\n').trim(), unfinished };
+  return {
+    files,
+    // At most two. The prompt asks for that; this is the guard, because a
+    // model that ignores it would be spending somebody's money unattended.
+    pictures: pictures.slice(0, 2),
+    prose: prose.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
+    unfinished,
+  };
 }
 
 /**
@@ -286,6 +306,11 @@ export function describeChanges(current = [], proposed = []) {
       wasLines,
       nowLines,
       delta: nowLines - wasLines,
+      // A picture has no lines, and "1 lines" beside a photograph is a
+      // measurement of nothing. Its size is the thing worth saying, on a
+      // connection where size is what somebody is paying for.
+      picture: isPicture(file),
+      kb: isPicture(file) ? Math.max(1, Math.round((file.body.length * 0.75) / 1024)) : 0,
     };
   });
 }
@@ -380,6 +405,15 @@ export function previewDocument(files = []) {
     return file ? `<style>\n${file.body}\n</style>` : tag;
   });
 
+  // A picture saved in the project is a data URL under a filename, so the
+  // page's own <img src="shop.jpg"> has to be pointed at it. Without this the
+  // frame has no URL of its own to resolve the name against, and every
+  // generated picture shows as a broken image.
+  html = html.replace(/(<img\b[^>]*\bsrc\s*=\s*)["']([^"']+)["']/gi, (tag, before, src) => {
+    const file = find(src);
+    return file && /^data:/.test(file.body) ? `${before}"${file.body}"` : tag;
+  });
+
   html = html.replace(/<script\b([^>]*)\bsrc\s*=\s*["']([^"']+)["']([^>]*)><\/script>/gi,
     (tag, before, src, after) => {
       const file = find(src);
@@ -445,11 +479,31 @@ export function previewDocument(files = []) {
    Out of the phone
    ========================================================================== */
 
+/** A data URL back into the bytes it stands for. */
+export function bytesFromDataUrl(url) {
+  const at = String(url).indexOf(',');
+  if (at < 0) return null;
+  try {
+    const raw = atob(String(url).slice(at + 1));
+    const out = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i);
+    return out;
+  } catch {
+    return null;
+  }
+}
+
+/** Is this file a picture the build drew, rather than text somebody can read? */
+export const isPicture = (file) => /^data:image\//.test(String(file?.body || ''));
+
 /** The whole project as one zip, named after itself. */
 export function downloadProject(project) {
   const safe = String(project.name || 'build').toLowerCase()
     .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'build';
-  const blob = zip(project.files || []);
+  // Pictures go in as bytes; everything else as the text it is.
+  const blob = zip((project.files || []).map((file) => (isPicture(file)
+    ? { path: file.path, body: bytesFromDataUrl(file.body) || new Uint8Array() }
+    : file)));
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
@@ -532,9 +586,11 @@ export function danglingLinks(files = []) {
       const beside = tidyPath(from ? `${from}/${href}` : href);
       if (!asWritten) continue;
       if (have.has(asWritten) || have.has(beside)) continue;
-      // A picture that was never going to be in the project is not a fault
-      // worth a whole fixing pass; a missing page or stylesheet is.
-      if (/\.(png|jpe?g|gif|webp|svg|ico|woff2?|mp4|mp3)$/i.test(asWritten)) continue;
+      // Fonts and media nobody was ever going to put in the project are not
+      // worth a fixing pass. Pictures are, now that a build can draw its own:
+      // an <img> pointing at a name that was never saved shows as a broken
+      // image on the page, and says nothing about why.
+      if (/\.(woff2?|mp4|mp3|ico)$/i.test(asWritten)) continue;
       if (shortNames.has(asWritten.split('/').pop())) continue;
       faults.push(`${file.path} points at "${href}", and there is no such file in the project.`);
     }
@@ -607,6 +663,24 @@ export function singleFile(project) {
 export function downloadFile(file) {
   if (!file?.path) return false;
   const name = file.path.split('/').pop() || 'file.txt';
+
+  // A picture saved as a data URL, taken on its own, has to come out as the
+  // picture — not as a text file full of base64.
+  if (isPicture(file)) {
+    const bytes = bytesFromDataUrl(file.body);
+    if (!bytes) return false;
+    const kind = /^data:(image\/[\w+.-]+)/.exec(file.body)?.[1] || 'image/png';
+    const url = URL.createObjectURL(new Blob([bytes], { type: kind }));
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    return true;
+  }
+
   const type = /\.html?$/i.test(name) ? 'text/html'
     : /\.css$/i.test(name) ? 'text/css'
       : /\.m?js$/i.test(name) ? 'text/javascript'

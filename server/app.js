@@ -24,7 +24,7 @@ import {
   voiceFor,
 } from './personas.js';
 import {
-  BUILD_BUDGET, BUILD_CONTINUE_PROMPT, BUILD_PROMPT, PLAN_PROMPT, fitProject, fixPrompt,
+  BUILD_BUDGET, BUILD_CONTINUE_PROMPT, PLAN_PROMPT, buildPrompt, fitProject, fixPrompt,
   projectContext, readPlan, stepPrompt,
 } from './build.js';
 import * as github from './github.js';
@@ -260,6 +260,11 @@ app.get('/api/config', async (_req, res) => {
     vision: config.vision && Boolean(tiers.seeing),
     // Ritual Coding needs nothing beyond the key the rest of the app uses.
     building: config.building && Boolean(config.apiKey),
+    // Whether a build may draw pictures for the pages it makes. Off unless
+    // pictures are switched on AND the hourly limit can actually be held to,
+    // so the model is never told it can do something that will be refused.
+    buildPictures: config.building && config.imagesEnabled && Boolean(config.apiKey)
+      && !(config.serverless && !config.accessCode),
     // And the GitHub connection inside it is a separate matter: a deployment
     // with no GitHub app configured shows what to set rather than a switch
     // that fails once somebody has already signed in.
@@ -750,7 +755,10 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     && !building
     && (req.body?.search === true || needsLookingUp(asked));
   const buildingPrompt = () => [
-    BUILD_PROMPT,
+    // Only told it can draw where it really can.
+    buildPrompt({
+      pictures: config.imagesEnabled && !(config.serverless && !config.accessCode),
+    }),
     '',
     projectContext(project.kept),
     project.dropped.length
@@ -1344,6 +1352,65 @@ app.post(
     }
   },
 );
+
+/**
+ * A picture for something being built.
+ *
+ * The Album asks for a scene under cultural rules and grounds it in a written
+ * description first. This is a different job: the picture is furniture for a
+ * page — a shop front, a bolt of cloth, a plate of food — and what it has to
+ * be is small, quick and the right shape. So it goes straight to the drawing,
+ * and the browser shrinks what comes back before it is ever saved.
+ *
+ * Guarded exactly as the Album is. Pictures cost cents rather than fractions
+ * of a penny, and a build that could ask for ten of them unattended is
+ * somebody's money.
+ */
+app.post('/api/picture', rateLimit, requireAccess, async (req, res) => {
+  if (!config.building || !config.imagesEnabled) {
+    res.status(503).json({
+      error: 'Pictures are switched off on this deployment. Set ENABLE_IMAGES=true to turn them on.',
+    });
+    return;
+  }
+
+  if (config.serverless && !config.accessCode) {
+    res.status(503).json({
+      error: 'On a serverless host the hourly picture limit cannot be enforced, '
+        + 'so pictures need an access code. Set ACCESS_CODE in your environment variables.',
+    });
+    return;
+  }
+
+  if (pictureBudgetLeft() <= 0) {
+    res.status(429).json({ error: 'The picture limit for this hour is used up. Try again later.' });
+    return;
+  }
+
+  const asked = String(req.body?.about || '').trim().slice(0, 600);
+  if (!asked) { res.status(400).json({ error: 'What should the picture show?' }); return; }
+
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+
+  try {
+    // Small on purpose. A page on a phone shows this a few hundred pixels
+    // wide, and the browser shrinks it further before saving; asking for a
+    // larger one would cost more and be thrown away.
+    const picture = await generateImage({
+      prompt: `${asked}\n\nA clear, warm photograph suitable for a small business web page. `
+        + 'No text, no lettering, no watermark, no logo. Nothing that needs reading.',
+      size: '1024x1024',
+      signal: controller.signal,
+    });
+    pictureTimes.push(Date.now());
+    res.json({ picture });
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    const status = error?.status || 502;
+    res.status(status).json({ error: error?.message || 'The picture could not be drawn.' });
+  }
+});
 
 app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
   if (!config.imagesEnabled) {

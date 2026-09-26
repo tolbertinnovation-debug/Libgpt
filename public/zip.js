@@ -58,7 +58,7 @@ class Bytes {
 /**
  * Files in, a zip Blob out.
  *
- * @param {{path: string, body: string}[]} files
+ * @param {{path: string, body: string|Uint8Array}[]} files
  */
 export function zip(files, when = new Date()) {
   const encoder = new TextEncoder();
@@ -76,7 +76,12 @@ export function zip(files, when = new Date()) {
     );
     if (name.length === 0) continue;
 
-    const body = encoder.encode(String(file.body ?? ''));
+    // A picture is kept in the project as a data URL. Written into a zip as
+    // text it would be a file full of base64 that no picture viewer opens, so
+    // it goes in as the bytes it actually is.
+    const body = file.body instanceof Uint8Array
+      ? file.body
+      : encoder.encode(String(file.body ?? ''));
     const sum = crc32(body);
     const at = out.length;
 

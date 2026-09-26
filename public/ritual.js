@@ -15,6 +15,7 @@ import {
   filesFrom, forSending, highlightFile, loadProjects, looksEmpty, makeProject, previewDocument,
   previewState, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
 } from './build.js';
+import { shrink } from './photo.js';
 import { renderMarkdown } from './markdown.js';
 
 const $ = (id) => document.getElementById(id);
@@ -40,6 +41,9 @@ const state = {
   // screen that has stopped working.
   live: null,
   github: { ready: false, connected: false, missing: [] },
+  // Whether a build may draw its own pictures here. Told by the server, so
+  // the model is never invited to ask for something that will be refused.
+  canDraw: false,
   repo: null,          // { full, branch }
 };
 
@@ -158,9 +162,11 @@ function proposalHtml(files, index, applied, checked) {
     <div class="proposal-file">
       <span class="proposal-kind is-${f.kind}">${f.kind === 'new' ? 'new' : f.kind === 'same' ? 'no change' : 'changed'}</span>
       <span>${escapeHtml(f.path)}</span>
-      <span class="proposal-delta">${f.kind === 'new'
-        ? `${f.nowLines} lines`
-        : `${f.delta > 0 ? '+' : ''}${f.delta} lines`}</span>
+      <span class="proposal-delta">${f.picture
+        ? `${f.kb} KB picture`
+        : f.kind === 'new'
+          ? `${f.nowLines} lines`
+          : `${f.delta > 0 ? '+' : ''}${f.delta} lines`}</span>
     </div>`).join('');
 
   // What happened when the saved files were actually opened. Saying "Saved"
@@ -384,9 +390,15 @@ async function send(text) {
       }
     }
 
-    const { files, prose, unfinished } = filesFrom(whole);
+    const { files, pictures, prose, unfinished } = filesFrom(whole);
     answer.content = prose || (files.length ? 'Here are the files.' : whole);
-    if (files.length) answer.proposal = files;
+
+    // Pictures are drawn before the files are offered, so that what somebody
+    // is asked to approve is the whole of the change — a page and the picture
+    // it shows, together, rather than a page that will look broken until
+    // something else finishes.
+    const drawn = pictures.length ? await drawPictures(pictures) : [];
+    if (files.length || drawn.length) answer.proposal = [...files, ...drawn];
     if (unfinished) {
       answer.content += '\n\n*One file was cut off before it finished, so it is not offered here. '
         + 'Ask for that file again on its own.*';
@@ -428,6 +440,49 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 // Two things can be waiting at once — a turn streaming and a check running —
 // and whichever finishes first must not take the other's indicator with it.
+/**
+ * Draw the pictures a turn asked for, and make them small enough to keep.
+ *
+ * What comes back is a 1024px PNG, which is something over a megabyte. That
+ * is impossible twice over here: localStorage is a few megabytes for the whole
+ * app, shared with every conversation, and the person is paying for the
+ * connection that would carry it. So it is shrunk before it is ever saved —
+ * the same shrinking a photograph from the camera goes through, to the size a
+ * page on a phone actually shows.
+ *
+ * Failures are quiet on purpose. A page whose picture did not arrive is worth
+ * having; a build that stops because a picture did not arrive is not.
+ */
+async function drawPictures(wanted) {
+  const drawn = [];
+  for (const [at, want] of wanted.entries()) {
+    if (!state.canDraw) break;
+    mark(wanted.length > 1
+      ? `Drawing the pictures — ${at + 1} of ${wanted.length}…`
+      : 'Drawing the picture…');
+    renderThread();
+    try {
+      const response = await fetch('/api/picture', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...deps.headers() },
+        body: JSON.stringify({ about: want.about }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error || 'The picture could not be drawn.');
+
+      const asBlob = await (await fetch(body.picture)).blob();
+      // 720px on the long edge and under 90KB: bigger than a page on a phone
+      // shows, small enough that a project with two of them still fits beside
+      // somebody's conversations.
+      const small = await shrink(asBlob, { longEdge: 720, want: 90_000 });
+      drawn.push({ path: want.path, body: small.url });
+    } catch (error) {
+      deps.toast(error?.message || 'One picture could not be drawn.');
+    }
+  }
+  return drawn;
+}
+
 let liveToken = 0;
 function mark(what) {
   liveToken += 1;
@@ -687,10 +742,11 @@ async function oneBuildTurn(instruction, p, faults = []) {
     state.streaming = null;
   }
 
-  const { files, prose } = filesFrom(whole);
+  const { files, pictures, prose } = filesFrom(whole);
   if (prose) p.messages.push({ role: 'assistant', content: prose });
   renderThread();
-  return files;
+  const drawn = pictures.length ? await drawPictures(pictures) : [];
+  return [...files, ...drawn];
 }
 
 /**
@@ -1085,6 +1141,7 @@ function takePage() {
 
 export function mount(options = {}) {
   deps = { ...deps, ...options };
+  state.canDraw = Boolean(options.canDraw);
 
   el = {
     build: $('build'),
