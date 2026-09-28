@@ -1423,3 +1423,18 @@ does not do them:
 ---
 
 Tolbert Innovation Hub · Monrovia, Liberia · [tolbertinnovationhub.org](https://tolbertinnovationhub.org)
+
+---
+
+## Licence and ownership
+
+Copyright © 2026 **Tolbert Innovation Hub**, Monrovia, Liberia. All rights
+reserved.
+
+This source is public to read, not free to use. You may read it and learn
+from it; you may not copy, modify, distribute, host or sell it, in whole or
+in part, without written permission. See [LICENSE](LICENSE) for the full
+terms.
+
+"Grandpa AI", the Grandpa AI seal, and the elder voices are ours. They may
+not be used to identify anything that is not ours.
