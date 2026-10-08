@@ -1554,6 +1554,23 @@ body {
 .setting-btn.danger:hover { background: color-mix(in srgb, var(--red) 10%, transparent); }
 .setting-btn.is-confirming { background: var(--red); border-color: var(--red); color: #fff; font-weight: 550; }
 
+#support-modal { z-index: 140; }
+.support-form { display: grid; gap: .65rem; padding-top: 1rem; }
+.support-form > label { font-weight: 600; font-size: .875rem; }
+.support-form select { width: 100%; max-width: none; }
+.support-form textarea {
+  width: 100%; min-height: 8rem; resize: vertical; padding: .65rem;
+  border: 1px solid var(--border-strong); border-radius: var(--radius-sm);
+  background: var(--bg); color: var(--text); font: inherit;
+}
+.support-checkbox { display: flex; align-items: center; gap: .6rem; }
+.support-report {
+  white-space: pre-wrap; overflow-wrap: anywhere; font: .8rem/1.6 var(--font-mono, monospace);
+  padding: .75rem; border: 1px solid var(--border); border-radius: var(--radius-sm);
+  max-height: 45dvh; overflow-y: auto;
+}
+.support-status:empty { display: none; }
+
 .settings-note {
   margin: .5rem 0 0;
   color: var(--text-faint);
@@ -3312,3 +3329,4 @@ body.is-talking { overflow: hidden; }
 }
 
 .build-live .thinking { flex: none; }
+
