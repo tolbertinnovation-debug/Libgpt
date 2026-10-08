@@ -3133,6 +3133,30 @@ async function boot() {
     const response = await fetch('/api/config');
     const config = await response.json();
     state.catalogue = config;
+    const teamRow = document.createElement('label');
+    teamRow.className = 'setting-row';
+    teamRow.htmlFor = 'settings-team-voice';
+    const teamLabel = document.createElement('span');
+    teamLabel.innerHTML = '<strong>Team voice</strong><small>Choose a voice for spoken replies. Pending voices need activation.</small>';
+    const teamSelect = document.createElement('select');
+    teamSelect.id = 'settings-team-voice';
+    teamSelect.add(new Option('Default voice', ''));
+    for (const voice of config.teamVoices || []) {
+      const option = new Option(voice.name + (voice.available ? '' : ' — pending activation'), voice.name);
+      option.disabled = !voice.available;
+      teamSelect.add(option);
+    }
+    let savedTeamVoice = '';
+    try { savedTeamVoice = localStorage.getItem('grandpa-team-voice') || ''; } catch {}
+    teamSelect.value = (config.teamVoices || []).some(v => v.name === savedTeamVoice && v.available) ? savedTeamVoice : '';
+    try { localStorage.setItem('grandpa-team-voice', teamSelect.value); } catch {}
+    teamSelect.addEventListener('change', () => {
+      speaker.stop();
+      try { localStorage.setItem('grandpa-team-voice', teamSelect.value); } catch {}
+      toast(teamSelect.value ? `${teamSelect.value} selected for spoken replies.` : 'Default voice selected.');
+    });
+    teamRow.append(teamLabel, teamSelect);
+    el.setRealVoice.closest('label').after(teamRow);
     state.ready = config.ready;
 
     if (!config.ready) showSetupBanner();
