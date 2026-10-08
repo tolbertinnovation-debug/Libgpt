@@ -248,7 +248,7 @@ app.get('/api/config', async (_req, res) => {
     realVoice: config.realVoice && (Boolean(config.apiKey) || eleven.available()),
     // Which engine is actually doing the talking, so the settings can say so
     // rather than leaving someone to guess why it sounds different.
-    teamVoices: ["Sarah","David","Kollie","Johnson","Grace","Josephine","Paul"].map((name) => ({ name, available: eleven.available() && Boolean(process.env[`ELEVENLABS_VOICE_${name.toUpperCase()}`]?.trim()) })),
+    teamVoices: ["Sarah","David","Kollie","Johnson","Grace","Josephine","Paul"].map((name) => ({ name, available: Boolean(config.apiKey) && Boolean(process.env[`OPENAI_VOICE_${name.toUpperCase()}`]?.trim()) })),
     voiceFrom: eleven.available() && !elevenRefused ? 'elevenlabs' : 'openai',
     // True only when a model that can actually read the web is on this
     // account. Promising live news the key cannot fetch would be the same
@@ -1179,7 +1179,7 @@ app.post('/api/speak', rateLimit, requireAccess, async (req, res) => {
     // end of the sentence: OpenAI's voice says it instead, and a failure that
     // will still be a failure in five minutes is remembered so the next
     // sentence does not wait for it again.
-    if (eleven.available() && !elevenRefused) {
+    if (eleven.available() && !elevenRefused && !req.body?.voice) {
       try {
         const audio = await eleven.speakAloud({
           text,
@@ -1219,9 +1219,19 @@ app.post('/api/speak', rateLimit, requireAccess, async (req, res) => {
       }
     }
 
+    const teamNames = ['Sarah', 'David', 'Kollie', 'Johnson', 'Grace', 'Josephine', 'Paul'];
+    const selectedName = String(req.body?.voice || '').trim();
+    const teamName = teamNames.find(name => name.toLowerCase() === selectedName.toLowerCase());
+    let selectedVoice = voice;
+    if (selectedName) {
+      if (!teamName) return res.status(400).json({ error: 'Unknown team voice.' });
+      const id = process.env[`OPENAI_VOICE_${teamName.toUpperCase()}`]?.trim();
+      if (!id) return res.status(409).json({ error: `${teamName}'s OpenAI custom voice is pending activation.` });
+      selectedVoice = { id };
+    }
     const audio = await speakAloud({
       text,
-      voice,
+      voice: selectedVoice,
       delivery,
       // The slider is the same one that drives the phone's voice, so the two
       // sound like the same person at the same pace.
