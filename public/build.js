@@ -386,15 +386,31 @@ export function previewState(files = []) {
  * all — and it is done here, on text, rather than by serving the project
  * anywhere.
  */
-export function previewDocument(files = []) {
-  const { can, page } = previewState(files);
+/** Resolve a local link relative to its source file, as a browser does. */
+export function resolveProjectPath(fromPath, reference) {
+  let link = String(reference || '').trim().replace(/\\\\/g, '/');
+  if (!link || /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(link)) return '';
+  link = link.split(/[?#]/)[0];
+  if (!link) return '';
+  const parts = link.startsWith('/') ? [] : String(fromPath).split('/').slice(0, -1);
+  for (const part of link.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') { if (!parts.length) return ''; parts.pop(); }
+    else parts.push(part);
+  }
+  if (link.endsWith('/')) parts.push('index.html');
+  return tidyPath(parts.join('/'));
+}
+
+export function previewDocument(files = [], entryPath = '') {
+  const look = previewState(files);
+  const page = entryPath ? files.find(file => file.path === entryPath && /\.html?$/i.test(file.path)) : look.page;
+  const can = look.can && Boolean(page);
   if (!can) return '';
 
   const find = (href) => {
-    const wanted = tidyPath(href.replace(/^\.\//, ''));
-    return files.find((f) => f.path === wanted)
-      || files.find((f) => f.path.endsWith(`/${wanted}`))
-      || files.find((f) => f.path.split('/').pop() === wanted.split('/').pop());
+    const wanted = resolveProjectPath(page.path, href);
+    return wanted ? files.find(file => file.path === wanted) : undefined;
   };
 
   let html = page.body;
@@ -460,6 +476,9 @@ export function previewDocument(files = []) {
   // And a word when nothing went wrong, so waiting can stop early rather than
   // always costing the full timeout.
   window.addEventListener('load', function () {
+    var width = window.innerWidth;
+    var contentWidth = Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0);
+    if (width && contentWidth > width + 4) tell('The page extends past the screen at ' + width + ' pixels wide. Fix horizontal overflow.');
     try { parent.postMessage({ grandpa: 'ran' }, '*'); } catch (e) { /* nobody there */ }
   });
 }());
@@ -574,24 +593,19 @@ function pointsAt(html) {
  */
 export function danglingLinks(files = []) {
   const have = new Set(files.map((f) => f.path));
-  const shortNames = new Set(files.map((f) => f.path.split('/').pop()));
   const faults = [];
 
   for (const file of files) {
     if (!/\.html?$/i.test(file.path)) continue;
-    const from = file.path.split('/').slice(0, -1).join('/');
 
     for (const href of pointsAt(file.body)) {
-      const asWritten = tidyPath(href);
-      const beside = tidyPath(from ? `${from}/${href}` : href);
-      if (!asWritten) continue;
-      if (have.has(asWritten) || have.has(beside)) continue;
+      const asWritten = resolveProjectPath(file.path, href);
+      if (asWritten && have.has(asWritten)) continue;
       // Fonts and media nobody was ever going to put in the project are not
       // worth a fixing pass. Pictures are, now that a build can draw its own:
       // an <img> pointing at a name that was never saved shows as a broken
       // image on the page, and says nothing about why.
       if (/\.(woff2?|mp4|mp3|ico)$/i.test(asWritten)) continue;
-      if (shortNames.has(asWritten.split('/').pop())) continue;
       faults.push(`${file.path} points at "${href}", and there is no such file in the project.`);
     }
   }
@@ -730,4 +744,19 @@ export function writingWhat(done = 0, whole = '') {
   if (done > 0) return `Writing the files — ${done} done`;
   if (/```|~~~/.test(whole)) return 'Writing the first file…';
   return String(whole).trim() ? 'Writing…' : 'Thinking about what to build…';
+}
+
+/** Deterministic checks before spending a request on repair. */
+export function projectIssues(files = [], expectedPaths = []) {
+  const faults = [];
+  const have = new Set(files.map(file => file.path));
+  for (const path of new Set(expectedPaths)) {
+    if (!have.has(path)) faults.push(`The plan promised "${path}", but that file was not created. Create it and connect it to the existing pages.`);
+  }
+  for (const file of files) {
+    if (/\.json$/i.test(file.path)) {
+      try { JSON.parse(file.body); } catch { faults.push(`${file.path} is not valid JSON. Fix its syntax without losing its contents.`); }
+    }
+  }
+  return faults;
 }
