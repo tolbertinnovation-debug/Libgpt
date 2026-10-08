@@ -13,7 +13,7 @@
 import {
   applyChanges, danglingLinks, describeChanges, downloadFile, downloadProject, downloadSingleFile,
   filesFrom, forSending, highlightFile, loadProjects, looksEmpty, makeProject, previewDocument,
-  previewState, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
+  previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
 } from './build.js';
 import { shrink } from './photo.js';
 import { renderMarkdown } from './markdown.js';
@@ -52,7 +52,12 @@ let deps = { headers: () => ({}), toast: () => {}, onMode: () => {} };
 let saveTimer = null;
 
 const project = () => state.projects.find((p) => p.id === state.currentId) || null;
-const persist = () => { const ok = saveProjects(state.projects); announce(); return ok; };
+const persist = () => {
+  const ok = saveProjects(state.projects);
+  if (!ok) deps.toast('Device storage is full. Download your project to keep a backup before closing this tab.');
+  announce();
+  return ok;
+};
 
 const escapeHtml = (text) => String(text)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -181,7 +186,7 @@ function proposalHtml(files, index, applied, checked) {
           <button class="proposal-apply" type="button" data-mend="${index}">Fix it</button>
         </div>`
       : Array.isArray(checked)
-        ? '<p class="proposal-done">Opened it. It still runs, with nothing wrong.</p>'
+        ? '<p class="proposal-done">Preview checks passed. Test the buttons and forms before publishing.</p>'
         : '';
 
   return `<div class="proposal ${applied ? 'is-applied' : ''}">
@@ -528,44 +533,43 @@ function renderPlan(run) {
 }
 
 /** Run the built project in the sandbox and collect what comes back. */
-async function runAndWatch(files) {
+async function runAndWatch(files, entryPath = '', width = 390, cancelled = () => false) {
   const faults = [];
+  let finished = false;
   const heard = (event) => {
+    if (event.source !== el.checkFrame.contentWindow) return;
     const data = event.data;
-    if (data?.grandpa === 'fault' && data.what) faults.push(String(data.what));
+    if (data?.grandpa === 'fault' && data.what) faults.push(String(data.what).slice(0, 400));
+    if (data?.grandpa === 'ran') finished = true;
   };
   window.addEventListener('message', heard);
-
-  let finished = false;
-  const done = (event) => { if (event.data?.grandpa === 'ran') finished = true; };
-  window.addEventListener('message', done);
-
-  // Its own frame, off screen, so the checklist stays where somebody can
-  // watch it. Sandboxed the same as the preview: no same-origin, so it cannot
-  // reach this page, its storage or its session, and nothing runs on a server.
-  el.checkFrame.srcdoc = previewDocument(files);
-
-  const until = Date.now() + RUN_MS;
-  // A page that loads cleanly still gets a moment afterwards, because the
-  // errors worth catching are usually thrown by script that runs on load.
-  while (Date.now() < until && !(finished && Date.now() > until - RUN_MS + 900)) {
-    await sleep(120);
+  try {
+    el.checkFrame.style.width = `${width}px`;
+    el.checkFrame.srcdoc = previewDocument(files, entryPath);
+    const began = Date.now();
+    const until = began + RUN_MS;
+    while (Date.now() < until && !(finished && Date.now() > began + 900)) {
+      if (cancelled()) throw new DOMException('Build stopped', 'AbortError');
+      await sleep(120);
+    }
+    if (!finished) faults.push('Preview check did not finish loading. Check startup scripts and required resources.');
+    return [...new Set(faults)].map(fault => `${entryPath || 'index.html'} (${width}px): ${fault}`);
+  } finally {
+    window.removeEventListener('message', heard);
+    el.checkFrame.srcdoc = '';
   }
-
-  window.removeEventListener('message', heard);
-  window.removeEventListener('message', done);
-  // Nothing should go on running after it has been looked at.
-  el.checkFrame.srcdoc = '';
-  return faults;
 }
 
 /** Everything wrong with the project, as sentences a model can act on. */
-async function faultsIn(files) {
-  return [
-    ...danglingLinks(files),
-    ...looksEmpty(files),
-    ...(previewState(files).can ? await runAndWatch(files) : []),
-  ];
+async function faultsIn(files, expectedPaths = [], cancelled = () => false) {
+  const faults = [...danglingLinks(files), ...looksEmpty(files), ...projectIssues(files, expectedPaths)];
+  if (previewState(files).can) {
+    const pages = files.filter(file => /\.html?$/i.test(file.path)).slice(0, 6);
+    for (const page of pages) {
+      for (const width of [390, 1280]) faults.push(...await runAndWatch(files, page.path, width, cancelled));
+    }
+  }
+  return [...new Set(faults)].slice(0, 30);
 }
 
 /**
@@ -597,10 +601,12 @@ async function buildTheWholeThing(asked) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...deps.headers() },
       body: JSON.stringify({ asked }),
+      signal: (run.controller = new AbortController()).signal,
     });
     const planBody = await planned.json();
     if (!planned.ok) throw new Error(planBody.error || 'The plan could not be made.');
 
+    if (stop()) return;
     run.plan = planBody.plan;
     run.marks = run.plan.steps.map((s) => ({ title: s.title, state: 'waiting' }));
     run.note = '';
@@ -633,7 +639,8 @@ async function buildTheWholeThing(asked) {
     if (!stop() && p.files.length) {
       run.note = 'Opening it to see whether it works…';
       renderPlan(run);
-      const faults = await faultsIn(p.files);
+      const expectedPaths = run.plan.steps.flatMap(step => step.files);
+      const faults = await faultsIn(p.files, expectedPaths, stop);
 
       if (faults.length && !stop()) {
         // Exactly one. Two would be a loop that can spend somebody's money
@@ -646,13 +653,13 @@ async function buildTheWholeThing(asked) {
         if (fixed.length) applyChanges(p, fixed, 'Before the fixing pass');
         persist();
 
-        const left = await faultsIn(p.files);
+        const left = await faultsIn(p.files, expectedPaths);
         run.note = left.length
           ? `Built and checked. ${left.length === 1 ? 'One thing still needs' : `${left.length} things still need`}`
             + ` a look — ask about ${left[0].split(' ')[0]} and Grandpa will explain.`
-          : 'Built it, opened it, found problems, fixed them. It runs.';
+          : 'Created and repaired the files. Phone and desktop preview checks passed for up to six pages. Test the interactions before publishing.';
       } else if (!stop()) {
-        run.note = 'Built it and opened it. It runs, with nothing wrong.';
+        run.note = 'Files created. Phone and desktop preview checks passed. Test the interactions before publishing.';
       }
 
       // A step with a cross beside it and "nothing wrong" underneath is the
@@ -668,7 +675,7 @@ async function buildTheWholeThing(asked) {
 
     if (stop()) run.note = 'Stopped. Everything finished so far is kept.';
   } catch (error) {
-    run.note = error?.message || 'That did not go through.';
+    run.note = stop() ? 'Stopped. Everything finished so far is kept.' : error?.message || 'That did not go through.';
     deps.toast(run.note);
   } finally {
     state.live = null;   // the whole run is over; nothing else is waiting
@@ -775,7 +782,7 @@ async function checkAfterSaving(turn) {
     turn.checked = await faultsIn(p.files);
   } catch {
     // A check that falls over must not look like a build that failed.
-    turn.checked = [];
+    turn.checked = ['The preview check could not finish. Retry checking before publishing.'];
   }
   unmark(mine);
   persist();
@@ -809,7 +816,10 @@ async function mendIt(faults) {
 
 export const isStreaming = () => Boolean(state.streaming);
 export const stop = () => {
-  if (ritualRun?.running) ritualRun.running = false;
+  if (ritualRun?.running) {
+    ritualRun.running = false;
+    ritualRun.controller?.abort();
+  }
   state.streaming?.abort();
 };
 export const ask = (text) => send(text);
