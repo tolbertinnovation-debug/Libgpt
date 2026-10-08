@@ -1179,7 +1179,7 @@ app.post('/api/speak', rateLimit, requireAccess, async (req, res) => {
     // end of the sentence: OpenAI's voice says it instead, and a failure that
     // will still be a failure in five minutes is remembered so the next
     // sentence does not wait for it again.
-    if (eleven.available() && !elevenRefused && !req.body?.voice) {
+    if (!config.apiKey && eleven.available() && !elevenRefused && !req.body?.voice) {
       try {
         const audio = await eleven.speakAloud({
           text,
@@ -1222,7 +1222,8 @@ app.post('/api/speak', rateLimit, requireAccess, async (req, res) => {
     const teamNames = ['Samuel', 'Sarah', 'David', 'Kollie', 'Johnson', 'Grace', 'Josephine', 'Paul'];
     const selectedName = String(req.body?.voice || '').trim();
     const teamName = teamNames.find(name => name.toLowerCase() === selectedName.toLowerCase());
-    let selectedVoice = voice;
+    // Cedar is an OpenAI-recommended high-quality built-in voice.
+    let selectedVoice = /^tts-1(?:-hd)?$/.test(config.voiceModel) ? 'onyx' : 'cedar';
     if (selectedName) {
       if (!teamName) return res.status(400).json({ error: 'Unknown team voice.' });
       const id = process.env[`OPENAI_VOICE_${teamName.toUpperCase()}`]?.trim();
@@ -1232,7 +1233,7 @@ app.post('/api/speak', rateLimit, requireAccess, async (req, res) => {
     const audio = await speakAloud({
       text,
       voice: selectedVoice,
-      delivery,
+      delivery: `${delivery} Speak clearly and naturally, with a warm, calm Liberian English cadence. Avoid exaggerated accents. Use comfortable pacing and distinct pronunciation. Produce clean speech only, without background music, ambient noise, or added sound effects.`,
       // The slider is the same one that drives the phone's voice, so the two
       // sound like the same person at the same pace.
       speed,
