@@ -294,6 +294,7 @@ export class VoiceOut {
         body: JSON.stringify({
           text,
           speaker: this.speaker(),
+          voice: (() => { try { return localStorage.getItem('grandpa-team-voice') || undefined; } catch { return undefined; } })(),
           speed: this.settings.rate,
         }),
       });

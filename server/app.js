@@ -248,6 +248,7 @@ app.get('/api/config', async (_req, res) => {
     realVoice: config.realVoice && (Boolean(config.apiKey) || eleven.available()),
     // Which engine is actually doing the talking, so the settings can say so
     // rather than leaving someone to guess why it sounds different.
+    teamVoices: ["Sarah","David","Kollie","Johnson","Grace","Josephine","Paul"].map((name) => ({ name, available: eleven.available() && Boolean(process.env[`ELEVENLABS_VOICE_${name.toUpperCase()}`]?.trim()) })),
     voiceFrom: eleven.available() && !elevenRefused ? 'elevenlabs' : 'openai',
     // True only when a model that can actually read the web is on this
     // account. Promising live news the key cannot fetch would be the same

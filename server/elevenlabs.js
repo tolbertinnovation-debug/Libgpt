@@ -95,7 +95,13 @@ export async function listVoices({ signal } = {}) {
  * somebody nobody chose.
  */
 export async function resolveVoice(wanted, { signal } = {}) {
-  const asked = String(wanted || '').trim();
+  let asked = String(wanted || '').trim();
+  const teamNames = ["Sarah","David","Kollie","Johnson","Grace","Josephine","Paul"];
+  const teamName = teamNames.find((name) => name.toLowerCase() === asked.toLowerCase());
+  if (teamName) {
+    asked = process.env[`ELEVENLABS_VOICE_${teamName.toUpperCase()}`]?.trim() || '';
+    if (!asked) throw new VoiceError(`${teamName}'s cloned voice has not been configured yet.`, 404);
+  }
   if (!asked) throw new VoiceError('No ElevenLabs voice is configured. Set ELEVENLABS_VOICE.', 500);
   if (looksLikeId(asked)) return asked;
 
