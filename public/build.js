@@ -29,6 +29,7 @@
 
 import { highlightFile, languageOf } from './highlight.js';
 import { zip } from './zip.js';
+import { checkWebsiteDocument } from './site-checks.js';
 
 const KEY = 'grandpa-ai:builds:v1';
 
@@ -402,7 +403,7 @@ export function resolveProjectPath(fromPath, reference) {
   return tidyPath(parts.join('/'));
 }
 
-export function previewDocument(files = [], entryPath = '') {
+export function previewDocument(files = [], entryPath = '', { checkId = '' } = {}) {
   const look = previewState(files);
   const page = entryPath ? files.find(file => file.path === entryPath && /\.html?$/i.test(file.path)) : look.page;
   const can = look.can && Boolean(page);
@@ -445,6 +446,7 @@ export function previewDocument(files = [], entryPath = '') {
   const reporter = `
 <script>
 (function () {
+  var checkId = ${JSON.stringify(checkId).replace(/</g,'\\u003c')};
   var show = function (what) {
     var box = document.getElementById('__grandpa_error');
     if (!box) {
@@ -464,7 +466,7 @@ export function previewDocument(files = [], entryPath = '') {
   // wrote does not run. Without this, checking would mean asking the person.
   var tell = function (what) {
     show(what);
-    try { parent.postMessage({ grandpa: 'fault', what: String(what).slice(0, 400) }, '*'); }
+    try { parent.postMessage({ grandpa: 'fault', checkId:checkId, what: String(what).slice(0, 400) }, '*'); }
     catch (e) { /* nothing out there listening */ }
   };
   window.addEventListener('error', function (e) {
@@ -479,7 +481,11 @@ export function previewDocument(files = [], entryPath = '') {
     var width = window.innerWidth;
     var contentWidth = Math.max(document.documentElement.scrollWidth, document.body ? document.body.scrollWidth : 0);
     if (width && contentWidth > width + 4) tell('The page extends past the screen at ' + width + ' pixels wide. Fix horizontal overflow.');
-    try { parent.postMessage({ grandpa: 'ran' }, '*'); } catch (e) { /* nobody there */ }
+    if(checkId) {
+      var inspect = (${checkWebsiteDocument.toString()});
+      inspect(document).forEach(tell);
+    }
+    try { parent.postMessage({ grandpa: 'ran', checkId:checkId }, '*'); } catch (e) { /* nobody there */ }
   });
 }());
 </script>`;
@@ -760,3 +766,4 @@ export function projectIssues(files = [], expectedPaths = []) {
   }
   return faults;
 }
+
