@@ -51,6 +51,8 @@ let el = {};
 let deps = { headers: () => ({}), toast: () => {}, onMode: () => {} };
 let saveTimer = null;
 let sheetVersion = 0;
+let activeChecks = 0;
+let manualCheck = null;
 
 const project = () => state.projects.find((p) => p.id === state.currentId) || null;
 const persist = () => {
@@ -308,7 +310,7 @@ function ensureView(view) {
 async function send(text) {
   const said = String(text || '').trim();
   const p = project();
-  if (!said || !p || state.streaming || ritualRun?.running) return;
+  if (!said || !p || isBusy()) return;
 
   // The first thing said to an empty build is a description of a whole
   // website, not a request for one file. Treating it as the latter is what
@@ -536,17 +538,19 @@ function renderPlan(run) {
 /** Run the built project in the sandbox and collect what comes back. */
 async function runAndWatch(files, entryPath = '', width = 390, cancelled = () => false) {
   const faults = [];
+  const checkId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   let finished = false;
   const heard = (event) => {
     if (event.source !== el.checkFrame.contentWindow) return;
     const data = event.data;
+    if(data?.checkId !== checkId) return;
     if (data?.grandpa === 'fault' && data.what) faults.push(String(data.what).slice(0, 400));
     if (data?.grandpa === 'ran') finished = true;
   };
   window.addEventListener('message', heard);
   try {
     el.checkFrame.style.width = `${width}px`;
-    el.checkFrame.srcdoc = previewDocument(files, entryPath);
+    el.checkFrame.srcdoc = previewDocument(files, entryPath, {checkId});
     const began = Date.now();
     const until = began + RUN_MS;
     while (Date.now() < until && !(finished && Date.now() > began + 900)) {
@@ -563,14 +567,17 @@ async function runAndWatch(files, entryPath = '', width = 390, cancelled = () =>
 
 /** Everything wrong with the project, as sentences a model can act on. */
 async function faultsIn(files, expectedPaths = [], cancelled = () => false) {
-  const faults = [...danglingLinks(files), ...looksEmpty(files), ...projectIssues(files, expectedPaths)];
-  if (previewState(files).can) {
-    const pages = files.filter(file => /\.html?$/i.test(file.path)).slice(0, 6);
-    for (const page of pages) {
-      for (const width of [390, 1280]) faults.push(...await runAndWatch(files, page.path, width, cancelled));
+  activeChecks += 1;
+  try {
+    const faults = [...danglingLinks(files), ...looksEmpty(files), ...projectIssues(files, expectedPaths)];
+    if (previewState(files).can) {
+      const pages = files.filter(file => /\.html?$/i.test(file.path)).slice(0, 6);
+      for (const page of pages) {
+        for (const width of [390, 1280]) faults.push(...await runAndWatch(files, page.path, width, cancelled));
+      }
     }
-  }
-  return [...new Set(faults)].slice(0, 30);
+    return [...new Set(faults)].slice(0, 30);
+  } finally { activeChecks -= 1; }
 }
 
 /**
@@ -839,6 +846,31 @@ function openSheet(title, html) {
 
 const closeSheet = () => { el.sheet.hidden = true; sheetVersion += 1; clearTimeout(publicationTimer); };
 
+async function checkWebsite() {
+  const p=project();
+  if(!p?.files.length) {deps.toast('Build a website first.');return;}
+  if(isBusy()) {deps.toast('Finish the current work before checking.');return;}
+  manualCheck=new AbortController();
+  const controller=manualCheck;
+  const snapshot=JSON.stringify(p.files);
+  const files=JSON.parse(snapshot);
+  const pages=files.filter(file=>/\.html?$/i.test(file.path)).length;
+  openSheet('Checking your website',`<p class="sheet-note">Checking up to six pages at phone and desktop widths, including form labels, images, section links, and startup errors.</p><button class="setting-btn" data-check-stop type="button">Stop checks</button>`);
+  const version=sheetVersion;
+  try {
+    const faults=await faultsIn(files,[],()=>controller.signal.aborted);
+    if(snapshot!==JSON.stringify(p.files)) faults.unshift('The project changed during checking. Run checks again on the latest files.');
+    if(!pages) faults.unshift('This project has no HTML page to preview.');
+    if(version!==sheetVersion || p!==project()) return;
+    openSheet('Website check results',faults.length
+      ? `<p class="sheet-note">Fix these issues, then check again:</p><ul>${faults.map(fault=>`<li>${escapeHtml(fault)}</li>`).join('')}</ul><button class="setting-btn" data-check-fix type="button">Ask AI to fix these issues</button>`
+      : `<p class="sheet-note">Checks passed for ${Math.min(pages,6)} pages at 390 px and 1280 px. Test buttons, forms, external services, and payments yourself before publishing${pages>6 ? '; additional pages were not opened' : ''}.</p>`);
+    if(faults.length) el.sheetBody.querySelector('[data-check-fix]').addEventListener('click',()=>{closeSheet();mendIt(faults);});
+  } catch(error) {
+    if(version===sheetVersion) openSheet('Website checks',`<p class="sheet-note">${error.name==='AbortError' ? 'Checks stopped. No completed result was recorded.' : 'Checks could not finish. Try again.'}</p>`);
+  } finally {if(manualCheck===controller) manualCheck=null;}
+}
+
 const ago = (at) => {
   const mins = Math.round((Date.now() - at) / 60000);
   if (mins < 1) return 'just now';
@@ -881,7 +913,7 @@ async function testBuildAI() {
 async function showPublish() {
   const p = project();
   if (!p?.files.length) { deps.toast('Build a website before publishing it.'); return; }
-  if (state.streaming || ritualRun?.running || state.publishing) { deps.toast('Wait for the current work to finish.'); return; }
+  if (isBusy()) { deps.toast('Wait for the current work to finish.'); return; }
   const faults = [...danglingLinks(p.files),...looksEmpty(p.files),...projectIssues(p.files)];
   if (!p.files.some(file=>file.path === 'index.html')) faults.unshift('Publishing needs index.html at the top of the project.');
   if (faults.length) {
@@ -1173,6 +1205,18 @@ export function builds(query = '') {
 }
 
 export const openBuildId = () => state.currentId;
+export const isBusy = () => Boolean(state.streaming || ritualRun?.running || state.publishing || activeChecks || manualCheck);
+export const backupProjects = () => state.projects;
+export function restoreProjects(projects) {
+  clearTimeout(saveTimer);
+  state.projects=projects;
+  if(!projects.some(p=>p.id===state.currentId)) state.currentId=projects[0]?.id || null;
+  state.openPath='';
+  el.previewFrame.srcdoc='';
+  ensureView('chat');
+  if(state.currentId) render();
+  announce();
+}
 
 /** Open one, from wherever the person was. */
 export function openBuild(id) {
@@ -1396,6 +1440,7 @@ export function mount(options = {}) {
     if (item.id === 'build-share') takePage();
     if (item.id === 'build-download') takeAll();
     if (item.id === 'build-history') showHistory();
+    if (item.id === 'build-check') checkWebsite();
     if (item.id === 'build-github') showGitHub();
     if (item.id === 'build-publish') showPublish();
     if (item.id === 'build-ai-test') testBuildAI();
@@ -1428,6 +1473,7 @@ export function mount(options = {}) {
   });
 
   el.sheet.addEventListener('click', async (event) => {
+    if (event.target.closest('[data-check-stop]')) {manualCheck?.abort();return;}
     if (event.target.closest('[data-publish-confirm]')) { publishProject(); return; }
     if (event.target.closest('[data-publication-check]')) { checkPublication(project(),18); return; }
     if (event.target.closest('[data-publish-open]')) { showPublish(); return; }
@@ -1489,3 +1535,4 @@ export function mount(options = {}) {
     else deps.toast('That GitHub connection did not finish. Try again.');
   }
 }
+

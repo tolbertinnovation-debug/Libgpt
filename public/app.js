@@ -22,6 +22,7 @@ import { RecordedEar, canListenByRecording } from './hearing.js';
 import * as ritual from './ritual.js';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
+import { mountSupport } from './support.js';
 
 /* ========================================================================
    State
@@ -583,6 +584,7 @@ function messageActions(index, content) {
           <path d="M11 5L6 9H3v6h3l5 4V5zM16 9a4 4 0 0 1 0 6"/>
         </svg>Listen
       </button>
+      <button class="msg-action" data-report="${index}" type="button">Report</button>
       ${index === lastAiIndex() ? `
       <button class="msg-action" data-regen="${index}" type="button">
         <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none"
@@ -2465,6 +2467,23 @@ el.setExport.addEventListener('click', () => {
   toast('Downloaded.');
 });
 
+const support = mountSupport({
+  snapshot:()=>({chats:state.chats,projects:ritual.backupProjects()}),
+  busy:()=>Boolean(state.streaming || ritual.isBusy() || conversation.active || listening || dictation.recording || transcribing),
+  area:()=>ritual.currentMode(),
+  restored:prepared=>{
+    state.chats=prepared.chats;
+    ritual.restoreProjects(prepared.projects);
+    renderThread();renderSidebar();
+  },
+});
+document.getElementById('settings-backup').addEventListener('click',()=>{closeSettings();support.backup();});
+document.getElementById('settings-report').addEventListener('click',()=>{closeSettings();support.feedback();});
+el.thread.addEventListener('click',event=>{
+  const button=event.target.closest('[data-report]');
+  if(button) support.feedback(currentChat()?.messages[Number(button.dataset.report)]?.content || '');
+});
+
 // Two taps to delete, so a mis-tap on a shared phone cannot wipe the history.
 let clearTimer;
 el.setClear.addEventListener('click', () => {
@@ -3321,3 +3340,4 @@ document.addEventListener('visibilitychange', () => {
 });
 
 boot();
+
