@@ -33,6 +33,7 @@ async function checker() {
   const frameWindow = {};
   let mode = 'load';
   let document = '';
+  let checkId = '';
   const frame = {
     contentWindow: frameWindow, style: {},
     get srcdoc() { return document; },
@@ -41,8 +42,9 @@ async function checker() {
       if (!value) return;
       for (const fn of listeners) {
         fn({source:{}, data:{grandpa:'fault',what:'unrelated frame error'}});
-        if (mode === 'load') fn({source:frameWindow,data:{grandpa:'ran'}});
-        if (mode === 'fault') fn({source:frameWindow,data:{grandpa:'fault',what:'Broken menu'}});
+        fn({source:frameWindow,data:{grandpa:'fault',checkId:'stale',what:'Error from an older check'}});
+        if (mode === 'load') fn({source:frameWindow,data:{grandpa:'ran',checkId}});
+        if (mode === 'fault') fn({source:frameWindow,data:{grandpa:'fault',checkId,what:'Broken menu'}});
       }
     },
   };
@@ -53,7 +55,7 @@ async function checker() {
   const make = new Function('window','el','previewDocument','RUN_MS','sleep',
     source.slice(from, to) + '; return runAndWatch;');
   return {
-    run: make(window, {checkFrame:frame}, () => '<html></html>', 5, () => new Promise(r=>setTimeout(r,1))),
+    run: make(window, {checkFrame:frame}, (_files,_path,options) => {checkId=options.checkId;return '<html></html>';}, 5, () => new Promise(r=>setTimeout(r,1))),
     listeners, frame, setMode(value) {mode=value;},
   };
 }
@@ -98,3 +100,4 @@ test('same-name files elsewhere do not hide broken links', () => {
   const files=[{path:'index.html',body:'<script src="scripts/menu.js"></script>'},{path:'other/menu.js',body:''}];
   assert.equal(danglingLinks(files).length,1);
 });
+
