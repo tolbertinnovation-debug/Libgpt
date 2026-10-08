@@ -115,12 +115,12 @@ export function clearTokenCookie(res) {
  * memory between requests. It carries its own timestamp, so a link cannot be
  * kept and replayed a week later.
  */
-export function authorizeUrl(redirectUri) {
+export function authorizeUrl(redirectUri, scope = config.githubScope) {
   const state = seal(JSON.stringify({ at: Date.now(), n: crypto.randomBytes(8).toString('hex') }));
   const url = new URL(`${config.githubOauth}/authorize`);
   url.searchParams.set('client_id', config.githubClientId);
   url.searchParams.set('redirect_uri', redirectUri);
-  url.searchParams.set('scope', config.githubScope);
+  url.searchParams.set('scope', scope);
   url.searchParams.set('state', state);
   return { url: url.toString(), state };
 }
@@ -155,7 +155,7 @@ export async function exchangeCode(code, redirectUri) {
 
 /* ---- talking to GitHub --------------------------------------------------- */
 
-async function call(token, path, { method = 'GET', body, signal } = {}) {
+async function call(token, path, { method = 'GET', body, signal, withMeta = false } = {}) {
   const response = await fetch(`${config.githubApi}${path}`, {
     method,
     headers: {
@@ -169,19 +169,21 @@ async function call(token, path, { method = 'GET', body, signal } = {}) {
     signal,
   });
 
-  if (response.status === 401) throw new Error('That GitHub connection has expired. Connect again.');
-  if (response.status === 403) throw new Error('GitHub refused that. The connection may not have permission for this repository.');
-  if (response.status === 404) throw new Error('GitHub has no such repository, branch or file — or this connection cannot see it.');
+  const failure = (message) => Object.assign(new Error(message), { status: response.status });
+  if (response.status === 401) throw failure('That GitHub connection has expired. Connect again.');
+  if (response.status === 403) throw failure('GitHub refused that. The connection may not have permission for this repository.');
+  if (response.status === 404) throw failure('GitHub has no such repository, branch or file — or this connection cannot see it.');
   if (!response.ok) {
     const detail = await response.json().catch(() => ({}));
-    throw new Error(detail.message || `GitHub answered ${response.status}.`);
+    throw failure(detail.message || `GitHub answered ${response.status}.`);
   }
-  return response.status === 204 ? null : response.json();
+  const data = response.status === 204 ? null : await response.json();
+  return withMeta ? {data, scopes: (response.headers.get('x-oauth-scopes') || '').split(',').map(s=>s.trim())} : data;
 }
 
 export async function whoami(token, signal) {
-  const me = await call(token, '/user', { signal });
-  return { login: me.login, name: me.name || me.login, avatar: me.avatar_url };
+  const {data:me, scopes} = await call(token, '/user', { signal, withMeta:true });
+  return { login: me.login, name: me.name || me.login, avatar: me.avatar_url, pagesScope:scopes.includes('repo') };
 }
 
 export async function listRepos(token, signal) {
@@ -247,3 +249,6 @@ export async function commitFile(token, { repo, branch, path, body, message, sha
     },
   });
 }
+
+// Used only by the static publishing service; credentials stay server-side.
+export const githubRequest = call;
