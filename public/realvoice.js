@@ -266,7 +266,7 @@ export class VoiceOut {
     // takes longer to make than the one before it takes to say leaves a hole
     // in the middle of a sentence. Two is still not so much that a
     // conversation cut short has paid for half an answer nobody heard.
-    if (this.fetching === 0 && this.ready.length < 2 && this.pending.length) {
+    if (this.state !== 'paused' && this.fetching === 0 && this.ready.length < 2 && this.pending.length) {
       this.#fetchNext();
     }
     if (!this.audio && this.state !== 'paused' && this.ready.length) {
@@ -286,6 +286,7 @@ export class VoiceOut {
     this.fetching += 1;
     const controller = new AbortController();
     this.requests.add(controller);
+    const timeout = setTimeout(() => controller.abort(), 25_000);
     try {
       const response = await fetch('/api/speak', {
         method: 'POST',
@@ -312,14 +313,16 @@ export class VoiceOut {
       // The words travel with the audio: if the browser then refuses to play
       // it, the phone's own voice still has something to say.
       this.ready.push({ url, text });
+      if (this.audio) this.#preload();
     } catch (error) {
       if (token !== this.token) return;
       // Hand the rest of the answer to the phone's own voice rather than
       // going silent. Said once — not once per sentence.
-      this.#warn(error);
+      this.#warn(controller.signal.aborted ? new Error('The voice took too long to respond.') : error);
       this.#toDevice(text);
       return;
     } finally {
+      clearTimeout(timeout);
       this.requests.delete(controller);
       if (token === this.token) this.fetching -= 1;
     }
