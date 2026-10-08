@@ -28,6 +28,7 @@ import {
   projectContext, readPlan, stepPrompt,
 } from './build.js';
 import * as github from './github.js';
+import { createPublisher } from './publish.js';
 import { needsLookingUp, searchModelFrom } from './search.js';
 import { KINDS, isKind, libraryCatalogue } from './structured.js';
 
@@ -356,7 +357,7 @@ app.get('/api/github/start', rateLimit, (req, res) => {
     res.status(503).send('GitHub is not set up on this deployment.');
     return;
   }
-  const { url, state } = github.authorizeUrl(callbackUrl(req));
+  const { url, state } = github.authorizeUrl(callbackUrl(req), req.query.publish === '1' ? 'repo' : config.githubScope);
   const bits = [`${STATE_COOKIE}=${encodeURIComponent(state)}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=600'];
   if (config.secureCookies) bits.push('Secure');
   res.append('Set-Cookie', bits.join('; '));
@@ -390,6 +391,38 @@ app.post('/api/github/disconnect', (req, res) => {
   github.clearTokenCookie(res);
   res.json({ ok: true });
 });
+
+
+const publisher = createPublisher({
+  request:github.githubRequest, identify:github.whoami, seal:github.seal, unseal:github.unseal,
+});
+
+app.post('/api/build/connection', rateLimit, requireAccess, async (_req, res) => {
+  if (!config.building || !config.apiKey) return res.status(503).json({error:'Live generation needs OPENAI_API_KEY configured on this host.'});
+  const controller = new AbortController();
+  const timeout = setTimeout(()=>controller.abort(),20_000);
+  try {
+    const model = await pickModel(undefined, 'story');
+    const answer = await complete({model,messages:[{role:'user',content:'Reply with READY.'}],maxTokens:256,signal:controller.signal});
+    if (!answer) throw new Error('OpenAI returned no text.');
+    res.json({ready:true,model});
+  } catch (error) {
+    res.status(502).json({error:error instanceof OpenAIError ? error.message : 'The live AI test could not finish. Try again.'});
+  } finally { clearTimeout(timeout); }
+});
+
+app.post('/api/github/publish', rateLimit, requireAccess, withToken(async (req,res,token) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(()=>controller.abort(),45_000);
+  try {
+    res.json(await publisher.publish(token,req.body || {},controller.signal));
+  } catch(error) {
+    res.status(error.status || 502).json({error:error.message || 'Publication could not finish.',deployment:error.deployment});
+  } finally { clearTimeout(timeout); }
+}));
+app.post('/api/github/publication', rateLimit, requireAccess, withToken(async (req,res,token) => {
+  res.json(await publisher.status(token,req.body || {},AbortSignal.timeout(15_000)));
+}));
 
 app.get('/api/github/repos', rateLimit, withToken(async (_req, res, token) => {
   res.json({ repos: await github.listRepos(token) });

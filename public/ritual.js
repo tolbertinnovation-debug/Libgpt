@@ -50,6 +50,7 @@ const state = {
 let el = {};
 let deps = { headers: () => ({}), toast: () => {}, onMode: () => {} };
 let saveTimer = null;
+let sheetVersion = 0;
 
 const project = () => state.projects.find((p) => p.id === state.currentId) || null;
 const persist = () => {
@@ -829,12 +830,14 @@ export const ask = (text) => send(text);
    ========================================================================== */
 
 function openSheet(title, html) {
+  clearTimeout(publicationTimer);
+  sheetVersion += 1;
   $('sheet-title').textContent = title;
   el.sheetBody.innerHTML = html;
   el.sheet.hidden = false;
 }
 
-const closeSheet = () => { el.sheet.hidden = true; };
+const closeSheet = () => { el.sheet.hidden = true; sheetVersion += 1; clearTimeout(publicationTimer); };
 
 const ago = (at) => {
   const mins = Math.round((Date.now() - at) / 60000);
@@ -856,6 +859,104 @@ function showHistory() {
     </button>`).join('');
   openSheet('Go back to', rows || '<p class="sheet-note">Nothing has been changed yet, so there is '
     + 'nothing to go back to. A version is kept every time you save files into the build.</p>');
+}
+
+
+let publicationTimer = null;
+function safePublishUrl(value) {
+  try { const url = new URL(value); return url.protocol === 'https:' && /(^|\.)github\.io$/.test(url.hostname) ? url.href : ''; } catch { return ''; }
+}
+async function testBuildAI() {
+  openSheet('Live AI generation', '<p class="sheet-note">Testing your host’s OpenAI connection…</p>');
+  try {
+    const response = await fetch('/api/build/connection', {
+      method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},body:'{}',
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error);
+    openSheet('Live AI generation', `<p class="sheet-note">OpenAI answered successfully using <strong>${escapeHtml(body.model)}</strong>. Describe your project in Build to generate files live.</p>`);
+  } catch(error) { openSheet('Live AI generation', `<p class="sheet-note">${escapeHtml(error.message)}</p>`); }
+}
+
+async function showPublish() {
+  const p = project();
+  if (!p?.files.length) { deps.toast('Build a website before publishing it.'); return; }
+  if (state.streaming || ritualRun?.running || state.publishing) { deps.toast('Wait for the current work to finish.'); return; }
+  const faults = [...danglingLinks(p.files),...looksEmpty(p.files),...projectIssues(p.files)];
+  if (!p.files.some(file=>file.path === 'index.html')) faults.unshift('Publishing needs index.html at the top of the project.');
+  if (faults.length) {
+    openSheet('Before publishing', `<p class="sheet-note">Fix these project problems first:</p><ul>${faults.slice(0,10).map(f=>`<li>${escapeHtml(f)}</li>`).join('')}</ul>`);
+    return;
+  }
+  const status = await githubStatus();
+  if (!status.ready) { showGitHub(); return; }
+  if (!status.connected || !status.pagesScope) {
+    openSheet('Connect for publishing', `<p class="sheet-note">Publishing creates a public GitHub repository and a public website. GitHub requires its repository permission for Pages; this permission can also include private repositories.</p><a class="sheet-go" href="/api/github/start?publish=1">Authorize GitHub publishing</a>`);
+    return;
+  }
+  const name = (p.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,45) || 'my-website') + '-' + p.id.replace(/[^a-z0-9]/gi,'').slice(0,6);
+  openSheet(p.deployment ? 'Update published website' : 'Publish website', `
+    <p class="sheet-note">${escapeHtml(p.name)} · ${p.files.length} files. Review your preview and test its buttons and forms first.</p>
+    ${p.deployment ? `<p class="sheet-note">Updates go to <strong>${escapeHtml(p.deployment.repo)}</strong>.</p>` :
+      `<label class="setting-row" for="publish-name"><span>Repository name</span><input id="publish-name" maxlength="70" value="${escapeHtml(name)}" pattern="[A-Za-z0-9-]+"></label>`}
+    <p class="sheet-note">Your website and source files will be public. Only static website files are published. Server features and payments need separate hosting.</p>
+    <button class="sheet-go" type="button" data-publish-confirm>${p.deployment ? 'Publish these updates' : 'Publish publicly'}</button>`);
+}
+function showPublication(p) {
+  if (p !== project()) return;
+  const d = p.deployment;
+  const url = safePublishUrl(d?.url);
+  const status = d?.status === 'built' ? 'Live' : d?.status === 'errored' ? 'Deployment failed' :
+    d?.status === 'needs-attention' ? 'Needs attention' : 'Deployment in progress';
+  openSheet('Website deployment', `
+    <p class="sheet-note"><strong>${status}</strong></p>
+    <p class="sheet-note">${escapeHtml(d?.repo || '')}</p>
+    ${d?.error ? `<p class="sheet-note">${escapeHtml(d.error)}</p>` : ''}
+    ${url ? `<a class="sheet-go" href="${escapeHtml(url)}" target="_blank" rel="noopener">Open website${d.status === 'built' ? '' : ' (may still be building)'}</a>` : ''}
+    <button class="sheet-row" type="button" data-publication-check><span>Check deployment status</span></button>
+    <button class="sheet-row" type="button" data-publish-open><span>Publish updates or retry</span></button>`);
+}
+async function checkPublication(p, remaining = 0) {
+  clearTimeout(publicationTimer);
+  if (!p?.deployment?.receipt) return;
+  const version = sheetVersion;
+  try {
+    const response = await fetch('/api/github/publication', {method:'POST',
+      headers:{'Content-Type':'application/json',...deps.headers()},
+      body:JSON.stringify({receipt:p.deployment.receipt,sha:p.deployment.sha})});
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error);
+    p.deployment.status = body.status;
+    p.deployment.error = body.error || '';
+    persist();
+    if (version !== sheetVersion) return;
+    if (!el.sheet.hidden) showPublication(p);
+    if (remaining > 0 && !el.sheet.hidden && p === project() && !['built','errored','needs-attention'].includes(body.status)) {
+      publicationTimer = setTimeout(()=>checkPublication(p,remaining-1),5_000);
+    }
+  } catch(error) { deps.toast(error.message || 'Deployment status could not be read.'); }
+}
+async function publishProject() {
+  const p = project();
+  if (!p || state.publishing || state.streaming || ritualRun?.running) return;
+  const name = $('publish-name')?.value.trim();
+  const files = p.files.map(file=>({path:file.path,body:file.body}));
+  const receipt = p.deployment?.receipt;
+  state.publishing = true;
+  openSheet('Publishing website', '<p class="sheet-note">Uploading the project and starting GitHub Pages…</p>');
+  try {
+    const response = await fetch('/api/github/publish', {method:'POST',
+      headers:{'Content-Type':'application/json',...deps.headers()},
+      body:JSON.stringify({name,files,receipt,confirm:true})});
+    const body = await response.json();
+    if (body.deployment) { p.deployment=body.deployment; persist(); }
+    if (!response.ok) throw new Error(body.error);
+    p.deployment=body; persist(); showPublication(p);
+    publicationTimer=setTimeout(()=>checkPublication(p,18),5_000);
+  } catch(error) {
+    if (p.deployment) { p.deployment.error=error.message; persist(); showPublication(p); }
+    else openSheet('Publication could not finish', `<p class="sheet-note">${escapeHtml(error.message)}</p><button class="sheet-go" type="button" data-publish-open>Try again</button>`);
+  } finally { state.publishing=false; }
 }
 
 /* ---- GitHub -------------------------------------------------------------- */
@@ -1296,6 +1397,8 @@ export function mount(options = {}) {
     if (item.id === 'build-download') takeAll();
     if (item.id === 'build-history') showHistory();
     if (item.id === 'build-github') showGitHub();
+    if (item.id === 'build-publish') showPublish();
+    if (item.id === 'build-ai-test') testBuildAI();
   });
 
   // Typing in a file saves it, quietly and immediately — a Save button is one
@@ -1325,6 +1428,9 @@ export function mount(options = {}) {
   });
 
   el.sheet.addEventListener('click', async (event) => {
+    if (event.target.closest('[data-publish-confirm]')) { publishProject(); return; }
+    if (event.target.closest('[data-publication-check]')) { checkPublication(project(),18); return; }
+    if (event.target.closest('[data-publish-open]')) { showPublish(); return; }
     if (event.target.closest('[data-sheet-close]') || event.target.closest('#sheet-close')) {
       closeSheet();
       return;
