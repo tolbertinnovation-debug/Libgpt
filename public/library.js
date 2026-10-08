@@ -5,6 +5,7 @@
 // choices from fixed lists.
 
 import { escapeHtml } from './markdown.js';
+import {loadStoryMemory,saveStoryMemory,recentStories,storyRecord} from './story-memory.js';
 
 const JOURNAL_KEY = 'grandpa-ai:journal:v1';
 const QUIZ_KEY = 'grandpa-ai:quiz:v1';
@@ -66,6 +67,10 @@ export function createLibrary({
   // picture is a different kind of request, with its own ceiling.
   let tab = 'story';
   let story = null;   // { title, parts[], choicePrompt, choices[], finished }
+  let storyBusy = false;
+  let storySettings = {storyKind:'folktale',theme:'wisdom',subject:''};
+  let previousStories = loadStoryMemory();
+  let storyError = '';
 
   /**
    * A Listen control for a Library result.
@@ -145,19 +150,20 @@ export function createLibrary({
         <div class="lib-row">
           <div class="lib-field">
             <label for="story-kind">What kind</label>
-            <select id="story-kind">${kinds.map((k) => option(k.id, k.label)).join('')}</select>
+            <select id="story-kind">${kinds.map((k) => option(k.id, k.label,storySettings.storyKind)).join('')}</select>
           </div>
           <div class="lib-field">
             <label for="story-theme">About what</label>
-            <select id="story-theme">${themes.map((t) => option(t.id, t.label)).join('')}</select>
+            <select id="story-theme">${themes.map((t) => option(t.id, t.label,storySettings.theme)).join('')}</select>
           </div>
         </div>
         <div class="lib-field">
           <label for="story-subject">Anything particular? (you can leave this empty)</label>
           <input type="text" id="story-subject" maxlength="120"
-                 placeholder="the spider, the cotton tree, a clever child…">
+                 placeholder="the spider, the cotton tree, a clever child…" value="${escapeHtml(storySettings.subject)}">
         </div>
-        <button class="lib-go" type="submit">Tell me a stori</button>
+        <button class="lib-go" type="submit" ${storyBusy ? 'disabled' : ''}>Generate a new stori</button>
+        <p class="settings-note">Each request creates a new story and checks it against recent stories on this device. Folktales are original fiction inspired by West African storytelling.</p>
       </form>
       <div id="story-out"></div>`;
   }
@@ -178,7 +184,7 @@ export function createLibrary({
           <div class="lib-actions">
             <button class="setting-btn" type="button" data-save-story>Keep this in my journal</button>
             ${readButton('story')}
-            <button class="setting-btn" type="button" data-new-story>Another stori</button>
+            <button class="setting-btn" type="button" data-new-story ${storyBusy ? 'disabled' : ''}>Generate another stori</button>
           </div>` : `
           <p><strong>${escapeHtml(story.choicePrompt)}</strong></p>
           <div class="lib-choices">
@@ -190,57 +196,61 @@ export function createLibrary({
           </div>
           <div class="lib-actions">
             ${readButton('story', 'Read this to me')}
+            <button class="setting-btn" type="button" data-new-story ${storyBusy ? 'disabled' : ''}>Generate another stori</button>
           </div>`}
       </div>`;
-    out.innerHTML = body;
+    out.innerHTML = body + (storyError ? failure(storyError) : '');
   }
 
   async function beginStory(event) {
-    event.preventDefault();
+    event?.preventDefault();
+    if(storyBusy || tab!=='story') return;
+    onSpeakStop();
+    storyBusy=true;storyError='';
+    storySettings={storyKind:root.querySelector('#story-kind').value,
+      theme:root.querySelector('#story-theme').value,subject:root.querySelector('#story-subject').value.trim()};
+    root.querySelector('#story-form button').disabled=true;
     const out = root.querySelector('#story-out');
     out.innerHTML = loading('Grandpa is gathering the story…');
-
-    const result = await ask('story', {
-      storyKind: root.querySelector('#story-kind').value,
-      theme: root.querySelector('#story-theme').value,
-      subject: root.querySelector('#story-subject').value.trim(),
-    });
-
-    if (!result.ok) { out.innerHTML = failure(result.error); return; }
-    const d = result.data;
-    story = {
-      title: d.title,
-      parts: d.opening,
-      choicePrompt: d.choicePrompt,
-      choices: d.choices,
-      finished: false,
-    };
-    renderStory();
+    try {
+      previousStories=recentStories([...previousStories,...loadStoryMemory()]);
+      const result=await ask('story',{...storySettings,recentStories:previousStories});
+      if(!result.ok) throw new Error(result.error || 'The new stori could not finish. Try again.');
+      const d=result.data;
+      story={title:d.title,parts:d.opening,choicePrompt:d.choicePrompt,choices:d.choices,storyKind:storySettings.storyKind,finished:false};
+      previousStories=recentStories([...previousStories,...loadStoryMemory(),storyRecord(d)]);
+      saveStoryMemory(previousStories);
+    } catch(error) {storyError=error.message || 'Could not generate a new stori. Try again.';}
+    finally {storyBusy=false;if(tab==='story') render();}
   }
 
   async function chooseBranch(index) {
     const choice = story?.choices?.[index];
-    if (!choice) return;
+    if (!choice || storyBusy) return;
+    storyBusy=true;storyError='';
+    root.querySelector('#story-form button').disabled=true;
     const out = root.querySelector('#story-out');
     out.innerHTML = loading('Grandpa is finishing the story…');
+    try {
+      const result = await ask('story-continue', {
+        storyKind:story.storyKind,
+        title: story.title,
+        story: story.parts.join('\n\n'),
+        choice: `${choice.label} — ${choice.summary}`,
+      });
 
-    const result = await ask('story-continue', {
-      title: story.title,
-      story: story.parts.join('\n\n'),
-      choice: `${choice.label} — ${choice.summary}`,
-    });
-
-    if (!result.ok) { out.innerHTML = failure(result.error); renderStory(); return; }
-    const d = result.data;
-    story = {
-      ...story,
-      parts: [...story.parts, ...d.continuation],
-      moral: d.moral,
-      proverb: d.proverb,
-      summary: d.summary,
-      finished: true,
-    };
-    renderStory();
+      if (!result.ok) throw new Error(result.error || 'Grandpa could not finish this stori. Try again.');
+      const d = result.data;
+      story = {
+        ...story,
+        parts: [...story.parts, ...d.continuation],
+        moral: d.moral,
+        proverb: d.proverb,
+        summary: d.summary,
+        finished: true,
+      };
+    } catch(error) {storyError=error.message || 'Grandpa could not finish this stori. Try again.';}
+    finally {storyBusy=false;if(tab==='story') render();}
   }
 
   const storyText = () =>
@@ -564,6 +574,8 @@ export function createLibrary({
   function render() {
     root.innerHTML = (PANELS[tab] || storyForm)();
     if (tab === 'story' && story) renderStory();
+    if(tab==='story' && storyBusy) root.querySelector('#story-out').innerHTML=loading('Grandpa is gathering the story…');
+    else if(tab==='story' && !story && storyError) root.querySelector('#story-out').innerHTML=failure(storyError);
   }
 
   function show(next) {
@@ -583,9 +595,15 @@ export function createLibrary({
   });
 
   root.addEventListener('change', (event) => {
+    if(event.target.id==='story-kind') storySettings.storyKind=event.target.value;
+    if(event.target.id==='story-theme') storySettings.theme=event.target.value;
     if (event.target.id === 'recipe-pick') {
       root.querySelector('#recipe-other-wrap').hidden = event.target.value !== '__other';
     }
+  });
+
+  root.addEventListener('input',event=>{
+    if(event.target.id==='story-subject') storySettings.subject=event.target.value.slice(0,120);
   });
 
   root.addEventListener('click', (event) => {
@@ -605,7 +623,7 @@ export function createLibrary({
     const answer = event.target.closest('[data-answer]');
     if (answer) return answerQuestion(Number(answer.dataset.answer));
 
-    if (event.target.closest('[data-new-story]')) { story = null; render(); return; }
+    if (event.target.closest('[data-new-story]')) return beginStory();
 
     if (read && onSpeak) {
       onSpeak(spokenText(read.dataset.read), read);
@@ -684,3 +702,4 @@ export function createLibrary({
 
   return { show, render, get tab() { return tab; } };
 }
+

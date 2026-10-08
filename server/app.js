@@ -31,6 +31,7 @@ import * as github from './github.js';
 import { createPublisher } from './publish.js';
 import { needsLookingUp, searchModelFrom } from './search.js';
 import { KINDS, isKind, libraryCatalogue } from './structured.js';
+import {generateFreshStory,StoryGenerationError} from './stories.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -1118,7 +1119,7 @@ app.post('/api/structured', rateLimit, requireAccess, async (req, res) => {
   }
 
   const spec = KINDS[kind];
-  const { system, user } = spec.build(req.body?.input || {});
+  const { system, user } = kind === 'story' ? {} : spec.build(req.body?.input || {});
   // A folktale is worth the account's best model; a quiz question is not.
   const model = await pickModel(req.body?.model, kind);
 
@@ -1126,6 +1127,14 @@ app.post('/api/structured', rateLimit, requireAccess, async (req, res) => {
   res.on('close', () => controller.abort());
 
   try {
+    if(kind==='story') {
+      const data=await generateFreshStory(spec,req.body?.input || {},({system,user})=>complete({
+        model,messages:[{role:'system',content:system},{role:'user',content:user}],
+        maxTokens:spec.maxTokens,temperature:spec.temperature,json:true,signal:controller.signal,
+      }));
+      res.json({kind,data});
+      return;
+    }
     const raw = await complete({
       model,
       messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
@@ -1154,8 +1163,8 @@ app.post('/api/structured', rateLimit, requireAccess, async (req, res) => {
   } catch (error) {
     if (controller.signal.aborted) return;
     const message =
-      error instanceof OpenAIError ? error.message : 'Something went wrong. Try again.';
-    if (!(error instanceof OpenAIError)) console.error('[structured]', error);
+      error instanceof OpenAIError || error instanceof StoryGenerationError ? error.message : 'Something went wrong. Try again.';
+    if (!(error instanceof OpenAIError) && !(error instanceof StoryGenerationError)) console.error('[structured]', error);
     res.status(error.status || 500).json({ error: message });
   }
 });
@@ -1534,3 +1543,4 @@ app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
 });
 
 export default app;
+
