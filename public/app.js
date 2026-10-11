@@ -1604,12 +1604,15 @@ const imageComposer=mountImageComposer({
     }
   },
 });
-el.thread.addEventListener('click',event=>{
+el.thread.addEventListener('click',async event=>{
   const preview=event.target.closest('[data-preview-image]');
   const another=event.target.closest('[data-another-image]');
-  const index=Number(preview?.dataset.previewImage ?? another?.dataset.anotherImage);
+  const copy=event.target.closest('[data-copy-image-prompt]');
+  if(!preview && !another && !copy) return;
+  const index=Number(preview?.dataset.previewImage ?? another?.dataset.anotherImage ?? copy?.dataset.copyImagePrompt);
   const image=currentChat()?.messages[index]?.image;
   if(!image || !safeChatImage(image.url)) return;
+  if(copy) {toast(await copyText(image.prompt || '') ? 'Image description copied.' : 'Could not copy the image description.');return;}
   if(another) {imageComposer.open(image);return;}
   if(preview) {
     const view=document.createElement('dialog');view.className='image-viewer';view.setAttribute('aria-label','Generated image preview');
@@ -3336,5 +3339,3 @@ document.addEventListener('visibilitychange', () => {
 });
 
 boot();
-
-

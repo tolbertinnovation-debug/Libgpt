@@ -6,7 +6,7 @@ export function safeChatImage(value) {
 export function imageCard(image,index) {
   if(!safeChatImage(image?.url)) return '';
   const ext=image.url.startsWith('data:image/jpeg') ? 'jpg' : image.url.startsWith('data:image/webp') ? 'webp' : 'png';
-  return `<figure class="chat-image"><button class="chat-image-open" type="button" data-preview-image="${index}" aria-label="Open generated image"><img src="${image.url}" alt="${escapeHtml(image.prompt || 'AI-generated image')}" loading="lazy"></button><figcaption>AI-generated · ${escapeHtml(image.size || '')}</figcaption><div class="lib-actions"><a class="setting-btn" href="${image.url}" download="grandpa-image-${index+1}.${ext}">Download image</a><button class="setting-btn" type="button" data-another-image="${index}">Create another</button></div></figure>`;
+  return `<figure class="chat-image"><button class="chat-image-open" type="button" data-preview-image="${index}" aria-label="Open generated image"><img src="${image.url}" alt="${escapeHtml(image.prompt || 'AI-generated image')}" loading="lazy"></button><figcaption>AI-generated · ${escapeHtml(image.size || '')}</figcaption><div class="lib-actions"><a class="setting-btn" href="${image.url}" download="grandpa-image-${index+1}.${ext}">Download image</a><button class="setting-btn" type="button" data-another-image="${index}">Create another</button><button class="setting-btn" type="button" data-copy-image-prompt="${index}">Copy description</button></div></figure>`;
 }
 export function mountImageComposer({onGenerate,enabled=()=>true}) {
   const dialog=document.createElement('dialog');

@@ -24,7 +24,7 @@ test('image cards escape descriptions and refuse external or executable image so
   for(const url of ['https://example.com/image.png','data:image/svg+xml;base64,AA==','javascript:alert(1)']) assert.equal(safeChatImage(url),false);
   const card=imageCard({url:image,prompt:'<script>bad</script>',size:'1024x1024'},0);
   assert.match(card,/&lt;script&gt;/);assert.doesNotMatch(card,/<script>/);
-  assert.match(card,/download="grandpa-image-1.jpg"/);assert.match(card,/data-preview-image="0"/);
+  assert.match(card,/download="grandpa-image-1.jpg"/);assert.match(card,/data-preview-image="0"/);assert.match(card,/data-copy-image-prompt="0"/);
   assert.equal(imageCard({url:'https://example.com'},0),'');
 });
 test('generated images survive backups without admitting unsafe data',()=>{
@@ -80,7 +80,7 @@ test('OpenAI image request uses current format and quality schema',async t=>{
 });
 test('chat image host saves to the original conversation and resets busy state',async()=>{
   const source=await readFile(new URL('../public/app.js',import.meta.url),'utf8');
-  const start=source.indexOf('const imageComposer=mountImageComposer('),end=source.indexOf("el.thread.addEventListener('click',event=>",start);
+  const start=source.indexOf('const imageComposer=mountImageComposer('),end=source.indexOf("el.thread.addEventListener('click',async event=>",start);
   const chat={messages:[],title:''},state={streaming:null,chats:[chat]},pending={textContent:'',closest:()=>({remove(){}})};
   let options,persists=0,busy=[];
   const environment={state,ritual:{isBusy:()=>false},conversation:{active:false},speaker:{stop(){}},listening:false,stopListening(){},ensureChat:()=>chat,persist:()=>persists++,renderThread(){},renderSidebar(){},setBusy:b=>busy.push(b),startAiTurn:()=>pending,apiHeaders:()=>({}),showGate(){},safeChatImage,sounds:{reply(){}},currentChat:()=>chat,fetch:async()=>new Response(JSON.stringify({image,size:'1024x1024',quality:'high',style:'photo'}),{status:200}),mountImageComposer:value=>{options=value;}};
@@ -88,4 +88,20 @@ test('chat image host saves to the original conversation and resets busy state',
   await options.onGenerate({prompt:'A classroom',size:'1024x1024',quality:'high',style:'photo'},new AbortController());
   assert.equal(chat.messages.length,2);assert.equal(chat.messages[1].image.url,image);
   assert.equal(state.streaming,null);assert.deepEqual(busy,[true,false]);assert.ok(persists>=2);
+});
+
+test('chat image host returns expired sessions to sign-in and never saves late cancelled images',async()=>{
+  const source=await readFile(new URL('../public/app.js',import.meta.url),'utf8');
+  const start=source.indexOf('const imageComposer=mountImageComposer('),end=source.indexOf("el.thread.addEventListener('click',async event=>",start);
+  for(const expired of [true,false]) {
+    const controller=new AbortController(),chat={messages:[],title:''},state={streaming:null,chats:[chat]};
+    let options,closed=0,gated=0;
+    const busy=[];
+    const environment={state,ritual:{isBusy:()=>false},conversation:{active:false},speaker:{stop(){}},listening:false,stopListening(){},ensureChat:()=>chat,persist(){},renderThread(){},renderSidebar(){},setBusy:b=>busy.push(b),startAiTurn:()=>({closest:()=>({remove(){}})}),apiHeaders:()=>({}),showGate:()=>gated++,safeChatImage,sounds:{reply(){throw new Error('Must not play success');}},currentChat:()=>chat,fetch:async()=>{if(!expired)controller.abort();return new Response(JSON.stringify(expired ? {error:'Session expired'} : {image}),{status:expired ? 401 : 200});},mountImageComposer:value=>{options=value;return {close:()=>closed++};}};
+    new Function(...Object.keys(environment),source.slice(start,end))(...Object.values(environment));
+    await assert.rejects(options.onGenerate({prompt:'A classroom'},controller),expired ? /Session expired/ : /Cancelled/);
+    assert.equal(chat.messages.some(m=>m.image),false);
+    assert.equal(state.streaming,null);assert.deepEqual(busy,[true,false]);
+    assert.equal(gated,expired ? 1 : 0);assert.equal(closed,expired ? 1 : 0);
+  }
 });
