@@ -3,8 +3,8 @@ const palette = ['1B2A63', '196A58', 'A64436', '58438A', 'B08022', '26748B', 'C4
 const esc = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const valueLabel = n => Math.abs(n) >= 1e6 || (n !== 0 && Math.abs(n) < .001) ? n.toExponential(2) : n.toLocaleString('en-US', { maximumSignificantDigits: 4 });
 export function visualScene(block) {
-  const elements = [], width = 600, height = 360;
-  const text = (value, x, y, size = 11, color = '20242A', anchor = 'start') => elements.push({ kind: 'text', text: String(value), x, y, size, color, anchor });
+  const elements = [], width = 600, height = block.type === 'drawing' ? block.canvas ? 600 * block.canvas.height / block.canvas.width : block.layout === 'portrait' ? 800 : block.layout === 'square' ? 600 : 360 : 360;
+  const text = (value, x, y, size = 11, color = '20242A', anchor = 'start', weight = 'body') => elements.push({ kind: 'text', text: String(value), x, y, size, color, anchor, weight });
   const line = (x, y, x2, y2, color = 'CBD2DC', stroke = 1) => elements.push({ kind: 'line', x, y, x2, y2, color, stroke });
   const rect = (x, y, w, h, color) => elements.push({ kind: 'rect', x, y, w, h, color });
   const circle = (x, y, r, color) => elements.push({ kind: 'circle', x, y, r, color });
@@ -64,11 +64,19 @@ export function visualScene(block) {
       parts.forEach((p, i) => text(p.trim(), n.x + n.w / 2, n.y + n.h / 2 + (i - (parts.length - 1) / 2) * size * 1.15 + size * .35, size, 'FFFFFF', 'middle'));
     });
   } else {
+    const sx = width / 1000, sy = height / 1000;
     block.shapes.forEach(s => {
-      if (s.kind === 'rect') rect(s.x * .6, s.y * .36, s.width * .6, s.height * .36, s.color);
-      if (s.kind === 'circle') circle(s.x * .6, s.y * .36, s.radius * .36, s.color);
-      if (s.kind === 'line') line(s.x * .6, s.y * .36, s.x2 * .6, s.y2 * .36, s.color, 2);
-      if (s.kind === 'text') text(s.text, s.x * .6, s.y * .36, 12, s.color);
+      if (s.kind === 'rect') rect(s.x * sx, s.y * sy, s.width * sx, s.height * sy, s.color);
+      if (s.kind === 'circle') circle(s.x * sx, s.y * sy, s.radius * Math.min(sx, sy), s.color);
+      if (s.kind === 'line') line(s.x * sx, s.y * sy, s.x2 * sx, s.y2 * sy, s.color, 2);
+      if (s.kind === 'text') {
+        const size = (s.size || 20) * sx, room = (s.width || 1000 - s.x) * sx;
+        const limit = Math.max(1, Math.floor(room / (size * .64)));
+        const lines = s.text.match(new RegExp(`.{1,${limit}}(?:\\s|$)|.{1,${limit}}`, 'g')) || [s.text];
+        const anchor = s.align === 'center' ? 'middle' : s.align === 'right' ? 'end' : 'start';
+        const x = s.x * sx + (anchor === 'middle' ? room / 2 : anchor === 'end' ? room : 0);
+        lines.forEach((line, i) => { const y = s.y * sy + size + i * size * 1.2; if (y <= height) text(line.trim(), x, y, size, s.color, anchor, s.bold ? 'strong' : 'body'); });
+      }
     });
   }
   if (block.type === 'diagram') {
@@ -87,7 +95,7 @@ export function visualScene(block) {
 export function sceneSvg(scene) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${scene.width} ${scene.height}" width="${scene.width}" height="${scene.height}" role="img">${scene.elements.map(e => {
     const c = `#${e.color}`;
-    if (e.kind === 'text') return `<text x="${e.x}" y="${e.y}" font-family="Arial,sans-serif" font-size="${e.size}" fill="${c}" text-anchor="${e.anchor}">${esc(e.text)}</text>`;
+    if (e.kind === 'text') return `<text x="${e.x}" y="${e.y}" font-family="Arial,sans-serif" font-size="${e.size}" font-weight="${e.weight === 'strong' ? 700 : 400}" fill="${c}" text-anchor="${e.anchor}">${esc(e.text)}</text>`;
     if (e.kind === 'rect') return `<rect x="${e.x}" y="${e.y}" width="${e.w}" height="${e.h}" fill="${c}"/>`;
     if (e.kind === 'circle') return `<circle cx="${e.x}" cy="${e.y}" r="${e.r}" fill="${c}"/>`;
     if (e.kind === 'line') return `<line x1="${e.x}" y1="${e.y}" x2="${e.x2}" y2="${e.y2}" stroke="${c}" stroke-width="${e.stroke}"/>`;

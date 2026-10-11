@@ -2,6 +2,8 @@
 
 **Document creation:** Ask chat to write and revise complete documents, choose one of eight professional templates, and download PDF, DOCX, Word-compatible DOC, RTF, PNG, SVG, HTML, text or Markdown. See [document creation](docs/document-creation.md).
 
+**Guided tasks:** Business plans, project proposals, letters, graphic designs and other documents start with a saved brief. Chat asks up to three unanswered questions at a time, preserves your answers and creates the draft when the required details are clear. Review or correct the brief, explicitly create with labelled placeholders, or cancel. Graphic designs include standalone PNG/SVG artwork downloads with square, portrait, landscape or custom canvas sizes.
+
 **Rich documents:** Add data charts, process diagrams, labelled drawings and tables with captions, totals and custom column layouts. Use **Add another section** to extend a saved document; larger volumes support 400 blocks and up to 200 PDF pages.
 
 **Open exploration:** History, Wisdom and Learn panels generate more on demand, with recent-repeat checks, journal saving, downloads and source verification in chat. Fixed saved-history count caps are removed. See [open exploration](docs/open-exploration.md).

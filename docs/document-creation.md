@@ -2,7 +2,15 @@
 
 Open the attachment menu and choose **Create a document**, or ask directly: “Prepare a business proposal”, “Write my CV”, or “Create a PDF training handbook”. Describe the audience, purpose, facts and desired sections. Uploaded images and supported documents can supply source material through the existing attachment pipeline.
 
-Chat produces a complete structured draft with a preview and download links. Missing nonessential details appear as explicit placeholders; essential missing information prompts clarification. Follow-up requests such as “Add a budget table” or “Make the language more formal” revise the existing document. Saved chat history and backups preserve the structured draft for later export and revision.
+Chat gathers a brief before producing the structured draft with a preview and download links. Follow-up requests such as “Add a budget table” or “Make the language more formal” revise the existing document. Saved chat history and backups preserve the structured draft for later export and revision.
+
+## Guided tasks
+
+Choose a task or describe it naturally. Business plans, project proposals, letters, graphic designs, CVs, invoices, handbooks, reports and other documents have specific intake fields. Business plans gather the offering, customers, location, purpose and financial information. Proposals gather the problem, beneficiaries, organisation, recipient, timeline and budget. Letters gather sender, recipient, purpose and key facts. Designs gather format, audience, headline, content, branding and size.
+
+Chat asks up to three unresolved questions per turn and preserves the answers in a reviewable brief, including across saved history and backups. Answer in ordinary language, correct earlier details, or attach source material. Creation starts automatically once the required information is clear. **Create with these details**, or an explicit “Create it now”, permits labelled placeholders for missing information; the document lists details still needing completion. **Cancel task** or “Cancel this task” stops intake. Essential ambiguity can still prompt clarification instead of a misleading draft.
+
+Business-plan and proposal instructions cover the relevant sections, milestones, risks and financial tables. Facts, market evidence, credentials, citations and signatures must come from supplied sources; financial scenarios require an explicit instruction and clear labelling. These are editable drafts to review, not a promise of perfect accuracy or unlimited resources.
 
 ## Templates
 
@@ -17,6 +25,8 @@ Ask for a bar, line or pie chart using supplied data; a process/flow diagram; or
 Charts use up to 12 labels and 3 series. Diagrams support up to 16 nodes and 24 connections; drawings support up to 60 simple shapes. These are schematic graphics, not generated photographs or a full CAD editor. Figures use validated primitives; model output cannot supply executable SVG, scripts or remote asset URLs. The writing instructions require supplied data or transparent calculations and prohibit fabricating chart evidence.
 
 Tables support captions, labelled totals rows, custom relative column widths, left/centre/right alignment, up to 8 columns and 200 rows. Headers repeat across PDF and Word pages. Figures and table options survive saved chats and backups.
+
+Graphic designs can contain original vector artwork with controlled text size, bold text, alignment and wrapping. Drawing canvases support square, portrait and landscape layouts or custom dimensions from 320 to 4096 pixels per side, with an aspect ratio from 1:4 to 4:1. **Artwork PNG** and **Artwork SVG** download the first drawing separately from the document page; PNG honours a custom canvas size. Logo concepts and schematic artwork use shapes and text; they do not claim trademark clearance. A4 and US Letter page sizes are supported in PDF, Word, RTF and HTML.
 
 ## Longer documents
 
@@ -44,4 +54,4 @@ Downloads are generated from the saved draft when clicked. They download directl
 
 Text, tables and figures are validated against the per-volume bounds above. Larger image exports ask the user to use PDF or Word. Generation instructions preserve supplied facts and require placeholders or clarification rather than fabricated credentials, citations or signatures.
 
-Tests cover intent routing, schema validation, pagination, repeated table headers, file signatures, multi-page image archives, download errors, backups and the actual Express routes with mocked model responses. Mobile and desktop browser checks cover creation, preview, revision and a real PDF download. Template PDFs and Word documents were rendered and visually inspected. Live model generation still needs verification with deployment credentials.
+Tests cover intent routing, schema validation, pagination, repeated table headers, file signatures, multi-page image archives, download errors, backups and the actual Express routes with mocked model responses. Guided-task tests cover unanswered fields, answer preservation, explicit placeholder creation and retention of the brief after errors. Mobile and desktop browser checks cover creation, preview, revision, follow-up intake, reload, cancellation and real file downloads with a mocked provider. Template PDFs, Word documents and standalone artwork were rendered and visually inspected. Live model generation still needs verification with deployment credentials.

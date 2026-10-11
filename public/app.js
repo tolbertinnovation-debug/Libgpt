@@ -1,5 +1,6 @@
 import { documentIntent, documentMarkdown, readDocumentSpec, DOCUMENT_TEMPLATES } from './documents.js';
-import { documentCard, downloadDocument } from './document-chat.js';
+import { documentCard, downloadDocument, taskBriefCard } from './document-chat.js';
+import { DOCUMENT_TASKS, documentTaskKind, readTaskBrief, wantsTaskDraft, startsNewDocumentTask } from './document-tasks.js';
 import { chatContext } from './chat-context.js';
 import {imageDiscussion,validImageDiscussion,imageRequestLabel} from './image-context.js';
 import { renderMarkdown, escapeHtml } from './markdown.js';
@@ -741,6 +742,7 @@ function renderThread() {
             <div class="prose">${message.document ? 'Your document is ready. Read it below, choose a template, or download a copy.' : renderMarkdown(message.content)}</div>
             ${imageCard(message.image,index)}
             ${documentCard(message.document,index)}
+            ${message.taskBrief ? taskBriefCard(message.taskBrief,index,Boolean(message.documentQuestions)) : ''}
             ${sourceList(message.sources)}
             ${messageActions(index, message.content)}
           </div>
@@ -1148,6 +1150,13 @@ function send(rawText) {
   renderThread();
   renderSidebar();
   sounds.send();
+
+  if (pendingDocument && /^(?:please\s+)?(?:cancel|stop|never mind|nevermind)(?:\s+(?:this |the )?task)?[.!]?$/i.test(typed)) {
+    const pending = chat.messages.findLast(m => m.role === 'assistant');
+    if (pending) pending.documentQuestions = false;
+    chat.messages.push({ role: 'assistant', content: 'Task cancelled. You can start another task whenever you are ready.' });
+    setDocumentMode(false); documentTarget = null; persist(); renderThread(); renderSidebar(); return;
+  }
 
   if (makeDocument) {
     createChatDocument(chat).catch(error => toast(error.message));
@@ -1584,6 +1593,8 @@ let documentMode = false;
 let documentTarget = null;
 const documentModeBar = $('document-mode');
 const documentTemplate = $('document-task-template');
+const documentKind = $('document-task-kind');
+if (documentKind) documentKind.innerHTML = '<option value="">Choose automatically</option>' + Object.entries(DOCUMENT_TASKS).map(([id, t]) => `<option value="${id}">${escapeHtml(t.label)}</option>`).join('');
 if (documentTemplate) documentTemplate.innerHTML = '<option value="">Choose automatically</option>'
   + Object.entries(DOCUMENT_TEMPLATES).map(([id, t]) => `<option value="${id}">${escapeHtml(t.label)}</option>`).join('');
 function setDocumentMode(on) {
@@ -1591,7 +1602,7 @@ function setDocumentMode(on) {
   if (documentModeBar) documentModeBar.hidden = !on;
 }
 $('create-document-btn')?.addEventListener('click', () => {
-  showMore(false); setDocumentMode(true); documentTarget = null; el.input.focus();
+  showMore(false); setDocumentMode(true); documentTarget = { chatId: currentChat()?.id, index: -1, mode: 'new' }; el.input.focus();
 });
 $('document-mode-cancel')?.addEventListener('click', () => { setDocumentMode(false); documentTarget = null; });
 
@@ -1599,35 +1610,42 @@ async function createChatDocument(chat) {
   const controller = new AbortController();
   state.streaming = controller; setBusy(true);
   const target = startAiTurn();
-  target.textContent = 'Preparing your document and its layout…';
+  target.textContent = 'Reviewing your task details and preparing the next step…';
   const index = documentTarget?.chatId === chat.id ? documentTarget.index : -1;
   const action = documentTarget?.chatId === chat.id ? documentTarget.mode : '';
-  const previous = index >= 0 ? chat.messages[index]?.document : chat.messages.findLast(m => m.document)?.document;
-  documentTarget = null;
   const pending = chat.messages.findLast(m => m.role === 'assistant');
-  const mode = action || (pending?.documentQuestions ? pending.documentAction : '') || '';
+  const fresh = action === 'new' || (pending?.documentQuestions && pending.documentAction === 'new') || (index < 0 && !pending?.documentQuestions && (documentMode || startsNewDocumentTask(chat.messages.at(-1)?.content)));
+  const previous = fresh ? null : index >= 0 ? chat.messages[index]?.document : chat.messages.findLast(m => m.document)?.document;
+  let brief = action === 'new' ? null : documentTarget?.brief || (pending?.documentQuestions ? pending.taskBrief : null);
+  const createNow = documentTarget?.createNow === true || Boolean(pending?.documentQuestions && wantsTaskDraft(chat.messages.at(-1)?.content));
+  const taskKind = documentMode && documentKind?.value ? documentKind.value : brief?.kind || documentTaskKind(chat.messages.at(-1)?.content);
+  const guided = !previous || Boolean(brief && pending?.documentQuestions);
+  documentTarget = null;
+  const mode = fresh ? 'new' : action || (pending?.documentQuestions ? pending.documentAction : '') || '';
   const template = documentMode ? documentTemplate?.value : pending?.documentQuestions ? pending.documentTemplate || '' : '';
   setDocumentMode(false);
   try {
     const context = await forSending(chat.messages);
     const response = await fetch('/api/document', { method: 'POST', headers: apiHeaders(), signal: controller.signal,
       body: JSON.stringify({ messages: context.list, photo: context.photo, photoContext: context.photoContext,
-        document: context.document, currentDocument: previous, template, mode }) });
+        document: context.document, currentDocument: previous, template, mode, guided, taskKind, brief, createNow }) });
     const result = await response.json().catch(() => ({}));
+    if (result.brief) brief = readTaskBrief(result.brief);
     if (response.status === 401) showGate(result.error);
     if (!response.ok) throw new Error(result.error || 'The document could not be created.');
     if (controller.signal.aborted || !state.chats.includes(chat)) return;
+    if (pending?.documentQuestions) pending.documentQuestions = false;
     if (Array.isArray(result.questions)) {
-      chat.messages.push({ role: 'assistant', content: 'To complete your document, please provide:\n\n' + result.questions.map(q => '- ' + q).join('\n'), documentQuestions: true, documentTemplate: template || '', documentAction: mode });
+      chat.messages.push({ role: 'assistant', content: 'To complete your task, please provide:\n\n' + result.questions.map(q => '- ' + q).join('\n'), documentQuestions: true, documentTemplate: template || '', documentAction: mode, ...(result.brief ? { taskBrief: readTaskBrief(result.brief) } : {}) });
     } else {
       const spec = readDocumentSpec(result.document);
-      chat.messages.push({ role: 'assistant', content: documentMarkdown(spec), document: spec });
+      chat.messages.push({ role: 'assistant', content: documentMarkdown(spec), document: spec, ...(result.brief ? { taskBrief: readTaskBrief(result.brief) } : {}) });
       sounds.reply();
     }
     chat.updatedAt = Date.now(); persist(); renderSidebar();
   } catch (error) {
     if (state.chats.includes(chat)) {
-      chat.messages.push({ role: 'assistant', content: controller.signal.aborted ? 'Document creation was cancelled.' : 'Document creation failed: ' + error.message });
+      chat.messages.push({ role: 'assistant', content: controller.signal.aborted ? 'Document creation was cancelled.' : 'Document creation failed: ' + error.message, ...(brief && !controller.signal.aborted ? { taskBrief: brief, documentQuestions: true, documentTemplate: template || '', documentAction: mode } : {}) });
       chat.updatedAt = Date.now(); persist(); renderSidebar();
     }
     if (!controller.signal.aborted) throw error;
@@ -1646,6 +1664,22 @@ el.thread.addEventListener('change', event => {
   message.document.template = select.value; chat.updatedAt = Date.now(); persist(); renderThread();
 });
 el.thread.addEventListener('click', async event => {
+  const create = event.target.closest('[data-task-create]'), cancel = event.target.closest('[data-task-cancel]');
+  if (create || cancel) {
+    event.preventDefault();
+    if (state.streaming) { toast('Finish the current task first.'); return; }
+    const chat = currentChat(), index = Number(create?.dataset.taskCreate ?? cancel.dataset.taskCancel), message = chat?.messages[index];
+    if (!message?.taskBrief) return;
+    if (cancel) {
+      message.documentQuestions = false;
+      if (chat.messages.findLast(m => m.role === 'assistant') === message) chat.messages.push({ role: 'assistant', content: 'Task cancelled. You can start another task whenever you are ready.' });
+      setDocumentMode(false); documentTarget = null; chat.updatedAt = Date.now(); persist(); renderThread(); renderSidebar(); return;
+    }
+    documentTarget = { chatId: chat.id, index, brief: message.taskBrief, createNow: true };
+    setDocumentMode(true); if (documentKind) documentKind.value = message.taskBrief.kind;
+    if (documentTemplate) documentTemplate.value = message.documentTemplate || '';
+    send('Create this task now using the reviewed details. Use clearly labelled placeholders for any missing facts.'); return;
+  }
   const link = event.target.closest('[data-document-download]');
   const revise = event.target.closest('[data-document-revise]');
   const continuation = event.target.closest('[data-document-continue]');
@@ -1663,7 +1697,7 @@ el.thread.addEventListener('click', async event => {
   if (card.dataset.downloading) return;
   card.dataset.downloading = 'true'; status.textContent = 'Preparing your download…';
   try {
-    const result = await downloadDocument(spec, link.dataset.documentFormat, apiHeaders);
+    const result = await downloadDocument(spec, link.dataset.documentFormat, apiHeaders, fetch, { figureIndex: link.dataset.documentFigure == null ? undefined : Number(link.dataset.documentFigure) });
     const url = URL.createObjectURL(result.blob), download = document.createElement('a');
     download.href = url; download.download = result.filename; document.body.appendChild(download); download.click(); download.remove();
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
