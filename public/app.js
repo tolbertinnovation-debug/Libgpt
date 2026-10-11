@@ -1,4 +1,5 @@
 import { renderMarkdown, escapeHtml } from './markdown.js';
+import { conversationWindow, answerDepth, researchMode } from './knowledge.js';
 import { groupByDate, loadChats, loadPrefs, newId, savePrefs, saveChats } from './storage.js';
 import {
   DEFAULT_DICTATION, DICTATION_ACCENTS, FALLBACK_DICTATION,
@@ -65,6 +66,8 @@ const state = {
     persona: 'general',
     language: 'liberian-english',
     model: '',
+    answerDepth: 'auto',
+    research: 'auto',
     theme: null,        // 'light' | 'dark' | null = follow the phone
     textSize: 'md',     // 'sm' | 'md' | 'lg'
     autoSpeak: true,
@@ -109,6 +112,8 @@ const el = {
   settings: $('settings-modal'),
   settingsClose: $('settings-close'),
   setLanguage: $('settings-language'),
+  setDepth: $('settings-depth'),
+  setResearch: $('settings-research'),
   setSize: $('settings-size'),
   setTheme: $('settings-theme'),
   setAutoSpeak: $('settings-autospeak'),
@@ -563,8 +568,9 @@ function renderComposerPersona() {
    ======================================================================== */
 
 function messageActions(index, content) {
+  const unfinished = index === lastAiIndex() && currentChat()?.messages[index]?.unfinished;
   return `
-    <div class="msg-actions">
+    <div class="msg-actions${unfinished ? ' is-pinned' : ''}">
       <button class="msg-action" data-copy="${index}" type="button">
         <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none"
              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -585,6 +591,8 @@ function messageActions(index, content) {
         </svg>Listen
       </button>
       <button class="msg-action" data-report="${index}" type="button">Report</button>
+      ${unfinished
+        ? '<button class="msg-action" data-continue type="button">Continue unfinished answer</button>' : ''}
       ${index === lastAiIndex() ? `
       <button class="msg-action" data-regen="${index}" type="button">
         <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none"
@@ -625,7 +633,7 @@ const lookedUp = (reading = false) =>
 // re-uploading itself in full on every message. On a connection somebody pays
 // for by the megabyte that is the difference between a conversation they can
 // afford to keep and one they cannot.
-const SEND_LIMIT = 24_000;
+// The shared window keeps five times more context and preserves complete turns.
 
 /**
  * The newest part of the conversation, and how much was left behind.
@@ -647,13 +655,7 @@ function forSending(messages) {
           : ''}\n\n--- the document ---\n${paper.text}\n--- end of the document ---\n\n${content}`
       : content,
   }));
-  const size = () => list.reduce((n, m) => n + m.content.length, 0);
-  let dropped = 0;
-  while (list.length > 1 && size() > SEND_LIMIT) {
-    list.shift();
-    dropped += 1;
-  }
-  return { list, dropped };
+  return conversationWindow(list);
 }
 
 // Said above an answer whose conversation had to be shortened to send it. A
@@ -684,11 +686,11 @@ const siteName = (url) => {
 };
 
 function sourceList(items) {
-  const links = (items || []).filter((s) => /^https?:\/\//i.test(s?.url || '')).slice(0, 6);
+  const links = (items || []).filter((s) => /^https?:\/\//i.test(s?.url || ''));
   if (!links.length) return '';
   return `<div class="sources"><span class="sources-label">Where this was read</span>${links
     .map((s) => `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer"`
-      + ` title="${escapeHtml(s.title || s.url)}">${escapeHtml(siteName(s.url) || 'the paper')}</a>`)
+      + ` title="${escapeHtml(s.title || s.url)}">${escapeHtml(s.title || siteName(s.url) || 'Source')}</a>`)
     .join('')}</div>`;
 }
 
@@ -759,33 +761,6 @@ function startAiTurn() {
   el.thread.appendChild(turn);
   el.thread.scrollTop = el.thread.scrollHeight;
   return turn.querySelector('.prose');
-}
-
-/**
- * A long answer that still ran out of room after being carried on twice.
- *
- * Rare, and the honest thing is to say so and offer the rest — rather than
- * leaving a sentence hanging and letting the reader take it for the end.
- */
-function offerTheRest() {
-  const box = document.createElement('div');
-  box.className = 'turn-error is-unfinished';
-  box.textContent = 'That answer was long and stopped before the end.';
-
-  const button = document.createElement('button');
-  button.type = 'button';
-  button.className = 'retry';
-  button.textContent = 'Hear the rest';
-  button.addEventListener('click', () => {
-    if (state.streaming) return;
-    box.remove();
-    send('Go on — finish what you were saying.');
-  });
-
-  box.appendChild(document.createElement('br'));
-  box.appendChild(button);
-  el.thread.appendChild(box);
-  el.thread.scrollTop = el.thread.scrollHeight;
 }
 
 function showError(message, { retry = true } = {}) {
@@ -908,6 +883,9 @@ async function streamReply(chat, hooks = {}) {
         // Asked for outright. The server works out for itself when a question
         // needs looking up; this is for when it guesses wrong.
         search: state.lookItUp === true,
+        depth: answerDepth(state.prefs.answerDepth),
+        research: researchMode(state.prefs.research),
+        continue: chat.messages.at(-2)?.unfinished === true,
         // One turn at a time. Reset below, the same as looking it up, so
         // neither can spend a second time without being asked for again.
         think: state.thinkHarder === true,
@@ -971,7 +949,7 @@ async function streamReply(chat, hooks = {}) {
           hooks.onDelta?.(payload.text, text);
         } else if (event === 'done') {
           sawTheEnd = true;
-          // The server carries a cut-off answer on by itself, twice. This flag
+          // The server carries a cut-off answer on by itself. This flag
           // means even that was not enough.
           unfinished = Boolean(payload.truncated);
           // And this says whether the reading actually happened, rather than
@@ -1030,7 +1008,7 @@ async function streamReply(chat, hooks = {}) {
 
   if (text.trim()) {
     chat.messages.push({
-      role: 'assistant', content: text, searched, sources,
+      role: 'assistant', content: text, searched, sources, unfinished,
       ...(sending.dropped ? { trimmed: sending.dropped } : {}),
     });
     chat.updatedAt = Date.now();
@@ -1038,7 +1016,6 @@ async function streamReply(chat, hooks = {}) {
     renderThread();
     renderSidebar();
     if (!failed && !controller.signal.aborted) sounds.reply();
-    if (unfinished && !hooks.spoken) offerTheRest();
     // Read it out for anyone who reads slowly — but never over an aborted
     // reply, and never in a spoken conversation, which is already saying it
     // sentence by sentence as it arrives.
@@ -2040,6 +2017,8 @@ function renderSettings() {
   const { prefs } = state;
 
   el.setLanguage.value = prefs.language;
+  el.setDepth.value = answerDepth(prefs.answerDepth);
+  el.setResearch.value = researchMode(prefs.research);
   el.setAutoSpeak.checked = prefs.autoSpeak;
   el.setRate.value = prefs.voiceRate;
   el.setRateValue.textContent = RATE_WORDS.find(([limit]) => prefs.voiceRate < limit)[1];
@@ -2251,6 +2230,13 @@ el.setAccent.addEventListener('change', () => {
   state.prefs.dictationAccent = el.setAccent.value;
   savePreferences();
   if (listening) { stopListening(); toast('Tap the microphone again to use the new accent.'); }
+});
+
+el.setDepth.addEventListener('change', () => {
+  state.prefs.answerDepth = answerDepth(el.setDepth.value); savePreferences();
+});
+el.setResearch.addEventListener('change', () => {
+  state.prefs.research = researchMode(el.setResearch.value); savePreferences();
 });
 
 el.setName.addEventListener('change', () => {
@@ -2884,6 +2870,10 @@ el.starters.addEventListener('click', (event) => {
 
 el.thread.addEventListener('click', async (event) => {
   const chat = currentChat();
+  if (event.target.closest('[data-continue]')) {
+    if (!state.streaming) send('Go on — finish what you were saying.');
+    return;
+  }
 
   const copyCode = event.target.closest('.code-copy');
   if (copyCode) {
