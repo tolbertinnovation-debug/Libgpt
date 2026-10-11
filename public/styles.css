@@ -3489,6 +3489,12 @@ body {
 .cooking-cue,.cooking-safety { padding:12px; border-radius:10px; background:var(--bg-active); line-height:1.6; }
 .cooking-progress { padding:14px; border:1px solid var(--border); border-radius:12px; margin:16px 0; }
 .cooking-progress progress { width:100%; }
+.cooking-stage-button { display:inline-flex; align-items:center; gap:9px; }
+.cooking-stage-button[aria-busy="true"] { opacity:1; cursor:wait; }
+.cooking-stage-spinner { width:16px; height:16px; flex-shrink:0; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:cooking-stage-spin .8s linear infinite; }
+.cooking-stage-loading { padding:8px 0; font-size:.85rem; line-height:1.5; }
+@keyframes cooking-stage-spin { to { transform:rotate(360deg); } }
+@media(prefers-reduced-motion:reduce) { .cooking-stage-spinner { animation:none; } }
 .talk-input-mode { display:flex; flex-basis:100%; justify-content:center; align-items:center; gap:8px; font-size:.85rem; }
 .talk-input-mode select { padding:8px 10px; border-radius:10px; border:1px solid #bda789; background:#fffdf7; color:#34261f; font:inherit; }
 .artwork-gallery { margin-top:20px; padding-top:16px; border-top:1px solid #d9dfe7; }
