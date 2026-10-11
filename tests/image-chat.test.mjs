@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {imageModel,imageRequest,DEFAULT_IMAGE_MODEL} from '../server/image-options.js';
-import {safeChatImage,imageCard} from '../public/image-chat.js';
+import {safeChatImage,imageCard,imagePrompt} from '../public/image-chat.js';
 import {createBackup,parseBackup} from '../public/backup.js';
 const image='data:image/jpeg;base64,/9j/AA==';
 
@@ -104,4 +104,20 @@ test('chat image host returns expired sessions to sign-in and never saves late c
     assert.equal(state.streaming,null);assert.deepEqual(busy,[true,false]);
     assert.equal(gated,expired ? 1 : 0);assert.equal(closed,expired ? 1 : 0);
   }
+});
+
+test('visual requests route to images while stories, code and prompt-writing stay in text chat',()=>{
+  for(const prompt of ['Create A beautiful Liberian classroom with students learning on laptops','Please create a photo of Monrovia','Can you draw a forest?','Generate a poster for my event','/image a classroom','/image']) assert.notEqual(imagePrompt(prompt),null,prompt);
+  for(const prompt of ['Create a story about a classroom','Generate classroom lesson notes','Design a website for a photo studio','Create an image prompt about a forest','Explain how images work','Create a business plan','Create an essay on art',null]) assert.equal(imagePrompt(prompt),null,prompt);
+  assert.equal(imagePrompt('/image A beautiful classroom'),'A beautiful classroom');
+});
+test('sending the reported classroom request opens image creation without a text model request',async()=>{
+  const source=await readFile(new URL('../public/app.js',import.meta.url),'utf8');
+  const code=source.slice(source.indexOf('function send(rawText)'),source.indexOf('function regenerate(index)'));
+  let opened,stopped=0,textRequests=0,built;
+  const env={el:{input:{value:''}},ritual:{currentMode:()=> 'ask',isStreaming:()=>false,ask:value=>built=value},waiting:null,paper:null,state:{streaming:null},speaker:{stop:()=>stopped++},listening:false,stopListening(){},imagePrompt,imageComposer:{open:value=>opened=value},streamReply:()=>textRequests++,autoGrow(){},updateSendState(){}};
+  const send=new Function(...Object.keys(env),code+';return send;')(...Object.values(env));
+  const prompt='Create A beautiful Liberian classroom with students learning on laptops';
+  send(prompt);assert.deepEqual(opened,{prompt});assert.equal(stopped,1);assert.equal(textRequests,0);
+  env.ritual.currentMode=()=> 'build';opened=null;send('Create a photo website');assert.equal(built,'Create a photo website');assert.equal(opened,null);
 });
