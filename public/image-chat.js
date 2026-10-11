@@ -72,3 +72,7 @@ export function imagePrompt(text) {
   if(!/\b(?:image|picture|photo|photograph|illustration|painting|portrait|poster|logo|artwork|wallpaper|landscape|classroom|sunset|forest|skyline)\b/i.test(request)) return null;
   return prompt;
 }
+
+export function imageLoadingMarkup() {
+  return '<div class="image-generation-status" role="status" aria-live="polite"><div class="image-generation-heading"><span class="image-generation-spinner" aria-hidden="true"></span><strong>Creating your image…</strong></div><div class="image-generation-preview" aria-hidden="true"></div><progress aria-label="Image generation in progress"></progress><p>This may take a minute. Use Stop to cancel.</p></div>';
+}
