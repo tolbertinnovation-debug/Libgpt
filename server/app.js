@@ -1,3 +1,4 @@
+import { taskQuestion, QUALITY_PROMPT } from './intelligence.js';
 // The Express app itself, with no listener attached.
 //
 // server/index.js starts it on a port for local use and ordinary hosts;
@@ -85,7 +86,7 @@ setInterval(() => {
 // no tokens, but there is no reason to repeat it every few seconds.
 const MODEL_CACHE_MS = 10 * 60 * 1000;
 const EMPTY_TIERS = { fast: '', balanced: '', deep: '' };
-let modelCache = { at: 0, models: [], tiers: EMPTY_TIERS, search: '' };
+let modelCache = { at: 0, models: [], tiers: EMPTY_TIERS, search: '', searchDeep: '' };
 
 async function accountModels() {
   if (!config.apiKey) return [];
@@ -105,10 +106,11 @@ async function accountModels() {
     // Each model says what automatic already uses it for, so picking by hand
     // is an informed change rather than a guess. The hint stays reserved for
     // where this whole list came from.
+    const searchDeep = config.searchEnabled ? searchModelFrom(all, config.searchModel, { deep: true }) : '';
     const jobs = (id) => [
       id === tiers.fast && 'quick jobs',
       id === tiers.balanced && 'everyday chat',
-      id === tiers.deep && 'stories',
+      id === tiers.deep && 'complex questions + stories',
     ].filter(Boolean).join(' + ');
 
     const models = ids.map((id) => ({
@@ -116,7 +118,7 @@ async function accountModels() {
       label: jobs(id) ? `${id} · ${jobs(id)}` : id,
       hint: '',
     }));
-    modelCache = { at: Date.now(), models, tiers, search };
+    modelCache = { at: Date.now(), models, tiers, search, searchDeep };
     return models;
   } catch {
     // An account that cannot list models can still chat; fall back rather
@@ -152,10 +154,10 @@ function rememberIfPermanent(error) {
  * Empty means Grandpa cannot look anything up — and then he says so, which
  * stays true. Nothing here ever claims a capability the key does not have.
  */
-async function lookupModel() {
+async function lookupModel(deep = false) {
   if (!config.searchEnabled || !config.apiKey || searchRefused) return '';
   await accountModels();   // fills the cache, including the search model
-  return modelCache.search;
+  return (deep && modelCache.searchDeep) || modelCache.search;
 }
 
 /**
@@ -718,7 +720,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   // the word SEARCH sitting in front of it — so the asker gets the final say
   // rather than being told what they wanted.
   const asked = messages.filter((m) => m.role === 'user').at(-1)?.content || '';
-  const reader = await lookupModel();
+  const routedQuestion = taskQuestion(messages);
 
   // "Continue", typed under an answer that stopped mid-sentence. Worked out
   // before anything else, because it changes what this turn is: not a new
@@ -726,6 +728,9 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   const carryingOn = isCarryingOn(messages) || (req.body?.continue === true && messages.at(-2)?.role === 'assistant' && JUST_GO_ON.test(asked));
   const depth = answerDepth(req.body?.depth);
   const research = researchMode(req.body?.research);
+  const think = req.body?.think === true || depth === 'thorough';
+  const routing = { persona, asked: routedQuestion, think, spoken };
+  const reader = await lookupModel(building || tierFor('chat', routing) === 'deep');
 
   // A photograph on this turn. Checked here rather than trusted, and counted
   // before the call so two arriving together cannot both slip past the hour.
@@ -742,9 +747,10 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   // Research can accompany a photo or a build when the question needs it.
   let searched = Boolean(reader)
     && !carryingOn
-    && (req.body?.search === true || (research !== 'off' && needsLookingUp(asked, new Date(), research === 'always')));
+    && (req.body?.search === true || (research !== 'off' && needsLookingUp(routedQuestion, new Date(), research === 'always')));
   const buildingPrompt = () => [
     // Only told it can draw where it really can.
+    QUALITY_PROMPT,
     buildPrompt({
       pictures: config.imagesEnabled && !(config.serverless && !config.accessCode),
     }),
@@ -776,8 +782,6 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   // is. Nobody should have to pick that from a list of forty names.
   // Asked to think harder on this one turn. The question normally chooses the
   // model by itself; this is for the hard question whose words do not look it.
-  const think = req.body?.think === true || depth === 'thorough';
-
   let model = searched
     ? reader
     : await pickModel(
@@ -786,7 +790,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
       // question's length or its keywords — writing a whole working file is
       // simply harder than answering, every time.
       building && !photo ? 'story' : 'chat',
-      { persona, asked, seeing: Boolean(photo), think, spoken },
+      { ...routing, seeing: Boolean(photo) },
     );
 
   // Nothing on this account can look at a picture. Better to say so and answer
@@ -794,7 +798,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   if (photo && !(await canSeeWith(model))) {
     photo = '';
     photoRefused = 'None of the models on this key can look at pictures, so I am answering from your words alone.';
-    model = await pickModel(req.body?.model, 'chat', { persona, asked, think, spoken });
+    model = await pickModel(req.body?.model, 'chat', routing);
   }
   let system = promptFor(searched);
 
@@ -826,7 +830,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     // about nothing would have no idea why.
     if (photoRefused) send('notice', { message: photoRefused });
     if (dropped) send('notice', { message: `${dropped} earlier messages were left out of this request; your latest question was kept whole.` });
-    if (!reader && (req.body?.search === true || (research !== 'off' && needsLookingUp(asked, new Date(), research === 'always')))) {
+    if (!reader && (req.body?.search === true || (research !== 'off' && needsLookingUp(routedQuestion, new Date(), research === 'always')))) {
       send('notice', { message: 'Live research is unavailable on this account right now. This answer will use existing knowledge; current details cannot be verified.' });
     }
 
@@ -921,7 +925,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
         send('notice', { message: 'Web research could not finish. Answering from existing knowledge, without claiming current facts were checked.' });
 
         searched = false;
-        model = await pickModel(req.body?.model, 'chat', { persona, asked, think, spoken });
+        model = await pickModel(req.body?.model, 'chat', routing);
         system = promptFor(false);
         // Correct what the browser was told: no badge, and he is back to
         // saying he has not heard the news — which, having failed to read it,
@@ -1462,5 +1466,6 @@ app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
 });
 
 export default app;
+
 
 

@@ -1,3 +1,4 @@
+import { QUALITY_PROMPT } from './intelligence.js';
 // The "Cultural Intelligence Layer" from the Grandpa AI dossier, expressed as
 // system prompts. A conversation is shaped by two dials — persona (what the
 // user came for) and language (how the answer should sound).
@@ -350,6 +351,7 @@ export function buildSystemPrompt({
 
   const parts = [
     BASE,
+    QUALITY_PROMPT,
     // Whether he can find things out is the difference between a refusal and
     // an answer, so it is stated outright rather than left to be inferred.
     searched ? SEARCH_PROMPT : `WHAT YOU CANNOT KNOW\n${NO_SEARCH_PROMPT}`,
@@ -402,3 +404,4 @@ export const publicCatalogue = () => ({
   defaultTone: DEFAULT_TONE,
   defaultRegister: DEFAULT_REGISTER,
 });
+

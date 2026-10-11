@@ -99,14 +99,10 @@ export function resolveTiers(ids, pinned = {}) {
 
   // A model that can look at a photograph.
   //
-  // Not the cheapest that can. The commonest thing anybody will photograph is
-  // a page of a child's handwriting, and reading pencil on ruled paper is the
-  // job a nano model is worst at — it will confidently misread a number and
-  // then work the whole sum from it, which is worse than refusing. So this
-  // takes the same middling preference as ordinary conversation: a current
-  // mini, not the flagship and not the smallest thing that qualifies.
+  // Photos often contain small handwriting or charts. Use the strongest
+  // available vision model; presentation and spoken pacing are separate.
   const seeing = pool.filter((m) => canSee(m.id));
-  const eyes = best(seeing.length ? seeing : pool, middling);
+  const eyes = best(seeing.length ? seeing : pool, capability);
 
   return {
     fast: has(pinned.fast) ? pinned.fast : fast,
@@ -141,6 +137,11 @@ const WANTS_THINKING = new RegExp([
   // The long cultural work this app is judged on
   'story', 'stori', 'folktale', 'proverb', 'history of', 'tell me about',
   'translate',
+  // Short technical and analytical questions deserve the same care.
+  'debug', 'troubleshoot', 'diagnos', 'analy[sz]e', 'evaluate',
+  'optimi[sz]e', 'strategy', 'trade.?offs?', 'root cause',
+  'compound interest', 'probability', 'risk assessment', 'check my',
+  'verify', 'fact.?check', 'is (?:this|that) (?:correct|true|safe)',
 ].join('|'), 'i');
 
 // A greeting, a thank you, a yes. Real messages, and not one of them worth
@@ -191,13 +192,8 @@ export function tierFor(task, {
 
     case 'chat': {
       const tier = chatTier(String(asked || ''), persona);
-      // A spoken turn is a conversation, and a conversation that stops dead
-      // for eight seconds is not one. The largest model is the slowest to its
-      // first word, and the first word is the whole of what somebody sitting
-      // there with a phone to their ear is waiting for. So a question that is
-      // spoken aloud takes the next model down — unless it was asked for
-      // outright above, which is a different request and is honoured.
-      return spoken && tier === 'deep' ? 'balanced' : tier;
+      // Speaking changes presentation, not the quality of reasoning.
+      return tier;
     }
 
     default:
@@ -230,3 +226,4 @@ function chatTier(asked, persona) {
 
   return 'balanced';
 }
+

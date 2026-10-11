@@ -1,3 +1,4 @@
+import { capability, describe } from './models.js';
 // Live news, and everything else that happened after the model was trained.
 //
 // Grandpa was right to refuse: a model has no idea what happened this morning,
@@ -33,9 +34,11 @@ export const SEARCH_MODELS = [
  * Nothing here is assumed: if the account has none of them, live news is off
  * and Grandpa says he has not heard the news, which is true.
  */
-export function searchModelFrom(ids = [], pinned = '') {
+export function searchModelFrom(ids = [], pinned = '', { deep = false } = {}) {
   if (pinned && ids.includes(pinned)) return pinned;
-  return SEARCH_MODELS.find((id) => ids.includes(id)) || '';
+  const available = SEARCH_MODELS.filter(id => ids.includes(id));
+  if (deep) available.sort((a, b) => capability(describe(b)) - capability(describe(a)));
+  return available[0] || '';
 }
 
 // Somebody asking, in so many words, to go and look. This is the strongest
@@ -159,3 +162,4 @@ The web search tool is available for this turn. Use it before making claims abou
  * Kept here beside the other, so the two are read together and neither drifts.
  */
 export const NO_SEARCH_PROMPT = `- You will not pretend to have live data. No web results have been retrieved for this answer. Answer from existing knowledge, say when current details need verification, and never claim to have checked sources you did not read. Do not refuse a whole subject simply because some details may need checking.`;
+
