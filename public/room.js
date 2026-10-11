@@ -43,9 +43,8 @@ export const LOUDNESS = [
   { id: 'full', label: 'Very loud', blurb: 'As far as it goes without breaking up' },
 ];
 
-// Louder by default: the first complaint about this app was never that it
-// spoke too loudly.
-export const DEFAULT_LOUDNESS = 'loud';
+// Natural speech plays at the provider's original level by default.
+export const DEFAULT_LOUDNESS = 'normal';
 
 export const isLoudness = (id) => LOUDNESS.some((l) => l.id === id);
 
@@ -392,3 +391,4 @@ export class Room {
     }
   }
 }
+
