@@ -1,5 +1,7 @@
 # Grandpa AI
 
+**Document creation:** Ask chat to write and revise complete documents, choose one of eight professional templates, and download PDF, DOCX, Word-compatible DOC, RTF, PNG, SVG, HTML, text or Markdown. See [document creation](docs/document-creation.md).
+
 **Open exploration:** History, Wisdom and Learn panels generate more on demand, with recent-repeat checks, journal saving, downloads and source verification in chat. Fixed saved-history count caps are removed. See [open exploration](docs/open-exploration.md).
 
 **Knowledge update:** Broader live research, answer-depth settings, larger conversation and generation budgets, and saved continuation controls. See [knowledge and generation](docs/knowledge.md). Earlier limits described below are superseded by this update.
@@ -76,7 +78,7 @@ the box you type into, which told a reader nothing except to be careful, forever
 
 ## Running it
 
-You need **Node.js 18.17 or newer** and an OpenAI API key.
+You need **Node.js 20.9 or newer** and an OpenAI API key.
 
 ```bash
 npm install
@@ -1375,4 +1377,5 @@ terms.
 
 "Grandpa AI", the Grandpa AI seal, and the elder voices are ours. They may
 not be used to identify anything that is not ours.
+
 

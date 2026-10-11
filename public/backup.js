@@ -1,3 +1,4 @@
+import { readDocumentSpec } from './documents.js';
 // Portable, local-only backups. Credentials and preferences are never included.
 export const BACKUP_LIMIT = 8_000_000;
 const CHAT_KEY = 'grandpa-ai:chats:v1';
@@ -47,6 +48,11 @@ function messages(value, building = false) {
       const source = text(message.photoSource, 1_400_000, 'readable photo');
       if (!/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(source)) fail('Unsupported readable photo in this backup.');
       clean.photoSource = source;
+    }
+    if (!building && message.document) clean.document = readDocumentSpec(message.document);
+    if (!building && message.documentQuestions === true) {
+      clean.documentQuestions = true;
+      clean.documentTemplate = text(message.documentTemplate || '', 50, 'document template');
     }
     if(!building && message.image) {
       const url=text(message.image.url,4_000_040,'generated image');

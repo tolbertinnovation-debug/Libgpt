@@ -1,3 +1,4 @@
+import { documentIntent } from '../public/documents.js';
 import {imageDiscussion,validImageDiscussion,genericImageRequest,imageRequestLabel} from '../public/image-context.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -116,7 +117,7 @@ test('sending the reported classroom request generates directly without a popup 
   const source=await readFile(new URL('../public/app.js',import.meta.url),'utf8');
   const code=source.slice(source.indexOf('function send(rawText)'),source.indexOf('function regenerate(index)'));
   let opened,stopped=0,textRequests=0,built;
-  const env={el:{input:{value:''}},ritual:{currentMode:()=> 'ask',isStreaming:()=>false,ask:value=>built=value},waiting:null,paper:null,state:{streaming:null},speaker:{stop:()=>stopped++},listening:false,stopListening(){},imagePrompt,imageComposer:{open(){throw new Error('Must not open popup');},generate:value=>{opened=value;return Promise.resolve();}},toast(){},streamReply:()=>textRequests++,autoGrow(){},updateSendState(){}};
+  const env={currentChat:()=>null,documentMode:false,documentIntent,el:{input:{value:''}},ritual:{currentMode:()=> 'ask',isStreaming:()=>false,ask:value=>built=value},waiting:null,paper:null,state:{streaming:null},speaker:{stop:()=>stopped++},listening:false,stopListening(){},imagePrompt,imageComposer:{open(){throw new Error('Must not open popup');},generate:value=>{opened=value;return Promise.resolve();}},toast(){},streamReply:()=>textRequests++,autoGrow(){},updateSendState(){}};
   const send=new Function(...Object.keys(env),code+';return send;')(...Object.values(env));
   const prompt='Create A beautiful Liberian classroom with students learning on laptops';
   send(prompt);assert.deepEqual(opened,{prompt});assert.equal(stopped,1);assert.equal(textRequests,0);
@@ -203,3 +204,4 @@ test('the image API refuses an empty-subject command before billing and forwards
   const success=route.res();await route.handler({body:{prompt:'Create a image',context:imageDiscussion('Create a image',[{role:'user',content:'I want to see Liberia flag'},{role:'assistant',content:'Liberia flag has one white star.'}])}},success);
   assert.equal(success.statusCode,200);assert.equal(calls,1);assert.match(prompt,/Liberia flag/);assert.equal(success.body.image,image);
 });
+

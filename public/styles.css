@@ -3433,3 +3433,37 @@ body {
   #settings-modal select, #settings-modal input[type="text"], #settings-modal input[type="range"] { width: 100%; max-width: none; }
   #settings-modal .settings-group { padding: .85rem; }
 }
+
+/* Documents are work inside the conversation, with a readable paper preview. */
+.document-card { margin:18px 0; border:1px solid var(--document-accent,#1b2a63); border-radius:20px; padding:20px; background:var(--bg-raised,#fffdf7); overflow:hidden; }
+.document-card-top { display:flex; align-items:center; gap:14px; margin-bottom:18px; }
+.document-card-top strong { display:block; font-size:1.08rem; }
+.document-card-top small { display:block; margin-top:5px; opacity:.7; font-size:.8rem; }
+.document-file-icon { flex:none; width:44px; height:52px; display:grid; place-items:center; background:var(--document-accent); color:white; border-radius:8px; font-size:28px; }
+.document-template-label { display:flex; flex-wrap:wrap; align-items:center; gap:10px; font-size:.86rem; margin-bottom:15px; }
+.document-template-label select,.document-mode select { max-width:100%; border:1px solid #d4d8dd; border-radius:8px; background:#fff; color:#20242a; padding:9px; font:inherit; }
+.document-downloads { display:flex; flex-wrap:wrap; gap:9px; margin:12px 0; }
+.document-downloads a { display:inline-flex; align-items:center; justify-content:center; padding:11px 14px; background:var(--document-accent); color:#fff; text-decoration:none; font-size:.85rem; font-weight:600; border-radius:10px; min-height:44px; }
+.document-downloads a:focus-visible,.document-revise:focus-visible { outline:3px solid #e9ae2b; outline-offset:3px; }
+.document-extra summary,.document-preview summary { cursor:pointer; padding:10px 0; font-weight:600; font-size:.88rem; }
+.document-extra small { display:block; font-size:.75rem; line-height:1.5; opacity:.75; }
+.document-missing { padding:12px 0; font-size:.85rem; }
+.document-missing ul { margin:6px 0; padding-left:22px; }
+.document-page { margin:12px 0; padding:28px; background:#fff; color:#20242a; font:14px/1.65 Arial,sans-serif; border-top:5px solid var(--document-accent); box-shadow:0 4px 20px #0000000a; overflow-wrap:anywhere; }
+.document-page h2 { font-size:24px; line-height:1.25; margin:0 0 14px; color:#000; }
+.document-page h3 { font-size:17px; margin:24px 0 8px; color:#000; }
+.document-page h4 { font-size:15px; margin:20px 0 8px; color:#000; }
+.document-page p { margin:0 0 14px; }
+.document-page .document-meta { font-size:12px; color:#626975; }
+.document-table { overflow-x:auto; margin:18px 0; }
+.document-page table { min-width:100%; border-collapse:collapse; font-size:12px; }
+.document-page th,.document-page td { padding:9px; border:1px solid #d9d9d9; text-align:left; vertical-align:middle; min-width:80px; }
+.document-page th { background:var(--document-accent); color:#fff; }
+.document-page .document-signature { margin-top:30px; }
+.document-revise { margin-top:14px; padding:10px 14px; border:1px solid #b9bdc3; border-radius:9px; background:transparent; color:inherit; font:inherit; cursor:pointer; min-height:44px; }
+.document-download-status { font-size:.8rem; margin:12px 0 0; }
+.document-mode { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px 16px; margin-bottom:10px; border:1px solid #d4d8dd; border-radius:14px; font-size:.85rem; }
+.document-mode[hidden] { display:none; }
+.document-mode label { display:flex; align-items:center; gap:8px; }
+.document-mode button { margin-left:auto; font-size:24px; background:none; border:0; color:inherit; cursor:pointer; }
+@media(max-width:600px) { .document-card { padding:14px; border-radius:14px; } .document-page { padding:18px; } .document-card-top { align-items:flex-start; } .document-downloads a { flex:1 1 95px; } }
