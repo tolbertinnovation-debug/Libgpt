@@ -1,3 +1,5 @@
+import { readLongForm } from './document-length.js';
+
 export const DOCUMENT_TEMPLATES = {
   report: { label: 'Business report', accent: '1B2A63', tint: 'EDF2FA', font: 'sans', landscape: false },
   proposal: { label: 'Executive proposal', accent: '145D64', tint: 'EDF7F5', font: 'sans', landscape: false },
@@ -26,6 +28,7 @@ export function readDocumentSpec(value) {
     filename: String(value.filename || value.title).replace(/[^a-zA-Z0-9 -]/g, '').trim().replace(/\s+/g, '-').slice(0, 80) || 'grandpa-document',
     missing: [], blocks: [],
   };
+  if (value.longForm != null) spec.longForm = readLongForm(value.longForm);
   if (value.missing != null && (!Array.isArray(value.missing) || value.missing.length > 20)) fail('Invalid missing details.');
   spec.missing = (value.missing || []).map(x => text(x, 200, 'missing detail'));
   if (!Array.isArray(value.blocks) || !value.blocks.length || value.blocks.length > 400) fail('A document needs between 1 and 400 content blocks. Start a new volume for a larger document.');

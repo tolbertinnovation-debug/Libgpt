@@ -30,6 +30,12 @@ Graphic designs can contain original vector artwork with controlled text size, b
 
 ## Longer documents
 
+There is no 10-page document limit. Select **Length** when creating a document, or ask for “a 20-page business plan” or “a handbook of more than 10 pages”. Goals from 11 to 100 pages trigger automatic section-by-section generation. Each request writes substantial new content and the server measures the trusted PDF layout. The card shows the PDF pages saved, the page goal and whether the draft is complete; Word pagination can differ.
+
+Long writing follows the document type and approved facts. Reports, proposals, business plans and handbooks expand useful analysis, implementation detail, examples and relevant annexes. Short formats such as letters, invoices and posters must not be padded just to reach a page count; the model is instructed to clarify inappropriate scope. Blank pages, repeated material and inflated spacing are prohibited as ways to meet the goal.
+
+Each successful section is saved before the next request. Up to eight continuation requests run automatically per session. If the provider fails, the user stops generation, or more batches are needed, the saved draft remains downloadable. **Resume long document** continues from saved content and the remaining section plan, including after reload or backup restoration. The volume bounds below still apply; use another volume for larger tasks.
+
 Choose **Add another section**, describe the next chapter or content, and send. The server appends the new blocks while preserving earlier blocks and metadata. Each completed version remains in chat. New sections use the document headings and recent blocks for context; if a later section depends on older details, state them explicitly or attach the source again. Continuation answers also survive backups.
 
 Capacity is not literally unlimited: model context, server resources and device storage are finite. This update increases each document volume to 400 blocks / 320 KB of structured data, up to 60 figures, and 200 PDF/image-layout pages. PNG/SVG archives support 30 pages per export; use PDF/Word or another volume for larger tasks. Generation remains staged at a suggested 100 blocks / 80 KB per response. Creating further volumes keeps large tasks manageable.
