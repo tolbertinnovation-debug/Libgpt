@@ -24,7 +24,7 @@ import * as ritual from './ritual.js';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 import { mountSupport } from './support.js';
-import {imageCard,mountImageComposer,safeChatImage} from './image-chat.js';
+import {imageCard,mountImageComposer,safeChatImage,imagePrompt} from './image-chat.js';
 
 /* ========================================================================
    State
@@ -1107,6 +1107,15 @@ function send(rawText) {
     || (waiting ? 'Look at this and tell me what you see.' : '')
     || (paper ? 'Read this and tell me what it says.' : '');
   if ((!text && !waiting && !paper) || state.streaming) return;
+
+  const visualPrompt=imagePrompt(typed);
+  if(!waiting && !paper && visualPrompt!==null) {
+    speaker.stop();
+    if(listening) stopListening();
+    imageComposer.open({prompt:visualPrompt});
+    return;
+  }
+
 
   speaker.stop();   // a new question means the old answer stops talking
   if (listening) stopListening();
@@ -2627,6 +2636,7 @@ el.thread.addEventListener('scroll', closeGlossary, { passive: true });
 /* ---- Chips and the two hearth buttons ---- */
 el.chipRow.addEventListener('click', event => {
   const chip=event.target.closest('[data-chip]');
+  if(chip?.dataset.chip==='image') {speaker.stop();imageComposer.open({prompt:el.input.value.trim()});return;}
   if (chip && ['story','wisdom','history'].includes(chip.dataset.chip)) openLibrary(chip.dataset.chip);
 });
 
