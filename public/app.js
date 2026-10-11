@@ -2132,7 +2132,10 @@ function renderSettings() {
 
 function openSettings() {
   renderSettings();
+  const advanced = $('settings-advanced');
+  if (advanced) advanced.open = false;
   el.settings.hidden = false;
+  el.settings.querySelector('.settings-panel').scrollTop = 0;
   el.settingsClose.focus();
   sounds.open();
 }
@@ -2181,6 +2184,19 @@ el.settingsClose.addEventListener('click', closeSettings);
 el.settings.addEventListener('click', (event) => {
   if (event.target.closest('[data-settings-close]')) closeSettings();
 });
+// Keep keyboard focus inside the open dialog, including the native disclosure.
+el.settings.addEventListener('keydown', (event) => {
+  if (event.key !== 'Tab') return;
+  const controls = [...el.settings.querySelectorAll('button, input, select, summary, [tabindex="0"]')]
+    .filter(node => !node.disabled && node.getClientRects().length && !node.closest('[hidden]'));
+  const first = controls[0], last = controls.at(-1);
+  if (event.shiftKey && document.activeElement === first) {
+    event.preventDefault(); last?.focus();
+  } else if (!event.shiftKey && document.activeElement === last) {
+    event.preventDefault(); first?.focus();
+  }
+});
+
 
 el.setLanguage.addEventListener('change', () => {
   state.prefs.language = el.setLanguage.value;
