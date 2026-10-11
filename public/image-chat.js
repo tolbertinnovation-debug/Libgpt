@@ -50,3 +50,16 @@ export function mountImageComposer({onGenerate,enabled=()=>true}) {
     form.elements.prompt.focus();
   }};
 }
+
+// Route clear visual creation requests to the image composer. Ambiguous requests
+// can always use the visible Create image control or the /image command.
+export function imagePrompt(text) {
+  if(typeof text!=='string') return null;
+  const prompt=text.trim();
+  if(/^\/image(?:\s|$)/i.test(prompt)) return prompt.replace(/^\/image\s*/i,'');
+  const request=prompt.replace(/^(?:please\s+|can you\s+|could you\s+|would you\s+|help me\s+)+/i,'');
+  if(!/^(?:create|generate|draw|paint|illustrate|design|make)\b/i.test(request)) return null;
+  if(/\b(?:story|stori|poem|essay|lesson|quiz|code|website|app|plan|report|prompt|instructions|cv|resume)\b/i.test(request)) return null;
+  if(!/\b(?:image|picture|photo|photograph|illustration|painting|portrait|poster|logo|artwork|wallpaper|landscape|classroom|sunset|forest|skyline)\b/i.test(request)) return null;
+  return prompt;
+}
