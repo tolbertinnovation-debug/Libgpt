@@ -33,11 +33,8 @@ import { checkWebsiteDocument } from './site-checks.js';
 
 const KEY = 'grandpa-ai:builds:v1';
 
-// A phone has a few megabytes of localStorage for the whole origin, shared
-// with the conversations. Twelve projects deep, with ten versions each, is
-// generous for the thing this is and still leaves room for the chat.
-const MOST_PROJECTS = 12;
-const MOST_VERSIONS = 10;
+// Preserve every project and version. The host UI reports quota failures so
+// the user can download their work; older projects are never silently evicted.
 
 // What goes up with a build turn. Past this the model is being sent more than
 // it can use and the reader is paying for it.
@@ -63,11 +60,7 @@ export const newId = () =>
 export const loadProjects = () => read([]);
 
 export function saveProjects(projects) {
-  const trimmed = [...projects]
-    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-    .slice(0, MOST_PROJECTS)
-    .map((p) => ({ ...p, versions: (p.versions || []).slice(-MOST_VERSIONS) }));
-  return write(trimmed);
+  return write([...projects].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
 }
 
 export function makeProject(name = 'Untitled build') {
@@ -330,7 +323,7 @@ export function applyChanges(project, proposed, note = '') {
   project.versions = [
     ...(project.versions || []),
     { at: Date.now(), note: note || 'Before the last change', files: before },
-  ].slice(-MOST_VERSIONS);
+  ];
   project.updatedAt = Date.now();
   return project;
 }
@@ -344,7 +337,7 @@ export function restoreVersion(project, index) {
   project.versions = [
     ...project.versions.filter((_, i) => i !== index),
     { at: Date.now(), note: 'Before going back', files: now },
-  ].slice(-MOST_VERSIONS);
+  ];
   project.updatedAt = Date.now();
   return true;
 }
