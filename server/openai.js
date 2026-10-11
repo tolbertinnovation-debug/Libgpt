@@ -263,7 +263,11 @@ export async function* streamSearch({
   // ceiling as `max_output_tokens`. Everything else is the same conversation.
   const build = (tool) => ({
     model: model || config.model,
-    input: messages,
+    input: messages.map(m => ({ ...m, content: Array.isArray(m.content)
+      ? m.content.map(part => part.type === 'image_url'
+        ? { type: 'input_image', image_url: part.image_url.url, detail: part.image_url.detail || 'high' }
+        : { type: 'input_text', text: part.text || '' }) : m.content })),
+    store: false,
     tools: [{ type: tool }],
     // Not "here is a tool if you want it" — go and use it.
     //
@@ -341,6 +345,11 @@ export async function* streamSearch({
 
             case 'response.output_item.done':
               if (event.item?.type === 'web_search_call') onSearched?.();
+              for (const part of event.item?.content || []) {
+                for (const cited of part.annotations || []) {
+                  if (cited.type === 'url_citation' && /^https?:\/\//i.test(cited.url || '')) onSource?.({url:cited.url,title:cited.title || ''});
+                }
+              }
               break;
 
             // Where it read. The url is the part worth keeping; the title is
