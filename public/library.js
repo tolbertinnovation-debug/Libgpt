@@ -5,6 +5,7 @@
 // choices from fixed lists.
 
 import { escapeHtml } from './markdown.js';
+import {JOURNAL_TYPES,journalPage,journalText,journalFilename} from './journal.js';
 import {loadStoryMemory,saveStoryMemory,recentStories,storyRecord} from './story-memory.js';
 import {EXPLORERS,loadExploration,saveExploration} from './explore.js';
 
@@ -584,24 +585,51 @@ export function createLibrary({
   }
 
   /* ---- Journal ---- */
-  function journalPanel() {
-    const items = loadJournal();
-    if (items.length === 0) {
-      return `<p class="lib-empty">Nothing kept yet. Stories, names and recipes you keep will wait for you here.</p>`;
-    }
-    return items.map((item) => `
+  const journalFilters={query:'',kind:'all',favorites:false,sort:'newest',page:0};
+  let removedJournal=null;
+  function journalResults() {
+    const saved=loadJournal(),result=journalPage(saved,journalFilters);
+    journalFilters.page=result.page;
+    return `<p class="settings-note" role="status">${result.total} of ${saved.length} saved entries · Page ${result.page+1} of ${result.pages}</p>
+      ${removedJournal ? '<button class="setting-btn" type="button" data-undo-journal>Undo last removal</button>' : ''}
+      ${result.total===0 ? '<p class="lib-empty">No entries match. Try a different search or filter.</p>' : result.items.map(item=>`
       <div class="journal-item">
         ${item.thumb ? `<img src="${item.thumb}" alt="" style="width:100%;border-radius:8px;margin-bottom:.5rem">` : ''}
         <h4>${escapeHtml(item.title)}</h4>
         <p>${escapeHtml(item.summary || '')}</p>
-        <div class="journal-meta">
-          <span>${escapeHtml(item.kindLabel)} · ${new Date(item.at).toLocaleDateString()}</span>
-          <span>
-            <button class="setting-btn" type="button" data-open-journal="${escapeHtml(item.id)}">Read</button>
-            <button class="setting-btn danger" type="button" data-drop-journal="${escapeHtml(item.id)}">Remove</button>
-          </span>
+        <div class="journal-meta"><span>${escapeHtml(item.kindLabel)} · ${new Date(item.at).toLocaleDateString()}</span></div>
+        <div class="lib-actions">
+          <button class="setting-btn" type="button" data-open-journal="${escapeHtml(item.id)}">Read</button>
+          ${onSpeak ? `<button class="setting-btn" type="button" data-listen-journal="${escapeHtml(item.id)}">Listen</button>` : ''}
+          <button class="setting-btn" type="button" data-favorite-journal="${escapeHtml(item.id)}" aria-pressed="${item.favorite===true}" aria-label="Favorite: ${escapeHtml(item.title)}">${item.favorite===true ? '★ Favorite' : '☆ Favorite'}</button>
+          <button class="setting-btn" type="button" data-download-journal="${escapeHtml(item.id)}">Download</button>
+          <button class="setting-btn danger" type="button" data-drop-journal="${escapeHtml(item.id)}">Remove</button>
         </div>
-      </div>`).join('');
+      </div>`).join('')}
+      <div class="lib-actions">
+        <button class="setting-btn" type="button" data-journal-page="-1" ${result.page===0 ? 'disabled' : ''}>Previous entries</button>
+        <button class="setting-btn" type="button" data-journal-page="1" ${result.page>=result.pages-1 ? 'disabled' : ''}>Next entries</button>
+      </div>`;
+  }
+  function journalPanel() {
+    return `<div class="lib-form">
+      <div class="lib-field"><label for="journal-search">Search your journal</label><input type="search" id="journal-search" value="${escapeHtml(journalFilters.query)}" placeholder="Search titles, topics and saved text…"></div>
+      <div class="lib-row">
+        <div class="lib-field"><label for="journal-kind">Entry type</label><select id="journal-kind">${option('all','All types',journalFilters.kind)}${Object.entries(JOURNAL_TYPES).map(([key,label])=>option(key,label,journalFilters.kind)).join('')}</select></div>
+        <div class="lib-field"><label for="journal-sort">Sort entries</label><select id="journal-sort">${[['newest','Newest first'],['oldest','Oldest first'],['title','Title A–Z']].map(([key,label])=>option(key,label,journalFilters.sort)).join('')}</select></div>
+      </div>
+      <label><input type="checkbox" id="journal-favorites" ${journalFilters.favorites ? 'checked' : ''}> Favorites only</label>
+      <button class="setting-btn" type="button" data-clear-journal>Clear filters</button>
+    </div><div id="journal-results">${journalResults()}</div>`;
+  }
+  function refreshJournal() {
+    const results=root.querySelector('#journal-results');
+    if(results) results.innerHTML=journalResults();
+  }
+  function downloadJournal(item) {
+    const url=URL.createObjectURL(new Blob([journalText(item)],{type:'text/plain;charset=utf-8'}));
+    const link=document.createElement('a');link.href=url;link.download=journalFilename(item);
+    document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
   }
 
   function keep(entry) {
@@ -652,6 +680,9 @@ export function createLibrary({
   });
 
   root.addEventListener('change', (event) => {
+    const journalControls={'journal-kind':'kind','journal-sort':'sort','journal-favorites':'favorites'};
+    const field=journalControls[event.target.id];
+    if(field) {journalFilters[field]=field==='favorites' ? event.target.checked : event.target.value;journalFilters.page=0;refreshJournal();return;}
     if(event.target.id==='story-region') storySettings.region=event.target.value;
     if(event.target.id==='explore-region' && explorers[tab]) explorers[tab].region=event.target.value;
     if(event.target.id==='story-kind') storySettings.storyKind=event.target.value;
@@ -662,11 +693,33 @@ export function createLibrary({
   });
 
   root.addEventListener('input',event=>{
+    if(event.target.id==='journal-search') {journalFilters.query=event.target.value;journalFilters.page=0;refreshJournal();return;}
     if(event.target.id==='explore-subject' && explorers[tab]) explorers[tab].subject=event.target.value;
     if(event.target.id==='story-subject') storySettings.subject=event.target.value.slice(0,120);
   });
 
   root.addEventListener('click', (event) => {
+    const page=event.target.closest('[data-journal-page]');
+    if(page) {onSpeakStop();journalFilters.page+=Number(page.dataset.journalPage)||0;refreshJournal();return;}
+    if(event.target.closest('[data-clear-journal]')) {Object.assign(journalFilters,{query:'',kind:'all',favorites:false,sort:'newest',page:0});render();return;}
+    const favorite=event.target.closest('[data-favorite-journal]');
+    if(favorite) {
+      const items=loadJournal(),item=items.find(i=>i.id===favorite.dataset.favoriteJournal);
+      if(!item) return;
+      item.favorite=item.favorite!==true;
+      if(!saveJournal(items)) {onError('Could not save this favorite. Device storage is full or blocked.');return;}
+      render();return;
+    }
+    const download=event.target.closest('[data-download-journal]');
+    if(download) {const item=loadJournal().find(i=>i.id===download.dataset.downloadJournal);if(item) downloadJournal(item);return;}
+    const listen=event.target.closest('[data-listen-journal]');
+    if(listen && onSpeak) {const item=loadJournal().find(i=>i.id===listen.dataset.listenJournal);if(item) onSpeak(journalText(item),listen);return;}
+    if(event.target.closest('[data-undo-journal]') && removedJournal) {
+      const items=loadJournal();
+      if(!items.some(i=>i.id===removedJournal.item.id)) items.splice(Math.min(removedJournal.index,items.length),0,removedJournal.item);
+      if(!saveJournal(items)) {onError('Could not restore this entry. Download a backup to free device storage.');return;}
+      removedJournal=null;render();return;
+    }
     if (event.target.closest('[data-download-explore]') && explorers[tab]?.entry) {
       const d=explorers[tab].entry;
       const url=URL.createObjectURL(new Blob([[d.title,...d.opening,d.takeaway,d.note].filter(Boolean).join('\n\n')],{type:'text/plain;charset=utf-8'}));
@@ -755,23 +808,29 @@ export function createLibrary({
     if (open) {
       const item = loadJournal().find((i) => i.id === open.dataset.openJournal);
       if (!item) return;
+      onSpeakStop();
       root.innerHTML = `
         <div class="lib-result">
           <h3 class="lib-title">${escapeHtml(item.title)}</h3>
           ${paragraphs(String(item.body || '').split('\n\n'))}
           <div class="lib-actions">
+            ${onSpeak ? `<button class="setting-btn" type="button" data-listen-journal="${escapeHtml(item.id)}">Listen</button>` : ''}
+            <button class="setting-btn" type="button" data-download-journal="${escapeHtml(item.id)}">Download</button>
             <button class="setting-btn" type="button" data-back-journal>Back to the journal</button>
           </div>
         </div>`;
       return;
     }
 
-    if (event.target.closest('[data-back-journal]')) { render(); return; }
+    if (event.target.closest('[data-back-journal]')) { onSpeakStop();render(); return; }
 
     const drop = event.target.closest('[data-drop-journal]');
     if (drop) {
-      saveJournal(loadJournal().filter((i) => i.id !== drop.dataset.dropJournal));
-      render();
+      const items=loadJournal(),index=items.findIndex(i=>i.id===drop.dataset.dropJournal);
+      if(index<0) return;
+      const item=items[index];
+      if(!saveJournal(items.filter(i=>i.id!==item.id))) {onError('Could not remove this entry. Your saved journal was kept.');return;}
+      onSpeakStop();removedJournal={item,index};render();
     }
   });
 
