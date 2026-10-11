@@ -74,6 +74,7 @@ function cleanBackup(value) {
     if (!['story','names','recipe','album','history','wisdom','learn'].includes(kind)) fail('Unknown journal entry kind.');
     const entry={id:identity(item.id),at:stamp(item.at),kind,kindLabel:text(item.kindLabel || kind,80,'journal label'),
       title:text(item.title,300,'journal title'),summary:text(item.summary || '',10_000,'journal summary'),body:text(item.body || '',500_000,'journal contents')};
+    if(item.favorite===true) entry.favorite=true;
     if(item.thumb) {
       const thumb=text(item.thumb,BACKUP_LIMIT,'journal thumbnail');
       if (!/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(thumb)) fail('Unsupported journal thumbnail.');
