@@ -95,6 +95,24 @@ test('chat streams complete input, research sources, continuations and honest fa
     assert.ok(sent.some(m=>m.role==='user' && m.content===full[0].content));
     assert.equal(sent.at(-1).content,full.at(-1).content);
   });
+  await t.test('complex speech and follow-ups retain the strongest available model and quality instructions',async()=>{
+    requests=[];
+    const messages=[{role:'user',content:'Compare these two business plans'}, {role:'assistant',content:'We have two alternatives.'},{role:'user',content:'Explain more'}];
+    await post({messages,research:'off',spoken:true});
+    assert.equal(requests[0].body.model,'gpt-4.1');
+    assert.equal(requests[0].body.messages.at(-1).content,'Explain more');
+    const system=requests[0].body.messages[0].content;
+    assert.match(system,/Check calculations, units, currencies/);
+    assert.match(system,/latest corrections replace earlier assumptions/);
+    assert.match(system,/Never invent quotations, sources/);
+    assert.match(system,/THIS IS A SPOKEN CONVERSATION/);
+  });
+  await t.test('complex research follow-ups keep research and choose the stronger reader',async()=>{
+    requests=[];
+    await post({messages:[{role:'user',content:'Compare the latest scholarship deadlines'}, {role:'assistant',content:'Here are the available programs.'},{role:'user',content:'Are you sure?'}]});
+    assert.ok(requests[0].url.endsWith('/responses'));
+    assert.equal(requests[0].body.model,'gpt-4.1');
+  });
   await t.test('photo research uses Responses image input and preserves more than six citations',async()=>{
     requests=[];
     const r=await post({...question('Find the latest facts about this photo'),photo:'data:image/png;base64,AAAA'});
@@ -169,3 +187,4 @@ test('long conversations recall earlier user details and relevant exchanges whil
   assert.ok(result.list.length<=160);assert.ok(result.list.reduce((n,m)=>n+m.content.length,0)<=120000);
   assert.deepEqual(conversationWindow(result.list).list,result.list);
 });
+
