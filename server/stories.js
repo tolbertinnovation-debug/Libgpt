@@ -16,13 +16,26 @@ export async function generateFreshStory(spec,input,generate) {
   const label=spec.label || 'stori';
   const baseline=recentStories(input?.recentStories);
   const previous=[...baseline];
+  let failure='',repair=false;
   for(let attempt=0;attempt<2;attempt++) {
-    const raw=await generate(spec.build({...input,recentStories:previous}));
+    const prompt=spec.build({...input,recentStories:previous});
+    if (repair) prompt.system+='\nThe previous response did not match the required JSON. Return all required fields with the specified types, including every paragraph, summary, takeaway and note. Do not add text outside the JSON.';
+    const raw=await generate(prompt);
     let story;
-    try {story=JSON.parse(raw);} catch {throw new StoryGenerationError(`Grandpa lost his thread. Ask for a new ${label} again.`);}
-    if(!spec.valid(story)) throw new StoryGenerationError(`That ${label} came back incomplete. Ask again.`);
+    try {story=JSON.parse(raw);} catch {
+      failure=`Grandpa lost his thread. Ask for a new ${label} again.`;
+      if (!spec.fresh) throw new StoryGenerationError(failure);
+      repair=true;continue;
+    }
+    if(!story || typeof story!=='object' || Array.isArray(story) || !spec.valid(story)) {
+      failure=`That ${label} came back incomplete. Ask again.`;
+      if (!spec.fresh) throw new StoryGenerationError(failure);
+      repair=true;continue;
+    }
+    repair=false;
+    failure=`Grandpa repeated a recent ${label}. Try generating again, or choose a different subject.`;
     if(!repeatsStory(story,previous) && !repeatsStory(story,baseline)) return story;
     previous.push(storyRecord(story));
   }
-  throw new StoryGenerationError(`Grandpa repeated a recent ${label}. Try generating again, or choose a different subject.`);
+  throw new StoryGenerationError(failure);
 }

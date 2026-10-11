@@ -10,9 +10,9 @@ the existing theme, subject and branching choices. These areas are perspectives,
 not a fixed list of possible content.
 
 Use **Explore another history**, **Give me another wisdom**, or **Teach me
-something else** repeatedly. The latest result is saved on the device; each panel
+something else** repeatedly. The latest result, chosen topic and region are saved on the device; each panel
 keeps a bounded set of recent excerpts to detect repeats. The server retries a
-recent repeat once, then reports an error instead of presenting it as new.
+recent repeat or incomplete explorer response once, then reports an error instead of presenting it as new. Every request makes at most two generation attempts; provider errors are not automatically retried.
 Switching panels or a failed request preserves the previous result. This reduces
 recent repetition; it does not promise every generated result will always be unique.
 
