@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {imageModel,imageRequest,DEFAULT_IMAGE_MODEL} from '../server/image-options.js';
-import {safeChatImage,imageCard,imagePrompt} from '../public/image-chat.js';
+import {safeChatImage,imageCard,imagePrompt,imageLoadingMarkup} from '../public/image-chat.js';
 import {createBackup,parseBackup} from '../public/backup.js';
 const image='data:image/jpeg;base64,/9j/AA==';
 
@@ -83,7 +83,7 @@ test('chat image host saves to the original conversation and resets busy state',
   const start=source.indexOf('const imageComposer=mountImageComposer('),end=source.indexOf("el.thread.addEventListener('click',async event=>",start);
   const chat={messages:[],title:''},state={streaming:null,chats:[chat]},pending={textContent:'',closest:()=>({remove(){}})};
   let options,persists=0,busy=[];
-  const environment={state,ritual:{isBusy:()=>false},conversation:{active:false},speaker:{stop(){}},listening:false,stopListening(){},ensureChat:()=>chat,persist:()=>persists++,renderThread(){},renderSidebar(){},setBusy:b=>busy.push(b),startAiTurn:()=>pending,apiHeaders:()=>({}),showGate(){},safeChatImage,sounds:{reply(){}},currentChat:()=>chat,fetch:async()=>new Response(JSON.stringify({image,size:'1024x1024',quality:'high',style:'photo'}),{status:200}),mountImageComposer:value=>{options=value;}};
+  const environment={state,ritual:{isBusy:()=>false},conversation:{active:false},speaker:{stop(){}},listening:false,stopListening(){},ensureChat:()=>chat,persist:()=>persists++,renderThread(){},renderSidebar(){},setBusy:b=>busy.push(b),startAiTurn:()=>pending,apiHeaders:()=>({}),showGate(){},safeChatImage,imageLoadingMarkup,sounds:{reply(){}},currentChat:()=>chat,fetch:async()=>new Response(JSON.stringify({image,size:'1024x1024',quality:'high',style:'photo'}),{status:200}),mountImageComposer:value=>{options=value;}};
   new Function(...Object.keys(environment),source.slice(start,end))(...Object.values(environment));
   await options.onGenerate({prompt:'A classroom',size:'1024x1024',quality:'high',style:'photo'},new AbortController());
   assert.equal(chat.messages.length,2);assert.equal(chat.messages[1].image.url,image);
@@ -97,7 +97,7 @@ test('chat image host returns expired sessions to sign-in and never saves late c
     const controller=new AbortController(),chat={messages:[],title:''},state={streaming:null,chats:[chat]};
     let options,closed=0,gated=0;
     const busy=[];
-    const environment={state,ritual:{isBusy:()=>false},conversation:{active:false},speaker:{stop(){}},listening:false,stopListening(){},ensureChat:()=>chat,persist(){},renderThread(){},renderSidebar(){},setBusy:b=>busy.push(b),startAiTurn:()=>({closest:()=>({remove(){}})}),apiHeaders:()=>({}),showGate:()=>gated++,safeChatImage,sounds:{reply(){throw new Error('Must not play success');}},currentChat:()=>chat,fetch:async()=>{if(!expired)controller.abort();return new Response(JSON.stringify(expired ? {error:'Session expired'} : {image}),{status:expired ? 401 : 200});},mountImageComposer:value=>{options=value;return {close:()=>closed++};}};
+    const environment={state,ritual:{isBusy:()=>false},conversation:{active:false},speaker:{stop(){}},listening:false,stopListening(){},ensureChat:()=>chat,persist(){},renderThread(){},renderSidebar(){},setBusy:b=>busy.push(b),startAiTurn:()=>({closest:()=>({remove(){}})}),apiHeaders:()=>({}),showGate:()=>gated++,safeChatImage,imageLoadingMarkup,sounds:{reply(){throw new Error('Must not play success');}},currentChat:()=>chat,fetch:async()=>{if(!expired)controller.abort();return new Response(JSON.stringify(expired ? {error:'Session expired'} : {image}),{status:expired ? 401 : 200});},mountImageComposer:value=>{options=value;return {close:()=>closed++};}};
     new Function(...Object.keys(environment),source.slice(start,end))(...Object.values(environment));
     await assert.rejects(options.onGenerate({prompt:'A classroom'},controller),expired ? /Session expired/ : /Cancelled/);
     assert.equal(chat.messages.some(m=>m.image),false);
@@ -139,4 +139,10 @@ test('image generation closes options before starting, blocks duplicate requests
   await assert.rejects(failed({prompt:'A classroom'}),/Provider failed/);
   const disabled=make(()=>false,{close(){throw new Error('Must not start');}},submit,cancel,()=>assert.fail());
   await assert.rejects(disabled({prompt:'A classroom'}),/not enabled/);
+});
+
+test('image loading shows an accessible indeterminate indicator without invented percentages',()=>{
+  const markup=imageLoadingMarkup();
+  assert.match(markup,/role="status"/);assert.match(markup,/<progress aria-label=/);
+  assert.doesNotMatch(markup,/value=|\d+%/);assert.match(markup,/Use Stop to cancel/);
 });
