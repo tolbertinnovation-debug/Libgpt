@@ -1,12 +1,8 @@
 import 'dotenv/config';
+import { speechModel } from './voice.js';
 
 const int = (value, fallback) => {
   const parsed = Number.parseInt(value ?? '', 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
-
-const num = (value, fallback) => {
-  const parsed = Number.parseFloat(value ?? '');
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
@@ -59,34 +55,6 @@ export const config = {
   searchEnabled: !/^(0|false|no|off)$/i.test(process.env.ENABLE_LIVE_NEWS?.trim() || 'true'),
   searchModel: process.env.OPENAI_SEARCH_MODEL?.trim() || '',
 
-  // A better voice than OpenAI's, from ElevenLabs, for anyone who wants it.
-  //
-  // Off unless a key is set: no key, no calls, no second bill. The voice may
-  // be given as an id or as the name shown on their website, which is also how
-  // a voice somebody cloned themselves is named — the door this leaves open
-  // for a real Liberian elder to be recorded one day and become the voice.
-  //
-  // The settings are the ones the sample was made with. Stability at half
-  // keeps life in it; similarity high enough that it stays the same person
-  // from one sentence to the next, which matters when an answer is spoken in
-  // pieces.
-  elevenKey: process.env.ELEVENLABS_API_KEY?.trim() || '',
-  elevenBaseUrl: (process.env.ELEVENLABS_BASE_URL || 'https://api.elevenlabs.io/v1').replace(/\/+$/, ''),
-  elevenVoice: process.env.ELEVENLABS_VOICE?.trim() || 'Daniel',
-  elevenModel: process.env.ELEVENLABS_MODEL?.trim() || 'eleven_multilingual_v2',
-  elevenStability: num(process.env.ELEVENLABS_STABILITY, 0.5),
-  elevenSimilarity: num(process.env.ELEVENLABS_SIMILARITY, 0.75),
-  elevenStyle: num(process.env.ELEVENLABS_STYLE, 0),
-  // How the audio comes back.
-  //
-  // This was mp3 at 22kHz and 32kbps, chosen to be small on a metered line.
-  // Thirty-two kilobits is genuinely low, though: it is where MP3 starts
-  // adding a fine grain of its own around a voice, and on a phone loudspeaker
-  // that grain is heard as noise rather than as a smaller file. Sixty-four at
-  // 44kHz is about double the bytes and clean; drop it back if the data
-  // matters more than the grain does.
-  elevenFormat: process.env.ELEVENLABS_FORMAT?.trim() || 'mp3_44100_128',
-
   // Grandpa's own voice. The phone's built-in text-to-speech is free but
   // sounds like a machine reading; this is a real recorded-sounding voice from
   // OpenAI, and it costs about a US cent for four or five answers. On by
@@ -121,7 +89,7 @@ export const config = {
   // A ceiling across the whole deployment, the same as the voice has, so a
   // public address cannot empty the account. An hour of talking.
   dictationSecondsPerHour: int(process.env.DICTATION_SECONDS_PER_HOUR, 3_600),
-  voiceModel: process.env.OPENAI_VOICE_MODEL?.trim() || 'gpt-4o-mini-tts',
+  voiceModel: speechModel(process.env.OPENAI_VOICE_MODEL),
   // A ceiling across the whole deployment, so a public address cannot read the
   // account dry. Roughly 150 spoken answers an hour.
   voiceCharsPerHour: int(process.env.VOICE_CHARS_PER_HOUR, 60_000),
@@ -199,3 +167,4 @@ export function sortModels(ids) {
   };
   return [...ids].sort((a, b) => weight(a) - weight(b) || a.localeCompare(b));
 }
+
