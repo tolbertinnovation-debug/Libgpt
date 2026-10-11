@@ -1,3 +1,4 @@
+import { chatContext } from './chat-context.js';
 import {imageDiscussion,validImageDiscussion,imageRequestLabel} from './image-context.js';
 import { renderMarkdown, escapeHtml } from './markdown.js';
 import { conversationWindow, answerDepth, researchMode } from './knowledge.js';
@@ -647,21 +648,18 @@ const lookedUp = (reading = false) =>
  * The oldest turns go first: the next answer depends on the last few
  * exchanges, not on how the talk began an hour ago.
  */
-function forSending(messages) {
-  // A document travels WITH the turn it was attached to, every time that turn
-  // is sent — which is what makes it possible to keep asking about it rather
-  // than getting one answer and losing it. The screen shows a chip and the
-  // words the person typed; the model gets the paper itself in front of them.
-  const list = messages.map(({ role, content, paper }) => ({
-    role,
-    content: paper
-      ? `THE PERSON HAS ATTACHED A DOCUMENT CALLED "${paper.name}".`
-        + ` Read it, and answer about it.${paper.clipped
-          ? ' It was long, so this is the first part of it — say so if the answer depends on what came after.'
-          : ''}\n\n--- the document ---\n${paper.text}\n--- end of the document ---\n\n${content}`
-      : content,
-  }));
-  return conversationWindow(list);
+const readableImages = new Map();
+async function forSending(messages) {
+  return chatContext(messages, async source => {
+    if (!safeChatImage(source)) throw new Error('That saved image cannot be opened. Please attach it again.');
+    if (readableImages.has(source)) return readableImages.get(source);
+    const blob = await (await fetch(source)).blob();
+    const picture = await shrink(blob);
+    // Cache a few compressed copies, without retaining an entire image library.
+    if (readableImages.size >= 3) readableImages.delete(readableImages.keys().next().value);
+    readableImages.set(source, picture.url);
+    return picture.url;
+  });
 }
 
 // Said above an answer whose conversation had to be shortened to send it. A
@@ -866,12 +864,10 @@ async function streamReply(chat, hooks = {}) {
 
   // A long conversation is shortened rather than refused. What was left behind
   // is worth saying, because it is why he may not remember the beginning.
-  const sending = forSending(chat.messages);
-  if (sending.dropped) {
-    target.closest('.ai-body')?.insertAdjacentHTML('afterbegin', trimmedNote(sending.dropped));
-  }
-
+  let sending;
   try {
+    sending = await forSending(chat.messages);
+    if (sending.dropped) target.closest('.ai-body')?.insertAdjacentHTML('afterbegin', trimmedNote(sending.dropped));
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: apiHeaders(),
@@ -883,10 +879,8 @@ async function streamReply(chat, hooks = {}) {
         model: state.prefs.model,
         register: state.prefs.register,
         spoken: Boolean(hooks.spoken),
-        // Sent once, with the turn it belongs to. Sending it again with every
-        // later message would pay for the same picture over and over, and the
-        // conversation already carries what Grandpa said about it.
-        ...(hooks.photo ? { photo: hooks.photo } : {}),
+        ...(sending.photo ? { photo: sending.photo, photoContext: sending.photoContext } : {}),
+        ...(sending.document ? { document: sending.document } : {}),
         // Asked for outright. The server works out for itself when a question
         // needs looking up; this is for when it guesses wrong.
         search: state.lookItUp === true,
@@ -1133,12 +1127,8 @@ function send(rawText) {
   chat.messages.push({
     role: 'user',
     content: text,
-    // The small copy, not the one that was sent. History lives in
-    // localStorage, which is a few megabytes for everything a person has ever
-    // asked — a dozen full photographs would fill it and start losing their
-    // conversations. The thumbnail remembers what was asked about; the answer,
-    // which is the part worth keeping, is text.
-    ...(photo ? { photo: photo.small } : {}),
+    // Preserve the readable compressed source for later questions.
+    ...(photo ? { photo: photo.small, photoSource: photo.url } : {}),
     // Kept whole, not as a thumbnail: this is what goes back up with every
     // later turn so the talk can carry on about it. The screen shows a chip.
     ...(attached ? { paper: attached } : {}),
@@ -1155,7 +1145,7 @@ function send(rawText) {
 
   // The full-size copy goes to the server once, with this turn, and is not
   // kept anywhere after that.
-  streamReply(chat, { photo: photo?.url }).catch(() => {});
+  streamReply(chat).catch(() => {});
 }
 
 function regenerate(index) {
@@ -1548,7 +1538,7 @@ function showWaitingPaper() {
   el.paper.classList.toggle('is-on', Boolean(paper));
   if (!paper) return;
   el.paperName.textContent = paper.name;
-  el.paperSize.textContent = paper.clipped
+  el.paperSize.textContent = paper.data ? `${Math.round(paper.bytes / 1024)} KB — PDF pages ready to read` : paper.clipped
     ? `${paper.words} words — the first part of it`
     : `${paper.words} words`;
 }
@@ -3369,4 +3359,5 @@ document.addEventListener('visibilitychange', () => {
 });
 
 boot();
+
 
