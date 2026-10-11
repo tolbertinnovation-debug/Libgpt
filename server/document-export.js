@@ -15,6 +15,8 @@ const esc = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<'
 const fonts = (doc, theme) => {
   doc.registerFont('body', theme.font === 'serif' ? serif : regular);
   doc.registerFont('strong', theme.font === 'serif' ? serifBold : bold);
+  doc.registerFont('designSans', regular); doc.registerFont('designSansBold', bold);
+  doc.registerFont('designSerif', serif); doc.registerFont('designSerifBold', serifBold);
 };
 
 // Give descriptive columns more room, and align quantities and amounts for scanning.
@@ -177,14 +179,20 @@ async function pdfExport(layout) {
       else if (e.kind === 'figure') {
         doc.save().rect(e.x, e.y, e.w, e.h).clip().translate(e.x, e.y).scale(e.w / e.scene.width);
         for (const s of e.scene.elements) {
+          doc.save().opacity(s.opacity ?? 1);
           if (s.kind === 'text') {
-            doc.font(s.weight === 'strong' ? 'strong' : 'body').fontSize(s.size).fillColor(`#${s.color}`);
-            const tw = doc.widthOfString(s.text), x = s.x - (s.anchor === 'end' ? tw : s.anchor === 'middle' ? tw / 2 : 0);
-            doc.text(s.text, x, s.y - s.size, { lineBreak: false });
+            doc.font(s.font ? `design${s.font === 'serif' ? 'Serif' : 'Sans'}${s.weight === 'strong' ? 'Bold' : ''}` : s.weight === 'strong' ? 'strong' : 'body').fontSize(s.size).fillColor(`#${s.color}`);
+            const tw = doc.widthOfString(s.text, { characterSpacing: s.tracking || 0 }), x = s.x - (s.anchor === 'end' ? tw : s.anchor === 'middle' ? tw / 2 : 0);
+            doc.text(s.text, x, s.y - s.size, { lineBreak: false, characterSpacing: s.tracking || 0 });
           } else if (s.kind === 'line') doc.moveTo(s.x, s.y).lineTo(s.x2, s.y2).lineWidth(s.stroke).strokeColor(`#${s.color}`).stroke();
-          else if (s.kind === 'rect') doc.rect(s.x, s.y, s.w, s.h).fill(`#${s.color}`);
-          else if (s.kind === 'circle') doc.circle(s.x, s.y, s.r).fill(`#${s.color}`);
-          else doc.polygon(...s.points).fill(`#${s.color}`);
+          else {
+            if (s.kind === 'rect') doc.roundedRect(s.x, s.y, s.w, s.h, s.radius || 0);
+            else if (s.kind === 'circle') doc.circle(s.x, s.y, s.r);
+            else if (s.kind === 'ellipse') doc.ellipse(s.x, s.y, s.rx, s.ry);
+            else doc.polygon(...s.points);
+            if (s.outline) doc.lineWidth(s.outlineWidth).fillAndStroke(`#${s.color}`, `#${s.outline}`); else doc.fill(`#${s.color}`);
+          }
+          doc.restore();
         }
         doc.restore();
       } else {
@@ -278,8 +286,12 @@ export async function exportDocument(input, format, { figureIndex } = {}) {
   const spec = readDocumentSpec(input), theme = DOCUMENT_TEMPLATES[spec.template];
   if (figureIndex !== undefined) {
     const figure = Number.isInteger(figureIndex) && figureIndex >= 0 ? spec.blocks[figureIndex] : null;
-    if (!figure || !['chart', 'diagram', 'drawing'].includes(figure.type) || !['png', 'svg'].includes(format)) throw Object.assign(new Error('Choose a valid figure and PNG or SVG for artwork downloads.'), { status: 400 });
-    const svg = Buffer.from(visualSvg(figure));
+    if (!figure || !['chart', 'diagram', 'drawing'].includes(figure.type) || !['png', 'svg', 'pdf'].includes(format)) throw Object.assign(new Error('Choose a valid figure and PNG, SVG or PDF for artwork downloads.'), { status: 400 });
+    if (format === 'pdf') {
+      const scene = visualScene(figure), width = spec.pageSize === 'a4' ? 595.28 : 612, height = width * scene.height / scene.width;
+      return { buffer: await pdfExport({ spec, theme, pages: [{width,height,elements:[{kind:'figure',scene,x:0,y:0,w:width,h:height}]}] }), mime: 'application/pdf', filename: `${spec.filename}-artwork-${figureIndex + 1}.pdf` };
+    }
+    const svg = Buffer.from(figure.canvas ? visualSvg(figure).replace(/ width="[^"]+" height="[^"]+"/, ` width="${figure.canvas.width}" height="${figure.canvas.height}"`) : visualSvg(figure));
     return { buffer: format === 'png' ? await sharp(svg).resize({ width: figure.canvas?.width || 2000, ...(figure.canvas ? { height: figure.canvas.height } : {}) }).png().toBuffer() : svg, mime: format === 'png' ? 'image/png' : 'image/svg+xml', filename: `${spec.filename}-artwork-${figureIndex + 1}.${format}` };
   }
   let buffer, extension = format, mime;

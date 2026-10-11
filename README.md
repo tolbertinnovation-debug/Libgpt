@@ -8,6 +8,8 @@
 
 **Long documents:** Choose a length or ask for more than 10 pages. Goals of 11–100 pages trigger automatic section-by-section writing with measured PDF page counts, saved progress and a resume action after interruptions. Content follows the document type; Word pagination can differ.
 
+**Flyer and poster studio:** Graphic-design tasks offer six visual styles and common social/print canvas sizes. Artwork supports rounded panels, polygons, ellipses, outlines, transparency, serif/sans typography and consistent text wrapping. Each design alternative downloads separately as PNG, SVG or a full-page vector artwork PDF.
+
 **Open exploration:** History, Wisdom and Learn panels generate more on demand, with recent-repeat checks, journal saving, downloads and source verification in chat. Fixed saved-history count caps are removed. See [open exploration](docs/open-exploration.md).
 
 **Knowledge update:** Broader live research, answer-depth settings, larger conversation and generation budgets, and saved continuation controls. See [knowledge and generation](docs/knowledge.md). Earlier limits described below are superseded by this update.

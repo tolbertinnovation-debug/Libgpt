@@ -3479,6 +3479,7 @@ body {
 .document-download-status { font-size:.8rem; margin:12px 0 0; }
 .document-mode { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px 16px; margin-bottom:10px; border:1px solid #d4d8dd; border-radius:14px; font-size:.85rem; }
 .document-mode[hidden] { display:none; }
+.document-design-option[hidden] { display:none; }
 .document-mode label { display:flex; align-items:center; gap:8px; }
 .document-mode button { margin-left:auto; font-size:24px; background:none; border:0; color:inherit; cursor:pointer; }
 @media(max-width:600px) { .document-card { padding:14px; border-radius:14px; } .document-page { padding:18px; } .document-card-top { align-items:flex-start; } .document-downloads a { flex:1 1 95px; } }

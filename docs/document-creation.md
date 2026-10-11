@@ -26,7 +26,17 @@ Charts use up to 12 labels and 3 series. Diagrams support up to 16 nodes and 24 
 
 Tables support captions, labelled totals rows, custom relative column widths, left/centre/right alignment, up to 8 columns and 200 rows. Headers repeat across PDF and Word pages. Figures and table options survive saved chats and backups.
 
-Graphic designs can contain original vector artwork with controlled text size, bold text, alignment and wrapping. Drawing canvases support square, portrait and landscape layouts or custom dimensions from 320 to 4096 pixels per side, with an aspect ratio from 1:4 to 4:1. **Artwork PNG** and **Artwork SVG** download the first drawing separately from the document page; PNG honours a custom canvas size. Logo concepts and schematic artwork use shapes and text; they do not claim trademark clearance. A4 and US Letter page sizes are supported in PDF, Word, RTF and HTML.
+Graphic designs can contain original vector artwork with controlled text size, bold text, alignment and wrapping. Drawing canvases support square, portrait and landscape layouts or custom dimensions from 320 to 4096 pixels per side, with an aspect ratio from 1:4 to 4:1. Each drawing has its own **Artwork PNG**, **Artwork SVG** and **Artwork PDF** downloads. PNG and SVG honour the selected canvas dimensions; artwork PDF is a separate vector page with the drawing's aspect ratio, without document headings or margins. Logo concepts and schematic artwork use shapes and text; they do not claim trademark clearance. A4 and US Letter document page sizes are supported in PDF, Word, RTF and HTML.
+
+## Flyer and poster design
+
+Select **Graphic design** to choose a visual style and artwork size. Six style briefs cover modern technology, bold campaigns, elegant editorial designs, community events, clean corporate material and learning promotions. Presets offer coordinated palettes and composition guidance; the user's supplied branding and exact wording take priority. A selected style is an approved starting point, not a guarantee that every model response follows the same composition.
+
+Common sizes include 1080 × 1080 square posts, 1080 × 1350 portrait flyers, 1080 × 1920 stories, 1920 × 1080 landscape graphics and 2480 × 3508 A4 artwork. These selections survive guided intake and control the generated drawing canvas. A4 is a high-resolution artwork preset; CMYK conversion, bleed, printer-specific profiles and photographic/logo asset placement are not provided by this vector renderer.
+
+Drawings now support rounded rectangles, ellipses, polygons with 3–12 points, transparency, outlines and adjustable line thickness. Text can pair sans-serif and serif fonts, use letter spacing and line spacing, and preserve deliberate line breaks. Validation and all renderers share the same conservative wrapping rules and reject text that extends below the canvas. Design instructions check safe margins, visual hierarchy, contrast, exact copy, event facts and overlapping elements. These instructions guide the model; they do not guarantee perfect design quality. Original schematic illustrations can be built from shapes. Existing AI image generation remains a separate feature.
+
+Ask for multiple alternatives to receive several drawing blocks, each with separate downloads. Follow-up revisions preserve confirmed facts and wording. Each text box supports up to 240 characters; longer copy should use several clearly arranged boxes. The artwork uses trusted primitives, with no model-supplied executable SVG or remote asset URLs.
 
 ## Longer documents
 

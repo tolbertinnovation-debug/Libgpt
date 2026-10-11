@@ -38,7 +38,7 @@ export function documentCard(input, index) {
     <details class="document-preview"><summary>Read document</summary>${documentPreview(spec)}</details>
     <button type="button" class="document-revise" data-document-revise="${index}">Revise this document</button>
     <button type="button" class="document-revise" data-document-continue="${index}">Add another section</button>
-    ${spec.blocks.some(b => b.type === 'drawing') ? `<div class="document-downloads"><a href="#" data-document-download="${index}" data-document-format="png" data-document-figure="${spec.blocks.findIndex(b => b.type === 'drawing')}">↓ Artwork PNG</a><a href="#" data-document-download="${index}" data-document-format="svg" data-document-figure="${spec.blocks.findIndex(b => b.type === 'drawing')}">↓ Artwork SVG</a></div>` : ''}
+    ${spec.blocks.map((b, figure) => b.type === 'drawing' ? `<div class="document-downloads" aria-label="${esc(b.title)} downloads"><a href="#" data-document-download="${index}" data-document-format="png" data-document-figure="${figure}">↓ Artwork PNG${spec.blocks.filter(b => b.type === 'drawing').length > 1 ? ` · ${esc(b.title)}` : ''}</a><a href="#" data-document-download="${index}" data-document-format="svg" data-document-figure="${figure}">↓ Artwork SVG${spec.blocks.filter(b => b.type === 'drawing').length > 1 ? ` · ${esc(b.title)}` : ''}</a><a href="#" data-document-download="${index}" data-document-format="pdf" data-document-figure="${figure}">↓ Artwork PDF${spec.blocks.filter(b => b.type === 'drawing').length > 1 ? ` · ${esc(b.title)}` : ''}</a></div>` : '').join('')}
     <p class="document-download-status" aria-live="polite"></p>
   </section>`;
 }
