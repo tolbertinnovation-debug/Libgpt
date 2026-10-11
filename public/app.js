@@ -1601,22 +1601,24 @@ async function createChatDocument(chat) {
   const target = startAiTurn();
   target.textContent = 'Preparing your document and its layout…';
   const index = documentTarget?.chatId === chat.id ? documentTarget.index : -1;
+  const action = documentTarget?.chatId === chat.id ? documentTarget.mode : '';
   const previous = index >= 0 ? chat.messages[index]?.document : chat.messages.findLast(m => m.document)?.document;
   documentTarget = null;
   const pending = chat.messages.findLast(m => m.role === 'assistant');
+  const mode = action || (pending?.documentQuestions ? pending.documentAction : '') || '';
   const template = documentMode ? documentTemplate?.value : pending?.documentQuestions ? pending.documentTemplate || '' : '';
   setDocumentMode(false);
   try {
     const context = await forSending(chat.messages);
     const response = await fetch('/api/document', { method: 'POST', headers: apiHeaders(), signal: controller.signal,
       body: JSON.stringify({ messages: context.list, photo: context.photo, photoContext: context.photoContext,
-        document: context.document, currentDocument: previous, template }) });
+        document: context.document, currentDocument: previous, template, mode }) });
     const result = await response.json().catch(() => ({}));
     if (response.status === 401) showGate(result.error);
     if (!response.ok) throw new Error(result.error || 'The document could not be created.');
     if (controller.signal.aborted || !state.chats.includes(chat)) return;
     if (Array.isArray(result.questions)) {
-      chat.messages.push({ role: 'assistant', content: 'To complete your document, please provide:\n\n' + result.questions.map(q => '- ' + q).join('\n'), documentQuestions: true, documentTemplate: template || '' });
+      chat.messages.push({ role: 'assistant', content: 'To complete your document, please provide:\n\n' + result.questions.map(q => '- ' + q).join('\n'), documentQuestions: true, documentTemplate: template || '', documentAction: mode });
     } else {
       const spec = readDocumentSpec(result.document);
       chat.messages.push({ role: 'assistant', content: documentMarkdown(spec), document: spec });
@@ -1646,15 +1648,16 @@ el.thread.addEventListener('change', event => {
 el.thread.addEventListener('click', async event => {
   const link = event.target.closest('[data-document-download]');
   const revise = event.target.closest('[data-document-revise]');
-  if (!link && !revise) return;
+  const continuation = event.target.closest('[data-document-continue]');
+  if (!link && !revise && !continuation) return;
   event.preventDefault();
-  const chat = currentChat(), index = Number(link?.dataset.documentDownload ?? revise.dataset.documentRevise);
+  const chat = currentChat(), index = Number(link?.dataset.documentDownload ?? revise?.dataset.documentRevise ?? continuation.dataset.documentContinue);
   const spec = chat?.messages[index]?.document;
   if (!spec) return;
-  if (revise) {
-    documentTarget = { chatId: chat.id, index }; setDocumentMode(true);
+  if (revise || continuation) {
+    documentTarget = { chatId: chat.id, index, mode: continuation ? 'append' : '' }; setDocumentMode(true);
     if (documentTemplate) documentTemplate.value = spec.template;
-    el.input.value = 'Revise this document: '; autoGrow(); updateSendState(); el.input.focus(); return;
+    el.input.value = continuation ? 'Continue this document with another section: ' : 'Revise this document: '; autoGrow(); updateSendState(); el.input.focus(); return;
   }
   const card = link.closest('.document-card'), status = card.querySelector('.document-download-status');
   if (card.dataset.downloading) return;

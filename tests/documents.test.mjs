@@ -24,7 +24,7 @@ test('document intents distinguish creation and revisions from ordinary explanat
 test('invalid structures and excessive documents are rejected instead of truncated', () => {
   assert.throws(() => readDocumentSpec({ ...sample, blocks: [{ type: 'script', text: 'bad' }] }));
   assert.throws(() => readDocumentSpec({ ...sample, blocks: [{ type: 'table', columns: ['a'], rows: [['a', 'b']] }] }));
-  assert.throws(() => readDocumentSpec({ ...sample, blocks: Array.from({ length: 101 }, () => ({ type: 'paragraph', text: 'hello' })) }));
+  assert.throws(() => readDocumentSpec({ ...sample, blocks: Array.from({ length: 401 }, () => ({ type: 'paragraph', text: 'hello' })) }));
   assert.equal(readDocumentSpec({ ...sample, template: 'constructor', filename: '../../my file' }).template, 'report');
   assert.equal(readDocumentSpec({ ...sample, filename: '../../my file' }).filename, 'my-file');
 });
@@ -73,7 +73,7 @@ test('document tables give descriptions room and align supplied amounts across e
   assert.match(xml, /<w:br\/>/);
   assert.match(xml, /w:widowControl/);
   const html = (await exportDocument(spec, 'html')).buffer.toString();
-  assert.match(html, /<colgroup>/); assert.match(html, /class="number">1,250.00/);
+  assert.match(html, /<colgroup>/); assert.match(html, /class="number"[^>]*>1,250.00/);
   const markdown = documentMarkdown({ ...spec, blocks: [{ type: 'table', columns: ['Detail'], rows: [['one | two\nthree']] }] });
   assert.ok(markdown.includes('one \\| two three'));
 });
@@ -145,6 +145,14 @@ test('real document routes create, clarify, revise, and download without inventi
   returned = sample;
   response = await post('/api/document', { currentDocument: sample, messages: [{ role: 'user', content: 'Revise the purpose' }] });
   assert.equal(response.status, 200); assert.ok(upstream.messages.some(m => m.content.includes('Current document to revise')));
+  returned = { ...sample, blocks: [{ type: 'heading', text: 'Next chapter' }, { type: 'paragraph', text: 'Additional chapter content.' }] };
+  response = await post('/api/document', { mode: 'append', currentDocument: sample, messages: [{ role: 'user', content: 'Add the next chapter' }] });
+  const extended = (await response.json()).document;
+  assert.deepEqual(extended.blocks.slice(0, sample.blocks.length), readDocumentSpec(sample).blocks);
+  assert.equal(extended.blocks.length, sample.blocks.length + 2);
+  assert.equal(extended.title, sample.title);
+  assert.match(upstream.messages[0].content, /ONLY new content blocks/);
+  response = await post('/api/document', { mode: 'append', messages: [{ role: 'user', content: 'Continue' }] }); assert.equal(response.status, 400);
   response = await post('/api/document/export', { document: sample, format: 'docx' });
   assert.equal(response.status, 200); assert.match(response.headers.get('Content-Disposition'), /training-proposal\.docx/);
   assert.ok(unzipSync(new Uint8Array(await response.arrayBuffer()))['word/document.xml']);

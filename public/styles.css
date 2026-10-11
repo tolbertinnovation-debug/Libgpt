@@ -3463,6 +3463,10 @@ body {
 .document-page th,.document-page td { padding:9px; border:1px solid #d9d9d9; text-align:left; vertical-align:middle; min-width:80px; }
 .document-page th { background:var(--document-accent); color:#fff; }
 .document-page .document-signature { margin-top:30px; }
+.document-figure { margin:24px 0; padding:12px; border:1px solid #d9dfe7; border-radius:8px; }
+.document-figure svg { width:100%; height:auto; display:block; }
+.document-figure figcaption,.document-page caption { color:#626975; font-size:12px; line-height:1.5; text-align:left; padding:8px 0; }
+.document-page tfoot { font-weight:bold; background:#f0f3f6; }
 .document-revise { margin-top:14px; padding:10px 14px; border:1px solid #b9bdc3; border-radius:9px; background:transparent; color:inherit; font:inherit; cursor:pointer; min-height:44px; }
 .document-download-status { font-size:.8rem; margin:12px 0 0; }
 .document-mode { display:flex; flex-wrap:wrap; align-items:center; gap:10px; padding:12px 16px; margin-bottom:10px; border:1px solid #d4d8dd; border-radius:14px; font-size:.85rem; }

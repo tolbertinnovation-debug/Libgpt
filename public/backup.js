@@ -53,6 +53,7 @@ function messages(value, building = false) {
     if (!building && message.documentQuestions === true) {
       clean.documentQuestions = true;
       clean.documentTemplate = text(message.documentTemplate || '', 50, 'document template');
+      if (message.documentAction === 'append') clean.documentAction = 'append';
     }
     if(!building && message.image) {
       const url=text(message.image.url,4_000_040,'generated image');
