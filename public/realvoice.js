@@ -65,13 +65,16 @@ function cutAt(text, limit, wants) {
   if (wants === 'short') {
     // The first sentence, even if it runs somewhat past the limit — reaching
     // the end of one is worth more than the few hundred milliseconds.
-    const reach = Math.min(text.length, limit * 2, MAX_PIECE);
+    const reach = Math.min(text.length, MAX_PIECE);
     const first = ends.find((at) => at <= reach);
     if (first) return first;
   } else {
     // The most that fits.
     const last = [...ends].reverse().find((at) => at <= limit);
     if (last && last > limit * 0.3) return last;
+    const whole = ends.find(at => at <= MAX_PIECE);
+    if (whole) return whole;
+    if (text.length <= MAX_PIECE) return text.length;
   }
 
   const space = text.slice(0, limit).lastIndexOf(' ');
@@ -180,8 +183,6 @@ export class VoiceOut {
       quiet.play().catch(() => {});
     } catch { /* no audio element — the device voice still works */ }
 
-    // The same tap is what an AudioContext needs to start.
-    this.room?.unlock();
   }
 
   /* ---- the two ways in --------------------------------------------------- */
@@ -196,17 +197,11 @@ export class VoiceOut {
   }
 
   #add(text, settings, fresh) {
-    // Markdown off first, then the accent. Both voices get the same text:
-    // there is no Liberian voice to select in any speech service, so the
-    // accent has to come from the letters the engine is handed.
-    // Three layers, in this order. The markdown comes off, then what was
-    // written for the eye becomes what a person would say — "20cm" into
-    // "twenty centimetres" — and only then does the accent respell the whole
-    // words. Doing the accent first would leave it respelling digits.
-    const clean = forSpeaking(
-      sayable(stripMarkdown(text)),
-      this.accent?.() ?? DEFAULT_ACCENT,
-    );
+    // OpenAI controls pronunciation through instructions; respelling normal
+    // words here would make a natural voice mispronounce them.
+    const natural = sayable(stripMarkdown(text));
+    const usingCloud = this.wanted() && typeof Audio !== 'undefined';
+    const clean = usingCloud ? natural : forSpeaking(natural, this.accent?.() ?? DEFAULT_ACCENT);
     if (!clean) return false;
 
     // Not wanted, or nothing to play it with: the phone's voice takes it.
@@ -223,7 +218,11 @@ export class VoiceOut {
     }
 
     this.mode = 'real';
-    this.settings = settings;
+    if (fresh || this.state === 'idle') {
+      this.settings = { ...settings };
+      this.cloudVoice = this.voice?.() || 'cedar';
+      this.cloudAccent = this.accent?.() ?? DEFAULT_ACCENT;
+    }
     if (fresh) this.token += 1;
 
     // Pressing Listen hands over a whole answer, or a whole folktale. It is
@@ -251,7 +250,7 @@ export class VoiceOut {
     }
     this.pending.push(...tail);
 
-    this.#report('speaking');
+    if (this.state !== 'paused') this.#report('speaking');
     this.#pump();
     return true;
   }
@@ -295,7 +294,8 @@ export class VoiceOut {
         body: JSON.stringify({
           text,
           speaker: this.speaker(),
-          voice: (() => { try { return localStorage.getItem('grandpa-team-voice') || undefined; } catch { return undefined; } })(),
+          voice: this.cloudVoice,
+          accent: this.cloudAccent,
           speed: this.settings.rate,
         }),
       });
@@ -406,9 +406,7 @@ export class VoiceOut {
     const audio = reuse ? held.audio : new Audio(item.url);
     this.audio = audio;
 
-    // Put him in a room, if one is chosen. A failure here is silent and
-    // harmless — the element then plays as it is.
-    this.room?.attach(audio);
+    // Play clean speech without synthetic room effects.
 
     audio.onended = () => {
       if (token !== this.token || this.audio !== audio) return;
@@ -511,3 +509,4 @@ export class VoiceOut {
     this.#report('idle');
   }
 }
+
