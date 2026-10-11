@@ -1,3 +1,4 @@
+import {imageDiscussion,validImageDiscussion} from './image-context.js';
 import { renderMarkdown, escapeHtml } from './markdown.js';
 import { conversationWindow, answerDepth, researchMode } from './knowledge.js';
 import { groupByDate, loadChats, loadPrefs, newId, savePrefs, saveChats } from './storage.js';
@@ -1587,6 +1588,7 @@ const imageComposer=mountImageComposer({
     if(state.streaming || ritual.isBusy() || conversation.active) throw new Error('Finish the current conversation or build first.');
     speaker.stop();if(listening) stopListening();
     const chat=ensureChat();
+    options={...options,context:validImageDiscussion(options.context) || imageDiscussion(options.prompt,chat.messages)};
     if(!chat.title) chat.title=options.prompt.slice(0,48);
     chat.messages.push({role:'user',content:'Create an image: '+options.prompt});
     chat.updatedAt=Date.now();persist();renderThread();renderSidebar();
@@ -1600,7 +1602,7 @@ const imageComposer=mountImageComposer({
       if(!safeChatImage(result.image)) throw new Error('The image response could not be displayed.');
       if(controller.signal.aborted) throw new DOMException('Cancelled','AbortError');
       if(!state.chats.includes(chat)) return;
-      chat.messages.push({role:'assistant',content:'Created an AI-generated image from your description.',image:{url:result.image,prompt:options.prompt,size:result.size,quality:result.quality,style:result.style}});
+      chat.messages.push({role:'assistant',content:'Created an AI-generated image from your description.',image:{url:result.image,prompt:options.prompt,context:options.context,size:result.size,quality:result.quality,style:result.style}});
       chat.updatedAt=Date.now();persist();renderSidebar();sounds.reply();
     } catch(error) {
       if(state.chats.includes(chat)) {

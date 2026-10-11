@@ -22,7 +22,7 @@ export function mountImageComposer({onGenerate,enabled=()=>true}) {
     <p data-image-status role="status" hidden></p><div class="lib-actions"><button class="lib-go" type="submit">Create image</button><button class="setting-btn" type="button" data-image-cancel hidden>Cancel generation</button></div></form>`;
   document.body.append(dialog);
   const form=dialog.querySelector('form'),status=dialog.querySelector('[data-image-status]'),submit=form.querySelector('[type="submit"]'),cancel=form.querySelector('[data-image-cancel]');
-  let controller=null;
+  let controller=null,discussion='';
   const say=message=>{status.textContent=message;status.hidden=!message;};
   const close=()=>{controller?.abort();dialog.close();};
   dialog.querySelector('[data-image-close]').addEventListener('click',close);
@@ -44,7 +44,7 @@ export function mountImageComposer({onGenerate,enabled=()=>true}) {
     event.preventDefault();
     if(controller) return;
     if(!enabled()) {say('Image creation is not enabled on this app yet. You can still upload photos to ask questions.');return;}
-    const options=Object.fromEntries(new FormData(form));
+    const options={...Object.fromEntries(new FormData(form)),context:discussion};
     options.prompt=options.prompt.trim();
     if(!options.prompt) {say('Describe the image you want.');return;}
     try {await generate(options);}
@@ -52,6 +52,7 @@ export function mountImageComposer({onGenerate,enabled=()=>true}) {
   });
   return {generate,close(){dialog.close();},open(options={}) {
     if(controller) return;
+    discussion=typeof options.context==='string' ? options.context : '';
     form.elements.prompt.value=options.prompt || '';
     for(const key of ['style','size','quality']) if(options[key] && [...form.elements[key].options].some(o=>o.value===options[key])) form.elements[key].value=options[key];
     say(enabled() ? '' : 'Image creation is not enabled on this app yet.');

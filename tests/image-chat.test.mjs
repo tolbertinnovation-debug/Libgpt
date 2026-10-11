@@ -1,3 +1,4 @@
+import {imageDiscussion,validImageDiscussion} from '../public/image-context.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -81,12 +82,12 @@ test('OpenAI image request uses current format and quality schema',async t=>{
 test('chat image host saves to the original conversation and resets busy state',async()=>{
   const source=await readFile(new URL('../public/app.js',import.meta.url),'utf8');
   const start=source.indexOf('const imageComposer=mountImageComposer('),end=source.indexOf("el.thread.addEventListener('click',async event=>",start);
-  const chat={messages:[],title:''},state={streaming:null,chats:[chat]},pending={textContent:'',closest:()=>({remove(){}})};
-  let options,persists=0,busy=[];
-  const environment={state,ritual:{isBusy:()=>false},conversation:{active:false},speaker:{stop(){}},listening:false,stopListening(){},ensureChat:()=>chat,persist:()=>persists++,renderThread(){},renderSidebar(){},setBusy:b=>busy.push(b),startAiTurn:()=>pending,apiHeaders:()=>({}),showGate(){},safeChatImage,imageLoadingMarkup,sounds:{reply(){}},currentChat:()=>chat,fetch:async()=>new Response(JSON.stringify({image,size:'1024x1024',quality:'high',style:'photo'}),{status:200}),mountImageComposer:value=>{options=value;}};
+  const chat={messages:[{role:'user',content:'We are discussing a classroom in Liberia.'},{role:'assistant',content:'Students are learning on laptops.'}],title:''},state={streaming:null,chats:[chat]},pending={textContent:'',closest:()=>({remove(){}})};
+  let options,sent,persists=0,busy=[];
+  const environment={state,ritual:{isBusy:()=>false},conversation:{active:false},speaker:{stop(){}},listening:false,stopListening(){},ensureChat:()=>chat,persist:()=>persists++,renderThread(){},renderSidebar(){},setBusy:b=>busy.push(b),startAiTurn:()=>pending,apiHeaders:()=>({}),showGate(){},safeChatImage,imageLoadingMarkup,imageDiscussion,validImageDiscussion,sounds:{reply(){}},currentChat:()=>chat,fetch:async(_url,request)=>{sent=JSON.parse(request.body);return new Response(JSON.stringify({image,size:'1024x1024',quality:'high',style:'photo'}),{status:200});},mountImageComposer:value=>{options=value;}};
   new Function(...Object.keys(environment),source.slice(start,end))(...Object.values(environment));
-  await options.onGenerate({prompt:'A classroom',size:'1024x1024',quality:'high',style:'photo'},new AbortController());
-  assert.equal(chat.messages.length,2);assert.equal(chat.messages[1].image.url,image);
+  await options.onGenerate({prompt:'Create an image of it',size:'1024x1024',quality:'high',style:'photo'},new AbortController());
+  assert.equal(chat.messages.length,4);assert.equal(chat.messages[3].image.url,image);assert.match(sent.context,/classroom in Liberia/);assert.equal(chat.messages[3].image.context,sent.context);
   assert.equal(state.streaming,null);assert.deepEqual(busy,[true,false]);assert.ok(persists>=2);
 });
 
@@ -97,7 +98,7 @@ test('chat image host returns expired sessions to sign-in and never saves late c
     const controller=new AbortController(),chat={messages:[],title:''},state={streaming:null,chats:[chat]};
     let options,closed=0,gated=0;
     const busy=[];
-    const environment={state,ritual:{isBusy:()=>false},conversation:{active:false},speaker:{stop(){}},listening:false,stopListening(){},ensureChat:()=>chat,persist(){},renderThread(){},renderSidebar(){},setBusy:b=>busy.push(b),startAiTurn:()=>({closest:()=>({remove(){}})}),apiHeaders:()=>({}),showGate:()=>gated++,safeChatImage,imageLoadingMarkup,sounds:{reply(){throw new Error('Must not play success');}},currentChat:()=>chat,fetch:async()=>{if(!expired)controller.abort();return new Response(JSON.stringify(expired ? {error:'Session expired'} : {image}),{status:expired ? 401 : 200});},mountImageComposer:value=>{options=value;return {close:()=>closed++};}};
+    const environment={state,ritual:{isBusy:()=>false},conversation:{active:false},speaker:{stop(){}},listening:false,stopListening(){},ensureChat:()=>chat,persist(){},renderThread(){},renderSidebar(){},setBusy:b=>busy.push(b),startAiTurn:()=>({closest:()=>({remove(){}})}),apiHeaders:()=>({}),showGate:()=>gated++,safeChatImage,imageLoadingMarkup,imageDiscussion,validImageDiscussion,sounds:{reply(){throw new Error('Must not play success');}},currentChat:()=>chat,fetch:async()=>{if(!expired)controller.abort();return new Response(JSON.stringify(expired ? {error:'Session expired'} : {image}),{status:expired ? 401 : 200});},mountImageComposer:value=>{options=value;return {close:()=>closed++};}};
     new Function(...Object.keys(environment),source.slice(start,end))(...Object.values(environment));
     await assert.rejects(options.onGenerate({prompt:'A classroom'},controller),expired ? /Session expired/ : /Cancelled/);
     assert.equal(chat.messages.some(m=>m.image),false);
@@ -145,4 +146,24 @@ test('image loading shows an accessible indeterminate indicator without invented
   const markup=imageLoadingMarkup();
   assert.match(markup,/role="status"/);assert.match(markup,/<progress aria-label=/);
   assert.doesNotMatch(markup,/value=|\d+%/);assert.match(markup,/Use Stop to cancel/);
+});
+
+test('image references carry the current discussion and latest corrections into generation',()=>{
+  const history=[{role:'user',content:'We are designing a classroom in Liberia.'},{role:'assistant',content:'Students in uniform can learn on laptops.'},{role:'user',content:'Use tablets instead of laptops.'}];
+  const context=imageDiscussion('Create an image of it',history);
+  const options=imageRequest({prompt:'Create an image of it',context});
+  assert.match(options.renderPrompt,/classroom in Liberia/);assert.match(options.renderPrompt,/Use tablets instead/);
+  assert.ok(options.renderPrompt.indexOf('Use tablets instead')<options.renderPrompt.indexOf('LATEST IMAGE REQUEST'));
+  assert.equal(imageDiscussion('Create a photo of a lion',history),'');
+  assert.equal(imageRequest({prompt:'Create a photo of a lion',context}).renderPrompt,'Create a photo of a lion');
+  assert.throws(()=>imageRequest({prompt:'Create an image of it'}),/which subject/);
+  assert.equal(validImageDiscussion('x'.repeat(7000)).length,6000);
+  const imageHistory=[{role:'assistant',content:'Created',image:{prompt:'A Liberian classroom',url:image}}];
+  const recall=imageDiscussion('Create another image of it',imageHistory);
+  assert.match(recall,/Liberian classroom/);assert.doesNotMatch(recall,/base64/);
+});
+test('image discussion survives backups so Create another keeps its original subject',()=>{
+  const chats=[{id:'c1',title:'Images',messages:[{role:'assistant',content:'Created',image:{url:image,prompt:'Create an image of it',context:'user: A classroom in Liberia'}}]}];
+  const restored=parseBackup(createBackup(chats,[]));
+  assert.equal(restored.chats[0].messages[0].image.context,'user: A classroom in Liberia');
 });
