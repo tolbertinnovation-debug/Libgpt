@@ -2,6 +2,7 @@ import { documentIntent, documentMarkdown, readDocumentSpec, DOCUMENT_TEMPLATES 
 import { documentCard, downloadDocument, taskBriefCard } from './document-chat.js';
 import { DOCUMENT_TASKS, documentTaskKind, readTaskBrief, wantsTaskDraft, startsNewDocumentTask } from './document-tasks.js';
 import { continueLongDocument } from './document-length.js';
+import { DESIGN_STYLES, DESIGN_SIZES } from './document-design.js';
 import { chatContext } from './chat-context.js';
 import {imageDiscussion,validImageDiscussion,imageRequestLabel} from './image-context.js';
 import { renderMarkdown, escapeHtml } from './markdown.js';
@@ -1596,14 +1597,25 @@ const documentModeBar = $('document-mode');
 const documentTemplate = $('document-task-template');
 const documentKind = $('document-task-kind');
 const documentLength = $('document-task-pages');
+const documentDesignStyle = $('document-design-style'), documentDesignSize = $('document-design-size');
+if (documentDesignStyle) documentDesignStyle.innerHTML = '<option value="">Choose for my task</option>' + Object.entries(DESIGN_STYLES).map(([id, style]) => `<option value="${id}">${escapeHtml(style.label)}</option>`).join('');
+if (documentDesignSize) documentDesignSize.innerHTML = '<option value="">Use my requested size</option>' + Object.entries(DESIGN_SIZES).map(([id, size]) => `<option value="${id}">${escapeHtml(size.label)}</option>`).join('');
+function restoreDesignChoices(brief) {
+  if (documentDesignStyle) documentDesignStyle.value = Object.keys(DESIGN_STYLES).find(key => DESIGN_STYLES[key].label === brief?.fields.designStyle) || '';
+  if (documentDesignSize) documentDesignSize.value = Object.keys(DESIGN_SIZES).find(key => DESIGN_SIZES[key].label === brief?.fields.dimensions) || '';
+}
 if (documentKind) documentKind.innerHTML = '<option value="">Choose automatically</option>' + Object.entries(DOCUMENT_TASKS).map(([id, t]) => `<option value="${id}">${escapeHtml(t.label)}</option>`).join('');
+function updateDesignControls() { documentModeBar?.querySelectorAll('.document-design-option').forEach(label => { label.hidden = documentKind?.value !== 'graphic_design'; }); }
+documentKind?.addEventListener('change', updateDesignControls);
 if (documentTemplate) documentTemplate.innerHTML = '<option value="">Choose automatically</option>'
   + Object.entries(DOCUMENT_TEMPLATES).map(([id, t]) => `<option value="${id}">${escapeHtml(t.label)}</option>`).join('');
 function setDocumentMode(on) {
   documentMode = on;
   if (documentModeBar) documentModeBar.hidden = !on;
+  updateDesignControls();
 }
 $('create-document-btn')?.addEventListener('click', () => {
+  if (documentDesignStyle) documentDesignStyle.value = ''; if (documentDesignSize) documentDesignSize.value = '';
   showMore(false); setDocumentMode(true); if (documentLength) documentLength.value = ''; documentTarget = { chatId: currentChat()?.id, index: -1, mode: 'new' }; el.input.focus();
 });
 $('document-mode-cancel')?.addEventListener('click', () => { setDocumentMode(false); documentTarget = null; });
@@ -1623,6 +1635,8 @@ async function createChatDocument(chat) {
   const taskKind = documentMode && documentKind?.value ? documentKind.value : brief?.kind || documentTaskKind(chat.messages.at(-1)?.content);
   const guided = !previous || Boolean(brief && pending?.documentQuestions);
   const targetPages = documentMode && documentLength?.value ? Number(documentLength.value) : undefined;
+  const designStyle = documentMode && documentDesignStyle?.value ? documentDesignStyle.value : undefined;
+  const artworkSize = documentMode && documentDesignSize?.value ? documentDesignSize.value : undefined;
   documentTarget = null;
   const mode = fresh ? 'new' : action || (pending?.documentQuestions ? pending.documentAction : '') || '';
   const template = documentMode ? documentTemplate?.value : pending?.documentQuestions ? pending.documentTemplate || '' : '';
@@ -1632,7 +1646,7 @@ async function createChatDocument(chat) {
     const context = await forSending(chat.messages);
     const response = await fetch('/api/document', { method: 'POST', headers: apiHeaders(), signal: controller.signal,
       body: JSON.stringify({ messages: context.list, photo: context.photo, photoContext: context.photoContext,
-        document: context.document, currentDocument: previous, template, mode, guided, taskKind, brief, createNow, targetPages }) });
+        document: context.document, currentDocument: previous, template, mode, guided, taskKind, brief, createNow, targetPages, designStyle, artworkSize }) });
     const result = await response.json().catch(() => ({}));
     if (result.brief) brief = readTaskBrief(result.brief);
     if (response.status === 401) showGate(result.error);
@@ -1695,6 +1709,7 @@ el.thread.addEventListener('click', async event => {
     }
     documentTarget = { chatId: chat.id, index, brief: message.taskBrief, createNow: true };
     setDocumentMode(true); if (documentKind) documentKind.value = message.taskBrief.kind;
+    restoreDesignChoices(message.taskBrief); updateDesignControls();
     if (documentTemplate) documentTemplate.value = message.documentTemplate || '';
     if (documentLength) documentLength.value = '';
     send('Create this task now using the reviewed details. Use clearly labelled placeholders for any missing facts.'); return;
@@ -1716,6 +1731,8 @@ el.thread.addEventListener('click', async event => {
     send('Resume the long document with its next planned sections.'); return;
   }
   if (revise || continuation) {
+    restoreDesignChoices(chat.messages[index].taskBrief);
+    if (documentKind) documentKind.value = chat.messages[index].taskBrief?.kind || '';
     documentTarget = { chatId: chat.id, index, mode: continuation ? 'append' : '' }; setDocumentMode(true);
     if (documentTemplate) documentTemplate.value = spec.template;
     el.input.value = continuation ? 'Continue this document with another section: ' : 'Revise this document: '; autoGrow(); updateSendState(); el.input.focus(); return;

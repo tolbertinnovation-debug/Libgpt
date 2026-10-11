@@ -1,3 +1,4 @@
+import { drawingTextLines } from './document-design.js';
 // Trusted vector primitives only. Model output never supplies executable SVG or URLs.
 const palette = ['1B2A63', '196A58', 'A64436', '58438A', 'B08022', '26748B', 'C46632', '617244', '834D70', '47546C', 'A0785B', '326B65'];
 const esc = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -66,17 +67,20 @@ export function visualScene(block) {
   } else {
     const sx = width / 1000, sy = height / 1000;
     block.shapes.forEach(s => {
-      if (s.kind === 'rect') rect(s.x * sx, s.y * sy, s.width * sx, s.height * sy, s.color);
+      const start = elements.length;
+      if (s.kind === 'rect') { rect(s.x * sx, s.y * sy, s.width * sx, s.height * sy, s.color); elements.at(-1).radius = (s.cornerRadius || 0) * Math.min(sx, sy); }
+      if (s.kind === 'ellipse') elements.push({kind:'ellipse',x:(s.x+s.width/2)*sx,y:(s.y+s.height/2)*sy,rx:s.width*sx/2,ry:s.height*sy/2,color:s.color});
+      if (s.kind === 'polygon') elements.push({kind:'polygon',points:s.points.map(([x,y])=>[x*sx,y*sy]),color:s.color});
       if (s.kind === 'circle') circle(s.x * sx, s.y * sy, s.radius * Math.min(sx, sy), s.color);
-      if (s.kind === 'line') line(s.x * sx, s.y * sy, s.x2 * sx, s.y2 * sy, s.color, 2);
+      if (s.kind === 'line') line(s.x * sx, s.y * sy, s.x2 * sx, s.y2 * sy, s.color, (s.lineWidth || 3.33) * sx);
       if (s.kind === 'text') {
         const size = (s.size || 20) * sx, room = (s.width || 1000 - s.x) * sx;
-        const limit = Math.max(1, Math.floor(room / (size * .64)));
-        const lines = s.text.match(new RegExp(`.{1,${limit}}(?:\\s|$)|.{1,${limit}}`, 'g')) || [s.text];
+        const lines = drawingTextLines(s.text, s.width || 1000-s.x, s.size || 20, s.tracking || 0);
         const anchor = s.align === 'center' ? 'middle' : s.align === 'right' ? 'end' : 'start';
         const x = s.x * sx + (anchor === 'middle' ? room / 2 : anchor === 'end' ? room : 0);
-        lines.forEach((line, i) => { const y = s.y * sy + size + i * size * 1.2; if (y <= height) text(line.trim(), x, y, size, s.color, anchor, s.bold ? 'strong' : 'body'); });
+        lines.forEach((line, i) => { const y = s.y * sy + size + i * size * (s.leading || 1.2); if (y <= height) { text(line, x, y, size, s.color, anchor, s.bold ? 'strong' : 'body'); Object.assign(elements.at(-1), {font:s.font || 'sans',tracking:(s.tracking || 0)*sx}); } });
       }
+      for (const e of elements.slice(start)) Object.assign(e, {opacity:s.opacity ?? 1,outline:s.stroke,outlineWidth:(s.strokeWidth || 2)*sx});
     });
   }
   if (block.type === 'diagram') {
@@ -94,12 +98,13 @@ export function visualScene(block) {
 
 export function sceneSvg(scene) {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${scene.width} ${scene.height}" width="${scene.width}" height="${scene.height}" role="img">${scene.elements.map(e => {
-    const c = `#${e.color}`;
-    if (e.kind === 'text') return `<text x="${e.x}" y="${e.y}" font-family="Arial,sans-serif" font-size="${e.size}" font-weight="${e.weight === 'strong' ? 700 : 400}" fill="${c}" text-anchor="${e.anchor}">${esc(e.text)}</text>`;
-    if (e.kind === 'rect') return `<rect x="${e.x}" y="${e.y}" width="${e.w}" height="${e.h}" fill="${c}"/>`;
-    if (e.kind === 'circle') return `<circle cx="${e.x}" cy="${e.y}" r="${e.r}" fill="${c}"/>`;
-    if (e.kind === 'line') return `<line x1="${e.x}" y1="${e.y}" x2="${e.x2}" y2="${e.y2}" stroke="${c}" stroke-width="${e.stroke}"/>`;
-    return `<polygon points="${e.points.map(p => p.join(',')).join(' ')}" fill="${c}"/>`;
+    const c = `#${e.color}`, appearance = `opacity="${e.opacity ?? 1}"${e.outline ? ` stroke="#${e.outline}" stroke-width="${e.outlineWidth}"` : ''}`;
+    if (e.kind === 'text') return `<text x="${e.x}" y="${e.y}" font-family="${e.font === 'serif' ? 'Georgia,serif' : 'Arial,sans-serif'}" letter-spacing="${e.tracking || 0}" ${appearance} font-size="${e.size}" font-weight="${e.weight === 'strong' ? 700 : 400}" fill="${c}" text-anchor="${e.anchor}">${esc(e.text)}</text>`;
+    if (e.kind === 'rect') return `<rect x="${e.x}" y="${e.y}" width="${e.w}" height="${e.h}" rx="${e.radius || 0}" ${appearance} fill="${c}"/>`;
+    if (e.kind === 'ellipse') return `<ellipse cx="${e.x}" cy="${e.y}" rx="${e.rx}" ry="${e.ry}" ${appearance} fill="${c}"/>`;
+    if (e.kind === 'circle') return `<circle cx="${e.x}" cy="${e.y}" r="${e.r}" ${appearance} fill="${c}"/>`;
+    if (e.kind === 'line') return `<line x1="${e.x}" y1="${e.y}" x2="${e.x2}" y2="${e.y2}" stroke="${c}" stroke-width="${e.stroke}" opacity="${e.opacity ?? 1}" stroke-linecap="round"/>`;
+    return `<polygon points="${e.points.map(p => p.join(',')).join(' ')}" ${appearance} fill="${c}"/>`;
   }).join('')}</svg>`;
 }
 

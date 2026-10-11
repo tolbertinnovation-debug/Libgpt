@@ -27,6 +27,7 @@ export const TASK_FIELDS = {
   format: ['Design format', 'What should I design: a flyer, poster, invitation, brochure, logo concept or another format?'],
   headline: ['Headline or brand name', 'What headline, brand name or main message should the design display?'],
   branding: ['Branding', 'Which colours, visual style and branding should I use? You can also ask me to propose a style.'],
+  designStyle: ['Design style', 'Which design style do you prefer?'],
   dimensions: ['Size and use', 'Where will the design be used, and what size or orientation is needed: social media, A4 print, square, portrait or landscape?'],
   experience: ['Experience', 'What real work experience, dates and achievements should the CV include?'],
   education: ['Education', 'What qualifications, institutions and dates should be included?'],

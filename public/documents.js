@@ -1,4 +1,5 @@
 import { readLongForm } from './document-length.js';
+import { drawingTextLines } from './document-design.js';
 
 export const DOCUMENT_TEMPLATES = {
   report: { label: 'Business report', accent: '1B2A63', tint: 'EDF2FA', font: 'sans', landscape: false },
@@ -104,19 +105,26 @@ function readVisual(block) {
   if (!Array.isArray(block.shapes) || !block.shapes.length || block.shapes.length > 60) fail('Invalid drawing dimensions.');
   const shapes = block.shapes.map(s => {
     if (!s || typeof s !== 'object') fail('Invalid drawing shape.');
-    if (!['rect', 'circle', 'line', 'text'].includes(s.kind)) fail('Unsupported drawing shape.');
+    if (!['rect', 'circle', 'ellipse', 'polygon', 'line', 'text'].includes(s.kind)) fail('Unsupported drawing shape.');
+    const decoration = { opacity: number(s.opacity ?? 1, 0, 1), ...(s.stroke != null ? { stroke: colour(s.stroke), strokeWidth: number(s.strokeWidth ?? 2, .5, 20) } : {}) };
+    if (s.kind === 'polygon') {
+      if (!Array.isArray(s.points) || s.points.length < 3 || s.points.length > 12 || s.points.some(p => !Array.isArray(p) || p.length !== 2)) fail('Polygons need 3 to 12 coordinate pairs.');
+      return { kind: 'polygon', color: colour(s.color), points: s.points.map(p => [number(p[0], 0, 1000), number(p[1], 0, 1000)]), ...decoration };
+    }
     const shape = { kind: s.kind, x: number(s.x, 0, 1000), y: number(s.y, 0, 1000), color: colour(s.color) };
     if (s.kind === 'text') {
-      shape.text = text(s.text, 100, 'drawing text');
+      shape.text = text(s.text, 240, 'drawing text');
       shape.size = number(s.size ?? 20, 12, 120);
       shape.width = number(s.width ?? 1000 - shape.x, 1, 1000 - shape.x);
       if (s.align != null && !['left', 'center', 'right'].includes(s.align)) fail('Invalid drawing text alignment.');
       shape.align = s.align || 'left'; shape.bold = s.bold === true;
+      if (s.font != null && !['sans', 'serif'].includes(s.font)) fail('Invalid artwork font.');
+      shape.font = s.font || 'sans'; shape.leading = number(s.leading ?? 1.2, 1, 2); shape.tracking = number(s.tracking ?? 0, 0, 12);
     }
-    if (s.kind === 'line') { shape.x2 = number(s.x2, 0, 1000); shape.y2 = number(s.y2, 0, 1000); }
+    if (s.kind === 'line') { shape.x2 = number(s.x2, 0, 1000); shape.y2 = number(s.y2, 0, 1000); shape.lineWidth = number(s.lineWidth ?? 3.33, .5, 20); }
     if (s.kind === 'circle') { shape.radius = number(s.radius, 1, 250); if (shape.x - shape.radius < 0 || shape.x + shape.radius > 1000 || shape.y - shape.radius < 0 || shape.y + shape.radius > 1000) fail('Circle must fit the canvas.'); }
-    if (s.kind === 'rect') { shape.width = number(s.width, 1, 1000); shape.height = number(s.height, 1, 1000); if (shape.x + shape.width > 1000 || shape.y + shape.height > 1000) fail('Rectangle must fit the canvas.'); }
-    return shape;
+    if (['rect','ellipse'].includes(s.kind)) { shape.width = number(s.width, 1, 1000); shape.height = number(s.height, 1, 1000); if (shape.x + shape.width > 1000 || shape.y + shape.height > 1000) fail('Shape must fit the canvas.'); if (s.kind === 'rect') shape.cornerRadius = number(s.cornerRadius ?? 0, 0, Math.min(shape.width, shape.height) / 2); }
+    return { ...shape, ...decoration };
   });
   if (block.layout != null && !['landscape', 'square', 'portrait'].includes(block.layout)) fail('Invalid drawing layout.');
   let canvas;
@@ -128,10 +136,9 @@ function readVisual(block) {
   }
   const canvasHeight = canvas ? 600 * canvas.height / canvas.width : block.layout === 'portrait' ? 800 : block.layout === 'square' ? 600 : 360;
   for (const shape of shapes.filter(s => s.kind === 'text')) {
-    const limit = Math.max(1, Math.floor(shape.width / (shape.size * .64)));
-    const rows = shape.text.match(new RegExp(`.{1,${limit}}(?:\\s|$)|.{1,${limit}}`, 'g'))?.length || 1;
-    const lastBaseline = shape.y * canvasHeight / 1000 + shape.size * .6 * (1 + (rows - 1) * 1.2);
-    if (lastBaseline > canvasHeight - 2) fail('Drawing text does not fit the canvas. Shorten the text or move the text box.');
+    const rows = drawingTextLines(shape.text, shape.width, shape.size, shape.tracking).length;
+    const lastBaseline = shape.y * canvasHeight / 1000 + shape.size * .6 * (1 + (rows - 1) * shape.leading);
+    if (lastBaseline + shape.size * .15 > canvasHeight - 2) fail('Drawing text does not fit the canvas. Shorten the text or move the text box.');
   }
   return { ...base, shapes, layout: block.layout || 'landscape', ...(canvas ? { canvas } : {}) };
 }
