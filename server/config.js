@@ -1,6 +1,7 @@
 import 'dotenv/config';
 import { speechModel } from './voice.js';
 import { modelId } from './model-id.js';
+import { imageModel } from './image-options.js';
 
 const int = (value, fallback) => {
   const parsed = Number.parseInt(value ?? '', 10);
@@ -46,7 +47,7 @@ export const config = {
   // Pictures are a different order of cost from text — cents each rather than
   // hundredths of a cent — so they are off unless deliberately switched on.
   imagesEnabled: /^(1|true|yes|on)$/i.test(process.env.ENABLE_IMAGES?.trim() || ''),
-  imageModel: process.env.OPENAI_IMAGE_MODEL?.trim() || 'dall-e-3',
+  imageModel: imageModel(process.env.OPENAI_IMAGE_MODEL),
   imagesPerHour: int(process.env.IMAGES_PER_HOUR, 20),
 
   // Reading the web, so "what is the news today" can be answered rather than
