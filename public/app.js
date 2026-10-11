@@ -1,3 +1,5 @@
+import { documentIntent, documentMarkdown, readDocumentSpec, DOCUMENT_TEMPLATES } from './documents.js';
+import { documentCard, downloadDocument } from './document-chat.js';
 import { chatContext } from './chat-context.js';
 import {imageDiscussion,validImageDiscussion,imageRequestLabel} from './image-context.js';
 import { renderMarkdown, escapeHtml } from './markdown.js';
@@ -600,7 +602,7 @@ function messageActions(index, content) {
       <button class="msg-action" data-report="${index}" type="button">Report</button>
       ${unfinished
         ? '<button class="msg-action" data-continue type="button">Continue unfinished answer</button>' : ''}
-      ${index === lastAiIndex() && !currentChat()?.messages[index]?.image ? `
+      ${index === lastAiIndex() && !currentChat()?.messages[index]?.image && !currentChat()?.messages[index]?.document ? `
       <button class="msg-action" data-regen="${index}" type="button">
         <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none"
              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -736,8 +738,9 @@ function renderThread() {
           <div class="ai-body">
             ${message.trimmed ? trimmedNote(message.trimmed) : ''}
             ${message.searched ? lookedUp() : ''}
-            <div class="prose">${renderMarkdown(message.content)}</div>
+            <div class="prose">${message.document ? 'Your document is ready. Read it below, choose a template, or download a copy.' : renderMarkdown(message.content)}</div>
             ${imageCard(message.image,index)}
+            ${documentCard(message.document,index)}
             ${sourceList(message.sources)}
             ${messageActions(index, message.content)}
           </div>
@@ -1010,7 +1013,7 @@ async function streamReply(chat, hooks = {}) {
   if (text.trim()) {
     chat.messages.push({
       role: 'assistant', content: text, searched, sources, unfinished,
-      ...(sending.dropped ? { trimmed: sending.dropped } : {}),
+      ...(sending?.dropped ? { trimmed: sending.dropped } : {}),
     });
     chat.updatedAt = Date.now();
     persist();
@@ -1103,7 +1106,10 @@ function send(rawText) {
     || (paper ? 'Read this and tell me what it says.' : '');
   if ((!text && !waiting && !paper) || state.streaming) return;
 
-  const visualPrompt=imagePrompt(typed);
+  const previousDocument = currentChat()?.messages.findLast(m => m.document)?.document;
+  const pendingDocument = currentChat()?.messages.findLast(m => m.role === 'assistant')?.documentQuestions;
+  const makeDocument = documentMode || Boolean(pendingDocument) || documentIntent(typed, Boolean(previousDocument));
+  const visualPrompt = makeDocument ? null : imagePrompt(typed);
   if(!waiting && !paper && visualPrompt!==null) {
     speaker.stop();
     if(listening) stopListening();
@@ -1143,8 +1149,10 @@ function send(rawText) {
   renderSidebar();
   sounds.send();
 
-  // The full-size copy goes to the server once, with this turn, and is not
-  // kept anywhere after that.
+  if (makeDocument) {
+    createChatDocument(chat).catch(error => toast(error.message));
+    return;
+  }
   streamReply(chat).catch(() => {});
 }
 
@@ -1571,6 +1579,95 @@ el.paper.addEventListener('click', () => {
 });
 el.paperInput.addEventListener('change', () => choosePaper(el.paperInput.files?.[0]));
 el.paperDrop.addEventListener('click', dropPaper);
+
+let documentMode = false;
+let documentTarget = null;
+const documentModeBar = $('document-mode');
+const documentTemplate = $('document-task-template');
+if (documentTemplate) documentTemplate.innerHTML = '<option value="">Choose automatically</option>'
+  + Object.entries(DOCUMENT_TEMPLATES).map(([id, t]) => `<option value="${id}">${escapeHtml(t.label)}</option>`).join('');
+function setDocumentMode(on) {
+  documentMode = on;
+  if (documentModeBar) documentModeBar.hidden = !on;
+}
+$('create-document-btn')?.addEventListener('click', () => {
+  showMore(false); setDocumentMode(true); documentTarget = null; el.input.focus();
+});
+$('document-mode-cancel')?.addEventListener('click', () => { setDocumentMode(false); documentTarget = null; });
+
+async function createChatDocument(chat) {
+  const controller = new AbortController();
+  state.streaming = controller; setBusy(true);
+  const target = startAiTurn();
+  target.textContent = 'Preparing your document and its layout…';
+  const index = documentTarget?.chatId === chat.id ? documentTarget.index : -1;
+  const previous = index >= 0 ? chat.messages[index]?.document : chat.messages.findLast(m => m.document)?.document;
+  documentTarget = null;
+  const pending = chat.messages.findLast(m => m.role === 'assistant');
+  const template = documentMode ? documentTemplate?.value : pending?.documentQuestions ? pending.documentTemplate || '' : '';
+  setDocumentMode(false);
+  try {
+    const context = await forSending(chat.messages);
+    const response = await fetch('/api/document', { method: 'POST', headers: apiHeaders(), signal: controller.signal,
+      body: JSON.stringify({ messages: context.list, photo: context.photo, photoContext: context.photoContext,
+        document: context.document, currentDocument: previous, template }) });
+    const result = await response.json().catch(() => ({}));
+    if (response.status === 401) showGate(result.error);
+    if (!response.ok) throw new Error(result.error || 'The document could not be created.');
+    if (controller.signal.aborted || !state.chats.includes(chat)) return;
+    if (Array.isArray(result.questions)) {
+      chat.messages.push({ role: 'assistant', content: 'To complete your document, please provide:\n\n' + result.questions.map(q => '- ' + q).join('\n'), documentQuestions: true, documentTemplate: template || '' });
+    } else {
+      const spec = readDocumentSpec(result.document);
+      chat.messages.push({ role: 'assistant', content: documentMarkdown(spec), document: spec });
+      sounds.reply();
+    }
+    chat.updatedAt = Date.now(); persist(); renderSidebar();
+  } catch (error) {
+    if (state.chats.includes(chat)) {
+      chat.messages.push({ role: 'assistant', content: controller.signal.aborted ? 'Document creation was cancelled.' : 'Document creation failed: ' + error.message });
+      chat.updatedAt = Date.now(); persist(); renderSidebar();
+    }
+    if (!controller.signal.aborted) throw error;
+  } finally {
+    target.closest('.turn')?.remove();
+    if (state.streaming === controller) { state.streaming = null; setBusy(false); }
+    if (currentChat() === chat) renderThread();
+  }
+}
+
+el.thread.addEventListener('change', event => {
+  const select = event.target.closest('[data-document-template]');
+  if (!select || !Object.hasOwn(DOCUMENT_TEMPLATES, select.value)) return;
+  const chat = currentChat(), message = chat?.messages[Number(select.dataset.documentTemplate)];
+  if (!message?.document) return;
+  message.document.template = select.value; chat.updatedAt = Date.now(); persist(); renderThread();
+});
+el.thread.addEventListener('click', async event => {
+  const link = event.target.closest('[data-document-download]');
+  const revise = event.target.closest('[data-document-revise]');
+  if (!link && !revise) return;
+  event.preventDefault();
+  const chat = currentChat(), index = Number(link?.dataset.documentDownload ?? revise.dataset.documentRevise);
+  const spec = chat?.messages[index]?.document;
+  if (!spec) return;
+  if (revise) {
+    documentTarget = { chatId: chat.id, index }; setDocumentMode(true);
+    if (documentTemplate) documentTemplate.value = spec.template;
+    el.input.value = 'Revise this document: '; autoGrow(); updateSendState(); el.input.focus(); return;
+  }
+  const card = link.closest('.document-card'), status = card.querySelector('.document-download-status');
+  if (card.dataset.downloading) return;
+  card.dataset.downloading = 'true'; status.textContent = 'Preparing your download…';
+  try {
+    const result = await downloadDocument(spec, link.dataset.documentFormat, apiHeaders);
+    const url = URL.createObjectURL(result.blob), download = document.createElement('a');
+    download.href = url; download.download = result.filename; document.body.appendChild(download); download.click(); download.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    status.textContent = 'Download ready: ' + result.filename;
+  } catch (error) { status.textContent = error.message; if (error.status === 401) showGate(error.message); }
+  finally { delete card.dataset.downloading; }
+});
 
 const imageComposer=mountImageComposer({
   enabled:()=>Boolean(state.catalogue.chatImages),

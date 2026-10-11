@@ -1,3 +1,4 @@
+import { mountDocumentRoutes } from './documents.js';
 import { readDocument, withAttachments } from './chat-attachments.js';
 import { taskQuestion, QUALITY_PROMPT } from './intelligence.js';
 // The Express app itself, with no listener attached.
@@ -1449,6 +1450,10 @@ app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
     res.status(error.status || 500).json({ error: message });
   }
 });
+
+mountDocumentRoutes(app, { rateLimit, requireAccess, complete, chooseModel: pickModel,
+  parseConversation: readConversation, readPhoto: photoFrom, photosLeft,
+  reservePhoto: () => photoTimes.push(Date.now()), canSeeWith, config });
 
 export default app;
 

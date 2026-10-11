@@ -331,6 +331,11 @@
         </div>
       </div>
 
+      <div id="document-mode" class="document-mode" hidden>
+        <strong>Create a document</strong>
+        <label>Template <select id="document-task-template"></select></label>
+        <button id="document-mode-cancel" type="button" aria-label="Cancel document mode">×</button>
+      </div>
       <div class="composer" id="composer">
         <!-- Two inputs, not one. A single file box makes the phone ask
              which you meant every time; asking for the camera outright opens
@@ -374,6 +379,9 @@
                 </svg>
               </span>
               <span>Photos</span>
+            </button>
+            <button class="more-item" id="create-document-btn" type="button" role="menuitem">
+              <span class="more-icon" aria-hidden="true">▤</span><span>Create a document</span>
             </button>
             <button class="more-item paper-btn" id="paper-btn" type="button" role="menuitem">
               <span class="more-icon">
