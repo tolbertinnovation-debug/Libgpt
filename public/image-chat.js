@@ -67,13 +67,15 @@ export function imagePrompt(text) {
   if(typeof text!=='string') return null;
   const prompt=text.trim();
   if(/^\/image(?:\s|$)/i.test(prompt)) return prompt.replace(/^\/image\s*/i,'');
-  const request=prompt.replace(/^(?:please\s+|can you\s+|could you\s+|would you\s+|help me\s+)+/i,'');
-  if(!/^(?:create|generate|draw|paint|illustrate|design|make)\b/i.test(request)) return null;
+  let request=prompt.replace(/^(?:please\s+|can you\s+|could you\s+|would you\s+|help me\s+)+/i,'');
+  request=request.replace(/^i (?:want|would like) to (?:see|view)\s+/i,'show ');
+  if(!/^(?:create|generate|draw|paint|illustrate|design|make|show)\b/i.test(request)) return null;
   if(/\b(?:story|stori|poem|essay|lesson|quiz|code|website|app|plan|report|prompt|instructions|cv|resume)\b/i.test(request)) return null;
-  if(!/\b(?:image|picture|photo|photograph|illustration|painting|portrait|poster|logo|artwork|wallpaper|landscape|classroom|sunset|forest|skyline)\b/i.test(request)) return null;
+  if(!/\b(?:image|picture|photo|photograph|illustration|painting|portrait|poster|logo|artwork|wallpaper|flag|map|diagram|chart|landscape|classroom|sunset|forest|skyline)\b/i.test(request)) return null;
   return prompt;
 }
 
 export function imageLoadingMarkup() {
   return '<div class="image-generation-status" role="status" aria-live="polite"><div class="image-generation-heading"><span class="image-generation-spinner" aria-hidden="true"></span><strong>Creating your image…</strong></div><div class="image-generation-preview" aria-hidden="true"></div><progress aria-label="Image generation in progress"></progress><p>This may take a minute. Use Stop to cancel.</p></div>';
 }
+
