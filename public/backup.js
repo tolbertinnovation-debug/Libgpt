@@ -1,4 +1,5 @@
 import { readDocumentSpec } from './documents.js';
+import { readTaskBrief } from './document-tasks.js';
 // Portable, local-only backups. Credentials and preferences are never included.
 export const BACKUP_LIMIT = 8_000_000;
 const CHAT_KEY = 'grandpa-ai:chats:v1';
@@ -50,10 +51,11 @@ function messages(value, building = false) {
       clean.photoSource = source;
     }
     if (!building && message.document) clean.document = readDocumentSpec(message.document);
+    if (!building && message.taskBrief) clean.taskBrief = readTaskBrief(message.taskBrief);
     if (!building && message.documentQuestions === true) {
       clean.documentQuestions = true;
       clean.documentTemplate = text(message.documentTemplate || '', 50, 'document template');
-      if (message.documentAction === 'append') clean.documentAction = 'append';
+      if (['append', 'new'].includes(message.documentAction)) clean.documentAction = message.documentAction;
     }
     if(!building && message.image) {
       const url=text(message.image.url,4_000_040,'generated image');

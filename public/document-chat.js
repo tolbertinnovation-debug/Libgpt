@@ -1,6 +1,13 @@
 import { DOCUMENT_TEMPLATES, DOCUMENT_FORMATS, readDocumentSpec } from './documents.js';
 import { escapeHtml as esc } from './markdown.js';
 import { visualSvg } from './document-visuals.js';
+import { DOCUMENT_TASKS, TASK_FIELDS, readTaskBrief, missingTaskFields } from './document-tasks.js';
+
+export function taskBriefCard(input, index, pending = true) {
+  let brief; try { brief = readTaskBrief(input); } catch { return ''; }
+  const missing = missingTaskFields(brief);
+  return `<section class="document-brief"><strong>${esc(DOCUMENT_TASKS[brief.kind].label)} · ${pending ? 'Gathering your details' : 'Task brief'}</strong>${brief.summary ? `<p>${esc(brief.summary)}</p>` : ''}<details><summary>Review the details so far</summary><dl>${Object.entries(brief.fields).map(([key, value]) => `<dt>${esc(TASK_FIELDS[key][0])}</dt><dd>${esc(value)}</dd>`).join('')}</dl>${missing.length ? `<p>Still needed: ${missing.map(key => esc(TASK_FIELDS[key][0])).join(', ')}.</p>` : ''}</details>${pending ? `<p>Reply in chat with your answers. You can correct any detail, choose placeholders, or ask me to suggest an option.</p><div class="document-task-actions"><button type="button" data-task-create="${index}">Create with these details</button><button type="button" data-task-cancel="${index}">Cancel task</button></div>` : ''}</section>`;
+}
 
 export function documentPreview(input) {
   const spec = readDocumentSpec(input);
@@ -30,12 +37,13 @@ export function documentCard(input, index) {
     <details class="document-preview"><summary>Read document</summary>${documentPreview(spec)}</details>
     <button type="button" class="document-revise" data-document-revise="${index}">Revise this document</button>
     <button type="button" class="document-revise" data-document-continue="${index}">Add another section</button>
+    ${spec.blocks.some(b => b.type === 'drawing') ? `<div class="document-downloads"><a href="#" data-document-download="${index}" data-document-format="png" data-document-figure="${spec.blocks.findIndex(b => b.type === 'drawing')}">↓ Artwork PNG</a><a href="#" data-document-download="${index}" data-document-format="svg" data-document-figure="${spec.blocks.findIndex(b => b.type === 'drawing')}">↓ Artwork SVG</a></div>` : ''}
     <p class="document-download-status" aria-live="polite"></p>
   </section>`;
 }
 
-export async function downloadDocument(input, format, headers, fetcher = fetch) {
-  const response = await fetcher('/api/document/export', { method: 'POST', headers: headers(), body: JSON.stringify({ document: readDocumentSpec(input), format }) });
+export async function downloadDocument(input, format, headers, fetcher = fetch, options = {}) {
+  const response = await fetcher('/api/document/export', { method: 'POST', headers: headers(), body: JSON.stringify({ document: readDocumentSpec(input), format, ...(Number.isInteger(options.figureIndex) ? { figureIndex: options.figureIndex } : {}) }) });
   if (!response.ok) { const error = await response.json().catch(() => ({})); throw Object.assign(new Error(error.error || 'The download could not be prepared.'), { status: response.status }); }
   const filename = response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1] || `document.${format}`;
   return { blob: await response.blob(), filename };

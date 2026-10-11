@@ -22,6 +22,7 @@ export function readDocumentSpec(value) {
     title: text(value.title, 200, 'document title'), subtitle: text(value.subtitle, 300, 'subtitle', true),
     author: text(value.author, 200, 'author', true), date: text(value.date, 100, 'date', true),
     template: Object.hasOwn(DOCUMENT_TEMPLATES, value.template) ? value.template : 'report',
+    pageSize: value.pageSize === 'a4' ? 'a4' : 'letter',
     filename: String(value.filename || value.title).replace(/[^a-zA-Z0-9 -]/g, '').trim().replace(/\s+/g, '-').slice(0, 80) || 'grandpa-document',
     missing: [], blocks: [],
   };
@@ -102,13 +103,34 @@ function readVisual(block) {
     if (!s || typeof s !== 'object') fail('Invalid drawing shape.');
     if (!['rect', 'circle', 'line', 'text'].includes(s.kind)) fail('Unsupported drawing shape.');
     const shape = { kind: s.kind, x: number(s.x, 0, 1000), y: number(s.y, 0, 1000), color: colour(s.color) };
-    if (s.kind === 'text') shape.text = text(s.text, 100, 'drawing text');
+    if (s.kind === 'text') {
+      shape.text = text(s.text, 100, 'drawing text');
+      shape.size = number(s.size ?? 20, 12, 120);
+      shape.width = number(s.width ?? 1000 - shape.x, 1, 1000 - shape.x);
+      if (s.align != null && !['left', 'center', 'right'].includes(s.align)) fail('Invalid drawing text alignment.');
+      shape.align = s.align || 'left'; shape.bold = s.bold === true;
+    }
     if (s.kind === 'line') { shape.x2 = number(s.x2, 0, 1000); shape.y2 = number(s.y2, 0, 1000); }
     if (s.kind === 'circle') { shape.radius = number(s.radius, 1, 250); if (shape.x - shape.radius < 0 || shape.x + shape.radius > 1000 || shape.y - shape.radius < 0 || shape.y + shape.radius > 1000) fail('Circle must fit the canvas.'); }
     if (s.kind === 'rect') { shape.width = number(s.width, 1, 1000); shape.height = number(s.height, 1, 1000); if (shape.x + shape.width > 1000 || shape.y + shape.height > 1000) fail('Rectangle must fit the canvas.'); }
     return shape;
   });
-  return { ...base, shapes };
+  if (block.layout != null && !['landscape', 'square', 'portrait'].includes(block.layout)) fail('Invalid drawing layout.');
+  let canvas;
+  if (block.canvas != null) {
+    if (!block.canvas || typeof block.canvas !== 'object') fail('Invalid artwork canvas.');
+    const width = number(block.canvas.width, 320, 4096), height = number(block.canvas.height, 320, 4096);
+    if (!Number.isInteger(width) || !Number.isInteger(height) || width / height < .25 || width / height > 4) fail('Invalid artwork canvas proportions.');
+    canvas = { width, height };
+  }
+  const canvasHeight = canvas ? 600 * canvas.height / canvas.width : block.layout === 'portrait' ? 800 : block.layout === 'square' ? 600 : 360;
+  for (const shape of shapes.filter(s => s.kind === 'text')) {
+    const limit = Math.max(1, Math.floor(shape.width / (shape.size * .64)));
+    const rows = shape.text.match(new RegExp(`.{1,${limit}}(?:\\s|$)|.{1,${limit}}`, 'g'))?.length || 1;
+    const lastBaseline = shape.y * canvasHeight / 1000 + shape.size * .6 * (1 + (rows - 1) * 1.2);
+    if (lastBaseline > canvasHeight - 2) fail('Drawing text does not fit the canvas. Shorten the text or move the text box.');
+  }
+  return { ...base, shapes, layout: block.layout || 'landscape', ...(canvas ? { canvas } : {}) };
 }
 
 export function documentMarkdown(spec) {
@@ -129,6 +151,8 @@ export function documentIntent(text, hasDocument = false) {
   if (/^\/(?:document|doc)\b/i.test(value)) return true;
   if (/^(?:how|what|why|can (?:a|the)|explain|tell me how)\b/i.test(value)) return false;
   if (hasDocument && /^(?:please\s+)?(?:revise|update|edit|improve|change|convert|export|download|make|add|remove|replace|shorten|expand|rewrite|reformat)\b/i.test(value)) return true;
+  if (/^(?:please\s+)?(?:design|create|make|prepare)\s+(?:(?:a|an|my)\s+)?(?:logo|graphic design|infographic|invitation|poster|brochure)\b/i.test(value)) return true;
+  if (/^(?:i (?:want|need)|help me (?:write|prepare|create)|business plan\b|project proposal\b|graphic design\b)/i.test(value) && /\b(?:business plan|project proposal|letter|report|document|graphic design|flyer|poster|brochure|cv|resume|handbook)\b/i.test(value)) return true;
   return /^(?:(?:please|can you|could you|i need you to|i want you to)\s+)*(?:create|write|prepare|draft|design|make|generate)\b/i.test(value)
-    && /\b(?:document|documentation|pdf|doc|docx|word file|word document|letter|proposal|report|invoice|receipt|certificate|resume|résumé|cv|handbook|manual|contract|agreement|minutes|affidavit|business plan|lesson plan|scholarship application|job application|application letter|policy|syllabus|cover letter|brochure|flyer)\b/i.test(value);
+    && /\b(?:document|documentation|pdf|doc|docx|word file|word document|letter|proposal|report|invoice|receipt|certificate|resume|résumé|cv|handbook|manual|contract|agreement|minutes|affidavit|business plan|lesson plan|scholarship application|job application|application letter|policy|syllabus|cover letter|brochure|flyer|graphic design|infographic|invitation|poster)\b/i.test(value);
 }

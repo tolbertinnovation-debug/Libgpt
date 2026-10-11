@@ -37,7 +37,8 @@ export function tableGeometry(block, totalWidth) {
 // paginated before drawing, with repeated table headers and page numbers.
 export function documentPages(input) {
   const spec = readDocumentSpec(input), theme = DOCUMENT_TEMPLATES[spec.template];
-  const width = theme.landscape ? 792 : 612, height = theme.landscape ? 612 : 792;
+  const short = spec.pageSize === 'a4' ? 595.28 : 612, long = spec.pageSize === 'a4' ? 841.89 : 792;
+  const width = theme.landscape ? long : short, height = theme.landscape ? short : long;
   const margin = theme.landscape ? 64 : 54, bodyWidth = width - margin * 2, bottom = height - 62;
   const meter = new PDFDocument({ autoFirstPage: false });
   fonts(meter, theme);
@@ -110,12 +111,12 @@ export function documentPages(input) {
     if (block.type === 'paragraph') lines(block.text, { center: theme.landscape });
     if (block.type === 'signature') { room(52); y += 16; lines(block.text, { size: 11, center: theme.landscape }); }
     if (['chart', 'diagram', 'drawing'].includes(block.type)) {
-      const scene = visualScene(block), h = bodyWidth * scene.height / scene.width;
+      const scene = visualScene(block), w = Math.min(bodyWidth, 420 * scene.width / scene.height), h = w * scene.height / scene.width;
       const titleHeight = wrap(block.title, 12, 'strong', bodyWidth).length * 12 * 1.48;
       room(h + titleHeight + 18);
       lines(block.title, { size: 12, weight: 'strong', color: `#${theme.accent}`, gap: 8 });
       room(h + 10);
-      page.elements.push({ kind: 'figure', scene, x: margin, y, w: bodyWidth, h }); y += h + 10;
+      page.elements.push({ kind: 'figure', scene, x: margin + (bodyWidth - w) / 2, y, w, h }); y += h + 10;
       if (block.caption) lines(block.caption, { size: 9, color: '#626975', gap: 14 });
     }
     if (block.type === 'bullets') for (const item of block.items) lines(item, { indent: 14, gap: 6, bullet: true });
@@ -177,7 +178,7 @@ async function pdfExport(layout) {
         doc.save().rect(e.x, e.y, e.w, e.h).clip().translate(e.x, e.y).scale(e.w / e.scene.width);
         for (const s of e.scene.elements) {
           if (s.kind === 'text') {
-            doc.font('body').fontSize(s.size).fillColor(`#${s.color}`);
+            doc.font(s.weight === 'strong' ? 'strong' : 'body').fontSize(s.size).fillColor(`#${s.color}`);
             const tw = doc.widthOfString(s.text), x = s.x - (s.anchor === 'end' ? tw : s.anchor === 'middle' ? tw / 2 : 0);
             doc.text(s.text, x, s.y - s.size, { lineBreak: false });
           } else if (s.kind === 'line') doc.moveTo(s.x, s.y).lineTo(s.x2, s.y2).lineWidth(s.stroke).strokeColor(`#${s.color}`).stroke();
@@ -205,6 +206,7 @@ function pageSvg(page, theme) {
 }
 
 async function wordExport(spec, theme) {
+  const pageWidth = spec.pageSize === 'a4' ? 11906 : 12240, pageHeight = spec.pageSize === 'a4' ? 16838 : 15840;
   const font = theme.font === 'serif' ? 'Times New Roman' : 'Arial';
   const textRuns = (text, options = {}) => String(text).split('\n').map((line, i) => new TextRun({ text: line, ...(i ? { break: 1 } : {}), font, ...options }));
   const paragraph = (text, options = {}) => new Paragraph({ children: textRuns(text, { color: options.heading ? theme.accent : '20242A' }), widowControl: true, spacing: { after: 180, line: 300 }, ...(theme.landscape ? { alignment: AlignmentType.CENTER } : {}), ...options });
@@ -219,7 +221,7 @@ async function wordExport(spec, theme) {
       children.push(paragraph(block.title, { heading: HeadingLevel.HEADING_2, keepNext: true }));
       const scene = visualScene(block), ratio = scene.height / scene.width;
       const data = await sharp(Buffer.from(visualSvg(block))).resize(1200, Math.round(1200 * ratio)).png().toBuffer();
-      const w = theme.landscape ? 660 : 480;
+      const w = Math.min(theme.landscape ? 660 : 480, 520 / ratio);
       children.push(new Paragraph({ children: [new ImageRun({ type: 'png', data, transformation: { width: w, height: w * ratio }, altText: { title: block.title, description: block.caption || block.title, name: block.title } })] }));
       if (block.caption) children.push(paragraph(block.caption));
     }
@@ -228,7 +230,7 @@ async function wordExport(spec, theme) {
     if (block.type === 'table') {
       if (block.caption) children.push(paragraph(block.caption, { keepNext: true }));
       const border = { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' };
-      const geometry = tableGeometry(block, theme.landscape ? 13680 : 10080);
+      const geometry = tableGeometry(block, (theme.landscape ? pageHeight : pageWidth) - 2160);
       const columnWidths = geometry.widths.map(Math.round);
       children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE },
         columnWidths,
@@ -248,7 +250,7 @@ async function wordExport(spec, theme) {
     paragraphStyles: [{ id: 'Title', name: 'Title', basedOn: 'Normal', run: { size: 50, bold: true, color: theme.accent }, paragraph: { spacing: { after: 240 } } },
       { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', run: { size: 28, bold: true, color: theme.accent }, paragraph: { spacing: { before: 280, after: 120 }, keepNext: true } },
       { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', run: { size: 24, bold: true, color: theme.accent }, paragraph: { spacing: { before: 200, after: 100 }, keepNext: true } }],
-  }, sections: [{ properties: { page: { size: { width: theme.landscape ? 15840 : 12240, height: theme.landscape ? 12240 : 15840 }, margin: { top: 1000, bottom: 1000, left: 1080, right: 1080 }, ...(spec.template === 'letter' ? {} : { borders: { pageBorderTop: { style: BorderStyle.SINGLE, size: 18, color: theme.accent, space: 18 }, ...(theme.landscape ? { pageBorderBottom: { style: BorderStyle.SINGLE, size: 18, color: theme.accent, space: 18 }, pageBorderLeft: { style: BorderStyle.SINGLE, size: 18, color: theme.accent, space: 18 }, pageBorderRight: { style: BorderStyle.SINGLE, size: 18, color: theme.accent, space: 18 } } : {}) } }) } },
+  }, sections: [{ properties: { page: { size: { width: theme.landscape ? pageHeight : pageWidth, height: theme.landscape ? pageWidth : pageHeight }, margin: { top: 1000, bottom: 1000, left: 1080, right: 1080 }, ...(spec.template === 'letter' ? {} : { borders: { pageBorderTop: { style: BorderStyle.SINGLE, size: 18, color: theme.accent, space: 18 }, ...(theme.landscape ? { pageBorderBottom: { style: BorderStyle.SINGLE, size: 18, color: theme.accent, space: 18 }, pageBorderLeft: { style: BorderStyle.SINGLE, size: 18, color: theme.accent, space: 18 }, pageBorderRight: { style: BorderStyle.SINGLE, size: 18, color: theme.accent, space: 18 } } : {}) } }) } },
     footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ children: ['Page ', PageNumber.CURRENT, ' of ', PageNumber.TOTAL_PAGES], size: 18, color: '626975' })] })] }) }, children }] });
   return Packer.toBuffer(doc);
 }
@@ -266,14 +268,20 @@ function htmlExport(spec, theme, images = new Map()) {
     if (b.type === 'pageBreak') return '<div class="page-break"></div>';
     return `<p${b.type === 'signature' ? ' class="signature"' : ''}>${esc(b.text).replace(/\n/g, '<br>')}</p>`;
   }).join('');
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(spec.title)}</title><style>@page{size:letter ${theme.landscape ? 'landscape' : 'portrait'};margin:0.75in}body{font:11pt/1.5 ${theme.font === 'serif' ? 'Georgia,serif' : 'Arial,sans-serif'};color:#20242a;max-width:7in;margin:40px auto;padding:24px;border-top:6px solid #${theme.accent}}h1,h2,h3{color:#${theme.accent};break-after:avoid}p{orphans:3;widows:3}li{padding-left:3px}td.number,th.number{text-align:right;font-variant-numeric:tabular-nums}tr{break-inside:avoid}h1{font-size:25pt}h2{font-size:14pt;margin-top:24px}h3{font-size:12pt}table{width:100%;border-collapse:collapse;margin:18px 0}thead{display:table-header-group}th,td{border:1px solid #d9d9d9;padding:9px;text-align:left;vertical-align:middle}th{background:#${theme.accent};color:#fff}tbody tr:nth-child(even){background:#${theme.tint}}figure{margin:24px 0;break-inside:avoid}figure svg{display:block;width:100%;height:auto}figcaption,caption{font-size:9pt;color:#626975;text-align:left;margin:8px 0}tfoot{font-weight:bold;background:#${theme.tint}}.signature{margin-top:32px}.page-break{break-before:page}@media(max-width:600px){body{margin:12px;padding:12px}table{font-size:9pt}}</style></head><body><h1>${esc(spec.title)}</h1>${spec.subtitle ? `<p>${esc(spec.subtitle)}</p>` : ''}<p>${esc([spec.author, spec.date].filter(Boolean).join(' | '))}</p>${body}</body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(spec.title)}</title><style>@page{size:${spec.pageSize === 'a4' ? 'A4' : 'letter'} ${theme.landscape ? 'landscape' : 'portrait'};margin:0.75in}body{font:11pt/1.5 ${theme.font === 'serif' ? 'Georgia,serif' : 'Arial,sans-serif'};color:#20242a;max-width:7in;margin:40px auto;padding:24px;border-top:6px solid #${theme.accent}}h1,h2,h3{color:#${theme.accent};break-after:avoid}p{orphans:3;widows:3}li{padding-left:3px}td.number,th.number{text-align:right;font-variant-numeric:tabular-nums}tr{break-inside:avoid}h1{font-size:25pt}h2{font-size:14pt;margin-top:24px}h3{font-size:12pt}table{width:100%;border-collapse:collapse;margin:18px 0}thead{display:table-header-group}th,td{border:1px solid #d9d9d9;padding:9px;text-align:left;vertical-align:middle}th{background:#${theme.accent};color:#fff}tbody tr:nth-child(even){background:#${theme.tint}}figure{margin:24px 0;break-inside:avoid}figure svg{display:block;width:100%;height:auto}figcaption,caption{font-size:9pt;color:#626975;text-align:left;margin:8px 0}tfoot{font-weight:bold;background:#${theme.tint}}.signature{margin-top:32px}.page-break{break-before:page}@media(max-width:600px){body{margin:12px;padding:12px}table{font-size:9pt}}</style></head><body><h1>${esc(spec.title)}</h1>${spec.subtitle ? `<p>${esc(spec.subtitle)}</p>` : ''}<p>${esc([spec.author, spec.date].filter(Boolean).join(' | '))}</p>${body}</body></html>`;
 }
 
 const rtfText = text => [...String(text)].map(c => c === '\n' ? '\\par ' : /[\\{}]/.test(c) ? `\\${c}` : c.charCodeAt(0) > 127 ? c.split('').map(u => `\\u${u.charCodeAt(0) > 32767 ? u.charCodeAt(0) - 65536 : u.charCodeAt(0)}?`).join('') : c).join('');
 
-export async function exportDocument(input, format) {
+export async function exportDocument(input, format, { figureIndex } = {}) {
   if (!Object.hasOwn(DOCUMENT_FORMATS, format)) throw Object.assign(new Error('Choose a supported download format.'), { status: 400 });
   const spec = readDocumentSpec(input), theme = DOCUMENT_TEMPLATES[spec.template];
+  if (figureIndex !== undefined) {
+    const figure = Number.isInteger(figureIndex) && figureIndex >= 0 ? spec.blocks[figureIndex] : null;
+    if (!figure || !['chart', 'diagram', 'drawing'].includes(figure.type) || !['png', 'svg'].includes(format)) throw Object.assign(new Error('Choose a valid figure and PNG or SVG for artwork downloads.'), { status: 400 });
+    const svg = Buffer.from(visualSvg(figure));
+    return { buffer: format === 'png' ? await sharp(svg).resize({ width: figure.canvas?.width || 2000, ...(figure.canvas ? { height: figure.canvas.height } : {}) }).png().toBuffer() : svg, mime: format === 'png' ? 'image/png' : 'image/svg+xml', filename: `${spec.filename}-artwork-${figureIndex + 1}.${format}` };
+  }
   let buffer, extension = format, mime;
   if (format === 'docx') { buffer = await wordExport(spec, theme); mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'; }
   else if (format === 'pdf') { buffer = await pdfExport(documentPages(spec)); mime = 'application/pdf'; }
@@ -307,7 +315,7 @@ export async function exportDocument(input, format) {
       }
       return paragraph(b.text, b.type === 'signature' ? '\\sb320' : '');
     }).join('');
-    buffer = Buffer.from(`{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 ${theme.font === 'serif' ? 'Times New Roman' : 'Arial'};}}\\paperw${theme.landscape ? 15840 : 12240}\\paperh${theme.landscape ? 12240 : 15840}\\margl1080\\margr1080\\margt1080\\margb1080\\f0\\fs22 ${paragraph(spec.title, '\\b\\fs50')}\\b0\\fs22 ${spec.subtitle ? paragraph(spec.subtitle) : ''}${paragraph([spec.author, spec.date].filter(Boolean).join(' | '))}${blocks}}`); mime = 'application/rtf';
+    buffer = Buffer.from(`{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 ${theme.font === 'serif' ? 'Times New Roman' : 'Arial'};}}\\paperw${theme.landscape ? (spec.pageSize === 'a4' ? 16838 : 15840) : (spec.pageSize === 'a4' ? 11906 : 12240)}\\paperh${theme.landscape ? (spec.pageSize === 'a4' ? 11906 : 12240) : (spec.pageSize === 'a4' ? 16838 : 15840)}\\margl1080\\margr1080\\margt1080\\margb1080\\f0\\fs22 ${paragraph(spec.title, '\\b\\fs50')}\\b0\\fs22 ${spec.subtitle ? paragraph(spec.subtitle) : ''}${paragraph([spec.author, spec.date].filter(Boolean).join(' | '))}${blocks}}`); mime = 'application/rtf';
   } else if (format === 'md' || format === 'txt') { buffer = Buffer.from(documentMarkdown(spec)); mime = 'text/plain; charset=utf-8'; }
   else {
     const layout = documentPages(spec);
