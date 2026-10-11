@@ -76,9 +76,10 @@ test('multi-page image downloads include all pages and escaped content cannot cr
 });
 
 test('documents and unanswered document questions survive backup and restore', () => {
-  const chat = { id: 'work', title: 'Proposal', messages: [{ role: 'assistant', content: 'Please provide the recipient.', documentQuestions: true }, { role: 'assistant', content: 'Ready', document: readDocumentSpec(sample) }] };
+  const chat = { id: 'work', title: 'Proposal', messages: [{ role: 'assistant', content: 'Please provide the recipient.', documentQuestions: true, documentTemplate: 'letter' }, { role: 'assistant', content: 'Ready', document: readDocumentSpec(sample) }] };
   const restored = parseBackup(createBackup([chat], [])).chats[0];
   assert.equal(restored.messages[0].documentQuestions, true);
+  assert.equal(restored.messages[0].documentTemplate, 'letter');
   assert.deepEqual(restored.messages[1].document, readDocumentSpec(sample));
 });
 
@@ -108,6 +109,7 @@ test('real document routes create, clarify, revise, and download without inventi
   let response = await post('/api/document', { messages: [{ role: 'user', content: 'Write a proposal' }], template: 'report' });
   assert.equal(response.status, 200); assert.equal((await response.json()).document.template, 'report');
   assert.match(upstream.messages[0].content, /Do not invent/);
+  assert.match(upstream.messages[0].content, /Use the report template requested/);
   returned = { questions: ['What amount should the invoice show?'] };
   response = await post('/api/document', { messages: [{ role: 'user', content: 'Create an invoice' }] });
   assert.equal((await response.json()).questions.length, 1);
