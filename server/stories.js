@@ -13,15 +13,16 @@ export class StoryGenerationError extends Error {
   constructor(message) {super(message);this.name='StoryGenerationError';this.status=502;}
 }
 export async function generateFreshStory(spec,input,generate) {
+  const label=spec.label || 'stori';
   const baseline=recentStories(input?.recentStories);
   const previous=[...baseline];
   for(let attempt=0;attempt<2;attempt++) {
     const raw=await generate(spec.build({...input,recentStories:previous}));
     let story;
-    try {story=JSON.parse(raw);} catch {throw new StoryGenerationError('Grandpa lost his thread. Ask for a new stori again.');}
-    if(!spec.valid(story)) throw new StoryGenerationError('That stori came back incomplete. Ask again.');
+    try {story=JSON.parse(raw);} catch {throw new StoryGenerationError(`Grandpa lost his thread. Ask for a new ${label} again.`);}
+    if(!spec.valid(story)) throw new StoryGenerationError(`That ${label} came back incomplete. Ask again.`);
     if(!repeatsStory(story,previous) && !repeatsStory(story,baseline)) return story;
     previous.push(storyRecord(story));
   }
-  throw new StoryGenerationError('Grandpa repeated a recent stori. Try generating again, or choose a different subject.');
+  throw new StoryGenerationError(`Grandpa repeated a recent ${label}. Try generating again, or choose a different subject.`);
 }
