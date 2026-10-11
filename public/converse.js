@@ -169,7 +169,7 @@ export class VoiceConversation {
   }
 
   get supported() {
-    return Boolean(SpeechRecognitionAPI) && Boolean(this.speaker?.supported);
+    return Boolean(this.canHear?.() ?? SpeechRecognitionAPI) && Boolean(this.speaker?.supported);
   }
 
   get active() {
@@ -220,6 +220,7 @@ export class VoiceConversation {
     ear.onstart = () => {
       if (this.ear === ear && this.state === 'listening') this.onReady?.();
     };
+    ear.ontranscribing = () => { if (this.ear === ear && this.state === 'listening') this.onTranscribing?.(); };
 
     ear.onresult = (event) => {
       if (this.ear !== ear || this.state !== 'listening') return;
@@ -287,6 +288,9 @@ export class VoiceConversation {
         this.#trouble('The microphone or selected language is unavailable. Check your microphone and try again.');
         return;
       }
+      if (event.error === 'transcription' || event.error === 'timeout') {
+        this.#trouble(event.message || 'The recording could not be transcribed. Tap Retry, or use text chat.'); return;
+      }
       // 'no-speech' and 'aborted' are ordinary: onend starts listening again.
       if (event.error === 'network') {
         if (++this.networkErrors >= 3) {
@@ -334,7 +338,7 @@ export class VoiceConversation {
     this.reopen = null;
     const ear = this.ear;
     this.ear = null;   // set first: the onend above then knows to stand down
-    try { ear?.stop(); } catch { /* it had already stopped */ }
+    try { if (ear?.endpoints && ear.abort) ear.abort(); else ear?.stop(); } catch { /* it had already stopped */ }
   }
 
   /* ---- timers ----------------------------------------------------------- */
@@ -406,7 +410,7 @@ export class VoiceConversation {
     }, NOBODY_THERE_MS);
 
     // And, much sooner, the case where nothing has ever been heard at all.
-    this.deaf = this.everHeard ? null : setTimeout(() => {
+    this.deaf = this.everHeard || this.ear?.manual ? null : setTimeout(() => {
       if (this.state !== 'listening' || this.everHeard) return;
       this.#trouble('Nothing is reaching the microphone. Check that this site is '
         + 'allowed to use it, and that no other app is holding it — then tap '
@@ -671,3 +675,4 @@ export class VoiceConversation {
     this.wake = null;
   }
 }
+

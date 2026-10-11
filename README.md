@@ -18,6 +18,8 @@
 
 **Voice update:** The current app uses Cedar or Marin from OpenAI with natural speech instructions. See [voice setup](docs/natural-voice.md). Older descriptions of per-elder voices and cloud accent respelling below are superseded by this update.
 
+**Live voice repair:** Recording works without browser speech recognition, voice controls recover after capability loading, and the Talk screen offers Auto pause or Tap Send. Microphones and transcription requests are released on cancellation; processing states and useful retry messages replace silent failures. Recorded conversations use tap-to-interrupt to avoid loudspeaker echo.
+
 **African-centred conversational AI — powered by Tolbert Innovation Hub, Monrovia, Liberia.**
 
 > *"Empowering Africa's Future — One Conversation at a Time"*

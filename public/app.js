@@ -1307,7 +1307,7 @@ const speaker = new VoiceOut({
   voice: () => state.prefs.openaiVoice || 'cedar',
   accent: () => state.prefs.accent,
   headers: apiHeaders,
-  onNotice: (message) => toast(message),
+  onNotice: (message) => { toast(message); if (!el.talk.hidden) el.talkHint.textContent = message; },
 }, (speechState) => {
   const speaking = speechState !== 'idle';
   el.speakingBar.hidden = !speaking;
@@ -2023,11 +2023,15 @@ async function askAloud(said, { onSentence, onText, signal }) {
  * deployment with no key for transcription, where some ear beats none.
  */
 const listensByRecording = () => canSendRecording() && canListenByRecording();
+const talkInputMode = $('talk-input-mode');
 
 const conversation = new VoiceConversation({
+  canHear: () => listensByRecording() || Boolean(SpeechRecognitionAPI),
   createEar: (lang) => {
     if (listensByRecording()) {
       return new RecordedEar({
+        manual: talkInputMode?.value === 'manual',
+        onNotice: message => { el.talkHint.textContent = message; },
         endpointMs: () => patienceMs(state.prefs.patience),
         headers: apiHeaders,
         // Kept only so both ears take the same argument. The transcriber is
@@ -2056,7 +2060,7 @@ const conversation = new VoiceConversation({
   }),
   lang: () => state.prefs.dictationAccent || DEFAULT_DICTATION,
   patience: () => patienceMs(state.prefs.patience),
-  wantsCutIn: () => state.prefs.cutIn !== false,
+  wantsCutIn: () => state.prefs.cutIn !== false && !listensByRecording(),
   ask: askAloud,
 
   onState: (talkState) => {
@@ -2068,12 +2072,12 @@ const conversation = new VoiceConversation({
     // The hint must not promise talking over him where that does not work —
     // a phone that hears its own loudspeaker, or the switch turned off.
     if (talkState === 'speaking'
-      && (!conversation.cutInWorks || state.prefs.cutIn === false)) {
+      && (listensByRecording() || !conversation.cutInWorks || state.prefs.cutIn === false)) {
       el.talkHint.textContent = 'Tap the seal to cut in.';
     }
 
     const held = talkState === 'paused' || talkState === 'trouble';
-    el.talkHoldLabel.textContent = held ? 'Unmute' : 'Mute';
+    el.talkHoldLabel.textContent = talkState === 'trouble' ? 'Retry microphone' : held ? 'Unmute' : 'Mute';
     el.talkHold.setAttribute('aria-pressed', String(held));
     el.talkSend.disabled = talkState !== 'listening' || !el.talkHeard.textContent.trim();
     el.talkOrb.disabled = talkState === 'listening';
@@ -2088,8 +2092,10 @@ const conversation = new VoiceConversation({
 
   onReady: () => {
     el.talkState.textContent = 'Listening…';
-    el.talkHint.textContent = 'Just talk. Grandpa answers when you pause, or tap Send now.';
+    el.talkHint.textContent = conversation.ear?.manual ? 'Speak, then tap Send now. The microphone closes while Grandpa replies.' : 'Just talk. Grandpa answers when you pause, or tap Send now.';
+    el.talkSend.disabled = !conversation.ear?.endpoints;
   },
+  onTranscribing: () => { el.talkState.textContent = 'Understanding your recording…'; el.talkHint.textContent = 'Your microphone is off while the recording is processed.'; el.talkSend.disabled = true; },
 
   // The seal moves with the voice the microphone is actually hearing. A circle
   // that pulses on a timer is decoration; one that answers your own voice is
@@ -2189,6 +2195,7 @@ function closeTalk() {
 }
 
 el.talkBtn.addEventListener('click', openTalk);
+talkInputMode?.addEventListener('change', () => { if (conversation.active) { conversation.pause(); conversation.resume(); } });
 el.startTalking.addEventListener('click', openTalk);
 el.talkOrb.addEventListener('click', () => conversation.interrupt());
 el.talkHold.addEventListener('click', () => conversation.toggle());
@@ -3370,6 +3377,11 @@ async function boot() {
     const response = await fetch('/api/config');
     const config = await response.json();
     state.catalogue = config;
+    // Recording support depends on the deployment config, which was unknown
+    // during the first capability check. Re-enable voice after it arrives.
+    canTalk = conversation.supported;
+    el.startTalking.hidden = !canTalk;
+    showTheRightCircle();
     const voiceSelect = $('settings-openai-voice');
     voiceSelect.replaceChildren();
     for (const voice of config.voices || []) {
