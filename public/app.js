@@ -68,8 +68,8 @@ const state = {
     theme: null,        // 'light' | 'dark' | null = follow the phone
     textSize: 'md',     // 'sm' | 'md' | 'lg'
     autoSpeak: true,
-    voiceRate: 0.92,
-    voicePitch: 0.82,   // an old man, not a newsreader
+    voiceRate: 1,
+    voicePitch: 1,      // only used by the phone fallback
     voiceURI: '',        // '' = let the app pick the closest accent
     dictationAccent: DEFAULT_DICTATION,
     patience: DEFAULT_PATIENCE,
@@ -1300,6 +1300,7 @@ const speaker = new VoiceOut({
   wanted: () => Boolean(state.catalogue.realVoice)
     && state.prefs.realVoice !== false,
   speaker: () => state.prefs.speaker,
+  voice: () => state.prefs.openaiVoice || 'cedar',
   accent: () => state.prefs.accent,
   headers: apiHeaders,
   onNotice: (message) => toast(message),
@@ -2198,12 +2199,7 @@ function realVoiceHint() {
     return 'Not available on this deployment — the phone\'s own voice is used.';
   }
   if (state.prefs.realVoice === false) return 'Off. The phone\'s own voice is used.';
-  // Which engine, because the two do not sound alike and somebody wondering
-  // why it changed deserves to be told rather than left guessing.
-  if (state.catalogue.voiceFrom === 'elevenlabs') {
-    return 'On, in the ElevenLabs voice. Charged to that account by the character.';
-  }
-  return 'On. Costs about a US cent for every four or five answers.';
+  return 'OpenAI generated speech. Cedar and Marin offer natural, clear delivery. Uses the internet.';
 }
 
 
@@ -3152,30 +3148,19 @@ async function boot() {
     const response = await fetch('/api/config');
     const config = await response.json();
     state.catalogue = config;
-    const teamRow = document.createElement('label');
-    teamRow.className = 'setting-row';
-    teamRow.htmlFor = 'settings-team-voice';
-    const teamLabel = document.createElement('span');
-    teamLabel.innerHTML = '<strong>Team voice</strong><small>Choose a voice for spoken replies. Pending voices need activation.</small>';
-    const teamSelect = document.createElement('select');
-    teamSelect.id = 'settings-team-voice';
-    teamSelect.add(new Option('Default voice', ''));
-    for (const voice of config.teamVoices || []) {
-      const option = new Option(voice.name + (voice.available ? '' : ' — pending activation'), voice.name);
-      option.disabled = !voice.available;
-      teamSelect.add(option);
+    const voiceSelect = $('settings-openai-voice');
+    voiceSelect.replaceChildren();
+    for (const voice of config.voices || []) {
+      voiceSelect.add(new Option(`${voice.label} — ${voice.hint}`, voice.id));
     }
-    let savedTeamVoice = '';
-    try { savedTeamVoice = localStorage.getItem('grandpa-team-voice') || ''; } catch {}
-    teamSelect.value = (config.teamVoices || []).some(v => v.name === savedTeamVoice && v.available) ? savedTeamVoice : '';
-    try { localStorage.setItem('grandpa-team-voice', teamSelect.value); } catch {}
-    teamSelect.addEventListener('change', () => {
+    voiceSelect.value = state.prefs.openaiVoice || config.defaultVoice || 'cedar';
+    voiceSelect.disabled = !config.realVoice;
+    voiceSelect.addEventListener('change', () => {
       speaker.stop();
-      try { localStorage.setItem('grandpa-team-voice', teamSelect.value); } catch {}
-      toast(teamSelect.value ? `${teamSelect.value} selected for spoken replies.` : 'Default voice selected.');
+      state.prefs.openaiVoice = voiceSelect.value;
+      savePreferences();
+      toast(`${voiceSelect.selectedOptions[0]?.textContent || voiceSelect.value} selected.`);
     });
-    teamRow.append(teamLabel, teamSelect);
-    el.setRealVoice.closest('label').after(teamRow);
     state.ready = config.ready;
 
     if (!config.ready) showSetupBanner();
@@ -3340,4 +3325,5 @@ document.addEventListener('visibilitychange', () => {
 });
 
 boot();
+
 
