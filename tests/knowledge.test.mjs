@@ -85,6 +85,16 @@ test('chat streams complete input, research sources, continuations and honest fa
     const tooBig=await post(question('x'.repeat(QUESTION_CHARS+1)));
     assert.equal(tooBig.status,413);assert.equal(requests.length,0);
   });
+  await t.test('recalled conversation details reach the provider after both client and server windows',async()=>{
+    requests=[];
+    const full=[{role:'user',content:'My name is Samuel and my project is Grandpa AI.'},{role:'assistant',content:'We will plan Grandpa AI.'},...Array.from({length:180},(_,i)=>({role:i%2?'assistant':'user',content:'An unrelated topic '+i})),{role:'user',content:'What is my name and my project?'}];
+    const client=conversationWindow(full);
+    const result=await post({messages:client.list,research:'off'});
+    assert.equal(result.status,200);
+    const sent=requests[0].body.messages;
+    assert.ok(sent.some(m=>m.role==='user' && m.content===full[0].content));
+    assert.equal(sent.at(-1).content,full.at(-1).content);
+  });
   await t.test('photo research uses Responses image input and preserves more than six citations',async()=>{
     requests=[];
     const r=await post({...question('Find the latest facts about this photo'),photo:'data:image/png;base64,AAAA'});
@@ -144,4 +154,18 @@ test('chat streams complete input, research sources, continuations and honest fa
     assert.ok(r.events.some(e=>e.type==='notice' && /Continue/.test(e.data.message)));
     scenario='normal';
   });
+});
+
+test('long conversations recall earlier user details and relevant exchanges while keeping recent corrections last',()=>{
+  const messages=[{role:'user',content:'My name is Samuel. My project is Grandpa AI in Liberia.'},{role:'assistant',content:'We can plan the Grandpa AI pilot.'},
+    {role:'user',content:'The classroom image should have students using laptops.'},{role:'assistant',content:'Use bright daylight and neat uniforms.'},
+    ...Array.from({length:180},(_,i)=>({role:i%2?'assistant':'user',content:'An unrelated exchange '+i})),
+    {role:'user',content:'Correction: use tablets instead of laptops for the classroom.'},{role:'assistant',content:'Understood: tablets.'},{role:'user',content:'What is my name and what did we decide for the classroom?'}];
+  const result=conversationWindow(messages);
+  assert.ok(result.list.some(m=>m.content===messages[0].content));
+  assert.ok(result.list.some(m=>m.content===messages[2].content));
+  assert.deepEqual(result.list.slice(-3),messages.slice(-3));
+  assert.equal(result.list.length+result.dropped,messages.length);
+  assert.ok(result.list.length<=160);assert.ok(result.list.reduce((n,m)=>n+m.content.length,0)<=120000);
+  assert.deepEqual(conversationWindow(result.list).list,result.list);
 });

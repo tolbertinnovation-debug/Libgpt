@@ -24,7 +24,7 @@ import * as ritual from './ritual.js';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 import { mountSupport } from './support.js';
-import {imageCard,mountImageComposer,safeChatImage,imagePrompt} from './image-chat.js';
+import {imageCard,mountImageComposer,safeChatImage,imagePrompt,imageLoadingMarkup} from './image-chat.js';
 
 /* ========================================================================
    State
@@ -667,7 +667,7 @@ function forSending(messages) {
 // long thread quietly losing its beginning is a thing worth knowing about —
 // it is why he may not remember something said much earlier.
 const trimmedNote = (n) => '<div class="turn-note">'
-  + `Earlier ${n === 1 ? 'message' : 'messages'} left out — this conversation had grown too long to send whole.`
+  + `Earlier ${n === 1 ? 'message' : 'messages'} not included in this answer’s context. Recent messages and relevant earlier exchanges are retained.`
   + '</div>';
 
 /** Mark the answer being streamed as one he is reading, not remembering. */
@@ -1591,7 +1591,7 @@ const imageComposer=mountImageComposer({
     chat.messages.push({role:'user',content:'Create an image: '+options.prompt});
     chat.updatedAt=Date.now();persist();renderThread();renderSidebar();
     state.streaming=controller;setBusy(true);
-    const pending=startAiTurn();pending.textContent='Creating your image… This may take a minute. You can stop it with the Stop button.';
+    const pending=startAiTurn();pending.innerHTML=imageLoadingMarkup();
     try {
       const response=await fetch('/api/image',{method:'POST',headers:apiHeaders(),signal:controller.signal,body:JSON.stringify(options)});
       const result=await response.json().catch(()=>({}));
