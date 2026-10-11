@@ -889,6 +889,7 @@ body {
 /* Message toolbar */
 .msg-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: .15rem;
   margin-top: .5rem;
   opacity: 0;
