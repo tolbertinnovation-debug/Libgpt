@@ -55,10 +55,11 @@ export function readDocumentSpec(value) {
 }
 
 export function documentMarkdown(spec) {
+  const tableCell = value => String(value).replace(/\|/g, '\\|').replace(/\n/g, ' ');
   return [`# ${spec.title}`, spec.subtitle, [spec.author, spec.date].filter(Boolean).join(' · '), ...spec.blocks.map(b => {
     if (b.type === 'heading') return `${b.level === 2 ? '###' : '##'} ${b.text}`;
     if (b.type === 'bullets') return b.items.map(x => `- ${x}`).join('\n');
-    if (b.type === 'table') return [b.columns.join(' | '), b.columns.map(() => '---').join(' | '), ...b.rows.map(r => r.join(' | '))].map(r => `| ${r} |`).join('\n');
+    if (b.type === 'table') return [b.columns.map(tableCell).join(' | '), b.columns.map(() => '---').join(' | '), ...b.rows.map(r => r.map(tableCell).join(' | '))].map(r => `| ${r} |`).join('\n');
     return b.text || '';
   })].filter(Boolean).join('\n\n');
 }

@@ -3450,9 +3450,12 @@ body {
 .document-missing { padding:12px 0; font-size:.85rem; }
 .document-missing ul { margin:6px 0; padding-left:22px; }
 .document-page { margin:12px 0; padding:28px; background:#fff; color:#20242a; font:14px/1.65 Arial,sans-serif; border-top:5px solid var(--document-accent); box-shadow:0 4px 20px #0000000a; overflow-wrap:anywhere; }
-.document-page h2 { font-size:24px; line-height:1.25; margin:0 0 14px; color:#000; }
-.document-page h3 { font-size:17px; margin:24px 0 8px; color:#000; }
-.document-page h4 { font-size:15px; margin:20px 0 8px; color:#000; }
+.document-page h2 { font-size:24px; line-height:1.25; margin:0 0 14px; color:var(--document-accent); }
+.document-page h3 { font-size:17px; margin:24px 0 8px; color:var(--document-accent); }
+.document-page h4 { font-size:15px; margin:20px 0 8px; color:var(--document-accent); }
+.document-page-letter,.document-page-certificate { font-family:Georgia,serif; }
+.document-page-letter { border-top:0; }
+.document-page-certificate { text-align:center; border:6px double var(--document-accent); }
 .document-page p { margin:0 0 14px; }
 .document-page .document-meta { font-size:12px; color:#626975; }
 .document-table { overflow-x:auto; margin:18px 0; }

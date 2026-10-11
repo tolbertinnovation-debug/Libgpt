@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { unzipSync, strFromU8 } from 'fflate';
-import { DOCUMENT_TEMPLATES, readDocumentSpec, documentIntent } from '../public/documents.js';
+import { DOCUMENT_TEMPLATES, readDocumentSpec, documentIntent, documentMarkdown } from '../public/documents.js';
 import { documentCard, downloadDocument } from '../public/document-chat.js';
-import { documentPages, exportDocument } from '../server/document-export.js';
+import { documentPages, exportDocument, tableGeometry } from '../server/document-export.js';
 import { createBackup, parseBackup } from '../public/backup.js';
 
 const sample = { title: 'Training Programme Proposal', subtitle: 'Digital skills for young learners', author: 'Samuel S Tolbert', date: '11 October 2026', template: 'proposal', filename: 'training-proposal', missing: ['Recipient address'], blocks: [
@@ -59,6 +59,35 @@ test('downloads have real format signatures and Word contains editable content a
   assert.match((await exportDocument(sample, 'doc')).buffer.toString(), /^<!DOCTYPE html>/);
   assert.match((await exportDocument(sample, 'svg')).buffer.toString(), /^<svg/);
   for (const format of ['txt', 'md', 'html']) assert.match((await exportDocument(sample, format)).buffer.toString(), /Training Programme Proposal/);
+});
+
+test('document tables give descriptions room and align supplied amounts across exports', async () => {
+  const table = { type: 'table', columns: ['Description of service', 'Amount USD'], rows: [['Detailed digital literacy training for new learners', '1,250.00'], ['Materials', '50.00']] };
+  const geometry = tableGeometry(table, 504);
+  assert.ok(geometry.widths[0] > geometry.widths[1]);
+  assert.deepEqual(geometry.numeric, [false, true]);
+  assert.ok(Math.abs(geometry.widths.reduce((a, b) => a + b) - 504) < 0.01);
+  const spec = { ...sample, blocks: [table, { type: 'paragraph', text: 'Monrovia\nLiberia' }] };
+  const xml = strFromU8(unzipSync((await exportDocument(spec, 'docx')).buffer)['word/document.xml']);
+  assert.match(xml, /w:jc w:val="right"/);
+  assert.match(xml, /<w:br\/>/);
+  assert.match(xml, /w:widowControl/);
+  const html = (await exportDocument(spec, 'html')).buffer.toString();
+  assert.match(html, /<colgroup>/); assert.match(html, /class="number">1,250.00/);
+  const markdown = documentMarkdown({ ...spec, blocks: [{ type: 'table', columns: ['Detail'], rows: [['one | two\nthree']] }] });
+  assert.ok(markdown.includes('one \\| two three'));
+});
+
+test('wrapped bullets use hanging indents and normal rows stay together at page boundaries', () => {
+  const table = { type: 'table', columns: ['Record', 'Details'], rows: Array.from({ length: 20 }, (_, i) => [`Entry ${i}`, `Details ${i} ${'text '.repeat(20)}`]) };
+  const pages = documentPages({ ...sample, blocks: [{ type: 'bullets', items: ['A long bullet that wraps '.repeat(8)] }, table] }).pages;
+  const bulletPage = pages.find(p => p.elements.some(e => e.text === '•'));
+  const bullet = bulletPage.elements.find(e => e.text === '•');
+  assert.ok(bulletPage.elements.some(e => e.y === bullet.y && e.x === bullet.x + 14));
+  for (let i = 0; i < 20; i++) {
+    const page = pages.find(p => p.elements.some(e => e.text === `Entry ${i}`));
+    assert.ok(page.elements.some(e => e.text?.startsWith(`Details ${i} `)), `Row ${i} moved apart`);
+  }
 });
 
 test('multi-page image downloads include all pages and escaped content cannot create executable SVG or HTML', async () => {

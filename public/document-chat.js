@@ -3,9 +3,9 @@ import { escapeHtml as esc } from './markdown.js';
 
 export function documentPreview(input) {
   const spec = readDocumentSpec(input);
-  return `<article class="document-page"><h2>${esc(spec.title)}</h2>${spec.subtitle ? `<p class="document-subtitle">${esc(spec.subtitle)}</p>` : ''}<p class="document-meta">${esc([spec.author, spec.date].filter(Boolean).join(' · '))}</p>${spec.blocks.map(b => {
+  return `<article class="document-page document-page-${spec.template}"><h2>${esc(spec.title)}</h2>${spec.subtitle ? `<p class="document-subtitle">${esc(spec.subtitle)}</p>` : ''}<p class="document-meta">${esc([spec.author, spec.date].filter(Boolean).join(' · '))}</p>${spec.blocks.map(b => {
     if (b.type === 'heading') return `<h${b.level + 2}>${esc(b.text)}</h${b.level + 2}>`;
-    if (b.type === 'table') return `<div class="document-table"><table><thead><tr>${b.columns.map(x => `<th>${esc(x)}</th>`).join('')}</tr></thead><tbody>${b.rows.map(row => `<tr>${row.map(x => `<td>${esc(x)}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    if (b.type === 'table') return `<div class="document-table"><table><thead><tr>${b.columns.map(x => `<th>${esc(x)}</th>`).join('')}</tr></thead><tbody>${b.rows.map(row => `<tr>${row.map(x => `<td>${esc(x).replace(/\n/g, '<br>')}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
     if (b.type === 'bullets') return `<ul>${b.items.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
     if (b.type === 'pageBreak') return '<hr aria-label="Page break">';
     return `<p${b.type === 'signature' ? ' class="document-signature"' : ''}>${esc(b.text).replace(/\n/g, '<br>')}</p>`;
