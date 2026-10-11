@@ -39,7 +39,7 @@ async function toError(response, asked = '', path = '') {
     401: 'The OpenAI API key was rejected. Check OPENAI_API_KEY — on your own machine '
       + 'that is in .env; on a host it is in that host\'s environment variables.',
     403: /verif/i.test(detail)
-      ? 'This account must be verified with OpenAI before it can use that image model. Set OPENAI_IMAGE_MODEL=dall-e-3 instead.'
+      ? 'This account must be verified with OpenAI before it can use that image model. Complete verification in your OpenAI organization settings, or use a GPT image model your project is allowed to access.'
       : `This API key is not allowed to use ${asked ? `"${asked}"` : 'that model'}.`
         + `${detail ? ` OpenAI said: ${detail}` : ''}`,
     404: `This key cannot use ${asked ? `"${asked}"` : 'that model'}. `
@@ -408,27 +408,20 @@ export async function listModels({ signal } = {}) {
   return (body.data || []).map((m) => m?.id).filter(Boolean);
 }
 
-/**
- * Generate one picture.
- *
- * Two model families behave differently: the dall-e models take
- * `response_format`, gpt-image-1 rejects it and returns base64 regardless.
- * Either way the bytes come back here and are handed on as a data URI, so the
- * browser never talks to OpenAI directly.
- */
-export async function generateImage({ prompt, size = '1024x1024', signal }) {
+/** Generate one GPT Image asset; bytes stay behind the server API. */
+export async function generateImage({ prompt, size = '1024x1024', quality = 'medium', format = 'png', signal }) {
   const model = config.imageModel;
-  const body = { model, prompt, n: 1, size };
-  if (/^dall-e/i.test(model)) body.response_format = 'b64_json';
-
-  const response = await post('/images/generations', body, signal);
-  const parsed = await response.json();
-  const b64 = parsed.data?.[0]?.b64_json;
-
-  if (!b64) {
-    throw new OpenAIError('The picture came back empty. Try again.', 502, 'no_image');
+  const outputFormat=['png','jpeg','webp'].includes(format) ? format : 'png';
+  const body={model,prompt,n:1,size,quality,output_format:outputFormat};
+  if(outputFormat!=='png') body.output_compression=85;
+  const response=await post('/images/generations',body,signal);
+  const parsed=await response.json();
+  const b64=parsed.data?.[0]?.b64_json;
+  if(typeof b64!=='string' || !b64 || !/^[A-Za-z0-9+/=]+$/.test(b64)) {
+    throw new OpenAIError('The picture came back empty. Try again.',502,'no_image');
   }
-  return `data:image/png;base64,${b64}`;
+  if(b64.length>4_000_000) throw new OpenAIError('This image is too large to deliver here. Try a smaller size or lower quality.',502,'image_too_large');
+  return `data:image/${outputFormat};base64,${b64}`;
 }
 
 /**
