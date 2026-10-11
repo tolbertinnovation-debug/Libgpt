@@ -8,6 +8,8 @@ Chat produces a complete structured draft with a preview and download links. Mis
 
 Report, proposal, formal letter, resume, invoice, certificate, handbook and poster templates provide distinct typography, accent colours, spacing and page treatments. Certificates use landscape pages and a decorative frame. Template selection can be changed on the document card before downloading.
 
+Writing guidance adapts the structure to each document type and checks consistency, missing facts and supplied arithmetic. PDF and Word headings use the template accent colour. Tables give descriptive columns more room and align numeric amounts to the right; ordinary PDF table rows stay together, with repeated headers on later pages. Wrapped bullets have hanging indents, and Word preserves deliberate line breaks such as address lines. Paragraphs use controls to reduce isolated lines at page boundaries.
+
 ## Downloads
 
 | Format | Output |

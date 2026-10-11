@@ -16,6 +16,22 @@ const fonts = (doc, theme) => {
   doc.registerFont('strong', theme.font === 'serif' ? serifBold : bold);
 };
 
+// Give descriptive columns more room, and align quantities and amounts for scanning.
+export function tableGeometry(block, totalWidth) {
+  const numeric = block.columns.map((_, i) => {
+    const values = block.rows.map(row => row[i]).filter(Boolean);
+    return values.length > 0 && values.every(value => /^(?:[A-Z]{3}\s*)?[$€£]?\s*-?[\d,.]+(?:\s*%|\s*[A-Z]{3})?$/.test(value));
+  });
+  const weights = block.columns.map((heading, i) => {
+    const longest = Math.max(heading.length, ...block.rows.map(row => Math.min(row[i].length, 80)));
+    return Math.max(12, Math.min(numeric[i] ? 28 : 65, longest));
+  });
+  const minimum = totalWidth / block.columns.length * 0.65;
+  const remaining = totalWidth - minimum * block.columns.length;
+  const sum = weights.reduce((a, b) => a + b, 0);
+  return { numeric, widths: weights.map(weight => minimum + remaining * weight / sum) };
+}
+
 // A shared page layout powers PDF and image exports. Content is wrapped and
 // paginated before drawing, with repeated table headers and page numbers.
 export function documentPages(input) {
@@ -62,46 +78,62 @@ export function documentPages(input) {
     }
   };
   const room = need => { if (y + need > bottom) next(); };
-  const lines = (text, { size = 11, weight = 'body', indent = 0, gap = 10, center = false } = {}) => {
+  const lines = (text, { size = 11, weight = 'body', indent = 0, gap = 10, center = false, color = '#20242A', bullet = false } = {}) => {
     const wrapped = wrap(text, size, weight, bodyWidth - indent);
     const step = size * 1.48;
-    for (const line of wrapped) {
+    // Keep short paragraphs together; avoid leaving a single opening line at a page foot.
+    room(Math.min(wrapped.length, 3) * step);
+    for (let i = 0; i < wrapped.length; i++) {
+      const line = wrapped[i];
+      if (wrapped.length - i === 2 && y + step * 2 > bottom) next();
       room(step);
       meter.font(weight).fontSize(size);
       const x = center ? (width - meter.widthOfString(line)) / 2 : margin + indent;
-      drawText(line, x, y, size, weight); y += step;
+      if (bullet && i === 0) drawText('•', margin, y, size, weight, `#${theme.accent}`);
+      drawText(line, x, y, size, weight, color); y += step;
     }
     y += gap;
   };
   next();
-  lines(spec.title, { size: theme.landscape ? 29 : spec.template === 'poster' ? 30 : 25, weight: 'strong', gap: 12, center: theme.landscape });
+  lines(spec.title, { size: theme.landscape ? 29 : spec.template === 'poster' ? 30 : 25, weight: 'strong', gap: 12, center: theme.landscape, color: `#${theme.accent}` });
   if (spec.subtitle) lines(spec.subtitle, { size: 12, center: theme.landscape });
   if (spec.author || spec.date) lines([spec.author, spec.date].filter(Boolean).join('  |  '), { size: 10, gap: 18, center: theme.landscape });
+  if (!theme.landscape && spec.template !== 'letter') { room(16); box(margin, y, bodyWidth, 1, `#${theme.accent}`); y += 18; }
   for (const block of spec.blocks) {
     if (block.type === 'pageBreak') { if (y > 70) next(); continue; }
-    if (block.type === 'heading') { room(65); y += 7; lines(block.text, { size: block.level === 2 ? 12 : 14, weight: 'strong', gap: 8 }); }
+    if (block.type === 'heading') {
+      const size = block.level === 2 ? 12 : 14;
+      room(wrap(block.text, size, 'strong', bodyWidth).length * size * 1.48 + 55);
+      y += 7; lines(block.text, { size, weight: 'strong', gap: 8, center: theme.landscape, color: `#${theme.accent}` });
+    }
     if (block.type === 'paragraph') lines(block.text, { center: theme.landscape });
     if (block.type === 'signature') { room(52); y += 16; lines(block.text, { size: 11, center: theme.landscape }); }
-    if (block.type === 'bullets') for (const item of block.items) lines(`• ${item}`, { indent: 10, gap: 6 });
+    if (block.type === 'bullets') for (const item of block.items) lines(item, { indent: 14, gap: 6, bullet: true });
     if (block.type === 'table') {
-      const widths = block.columns.map(() => bodyWidth / block.columns.length);
-      const rowParts = row => row.map((cell, i) => wrap(cell, 10, 'body', widths[i] - 16));
+      const { widths, numeric } = tableGeometry(block, bodyWidth);
+      const rowParts = (row, weight = 'body') => row.map((cell, i) => wrap(cell, 10, weight, widths[i] - 16));
       const paint = (parts, header = false, shade = false) => {
         const count = Math.max(...parts.map(x => x.length)), h = count * 14 + 16;
         let x = margin;
         parts.forEach((part, i) => {
           box(x, y, widths[i], h, header ? `#${theme.accent}` : shade ? `#${theme.tint}` : '#FFFFFF', '#D9D9D9');
-          part.forEach((line, j) => drawText(line, x + 8, y + 8 + j * 14, 10, header ? 'strong' : 'body', header ? '#FFFFFF' : '#20242A'));
+          part.forEach((line, j) => {
+            meter.font(header ? 'strong' : 'body').fontSize(10);
+            const at = numeric[i] ? x + widths[i] - 8 - meter.widthOfString(line) : x + 8;
+            drawText(line, at, y + 8 + j * 14, 10, header ? 'strong' : 'body', header ? '#FFFFFF' : '#20242A');
+          });
           x += widths[i];
         });
         y += h;
       };
-      const header = rowParts(block.columns);
+      const header = rowParts(block.columns, 'strong');
       const headerHeight = Math.max(...header.map(x => x.length)) * 14 + 16;
       room(headerHeight + 40); paint(header, true);
       block.rows.forEach((row, index) => {
         const parts = rowParts(row);
         let offset = 0, count = Math.max(...parts.map(x => x.length));
+        // Keep ordinary rows intact; split only rows taller than a fresh page.
+        if (y + count * 14 + 16 > bottom && count * 14 + 16 <= bottom - 62 - headerHeight) { next(); paint(header, true); }
         while (offset < count) {
           let available = Math.floor((bottom - y - 16) / 14);
           if (available < 1) { next(); paint(header, true); available = Math.floor((bottom - y - 16) / 14); }
@@ -147,7 +179,8 @@ function pageSvg(page, theme) {
 
 async function wordExport(spec, theme) {
   const font = theme.font === 'serif' ? 'Times New Roman' : 'Arial';
-  const paragraph = (text, options = {}) => new Paragraph({ children: [new TextRun({ text, font, color: '000000' })], spacing: { after: 160, line: 280 }, ...(theme.landscape ? { alignment: AlignmentType.CENTER } : {}), ...options });
+  const textRuns = (text, options = {}) => String(text).split('\n').map((line, i) => new TextRun({ text: line, ...(i ? { break: 1 } : {}), font, ...options }));
+  const paragraph = (text, options = {}) => new Paragraph({ children: textRuns(text, { color: options.heading ? theme.accent : '20242A' }), widowControl: true, spacing: { after: 180, line: 300 }, ...(theme.landscape ? { alignment: AlignmentType.CENTER } : {}), ...options });
   const children = [paragraph(spec.title, { heading: HeadingLevel.TITLE, keepNext: true })];
   if (spec.subtitle) children.push(paragraph(spec.subtitle, { keepNext: true }));
   if (spec.author || spec.date) children.push(paragraph([spec.author, spec.date].filter(Boolean).join(' | ')));
@@ -159,12 +192,16 @@ async function wordExport(spec, theme) {
     if (block.type === 'pageBreak') children.push(new Paragraph({ pageBreakBefore: true }));
     if (block.type === 'table') {
       const border = { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' };
+      const geometry = tableGeometry(block, theme.landscape ? 13680 : 10080);
+      const columnWidths = geometry.widths.map(Math.round);
       children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE },
+        columnWidths,
         borders: { top: border, bottom: border, left: border, right: border, insideHorizontal: border, insideVertical: border },
-        rows: [block.columns, ...block.rows].map((row, index) => new TableRow({ tableHeader: index === 0, cantSplit: true, children: row.map(cell => new TableCell({
+        rows: [block.columns, ...block.rows].map((row, index) => new TableRow({ tableHeader: index === 0, cantSplit: true, children: row.map((cell, column) => new TableCell({
+          width: { size: columnWidths[column], type: WidthType.DXA },
           shading: { fill: index === 0 ? theme.accent : index % 2 === 0 ? theme.tint : 'FFFFFF' },
           margins: { top: 100, bottom: 100, left: 120, right: 120 },
-          children: [new Paragraph({ children: [new TextRun({ text: cell, font, size: 20, bold: index === 0, color: index === 0 ? 'FFFFFF' : '000000' })], spacing: { after: 60 } })],
+          children: [new Paragraph({ children: textRuns(cell, { size: 20, bold: index === 0, color: index === 0 ? 'FFFFFF' : '20242A' }), alignment: geometry.numeric[column] ? AlignmentType.RIGHT : AlignmentType.LEFT, spacing: { after: 60 } })],
         })) })),
       }));
       children.push(paragraph(''));
@@ -172,9 +209,9 @@ async function wordExport(spec, theme) {
   }
   const doc = new Document({ title: spec.title, creator: spec.author || 'Grandpa AI', styles: {
     default: { document: { run: { font, size: 22, color: '000000' }, paragraph: { spacing: { line: 280 } } } },
-    paragraphStyles: [{ id: 'Title', name: 'Title', basedOn: 'Normal', run: { size: 50, bold: true, color: '000000' }, paragraph: { spacing: { after: 240 } } },
-      { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', run: { size: 28, bold: true, color: '000000' } },
-      { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', run: { size: 24, bold: true, color: '000000' } }],
+    paragraphStyles: [{ id: 'Title', name: 'Title', basedOn: 'Normal', run: { size: 50, bold: true, color: theme.accent }, paragraph: { spacing: { after: 240 } } },
+      { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', run: { size: 28, bold: true, color: theme.accent }, paragraph: { spacing: { before: 280, after: 120 }, keepNext: true } },
+      { id: 'Heading2', name: 'Heading 2', basedOn: 'Normal', run: { size: 24, bold: true, color: theme.accent }, paragraph: { spacing: { before: 200, after: 100 }, keepNext: true } }],
   }, sections: [{ properties: { page: { size: { width: theme.landscape ? 15840 : 12240, height: theme.landscape ? 12240 : 15840 }, margin: { top: 1000, bottom: 1000, left: 1080, right: 1080 }, ...(spec.template === 'letter' ? {} : { borders: { pageBorderTop: { style: BorderStyle.SINGLE, size: 18, color: theme.accent, space: 18 }, ...(theme.landscape ? { pageBorderBottom: { style: BorderStyle.SINGLE, size: 18, color: theme.accent, space: 18 }, pageBorderLeft: { style: BorderStyle.SINGLE, size: 18, color: theme.accent, space: 18 }, pageBorderRight: { style: BorderStyle.SINGLE, size: 18, color: theme.accent, space: 18 } } : {}) } }) } },
     footers: { default: new Footer({ children: [new Paragraph({ alignment: AlignmentType.RIGHT, children: [new TextRun({ children: ['Page ', PageNumber.CURRENT, ' of ', PageNumber.TOTAL_PAGES], size: 18, color: '626975' })] })] }) }, children }] });
   return Packer.toBuffer(doc);
@@ -183,12 +220,16 @@ async function wordExport(spec, theme) {
 function htmlExport(spec, theme) {
   const body = spec.blocks.map(b => {
     if (b.type === 'heading') return `<h${b.level + 1}>${esc(b.text)}</h${b.level + 1}>`;
-    if (b.type === 'table') return `<table><thead><tr>${b.columns.map(x => `<th>${esc(x)}</th>`).join('')}</tr></thead><tbody>${b.rows.map(row => `<tr>${row.map(x => `<td>${esc(x)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+    if (b.type === 'table') {
+      const { widths, numeric } = tableGeometry(b, 100);
+      const cell = (tag, value, i) => `<${tag}${numeric[i] ? ' class="number"' : ''}>${esc(value).replace(/\n/g, '<br>')}</${tag}>`;
+      return `<table><colgroup>${widths.map(w => `<col style="width:${w.toFixed(2)}%">`).join('')}</colgroup><thead><tr>${b.columns.map((x, i) => cell('th', x, i)).join('')}</tr></thead><tbody>${b.rows.map(row => `<tr>${row.map((x, i) => cell('td', x, i)).join('')}</tr>`).join('')}</tbody></table>`;
+    }
     if (b.type === 'bullets') return `<ul>${b.items.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
     if (b.type === 'pageBreak') return '<div class="page-break"></div>';
     return `<p${b.type === 'signature' ? ' class="signature"' : ''}>${esc(b.text).replace(/\n/g, '<br>')}</p>`;
   }).join('');
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(spec.title)}</title><style>@page{size:letter ${theme.landscape ? 'landscape' : 'portrait'};margin:0.75in}body{font:11pt/1.5 ${theme.font === 'serif' ? 'Georgia,serif' : 'Arial,sans-serif'};color:#20242a;max-width:7in;margin:40px auto;padding:24px;border-top:6px solid #${theme.accent}}h1,h2,h3{color:#000;break-after:avoid}h1{font-size:25pt}h2{font-size:14pt;margin-top:24px}h3{font-size:12pt}table{width:100%;border-collapse:collapse;margin:18px 0}thead{display:table-header-group}th,td{border:1px solid #d9d9d9;padding:9px;text-align:left;vertical-align:middle}th{background:#${theme.accent};color:#fff}tbody tr:nth-child(even){background:#${theme.tint}}.signature{margin-top:32px}.page-break{break-before:page}@media(max-width:600px){body{margin:12px;padding:12px}table{font-size:9pt}}</style></head><body><h1>${esc(spec.title)}</h1>${spec.subtitle ? `<p>${esc(spec.subtitle)}</p>` : ''}<p>${esc([spec.author, spec.date].filter(Boolean).join(' | '))}</p>${body}</body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(spec.title)}</title><style>@page{size:letter ${theme.landscape ? 'landscape' : 'portrait'};margin:0.75in}body{font:11pt/1.5 ${theme.font === 'serif' ? 'Georgia,serif' : 'Arial,sans-serif'};color:#20242a;max-width:7in;margin:40px auto;padding:24px;border-top:6px solid #${theme.accent}}h1,h2,h3{color:#${theme.accent};break-after:avoid}p{orphans:3;widows:3}li{padding-left:3px}td.number,th.number{text-align:right;font-variant-numeric:tabular-nums}tr{break-inside:avoid}h1{font-size:25pt}h2{font-size:14pt;margin-top:24px}h3{font-size:12pt}table{width:100%;border-collapse:collapse;margin:18px 0}thead{display:table-header-group}th,td{border:1px solid #d9d9d9;padding:9px;text-align:left;vertical-align:middle}th{background:#${theme.accent};color:#fff}tbody tr:nth-child(even){background:#${theme.tint}}.signature{margin-top:32px}.page-break{break-before:page}@media(max-width:600px){body{margin:12px;padding:12px}table{font-size:9pt}}</style></head><body><h1>${esc(spec.title)}</h1>${spec.subtitle ? `<p>${esc(spec.subtitle)}</p>` : ''}<p>${esc([spec.author, spec.date].filter(Boolean).join(' | '))}</p>${body}</body></html>`;
 }
 
 const rtfText = text => [...String(text)].map(c => c === '\n' ? '\\par ' : /[\\{}]/.test(c) ? `\\${c}` : c.charCodeAt(0) > 127 ? c.split('').map(u => `\\u${u.charCodeAt(0) > 32767 ? u.charCodeAt(0) - 65536 : u.charCodeAt(0)}?`).join('') : c).join('');
