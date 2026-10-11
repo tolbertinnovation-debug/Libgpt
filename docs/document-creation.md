@@ -38,6 +38,10 @@ Drawings now support rounded rectangles, ellipses, polygons with 3–12 points, 
 
 Ask for multiple alternatives to receive several drawing blocks, each with separate downloads. Follow-up revisions preserve confirmed facts and wording. Each text box supports up to 240 characters; longer copy should use several clearly arranged boxes. The artwork uses trusted primitives, with no model-supplied executable SVG or remote asset URLs.
 
+The artwork gallery displays alternatives directly in chat with their dimensions. **Refine this design** prepares a targeted revision request identifying the selected artwork and asking to preserve other designs and confirmed facts; enter the desired changes before sending. This guides the model rather than providing a pixel-level editing guarantee.
+
+Sharing downloads also include JPEG and WebP. JPEG uses a white background for transparent areas, while PNG and WebP retain transparency. **Download design bundle** includes each drawing as PNG, SVG and a full-page artwork PDF, plus a text note listing details to confirm. Bundles support 1–10 drawings and up to 40 MB of generated artwork; larger collections can be downloaded individually or split into volumes. All exports are generated from the saved document without another model call.
+
 ## Longer documents
 
 There is no 10-page document limit. Select **Length** when creating a document, or ask for “a 20-page business plan” or “a handbook of more than 10 pages”. Goals from 11 to 100 pages trigger automatic section-by-section generation. Each request writes substantial new content and the server measures the trusted PDF layout. The card shows the PDF pages saved, the page goal and whether the draft is complete; Word pagination can differ.

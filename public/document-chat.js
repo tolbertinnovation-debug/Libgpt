@@ -1,5 +1,6 @@
 import { DOCUMENT_TEMPLATES, DOCUMENT_FORMATS, readDocumentSpec } from './documents.js';
 import { escapeHtml as esc } from './markdown.js';
+import { ARTWORK_FORMATS } from './document-design.js';
 import { visualSvg } from './document-visuals.js';
 import { DOCUMENT_TASKS, TASK_FIELDS, readTaskBrief, missingTaskFields } from './document-tasks.js';
 
@@ -28,6 +29,7 @@ export function documentCard(input, index) {
   if (!input) return '';
   let spec;
   try { spec = readDocumentSpec(input); } catch { return '<p>This saved document cannot be opened. Ask Grandpa to recreate it.</p>'; }
+  const artworkCount = spec.blocks.filter(b => b.type === 'drawing').length;
   return `<section class="document-card" style="--document-accent:#${DOCUMENT_TEMPLATES[spec.template].accent}">
     <div class="document-card-top"><span class="document-file-icon" aria-hidden="true">▤</span><div><strong>${esc(spec.title)}</strong><small>Editable document · Download in your preferred format</small></div></div>
     ${spec.longForm ? `<p class="document-length-status" aria-live="polite"><strong>${spec.longForm.pageCount} PDF pages saved</strong> · Goal: ${spec.longForm.targetPages}+ pages · ${spec.longForm.complete ? 'Draft complete' : 'Draft in progress'}<br><small>Measured at generation. Word and template changes can paginate differently. Each completed section is saved.</small></p>${!spec.longForm.complete ? `<button type="button" class="document-revise" data-document-resume="${index}">Resume long document</button>` : ''}` : ''}
@@ -38,7 +40,7 @@ export function documentCard(input, index) {
     <details class="document-preview"><summary>Read document</summary>${documentPreview(spec)}</details>
     <button type="button" class="document-revise" data-document-revise="${index}">Revise this document</button>
     <button type="button" class="document-revise" data-document-continue="${index}">Add another section</button>
-    ${spec.blocks.map((b, figure) => b.type === 'drawing' ? `<div class="document-downloads" aria-label="${esc(b.title)} downloads"><a href="#" data-document-download="${index}" data-document-format="png" data-document-figure="${figure}">↓ Artwork PNG${spec.blocks.filter(b => b.type === 'drawing').length > 1 ? ` · ${esc(b.title)}` : ''}</a><a href="#" data-document-download="${index}" data-document-format="svg" data-document-figure="${figure}">↓ Artwork SVG${spec.blocks.filter(b => b.type === 'drawing').length > 1 ? ` · ${esc(b.title)}` : ''}</a><a href="#" data-document-download="${index}" data-document-format="pdf" data-document-figure="${figure}">↓ Artwork PDF${spec.blocks.filter(b => b.type === 'drawing').length > 1 ? ` · ${esc(b.title)}` : ''}</a></div>` : '').join('')}
+    ${spec.blocks.some(b => b.type === 'drawing') ? `<section class="artwork-gallery" aria-label="Your graphic designs"><h3>Your artwork</h3>${spec.blocks.map((b,figure) => b.type === 'drawing' ? `<article class="artwork-item"><h4>${esc(b.title)}</h4><div class="artwork-image">${visualSvg(b)}</div><p class="artwork-dimensions">${b.canvas ? `${b.canvas.width} × ${b.canvas.height} pixels` : `${esc(b.layout)} layout`} · Scalable vector source available</p><div class="document-downloads">${Object.entries(ARTWORK_FORMATS).map(([format,label]) => `<a href="#" data-document-download="${index}" data-document-format="${format}" data-document-figure="${figure}">↓ Artwork ${label}</a>`).join('')}</div><button type="button" class="document-revise" data-artwork-refine="${index}" data-artwork-index="${figure}">Refine this design</button></article>` : '').join('')}${artworkCount <= 10 ? `<div class="document-downloads"><a href="#" data-document-download="${index}" data-document-format="design-bundle">↓ Download design bundle</a></div>` : '<p>Download these artworks individually, or split into collections of up to ten for a bundle.</p>'}<small>Bundle includes each artwork as PNG, SVG and PDF, plus details to confirm. JPEG uses a white background for transparent areas; PNG and WebP preserve transparency.</small></section>` : ''}
     <p class="document-download-status" aria-live="polite"></p>
   </section>`;
 }

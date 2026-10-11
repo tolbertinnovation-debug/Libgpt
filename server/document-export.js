@@ -5,6 +5,7 @@ import { zipSync } from 'fflate';
 import { createRequire } from 'node:module';
 import { DOCUMENT_TEMPLATES, DOCUMENT_FORMATS, readDocumentSpec, documentMarkdown } from '../public/documents.js';
 import { visualScene, visualSvg, sceneSvg } from '../public/document-visuals.js';
+import { ARTWORK_FORMATS } from '../public/document-design.js';
 
 const require = createRequire(import.meta.url);
 const regular = require.resolve('@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff');
@@ -282,17 +283,32 @@ function htmlExport(spec, theme, images = new Map()) {
 const rtfText = text => [...String(text)].map(c => c === '\n' ? '\\par ' : /[\\{}]/.test(c) ? `\\${c}` : c.charCodeAt(0) > 127 ? c.split('').map(u => `\\u${u.charCodeAt(0) > 32767 ? u.charCodeAt(0) - 65536 : u.charCodeAt(0)}?`).join('') : c).join('');
 
 export async function exportDocument(input, format, { figureIndex } = {}) {
-  if (!Object.hasOwn(DOCUMENT_FORMATS, format)) throw Object.assign(new Error('Choose a supported download format.'), { status: 400 });
+  if (!Object.hasOwn(DOCUMENT_FORMATS, format) && !(figureIndex !== undefined && Object.hasOwn(ARTWORK_FORMATS, format)) && format !== 'design-bundle') throw Object.assign(new Error('Choose a supported download format.'), { status: 400 });
   const spec = readDocumentSpec(input), theme = DOCUMENT_TEMPLATES[spec.template];
+  if (format === 'design-bundle') {
+    const drawings = spec.blocks.map((b,i) => b.type === 'drawing' ? i : null).filter(i => i !== null);
+    if (!drawings.length || drawings.length > 10) throw Object.assign(new Error('Design bundles support 1–10 artworks. Download a larger collection individually or split it into volumes.'), {status:400});
+    const files = {}; let bytes = 0;
+    for (const index of drawings) for (const type of ['png','svg','pdf']) {
+      const file = await exportDocument(spec, type, {figureIndex:index}); bytes += file.buffer.length;
+      if (bytes > 40 * 1024 * 1024) throw Object.assign(new Error('This design bundle exceeds 40 MB. Download the artworks individually.'), {status:400});
+      files[file.filename] = file.buffer;
+    }
+    files['design-notes.txt'] = Buffer.from(`${spec.title}\n\n${drawings.map(i => `${i+1}. ${spec.blocks[i].title}${spec.blocks[i].canvas ? ` — ${spec.blocks[i].canvas.width} × ${spec.blocks[i].canvas.height} pixels` : ''}`).join('\n')}\n\nPNG: sharing and raster editing. SVG: scalable vector artwork. PDF: full artwork page.\nDetails to confirm:\n${spec.missing.length ? spec.missing.join('\n') : 'Review wording, event details and branding before publishing.'}\n`);
+    return {buffer:Buffer.from(zipSync(files,{level:0})),mime:'application/zip',filename:`${spec.filename}-design-bundle.zip`};
+  }
   if (figureIndex !== undefined) {
     const figure = Number.isInteger(figureIndex) && figureIndex >= 0 ? spec.blocks[figureIndex] : null;
-    if (!figure || !['chart', 'diagram', 'drawing'].includes(figure.type) || !['png', 'svg', 'pdf'].includes(format)) throw Object.assign(new Error('Choose a valid figure and PNG, SVG or PDF for artwork downloads.'), { status: 400 });
+    if (!figure || !['chart', 'diagram', 'drawing'].includes(figure.type) || !Object.hasOwn(ARTWORK_FORMATS, format)) throw Object.assign(new Error('Choose a valid figure and PNG, JPEG, WebP, SVG or PDF for artwork downloads.'), { status: 400 });
     if (format === 'pdf') {
       const scene = visualScene(figure), width = spec.pageSize === 'a4' ? 595.28 : 612, height = width * scene.height / scene.width;
       return { buffer: await pdfExport({ spec, theme, pages: [{width,height,elements:[{kind:'figure',scene,x:0,y:0,w:width,h:height}]}] }), mime: 'application/pdf', filename: `${spec.filename}-artwork-${figureIndex + 1}.pdf` };
     }
     const svg = Buffer.from(figure.canvas ? visualSvg(figure).replace(/ width="[^"]+" height="[^"]+"/, ` width="${figure.canvas.width}" height="${figure.canvas.height}"`) : visualSvg(figure));
-    return { buffer: format === 'png' ? await sharp(svg).resize({ width: figure.canvas?.width || 2000, ...(figure.canvas ? { height: figure.canvas.height } : {}) }).png().toBuffer() : svg, mime: format === 'png' ? 'image/png' : 'image/svg+xml', filename: `${spec.filename}-artwork-${figureIndex + 1}.${format}` };
+    if (format === 'svg') return {buffer:svg,mime:'image/svg+xml',filename:`${spec.filename}-artwork-${figureIndex+1}.svg`};
+    const image = sharp(svg).resize({width:figure.canvas?.width || 2000,...(figure.canvas ? {height:figure.canvas.height} : {})});
+    const buffer = format === 'jpg' ? await image.flatten({background:'#ffffff'}).jpeg({quality:90,mozjpeg:true}).toBuffer() : format === 'webp' ? await image.webp({quality:90}).toBuffer() : await image.png().toBuffer();
+    return {buffer,mime:format === 'jpg' ? 'image/jpeg' : `image/${format}`,filename:`${spec.filename}-artwork-${figureIndex+1}.${format}`};
   }
   let buffer, extension = format, mime;
   if (format === 'docx') { buffer = await wordExport(spec, theme); mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'; }

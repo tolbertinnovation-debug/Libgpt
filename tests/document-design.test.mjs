@@ -38,7 +38,7 @@ test('design typography and trusted geometry validate, wrap consistently and rej
  assert.ok(scene.elements.filter(e=>e.kind==='text').every(e=>e.y<scene.height));
  for(const shape of [{kind:'polygon',color:'FFFFFF',points:[[0,0],[1001,0],[0,100]]},{kind:'text',x:0,y:0,text:'Bad',font:'url(evil)',color:'FFFFFF'},{kind:'rect',x:0,y:0,width:30,height:30,color:'FFFFFF',opacity:2},{kind:'rect',x:0,y:0,width:30,height:30,color:'FFFFFF',cornerRadius:50}]) assert.throws(()=>readDocumentSpec({...flyer,blocks:[{...flyer.blocks[0],shapes:[shape]}]}));
  const escaped=readDocumentSpec({...flyer,blocks:[{...flyer.blocks[0],shapes:[{kind:'text',x:50,y:50,width:900,size:20,text:'<script>alert(1)</script>',color:'FFFFFF'}]}]});assert.doesNotMatch(visualSvg(escaped.blocks[0]),/<script>/);
- const variants={...flyer,blocks:[...flyer.blocks,{...flyer.blocks[0],title:'Alternative design'}]};assert.equal((documentCard(variants,0).match(/data-document-figure=/g)||[]).length,6);
+ const variants={...flyer,blocks:[...flyer.blocks,{...flyer.blocks[0],title:'Alternative design'}]};assert.equal((documentCard(variants,0).match(/data-document-figure=/g)||[]).length,10);
 });
 
 test('new artwork geometry exports PNG, SVG, PDF and Word at preset dimensions',async()=>{

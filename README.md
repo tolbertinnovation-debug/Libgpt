@@ -10,6 +10,8 @@
 
 **Flyer and poster studio:** Graphic-design tasks offer six visual styles and common social/print canvas sizes. Artwork supports rounded panels, polygons, ellipses, outlines, transparency, serif/sans typography and consistent text wrapping. Each design alternative downloads separately as PNG, SVG or a full-page vector artwork PDF.
 
+**Artwork gallery and sharing:** Preview each alternative directly in chat, prepare a targeted refinement request, download JPEG or WebP, or get a ZIP bundle containing all designs as PNG/SVG/PDF with review notes. Bundles support up to ten artworks and 40 MB; saved individual downloads remain available for larger collections.
+
 **Open exploration:** History, Wisdom and Learn panels generate more on demand, with recent-repeat checks, journal saving, downloads and source verification in chat. Fixed saved-history count caps are removed. See [open exploration](docs/open-exploration.md).
 
 **Knowledge update:** Broader live research, answer-depth settings, larger conversation and generation budgets, and saved continuation controls. See [knowledge and generation](docs/knowledge.md). Earlier limits described below are superseded by this update.
