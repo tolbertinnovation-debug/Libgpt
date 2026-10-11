@@ -1,5 +1,7 @@
 # Grandpa AI
 
+**Knowledge update:** Broader live research, answer-depth settings, larger conversation and generation budgets, and saved continuation controls. See [knowledge and generation](docs/knowledge.md). Earlier limits described below are superseded by this update.
+
 **Voice update:** The current app uses Cedar or Marin from OpenAI with natural speech instructions. See [voice setup](docs/natural-voice.md). Older descriptions of per-elder voices and cloud accent respelling below are superseded by this update.
 
 **African-centred conversational AI — powered by Tolbert Innovation Hub, Monrovia, Liberia.**

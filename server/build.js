@@ -129,7 +129,7 @@ Then the fix, as whole files.`;
  * file that stops in the middle of a tag is not a partial answer — it is a
  * broken file, and the person cannot tell which.
  */
-export const BUILD_BUDGET = 7000;
+export const BUILD_BUDGET = 12_000;
 
 /** What the model needs to know about the project it is working on. */
 export function projectContext(files = []) {

@@ -46,7 +46,7 @@ const isArrayOf = (v, n, test) => Array.isArray(v) && v.length >= n && v.every(t
 export const KINDS = {
   /* ---------------------------------------------------------------- story */
   story: {
-    maxTokens: 1600,
+    maxTokens: 4000,
     temperature: 0.9,
     build(input) {
       const kind = oneOf(input?.storyKind, STORY_KINDS, 'folktale');
@@ -98,11 +98,11 @@ moral yet.${kind === 'history' ? '\nEverything must be factual. If you are unsur
 
   /* ------------------------------------------------------ story-continue */
   'story-continue': {
-    maxTokens: 1600,
+    maxTokens: 4000,
     temperature: 0.9,
     build(input) {
       const title = asText(input?.title, 120);
-      const story = asText(input?.story, 6000);
+      const story = asText(input?.story, 20_000);
       const choice = asText(input?.choice, 200);
       const historical = input?.storyKind === 'history';
 
@@ -135,7 +135,7 @@ Reply with a JSON object, and nothing else:
 
   /* ---------------------------------------------------------------- names */
   names: {
-    maxTokens: 1000,
+    maxTokens: 2000,
     temperature: 0.8,
     build(input) {
       const group = oneOf(input?.group, GROUPS, 'Kpelle');
@@ -172,7 +172,7 @@ names you are sure of than five you are not.`,
 
   /* -------------------------------------------------------------- recipe */
   recipe: {
-    maxTokens: 1500,
+    maxTokens: 3000,
     temperature: 0.6,
     build(input) {
       const dish = asText(input?.dish, 80) || 'palava sauce';
@@ -206,7 +206,7 @@ find, name what can stand in for it.`,
 
   /* ---------------------------------------------------------------- quiz */
   quiz: {
-    maxTokens: 600,
+    maxTokens: 1500,
     temperature: 0.8,
     build(input) {
       const seen = Array.isArray(input?.seen)

@@ -25,7 +25,7 @@
 
 // Generous for a form or a chapter, short of the conversation limit so an
 // attached paper cannot push the question itself out of the request.
-export const MOST_TEXT = 20_000;
+export const MOST_TEXT = 50_000;
 
 /** What a person can hand over. */
 export const PAPER_TYPES = '.txt,.md,.csv,.tsv,.log,.json,.pdf,text/plain,application/pdf';
