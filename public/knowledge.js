@@ -7,16 +7,45 @@ export const answerDepth = value => ['auto', 'detailed', 'thorough'].includes(va
 export const researchMode = value => ['auto', 'always', 'off'].includes(value) ? value : 'auto';
 
 export function conversationWindow(incoming) {
-  const usable = (Array.isArray(incoming) ? incoming : []).filter(m =>
-    m && ['user', 'assistant'].includes(m.role) && typeof m.content === 'string');
-  const list = usable.slice(-CONTEXT_MESSAGES).map(m => ({role:m.role, content:m.content}));
-  let dropped = usable.length - list.length;
-  let size = list.reduce((n, m) => n + m.content.length, 0);
-  while (list.length > 1 && size > CONTEXT_CHARS) {
-    size -= list.shift().content.length;
-    dropped++;
+  const usable=(Array.isArray(incoming) ? incoming : []).filter(m=>
+    m && ['user','assistant'].includes(m.role) && typeof m.content==='string');
+  if(!usable.length) return {list:[],dropped:0};
+  const total=usable.reduce((n,m)=>n+m.content.length,0);
+  if(usable.length<=CONTEXT_MESSAGES && total<=CONTEXT_CHARS)
+    return {list:usable.map(({role,content})=>({role,content})),dropped:0};
+
+  // Reserve a bounded part of the window for earlier context. Store original
+  // words and roles, not an invented summary. Recent corrections stay last.
+  const recallChars=12_000,recallMessages=16;
+  let start=usable.length-1,size=usable[start].content.length;
+  while(start>0 && usable.length-start<CONTEXT_MESSAGES-recallMessages
+    && size+usable[start-1].content.length<=CONTEXT_CHARS-recallChars) {
+    size+=usable[--start].content.length;
   }
-  return {list, dropped};
+  const query=usable.filter(m=>m.role==='user').at(-1)?.content || '';
+  const common=new Set('this that with from have your what when where would could please about create explain tell remember earlier conversation'.split(' '));
+  const tokens=[...new Set((query.toLowerCase().match(/[a-z0-9]{3,}/g)||[]).filter(t=>!common.has(t)))].slice(0,80);
+  const candidates=[];
+  for(let i=0;i<start;i++) {
+    if(usable[i].role!=='user') continue;
+    const words=new Set(usable[i].content.toLowerCase().match(/[a-z0-9]{3,}/g)||[]);
+    let score=tokens.reduce((n,t)=>n+(words.has(t)?3:0),0);
+    if(/\b(?:my name|i am|i'm|my project|my company|i prefer|remember that|call me)\b/i.test(usable[i].content)) score+=2;
+    if(i<8) score+=1;
+    if(score) candidates.push({index:i,score});
+  }
+  candidates.sort((a,b)=>b.score-a.score || b.index-a.index);
+  const recalled=new Set();let recallSize=0;
+  for(const {index} of candidates) {
+    const group=[index];
+    if(index+1<start && usable[index+1].role==='assistant') group.push(index+1);
+    const fresh=group.filter(i=>!recalled.has(i));
+    const chars=fresh.reduce((n,i)=>n+usable[i].content.length,0);
+    if(recalled.size+fresh.length>recallMessages || recallSize+chars>recallChars || size+recallSize+chars>CONTEXT_CHARS) continue;
+    fresh.forEach(i=>recalled.add(i));recallSize+=chars;
+  }
+  const indices=[...[...recalled].sort((a,b)=>a-b),...Array.from({length:usable.length-start},(_,i)=>start+i)];
+  return {list:indices.map(i=>({role:usable[i].role,content:usable[i].content})),dropped:usable.length-indices.length};
 }
 
 export function generationBudget({model = '', spoken = false, building = false, depth = 'auto'} = {}) {
