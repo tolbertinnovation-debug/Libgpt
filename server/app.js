@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 
 import { FALLBACK_MODELS, config, isChatModel, sortModels } from './config.js';
-import * as eleven from './elevenlabs.js';
+import { OPENAI_VOICES, DEFAULT_OPENAI_VOICE, speechOptions } from './voice.js';
 import { canSee, resolveTiers, tierFor } from './models.js';
 import {
   OpenAIError, complete, generateImage, listModels, speakAloud, streamChat, streamSearch,
@@ -21,7 +21,6 @@ import {
   DEFAULT_PERSONA,
   buildSystemPrompt,
   publicCatalogue,
-  voiceFor,
 } from './personas.js';
 import {
   BUILD_BUDGET, BUILD_CONTINUE_PROMPT, PLAN_PROMPT, buildPrompt, fitProject, fixPrompt,
@@ -129,12 +128,6 @@ async function accountModels() {
 // that there is no point paying for the round trip on every news question, and
 // /api/config stops claiming a capability this key does not have.
 let searchRefused = '';
-
-// The same, for the voice: set when ElevenLabs turns out not to work on this
-// key at all — a bad key, a voice the account does not have, a quota spent.
-// After that there is no point paying the round trip on every sentence, and
-// OpenAI's voice takes over.
-let elevenRefused = '';
 
 /**
  * Should a failed search stop us trying again?
@@ -247,11 +240,11 @@ app.get('/api/config', async (_req, res) => {
     ...publicCatalogue(),
     library: libraryCatalogue(),
     imagesEnabled: config.imagesEnabled,
-    realVoice: config.realVoice && (Boolean(config.apiKey) || eleven.available()),
-    // Which engine is actually doing the talking, so the settings can say so
-    // rather than leaving someone to guess why it sounds different.
-    teamVoices: ["Samuel","Sarah","David","Kollie","Johnson","Grace","Josephine","Paul"].map((name) => ({ name, available: Boolean(config.apiKey) && Boolean(process.env[`OPENAI_VOICE_${name.toUpperCase()}`]?.trim()) })),
-    voiceFrom: eleven.available() && !elevenRefused ? 'elevenlabs' : 'openai',
+    realVoice: config.realVoice && Boolean(config.apiKey),
+    voices: OPENAI_VOICES,
+    defaultVoice: DEFAULT_OPENAI_VOICE,
+    voiceFrom: 'openai',
+    voiceModel: config.voiceModel,
     // True only when a model that can actually read the web is on this
     // account. Promising live news the key cannot fetch would be the same
     // lie the feature exists to stop.
@@ -1204,92 +1197,25 @@ app.post('/api/speak', rateLimit, requireAccess, async (req, res) => {
     return;
   }
 
-  const { voice, delivery } = voiceFor(req.body?.speaker);
+  let options;
+  try { options = speechOptions(req.body); }
+  catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+  if (!config.apiKey) return res.status(503).json({ error: 'OpenAI speech is not configured on this deployment.' });
   const controller = new AbortController();
   res.on('close', () => controller.abort());
-
-  // The same range as the speaking-speed slider, whichever engine hears it.
-  const speed = Number.isFinite(req.body?.speed)
-    ? Math.min(1.5, Math.max(0.75, req.body.speed))
-    : undefined;
 
   try {
     // Counted before the call, so two requests together cannot both slip past.
     spokenChars.push({ at: Date.now(), n: text.length });
 
-    // The better voice first, where there is one. A failure here is not the
-    // end of the sentence: OpenAI's voice says it instead, and a failure that
-    // will still be a failure in five minutes is remembered so the next
-    // sentence does not wait for it again.
-    if (!config.apiKey && eleven.available() && !elevenRefused && !req.body?.voice) {
-      try {
-        const audio = await eleven.speakAloud({
-          text,
-          voice: req.body?.voice,
-          speed,
-          signal: controller.signal,
-        });
-        res.setHeader('Content-Type', 'audio/mpeg');
-        res.setHeader('Cache-Control', 'no-store');
-        res.send(audio);
-        return;
-      } catch (error) {
-        if (controller.signal.aborted) return;
-
-        // Two different failures wear the same shape here, and treating them
-        // alike costs either every sentence after this one or this one.
-        //
-        // The setup being wrong — a key they reject, a key not allowed that
-        // voice, or the configured voice not existing — will be just as wrong
-        // in five minutes, so it is remembered and OpenAI takes over.
-        const named = typeof req.body?.voice === 'string' && req.body.voice.trim();
-        const setupBroken = error.status === 401 || error.status === 403
-          || (error.status === 404 && !named);
-
-        if (setupBroken) {
-          elevenRefused = error.message;
-          console.error('[voice] ElevenLabs switched off for this process:', error.message);
-        }
-
-        // But one request asking for a voice this account has not got is that
-        // request's mistake. Speaking it in some other voice instead would be
-        // answering as somebody nobody chose, which is worse than saying so.
-        if (error.status === 404 && named) throw error;
-
-        if (!config.apiKey) throw error;   // nothing to fall back to
-        if (!setupBroken) console.error('[voice] ElevenLabs failed, falling back:', error.message);
-      }
-    }
-
-    const teamNames = ['Samuel', 'Sarah', 'David', 'Kollie', 'Johnson', 'Grace', 'Josephine', 'Paul'];
-    const selectedName = String(req.body?.voice || '').trim();
-    const teamName = teamNames.find(name => name.toLowerCase() === selectedName.toLowerCase());
-    // Cedar is an OpenAI-recommended high-quality built-in voice.
-    let selectedVoice = /^tts-1(?:-hd)?$/.test(config.voiceModel) ? 'onyx' : 'cedar';
-    if (selectedName) {
-      if (!teamName) return res.status(400).json({ error: 'Unknown team voice.' });
-      const id = process.env[`OPENAI_VOICE_${teamName.toUpperCase()}`]?.trim();
-      if (!id) return res.status(409).json({ error: `${teamName}'s OpenAI custom voice is pending activation.` });
-      selectedVoice = { id };
-    }
-    const audio = await speakAloud({
-      text,
-      voice: selectedVoice,
-      delivery: `${delivery} Speak clearly and naturally, with a warm, calm Liberian English cadence. Avoid exaggerated accents. Use comfortable pacing and distinct pronunciation. Produce clean speech only, without background music, ambient noise, or added sound effects.`,
-      // The slider is the same one that drives the phone's voice, so the two
-      // sound like the same person at the same pace.
-      speed,
-      signal: controller.signal,
-    });
+    const audio = await speakAloud({ text, ...options, signal: controller.signal });
 
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Cache-Control', 'no-store');
     res.send(audio);
   } catch (error) {
     if (controller.signal.aborted) return;
-    // Either engine's own wording is worth more than ours: "the ElevenLabs key
-    // was rejected" tells an operator what to go and fix.
-    const readable = error instanceof OpenAIError || error instanceof eleven.VoiceError;
+    const readable = error instanceof OpenAIError;
     const message = readable ? error.message : 'Grandpa\'s voice could not be reached.';
     if (!readable) console.error('[speak]', error);
     res.status(error.status || 500).json({ error: message });
@@ -1543,4 +1469,5 @@ app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
 });
 
 export default app;
+
 
