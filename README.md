@@ -20,6 +20,8 @@
 
 **Live voice repair:** Recording works without browser speech recognition, voice controls recover after capability loading, and the Talk screen offers Auto pause or Tap Send. Microphones and transcription requests are released on cancellation; processing states and useful retry messages replace silent failures. Recorded conversations use tap-to-interrupt to avoid loudspeaker echo.
 
+**Illustrated cooking:** Cooking lessons can automatically generate ingredient, key-step and serving illustrations, plus pictures for individual steps on demand. Choose servings, experience and dietary/equipment preferences, follow observable cooking cues, stop image generation, and download the complete illustrated lesson. Pictures use the existing image service and budget; written recipes remain available when images are disabled or fail. See [cooking lessons](docs/illustrated-cooking.md).
+
 **African-centred conversational AI — powered by Tolbert Innovation Hub, Monrovia, Liberia.**
 
 > *"Empowering Africa's Future — One Conversation at a Time"*

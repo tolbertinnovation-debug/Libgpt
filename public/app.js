@@ -2850,12 +2850,13 @@ el.chipRow.addEventListener('click', event => {
 let library = null;
 
 /** One request to the structured endpoint, with the errors already read. */
-async function askLibrary(kind, input, path = '/api/structured') {
+async function askLibrary(kind, input, path = '/api/structured', options = {}) {
   try {
     const response = await fetch(path, {
       method: 'POST',
       headers: apiHeaders(),
       body: JSON.stringify({ kind, input, model: state.prefs.model }),
+      signal: options.signal,
     });
     const body = await response.json().catch(() => ({}));
 
@@ -2870,6 +2871,7 @@ async function askLibrary(kind, input, path = '/api/structured') {
     }
     return { ok: true, data: body.data ?? body };
   } catch {
+    if(options.signal?.aborted)return {ok:false,error:'Recipe creation stopped.'};
     sounds.error();
     return {
       ok: false,
@@ -2886,6 +2888,12 @@ function openLibrary(tab = 'story') {
       root: el.libraryBody,
       catalogue: state.catalogue.library || {},
       ask: askLibrary,
+      imagesEnabled: () => Boolean(state.catalogue.chatImages),
+      onRecipeImage: async (prompt, signal) => {
+        const response = await fetch('/api/image', {method:'POST',headers:apiHeaders(),signal,body:JSON.stringify({prompt,style:'illustration',size:'1536x1024',quality:'medium'})});
+        const data = await response.json().catch(()=>({}));
+        if(!response.ok){if(response.status===401)showGate(data.error);throw Error(data.error || 'The cooking picture could not be created.');}return data;
+      },
       onSaved: (entry) => { sounds.reply(); toast(`Kept in your journal: ${entry.title}`); },
       onError: message => toast(message),
       onExplore: (kind,title) => { closeLibrary(); send(`Search authoritative sources about ${title}. Explain this ${kind} topic more fully and verify the important facts, with links.`); },
@@ -2903,6 +2911,7 @@ function openLibrary(tab = 'story') {
 }
 
 function closeLibrary() {
+  library?.cancel();
   el.library.hidden = true;
   speaker.stop();
   sounds.close();

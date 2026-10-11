@@ -3481,6 +3481,14 @@ body {
 .document-mode[hidden] { display:none; }
 .document-design-option[hidden] { display:none; }
 .talk-tools { flex-wrap:wrap; max-width:100%; }
+.recipe-images-choice { display:flex; gap:9px; align-items:center; margin:12px 0; }
+.cooking-picture { margin:16px 0; }
+.cooking-picture img { width:100%; height:auto; border-radius:14px; display:block; }
+.cooking-picture figcaption { font-size:.82rem; line-height:1.5; margin:8px 0; overflow-wrap:anywhere; }
+.cooking-steps li { padding:12px 0; border-bottom:1px solid var(--border); }
+.cooking-cue,.cooking-safety { padding:12px; border-radius:10px; background:var(--bg-active); line-height:1.6; }
+.cooking-progress { padding:14px; border:1px solid var(--border); border-radius:12px; margin:16px 0; }
+.cooking-progress progress { width:100%; }
 .talk-input-mode { display:flex; flex-basis:100%; justify-content:center; align-items:center; gap:8px; font-size:.85rem; }
 .talk-input-mode select { padding:8px 10px; border-radius:10px; border:1px solid #bda789; background:#fffdf7; color:#34261f; font:inherit; }
 .artwork-gallery { margin-top:20px; padding-top:16px; border-top:1px solid #d9dfe7; }
