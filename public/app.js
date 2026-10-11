@@ -17,7 +17,7 @@ import { ACCENTS, DEFAULT_ACCENT, isAccent } from './pronounce.js';
 import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
-import { createLibrary } from './library.js';
+import { createLibrary, loadJournal } from './library.js';
 import { Dictation, canRecord } from './dictate.js';
 import { RecordedEar, canListenByRecording } from './hearing.js';
 import * as ritual from './ritual.js';
@@ -267,7 +267,11 @@ function showGate(message) {
 }
 
 const currentChat = () => state.chats.find((c) => c.id === state.currentId) || null;
-const persist = () => saveChats(state.chats);
+const persist = () => {
+  const saved=saveChats(state.chats);
+  if (!saved) toast('Device storage is full or blocked. Your current work stays open; download a backup before closing.');
+  return saved;
+};
 const savePreferences = () => savePrefs(state.prefs);
 
 /** Open a conversation. A reload always starts fresh, so nothing is saved here. */
@@ -2457,7 +2461,7 @@ el.setExport.addEventListener('click', () => {
 });
 
 const support = mountSupport({
-  snapshot:()=>({chats:state.chats,projects:ritual.backupProjects()}),
+  snapshot:()=>({chats:state.chats,projects:ritual.backupProjects(),journal:loadJournal()}),
   busy:()=>Boolean(state.streaming || ritual.isBusy() || conversation.active || listening || dictation.recording || transcribing),
   area:()=>ritual.currentMode(),
   restored:prepared=>{
@@ -2566,53 +2570,9 @@ window.addEventListener('resize', closeGlossary);
 el.thread.addEventListener('scroll', closeGlossary, { passive: true });
 
 /* ---- Chips and the two hearth buttons ---- */
-const CHIP_PROMPTS = {
-  story: { persona: 'culture', text: 'Tell me a story from long-long time.' },
-  // Not one fixed sentence. The same words in gives the same words back, and
-  // this chip is the one people press more than once — so it asks for the same
-  // thing a different way each time, the way a person would.
-  wisdom: {
-    persona: 'general',
-    text: [
-      'Give me wisdom for today, and explain it.',
-      'Give me a proverb to carry with me today, and tell me what it means.',
-      'Teach me a saying from home, and what it is really about.',
-      'What would my grandfather tell me this morning? Explain it to me.',
-      'Give me one piece of old wisdom I have not heard before, and unpack it.',
-      'A proverb about work, or money, or family — your choice. Then explain it.',
-    ],
-  },
-  history: { persona: 'culture', text: 'Tell me something true from Liberia\'s history.' },
-};
-
-// The last phrasing each chip used, so the next press is a different one.
-// Not random: random repeats, and being handed the same sentence twice running
-// is exactly the thing this is here to stop.
-const lastPhrasing = new Map();
-
-function nextPhrasing(chip, options) {
-  const at = ((lastPhrasing.get(chip) ?? Math.floor(Math.random() * options.length)) + 1)
-    % options.length;
-  lastPhrasing.set(chip, at);
-  return options[at];
-}
-
-el.chipRow.addEventListener('click', (event) => {
-  const chip = event.target.closest('[data-chip]');
-  if (!chip) return;
-
-  // "Tell me a Stori" belongs in the Library, where the story can branch.
-  if (chip.dataset.chip === 'story') { openLibrary('story'); return; }
-
-  const ask = CHIP_PROMPTS[chip.dataset.chip];
-  if (!ask) return;
-  state.prefs.persona = ask.persona;
-  savePreferences();
-  renderComposerPersona();
-
-  // A chip that always sends the same sentence gets the same answer back.
-  // Where it offers several phrasings, one that is not the last one used.
-  send(Array.isArray(ask.text) ? nextPhrasing(chip.dataset.chip, ask.text) : ask.text);
+el.chipRow.addEventListener('click', event => {
+  const chip=event.target.closest('[data-chip]');
+  if (chip && ['story','wisdom','history'].includes(chip.dataset.chip)) openLibrary(chip.dataset.chip);
 });
 
 /* ---- The Library ---- */
@@ -2657,6 +2617,8 @@ function openLibrary(tab = 'story') {
       catalogue: state.catalogue.library || {},
       ask: askLibrary,
       onSaved: (entry) => { sounds.reply(); toast(`Kept in your journal: ${entry.title}`); },
+      onError: message => toast(message),
+      onExplore: (kind,title) => { closeLibrary(); send(`Search authoritative sources about ${title}. Explain this ${kind} topic more fully and verify the important facts, with links.`); },
       onSpeak: (text, button) => speak(text, button),
       onSpeakStop: () => {
         speaker.stop();
