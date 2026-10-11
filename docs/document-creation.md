@@ -10,7 +10,21 @@ Report, proposal, formal letter, resume, invoice, certificate, handbook and post
 
 Writing guidance adapts the structure to each document type and checks consistency, missing facts and supplied arithmetic. PDF and Word headings use the template accent colour. Tables give descriptive columns more room and align numeric amounts to the right; ordinary PDF table rows stay together, with repeated headers on later pages. Wrapped bullets have hanging indents, and Word preserves deliberate line breaks such as address lines. Paragraphs use controls to reduce isolated lines at page boundaries.
 
-## Downloads
+## Charts, graphics and advanced tables
+
+Ask for a bar, line or pie chart using supplied data; a process/flow diagram; or a labelled schematic drawing with shapes, lines and text. Chat previews these figures alongside the document. PDF draws scalable vector figures, Word embeds high-resolution PNG figures, HTML contains trusted SVG, and RTF includes PNG figures. Word-compatible DOC includes embedded PNGs, whose display depends on the reader; prefer native DOCX for graphics. Text and Markdown retain chart values, diagram relationships, titles and captions rather than image files.
+
+Charts use up to 12 labels and 3 series. Diagrams support up to 16 nodes and 24 connections; drawings support up to 60 simple shapes. These are schematic graphics, not generated photographs or a full CAD editor. Figures use validated primitives; model output cannot supply executable SVG, scripts or remote asset URLs. The writing instructions require supplied data or transparent calculations and prohibit fabricating chart evidence.
+
+Tables support captions, labelled totals rows, custom relative column widths, left/centre/right alignment, up to 8 columns and 200 rows. Headers repeat across PDF and Word pages. Figures and table options survive saved chats and backups.
+
+## Longer documents
+
+Choose **Add another section**, describe the next chapter or content, and send. The server appends the new blocks while preserving earlier blocks and metadata. Each completed version remains in chat. New sections use the document headings and recent blocks for context; if a later section depends on older details, state them explicitly or attach the source again. Continuation answers also survive backups.
+
+Capacity is not literally unlimited: model context, server resources and device storage are finite. This update increases each document volume to 400 blocks / 320 KB of structured data, up to 60 figures, and 200 PDF/image-layout pages. PNG/SVG archives support 30 pages per export; use PDF/Word or another volume for larger tasks. Generation remains staged at a suggested 100 blocks / 80 KB per response. Creating further volumes keeps large tasks manageable.
+
+## Download formats
 
 | Format | Output |
 | --- | --- |
@@ -28,6 +42,6 @@ Downloads are generated from the saved draft when clicked. They download directl
 
 `POST /api/document` uses the configured chat/vision model to produce validated document JSON. `POST /api/document/export` renders that JSON without another model call. Exports use PDFKit, docx, Sharp and fflate; the server requires Node 20.9 or newer. No new provider credentials are required.
 
-Drafts are bounded to 80 KB of JSON and 100 blocks, with bounded text, tables and lists. PDF and image layout is limited to 50 pages; PNG/SVG exports are limited to 12 pages. Larger image exports ask the user to use PDF or Word. Generation instructions preserve supplied facts and require placeholders or clarification rather than fabricated credentials, citations or signatures.
+Text, tables and figures are validated against the per-volume bounds above. Larger image exports ask the user to use PDF or Word. Generation instructions preserve supplied facts and require placeholders or clarification rather than fabricated credentials, citations or signatures.
 
 Tests cover intent routing, schema validation, pagination, repeated table headers, file signatures, multi-page image archives, download errors, backups and the actual Express routes with mocked model responses. Mobile and desktop browser checks cover creation, preview, revision and a real PDF download. Template PDFs and Word documents were rendered and visually inspected. Live model generation still needs verification with deployment credentials.

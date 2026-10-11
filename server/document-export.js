@@ -1,9 +1,10 @@
 import PDFDocument from 'pdfkit';
-import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, HeadingLevel, AlignmentType, Footer, PageNumber, BorderStyle } from 'docx';
+import { Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, HeadingLevel, AlignmentType, Footer, PageNumber, BorderStyle, ImageRun } from 'docx';
 import sharp from 'sharp';
 import { zipSync } from 'fflate';
 import { createRequire } from 'node:module';
 import { DOCUMENT_TEMPLATES, DOCUMENT_FORMATS, readDocumentSpec, documentMarkdown } from '../public/documents.js';
+import { visualScene, visualSvg, sceneSvg } from '../public/document-visuals.js';
 
 const require = createRequire(import.meta.url);
 const regular = require.resolve('@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff');
@@ -22,14 +23,14 @@ export function tableGeometry(block, totalWidth) {
     const values = block.rows.map(row => row[i]).filter(Boolean);
     return values.length > 0 && values.every(value => /^(?:[A-Z]{3}\s*)?[$€£]?\s*-?[\d,.]+(?:\s*%|\s*[A-Z]{3})?$/.test(value));
   });
-  const weights = block.columns.map((heading, i) => {
+  const weights = block.widths || block.columns.map((heading, i) => {
     const longest = Math.max(heading.length, ...block.rows.map(row => Math.min(row[i].length, 80)));
     return Math.max(12, Math.min(numeric[i] ? 28 : 65, longest));
   });
   const minimum = totalWidth / block.columns.length * 0.65;
   const remaining = totalWidth - minimum * block.columns.length;
   const sum = weights.reduce((a, b) => a + b, 0);
-  return { numeric, widths: weights.map(weight => minimum + remaining * weight / sum) };
+  return { numeric, align: block.align || numeric.map(n => n ? 'right' : 'left'), widths: weights.map(weight => minimum + remaining * weight / sum) };
 }
 
 // A shared page layout powers PDF and image exports. Content is wrapped and
@@ -66,7 +67,7 @@ export function documentPages(input) {
     return lines;
   };
   const next = () => {
-    if (pages.length >= 50) throw Object.assign(new Error('This document exceeds 50 pages. Create it in sections.'), { status: 400 });
+    if (pages.length >= 200) throw Object.assign(new Error('This volume exceeds 200 pages. Continue in a new volume.'), { status: 400 });
     page = { width, height, elements: [] }; pages.push(page); y = 66;
     if (spec.template === 'certificate') {
       box(24, 24, width - 48, height - 48, '', `#${theme.accent}`);
@@ -108,19 +109,29 @@ export function documentPages(input) {
     }
     if (block.type === 'paragraph') lines(block.text, { center: theme.landscape });
     if (block.type === 'signature') { room(52); y += 16; lines(block.text, { size: 11, center: theme.landscape }); }
+    if (['chart', 'diagram', 'drawing'].includes(block.type)) {
+      const scene = visualScene(block), h = bodyWidth * scene.height / scene.width;
+      const titleHeight = wrap(block.title, 12, 'strong', bodyWidth).length * 12 * 1.48;
+      room(h + titleHeight + 18);
+      lines(block.title, { size: 12, weight: 'strong', color: `#${theme.accent}`, gap: 8 });
+      room(h + 10);
+      page.elements.push({ kind: 'figure', scene, x: margin, y, w: bodyWidth, h }); y += h + 10;
+      if (block.caption) lines(block.caption, { size: 9, color: '#626975', gap: 14 });
+    }
     if (block.type === 'bullets') for (const item of block.items) lines(item, { indent: 14, gap: 6, bullet: true });
     if (block.type === 'table') {
-      const { widths, numeric } = tableGeometry(block, bodyWidth);
+      if (block.caption) lines(block.caption, { size: 10, weight: 'strong', gap: 8 });
+      const { widths, align } = tableGeometry(block, bodyWidth);
       const rowParts = (row, weight = 'body') => row.map((cell, i) => wrap(cell, 10, weight, widths[i] - 16));
-      const paint = (parts, header = false, shade = false) => {
+      const paint = (parts, header = false, shade = false, total = false) => {
         const count = Math.max(...parts.map(x => x.length)), h = count * 14 + 16;
         let x = margin;
         parts.forEach((part, i) => {
           box(x, y, widths[i], h, header ? `#${theme.accent}` : shade ? `#${theme.tint}` : '#FFFFFF', '#D9D9D9');
           part.forEach((line, j) => {
-            meter.font(header ? 'strong' : 'body').fontSize(10);
-            const at = numeric[i] ? x + widths[i] - 8 - meter.widthOfString(line) : x + 8;
-            drawText(line, at, y + 8 + j * 14, 10, header ? 'strong' : 'body', header ? '#FFFFFF' : '#20242A');
+            meter.font(header || total ? 'strong' : 'body').fontSize(10);
+            const at = align[i] === 'right' ? x + widths[i] - 8 - meter.widthOfString(line) : align[i] === 'center' ? x + (widths[i] - meter.widthOfString(line)) / 2 : x + 8;
+            drawText(line, at, y + 8 + j * 14, 10, header || total ? 'strong' : 'body', header ? '#FFFFFF' : '#20242A');
           });
           x += widths[i];
         });
@@ -128,9 +139,11 @@ export function documentPages(input) {
       };
       const header = rowParts(block.columns, 'strong');
       const headerHeight = Math.max(...header.map(x => x.length)) * 14 + 16;
+      if (headerHeight > bottom - 102) throw Object.assign(new Error('The table headings are too tall for the page. Shorten the headings or use fewer columns.'), { status: 400 });
       room(headerHeight + 40); paint(header, true);
-      block.rows.forEach((row, index) => {
-        const parts = rowParts(row);
+      [...block.rows, ...(block.footer ? [block.footer] : [])].forEach((row, index) => {
+        const total = index === block.rows.length;
+        const parts = rowParts(row, total ? 'strong' : 'body');
         let offset = 0, count = Math.max(...parts.map(x => x.length));
         // Keep ordinary rows intact; split only rows taller than a fresh page.
         if (y + count * 14 + 16 > bottom && count * 14 + 16 <= bottom - 62 - headerHeight) { next(); paint(header, true); }
@@ -138,7 +151,7 @@ export function documentPages(input) {
           let available = Math.floor((bottom - y - 16) / 14);
           if (available < 1) { next(); paint(header, true); available = Math.floor((bottom - y - 16) / 14); }
           const take = Math.min(available, count - offset);
-          paint(parts.map(x => x.slice(offset, offset + take)), false, index % 2 === 1);
+          paint(parts.map(x => x.slice(offset, offset + take)), false, total || index % 2 === 1, total);
           offset += take;
           if (offset < count) { next(); paint(header, true); }
         }
@@ -160,7 +173,20 @@ async function pdfExport(layout) {
     doc.addPage({ size: [page.width, page.height], margin: 0 });
     for (const e of page.elements) {
       if (e.kind === 'text') doc.font(e.weight).fontSize(e.size).fillColor(e.color).text(e.text, e.x, e.y, { lineBreak: false });
-      else {
+      else if (e.kind === 'figure') {
+        doc.save().rect(e.x, e.y, e.w, e.h).clip().translate(e.x, e.y).scale(e.w / e.scene.width);
+        for (const s of e.scene.elements) {
+          if (s.kind === 'text') {
+            doc.font('body').fontSize(s.size).fillColor(`#${s.color}`);
+            const tw = doc.widthOfString(s.text), x = s.x - (s.anchor === 'end' ? tw : s.anchor === 'middle' ? tw / 2 : 0);
+            doc.text(s.text, x, s.y - s.size, { lineBreak: false });
+          } else if (s.kind === 'line') doc.moveTo(s.x, s.y).lineTo(s.x2, s.y2).lineWidth(s.stroke).strokeColor(`#${s.color}`).stroke();
+          else if (s.kind === 'rect') doc.rect(s.x, s.y, s.w, s.h).fill(`#${s.color}`);
+          else if (s.kind === 'circle') doc.circle(s.x, s.y, s.r).fill(`#${s.color}`);
+          else doc.polygon(...s.points).fill(`#${s.color}`);
+        }
+        doc.restore();
+      } else {
         doc.rect(e.x, e.y, e.w, e.h);
         if (e.fill && e.stroke) doc.fillAndStroke(e.fill, e.stroke);
         else if (e.fill) doc.fill(e.fill); else if (e.stroke) doc.strokeColor(e.stroke).stroke();
@@ -174,6 +200,7 @@ async function pdfExport(layout) {
 function pageSvg(page, theme) {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${page.width * 2}" height="${page.height * 2}" viewBox="0 0 ${page.width} ${page.height}"><rect width="100%" height="100%" fill="white"/>${page.elements.map(e => e.kind === 'text'
     ? `<text x="${e.x}" y="${e.y + e.size}" font-family="${theme.font === 'serif' ? 'serif' : 'sans-serif'}" font-size="${e.size}" font-weight="${e.weight === 'strong' ? '700' : '400'}" fill="${e.color}">${esc(e.text)}</text>`
+    : e.kind === 'figure' ? `<svg x="${e.x}" y="${e.y}" width="${e.w}" height="${e.h}" viewBox="0 0 ${e.scene.width} ${e.scene.height}">${sceneSvg(e.scene).replace(/^<svg[^>]*>|<\/svg>$/g, '')}</svg>`
     : `<rect x="${e.x}" y="${e.y}" width="${e.w}" height="${e.h}" fill="${e.fill || 'none'}" stroke="${e.stroke || 'none'}"/>`).join('')}</svg>`;
 }
 
@@ -188,20 +215,29 @@ async function wordExport(spec, theme) {
     if (block.type === 'heading') children.push(paragraph(block.text, { heading: block.level === 2 ? HeadingLevel.HEADING_2 : HeadingLevel.HEADING_1, keepNext: true }));
     if (block.type === 'paragraph') children.push(paragraph(block.text));
     if (block.type === 'signature') children.push(paragraph(block.text, { spacing: { before: 320, after: 160 } }));
+    if (['chart', 'diagram', 'drawing'].includes(block.type)) {
+      children.push(paragraph(block.title, { heading: HeadingLevel.HEADING_2, keepNext: true }));
+      const scene = visualScene(block), ratio = scene.height / scene.width;
+      const data = await sharp(Buffer.from(visualSvg(block))).resize(1200, Math.round(1200 * ratio)).png().toBuffer();
+      const w = theme.landscape ? 660 : 480;
+      children.push(new Paragraph({ children: [new ImageRun({ type: 'png', data, transformation: { width: w, height: w * ratio }, altText: { title: block.title, description: block.caption || block.title, name: block.title } })] }));
+      if (block.caption) children.push(paragraph(block.caption));
+    }
     if (block.type === 'bullets') block.items.forEach(item => children.push(paragraph(item, { bullet: { level: 0 } })));
     if (block.type === 'pageBreak') children.push(new Paragraph({ pageBreakBefore: true }));
     if (block.type === 'table') {
+      if (block.caption) children.push(paragraph(block.caption, { keepNext: true }));
       const border = { style: BorderStyle.SINGLE, size: 4, color: 'D9D9D9' };
       const geometry = tableGeometry(block, theme.landscape ? 13680 : 10080);
       const columnWidths = geometry.widths.map(Math.round);
       children.push(new Table({ width: { size: 100, type: WidthType.PERCENTAGE },
         columnWidths,
         borders: { top: border, bottom: border, left: border, right: border, insideHorizontal: border, insideVertical: border },
-        rows: [block.columns, ...block.rows].map((row, index) => new TableRow({ tableHeader: index === 0, cantSplit: true, children: row.map((cell, column) => new TableCell({
+        rows: [block.columns, ...block.rows, ...(block.footer ? [block.footer] : [])].map((row, index) => new TableRow({ tableHeader: index === 0, cantSplit: true, children: row.map((cell, column) => new TableCell({
           width: { size: columnWidths[column], type: WidthType.DXA },
           shading: { fill: index === 0 ? theme.accent : index % 2 === 0 ? theme.tint : 'FFFFFF' },
           margins: { top: 100, bottom: 100, left: 120, right: 120 },
-          children: [new Paragraph({ children: textRuns(cell, { size: 20, bold: index === 0, color: index === 0 ? 'FFFFFF' : '20242A' }), alignment: geometry.numeric[column] ? AlignmentType.RIGHT : AlignmentType.LEFT, spacing: { after: 60 } })],
+          children: [new Paragraph({ children: textRuns(cell, { size: 20, bold: index === 0 || index > block.rows.length, color: index === 0 ? 'FFFFFF' : '20242A' }), alignment: geometry.align[column] === 'right' ? AlignmentType.RIGHT : geometry.align[column] === 'center' ? AlignmentType.CENTER : AlignmentType.LEFT, spacing: { after: 60 } })],
         })) })),
       }));
       children.push(paragraph(''));
@@ -217,19 +253,20 @@ async function wordExport(spec, theme) {
   return Packer.toBuffer(doc);
 }
 
-function htmlExport(spec, theme) {
+function htmlExport(spec, theme, images = new Map()) {
   const body = spec.blocks.map(b => {
+    if (['chart', 'diagram', 'drawing'].includes(b.type)) return `<figure><h3>${esc(b.title)}</h3>${images.get(b) || visualSvg(b)}${b.caption ? `<figcaption>${esc(b.caption)}</figcaption>` : ''}</figure>`;
     if (b.type === 'heading') return `<h${b.level + 1}>${esc(b.text)}</h${b.level + 1}>`;
     if (b.type === 'table') {
-      const { widths, numeric } = tableGeometry(b, 100);
-      const cell = (tag, value, i) => `<${tag}${numeric[i] ? ' class="number"' : ''}>${esc(value).replace(/\n/g, '<br>')}</${tag}>`;
-      return `<table><colgroup>${widths.map(w => `<col style="width:${w.toFixed(2)}%">`).join('')}</colgroup><thead><tr>${b.columns.map((x, i) => cell('th', x, i)).join('')}</tr></thead><tbody>${b.rows.map(row => `<tr>${row.map((x, i) => cell('td', x, i)).join('')}</tr>`).join('')}</tbody></table>`;
+      const { widths, align } = tableGeometry(b, 100);
+      const cell = (tag, value, i) => `<${tag}${align[i] === 'right' ? ' class="number"' : ''} style="text-align:${align[i]}">${esc(value).replace(/\n/g, '<br>')}</${tag}>`;
+      return `<table>${b.caption ? `<caption>${esc(b.caption)}</caption>` : ''}<colgroup>${widths.map(w => `<col style="width:${w.toFixed(2)}%">`).join('')}</colgroup><thead><tr>${b.columns.map((x, i) => cell('th', x, i)).join('')}</tr></thead><tbody>${b.rows.map(row => `<tr>${row.map((x, i) => cell('td', x, i)).join('')}</tr>`).join('')}</tbody>${b.footer ? `<tfoot><tr>${b.footer.map((x, i) => cell('td', x, i)).join('')}</tr></tfoot>` : ''}</table>`;
     }
     if (b.type === 'bullets') return `<ul>${b.items.map(x => `<li>${esc(x)}</li>`).join('')}</ul>`;
     if (b.type === 'pageBreak') return '<div class="page-break"></div>';
     return `<p${b.type === 'signature' ? ' class="signature"' : ''}>${esc(b.text).replace(/\n/g, '<br>')}</p>`;
   }).join('');
-  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(spec.title)}</title><style>@page{size:letter ${theme.landscape ? 'landscape' : 'portrait'};margin:0.75in}body{font:11pt/1.5 ${theme.font === 'serif' ? 'Georgia,serif' : 'Arial,sans-serif'};color:#20242a;max-width:7in;margin:40px auto;padding:24px;border-top:6px solid #${theme.accent}}h1,h2,h3{color:#${theme.accent};break-after:avoid}p{orphans:3;widows:3}li{padding-left:3px}td.number,th.number{text-align:right;font-variant-numeric:tabular-nums}tr{break-inside:avoid}h1{font-size:25pt}h2{font-size:14pt;margin-top:24px}h3{font-size:12pt}table{width:100%;border-collapse:collapse;margin:18px 0}thead{display:table-header-group}th,td{border:1px solid #d9d9d9;padding:9px;text-align:left;vertical-align:middle}th{background:#${theme.accent};color:#fff}tbody tr:nth-child(even){background:#${theme.tint}}.signature{margin-top:32px}.page-break{break-before:page}@media(max-width:600px){body{margin:12px;padding:12px}table{font-size:9pt}}</style></head><body><h1>${esc(spec.title)}</h1>${spec.subtitle ? `<p>${esc(spec.subtitle)}</p>` : ''}<p>${esc([spec.author, spec.date].filter(Boolean).join(' | '))}</p>${body}</body></html>`;
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${esc(spec.title)}</title><style>@page{size:letter ${theme.landscape ? 'landscape' : 'portrait'};margin:0.75in}body{font:11pt/1.5 ${theme.font === 'serif' ? 'Georgia,serif' : 'Arial,sans-serif'};color:#20242a;max-width:7in;margin:40px auto;padding:24px;border-top:6px solid #${theme.accent}}h1,h2,h3{color:#${theme.accent};break-after:avoid}p{orphans:3;widows:3}li{padding-left:3px}td.number,th.number{text-align:right;font-variant-numeric:tabular-nums}tr{break-inside:avoid}h1{font-size:25pt}h2{font-size:14pt;margin-top:24px}h3{font-size:12pt}table{width:100%;border-collapse:collapse;margin:18px 0}thead{display:table-header-group}th,td{border:1px solid #d9d9d9;padding:9px;text-align:left;vertical-align:middle}th{background:#${theme.accent};color:#fff}tbody tr:nth-child(even){background:#${theme.tint}}figure{margin:24px 0;break-inside:avoid}figure svg{display:block;width:100%;height:auto}figcaption,caption{font-size:9pt;color:#626975;text-align:left;margin:8px 0}tfoot{font-weight:bold;background:#${theme.tint}}.signature{margin-top:32px}.page-break{break-before:page}@media(max-width:600px){body{margin:12px;padding:12px}table{font-size:9pt}}</style></head><body><h1>${esc(spec.title)}</h1>${spec.subtitle ? `<p>${esc(spec.subtitle)}</p>` : ''}<p>${esc([spec.author, spec.date].filter(Boolean).join(' | '))}</p>${body}</body></html>`;
 }
 
 const rtfText = text => [...String(text)].map(c => c === '\n' ? '\\par ' : /[\\{}]/.test(c) ? `\\${c}` : c.charCodeAt(0) > 127 ? c.split('').map(u => `\\u${u.charCodeAt(0) > 32767 ? u.charCodeAt(0) - 65536 : u.charCodeAt(0)}?`).join('') : c).join('');
@@ -240,24 +277,41 @@ export async function exportDocument(input, format) {
   let buffer, extension = format, mime;
   if (format === 'docx') { buffer = await wordExport(spec, theme); mime = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'; }
   else if (format === 'pdf') { buffer = await pdfExport(documentPages(spec)); mime = 'application/pdf'; }
-  else if (format === 'html' || format === 'doc') { buffer = Buffer.from(htmlExport(spec, theme)); mime = format === 'doc' ? 'application/msword' : 'text/html; charset=utf-8'; }
+  else if (format === 'html' || format === 'doc') {
+    const images = new Map();
+    if (format === 'doc') for (const block of spec.blocks.filter(b => ['chart', 'diagram', 'drawing'].includes(b.type))) {
+      const png = await sharp(Buffer.from(visualSvg(block))).png().toBuffer();
+      images.set(block, `<img alt="${esc(block.title)}" style="max-width:100%;height:auto" src="data:image/png;base64,${png.toString('base64')}">`);
+    }
+    buffer = Buffer.from(htmlExport(spec, theme, images)); mime = format === 'doc' ? 'application/msword' : 'text/html; charset=utf-8';
+  }
   else if (format === 'rtf') {
+    const figures = new Map();
+    for (const block of spec.blocks.filter(b => ['chart', 'diagram', 'drawing'].includes(b.type))) {
+      const scene = visualScene(block), height = Math.round(1200 * scene.height / scene.width);
+      const png = await sharp(Buffer.from(visualSvg(block))).resize(1200, height).png().toBuffer();
+      figures.set(block, `{\\pict\\pngblip\\picw1200\\pich${height}\\picwgoal9000\\pichgoal${Math.round(height * 7.5)} ${png.toString('hex')}}`);
+    }
     const paragraph = (text, extra = '') => `\\pard\\sa160\\sl280${extra} ${rtfText(text)}\\par `;
     const blocks = spec.blocks.map(b => {
+      if (figures.has(b)) return paragraph(b.title, '\\b') + '\\b0 ' + figures.get(b) + paragraph(b.caption || '');
       if (b.type === 'heading') return paragraph(b.text, '\\b\\fs28') + '\\b0\\fs22 ';
       if (b.type === 'bullets') return b.items.map(x => paragraph('• ' + x, '\\li180')).join('');
       if (b.type === 'pageBreak') return '\\page ';
-      if (b.type === 'table') return [b.columns, ...b.rows].map((row, i) => {
-        const cells = row.map((_, n) => `\\cellx${Math.round((n + 1) * 9000 / row.length)}`).join('');
-        return `\\trowd\\trgaph120${cells} ` + row.map(x => `\\intbl ${i === 0 ? '\\b ' : ''}${rtfText(x)}\\b0\\cell `).join('') + '\\row ';
-      }).join('');
+      if (b.type === 'table') {
+        const geometry = tableGeometry(b, 9000);
+        return (b.caption ? paragraph(b.caption) : '') + [b.columns, ...b.rows, ...(b.footer ? [b.footer] : [])].map((row, i) => {
+          let end = 0; const cells = geometry.widths.map(w => `\\cellx${Math.round(end += w)}`).join('');
+          return `\\trowd\\trgaph120${i === 0 ? '\\trhdr' : ''}${cells} ` + row.map((x, n) => `\\pard\\intbl${geometry.align[n] === 'right' ? '\\qr' : geometry.align[n] === 'center' ? '\\qc' : '\\ql'} ${i === 0 || i > b.rows.length ? '\\b ' : ''}${rtfText(x)}\\b0\\cell `).join('') + '\\row ';
+        }).join('');
+      }
       return paragraph(b.text, b.type === 'signature' ? '\\sb320' : '');
     }).join('');
     buffer = Buffer.from(`{\\rtf1\\ansi\\deff0{\\fonttbl{\\f0 ${theme.font === 'serif' ? 'Times New Roman' : 'Arial'};}}\\paperw${theme.landscape ? 15840 : 12240}\\paperh${theme.landscape ? 12240 : 15840}\\margl1080\\margr1080\\margt1080\\margb1080\\f0\\fs22 ${paragraph(spec.title, '\\b\\fs50')}\\b0\\fs22 ${spec.subtitle ? paragraph(spec.subtitle) : ''}${paragraph([spec.author, spec.date].filter(Boolean).join(' | '))}${blocks}}`); mime = 'application/rtf';
   } else if (format === 'md' || format === 'txt') { buffer = Buffer.from(documentMarkdown(spec)); mime = 'text/plain; charset=utf-8'; }
   else {
     const layout = documentPages(spec);
-    if (layout.pages.length > 12) throw Object.assign(new Error('Image downloads support up to 12 pages. Use PDF or Word for this longer document.'), { status: 400 });
+    if (layout.pages.length > 30) throw Object.assign(new Error('Image downloads support up to 30 pages per volume. Use PDF or Word for this longer document.'), { status: 400 });
     const files = {};
     for (let i = 0; i < layout.pages.length; i++) {
       const svg = Buffer.from(pageSvg(layout.pages[i], theme));

@@ -17,7 +17,12 @@ Before returning JSON, review the entire draft for completeness, repeated conten
 Respond only with JSON. A completed document uses this schema:
 {"title":"Specific document title","subtitle":"optional","author":"supplied author or empty","date":"supplied date or empty","template":"report","filename":"short filename","missing":["field to complete"],"blocks":[{"type":"heading","level":1,"text":"Section title"},{"type":"paragraph","text":"Complete paragraph"},{"type":"bullets","items":["item"]},{"type":"table","columns":["Heading"],"rows":[["Cell"]]},{"type":"signature","text":"Supplied name or labelled placeholder"},{"type":"pageBreak"}]}
 Select the most appropriate template from: ${Object.entries(DOCUMENT_TEMPLATES).map(([id, t]) => `${id} (${t.label})`).join(', ')}.
-Use only the blocks needed. Tables are for comparable data, figures or records, not long narrative paragraphs. Keep tables at six columns or fewer and split very large tables into sections. Headings are short and clear. Use substantial complete content, not a plan describing what should be written. Default to a focused complete document; match the requested length. Keep the JSON under 80,000 characters and 100 blocks.
+Additional supported blocks:
+Charts: {"type":"chart","title":"Budget allocation","kind":"bar","labels":["Materials","Internet"],"series":[{"name":"USD","values":[100,50],"color":"196A58"}],"unit":"USD","caption":"Based on the supplied budget."}. Choose bar, line or pie; at most 12 labels and 3 series. Pie requires one series of nonnegative values. Chart numbers must come from supplied source data or transparent calculations. Never fabricate data to make a chart; ask for it when required. Explain illustrative data clearly when the user explicitly asks for a hypothetical example.
+Diagrams: {"type":"diagram","title":"Process","nodes":[{"id":"a","text":"Start","x":100,"y":200,"width":220,"height":140,"color":"1B2A63"},{"id":"b","text":"Finish","x":600,"y":200,"width":220,"height":140,"color":"196A58"}],"edges":[{"from":"a","to":"b"}],"caption":"Steps in order."}. Coordinates use a 1000 by 1000 canvas; nodes must fit without overlapping. Keep labels short, use readable node dimensions and no more than 16 nodes/24 edges.
+Drawings: {"type":"drawing","title":"Labelled illustration","shapes":[{"kind":"rect","x":100,"y":100,"width":300,"height":200,"color":"1B2A63"},{"kind":"circle","x":650,"y":400,"radius":100,"color":"196A58"},{"kind":"line","x":400,"y":300,"x2":600,"y2":400,"color":"626975"},{"kind":"text","x":100,"y":700,"text":"Illustration label","color":"20242A"}],"caption":"Schematic illustration."}. Canvas is 1000 by 1000; shapes must fit; max 60 shapes. Use simple schematic drawings, diagrams and infographics rather than pretending these are photographs. No executable SVG, HTML, URLs or external assets. Colours are six hex digits without #.
+Advanced tables may include "caption", "align" (left/center/right per column), "widths" (relative weights 1–10 per column) and "footer" (a labelled totals row matching the columns). Use at most 8 columns and 200 rows per table, and check totals before adding them.
+Include charts, graphics and diagrams when the user asks or when they clarify the supplied material; avoid decorative figures without a purpose. Include a clear title and meaningful caption. Keep the JSON for each generation under 80,000 characters and 100 blocks, including no more than 10 figures in one response. For longer tasks, deliver a complete first section and explain through a final paragraph which section can be added next using the continuation action. Headings are short and clear. Use substantial complete content, not a plan describing what should be written. Default to a focused complete document; match the requested length.
 When asked to revise, preserve the original facts and unaffected sections and return the full revised document. Formatting is applied by a trusted renderer; never return HTML, scripts, file links or claims of having created a download yourself.`;
 
 export function mountDocumentRoutes(app, deps) {
@@ -28,6 +33,8 @@ export function mountDocumentRoutes(app, deps) {
     try {
       const { messages } = parseConversation(req.body);
       const prior = req.body?.currentDocument ? readDocumentSpec(req.body.currentDocument) : null;
+      const append = req.body?.mode === 'append';
+      if (append && !prior) throw Object.assign(new Error('Choose an existing document to continue.'), { status: 400 });
       const document = readDocument(req.body?.document);
       const { photo, why } = readPhoto(req.body);
       if (why) throw Object.assign(new Error(why), { status: 400 });
@@ -36,11 +43,12 @@ export function mountDocumentRoutes(app, deps) {
       const model = await chooseModel(undefined, 'story', { think: true, seeing });
       if (seeing && !(await canSeeWith(model))) throw Object.assign(new Error('No available model can read these pages. Attach the source as text instead.'), { status: 400 });
       if (seeing) reservePhoto();
-      const context = withAttachments(messages, { photo, document, photoContext: req.body?.photoContext });
+      const turns = append ? messages.filter(m => m.role === 'user').slice(-3) : messages;
+      const context = withAttachments(turns, { photo, document, photoContext: req.body?.photoContext });
       const template = Object.hasOwn(DOCUMENT_TEMPLATES, req.body?.template) ? req.body.template : '';
       const raw = await complete({ model, maxTokens: 12_000, temperature: 0.3, json: true, signal: controller.signal,
-        messages: [{ role: 'system', content: DOCUMENT_PROMPT + (template ? `\nUse the ${template} template requested by the user.` : '') },
-          ...(prior ? [{ role: 'user', content: `Current document to revise (source data):\n${JSON.stringify(prior)}` }] : []), ...context],
+        messages: [{ role: 'system', content: DOCUMENT_PROMPT + (template ? `\nUse the ${template} template requested by the user.` : '') + (append ? '\nCONTINUATION MODE: Return ONLY new content blocks for the next section. Do not repeat or rewrite existing blocks. Keep the same title and metadata. The server appends new blocks and preserves the original document exactly.' : '') },
+          ...(prior ? [{ role: 'user', content: append ? `Existing document context (source data; earlier full text may be omitted):\n${JSON.stringify({ title: prior.title, subtitle: prior.subtitle, template: prior.template, headings: prior.blocks.filter(b => b.type === 'heading').map(b => b.text), recentBlocks: prior.blocks.slice(-10) })}` : `Current document to revise (source data):\n${JSON.stringify(prior)}` }] : []), ...context],
       });
       let data;
       try { data = JSON.parse(raw); } catch { throw Object.assign(new Error('The document response was incomplete. Try a shorter document or create it in sections.'), { status: 502 }); }
@@ -51,6 +59,7 @@ export function mountDocumentRoutes(app, deps) {
       }
       let spec;
       try { spec = readDocumentSpec(data); } catch { throw Object.assign(new Error('The document came back in an invalid layout. Try a shorter task or create it in sections.'), { status: 502 }); }
+      if (append) spec = readDocumentSpec({ ...prior, blocks: [...prior.blocks, ...spec.blocks], missing: [...new Set([...prior.missing, ...spec.missing])] });
       if (template) spec.template = template;
       res.json({ document: spec });
     } catch (error) {
