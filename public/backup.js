@@ -2,6 +2,7 @@
 export const BACKUP_LIMIT = 8_000_000;
 const CHAT_KEY = 'grandpa-ai:chats:v1';
 const BUILD_KEY = 'grandpa-ai:builds:v1';
+const JOURNAL_KEY = 'grandpa-ai:journal:v1';
 const fail = message => { throw new Error(message); };
 const text = (value, limit, label) => {
   if (typeof value !== 'string' || value.length > limit) fail(`Invalid ${label} in this backup.`);
@@ -29,7 +30,7 @@ function files(value) {
   });
 }
 function messages(value, building = false) {
-  return list(value, 1_000, 'messages').map(message => {
+  return list(value, Infinity, 'messages').map(message => {
     if (!['user','assistant'].includes(message?.role)) fail('Invalid message role in this backup.');
     const clean = {role:message.role,content:text(message.content, 500_000, 'message')};
     if (building && message.proposal) {
@@ -50,28 +51,41 @@ function messages(value, building = false) {
       .filter(source => typeof source?.url === 'string' && /^https?:\/\//.test(source.url))
       .map(source => ({url:source.url.slice(0,2_000),title:String(source.title || '').slice(0,300)}));
     if (!building && message.searched === true) clean.searched = true;
+    if (!building && message.unfinished === true) clean.unfinished = true;
     return clean;
   });
 }
 function cleanBackup(value) {
   if (value?.format !== 'grandpa-ai-backup' || value.version !== 1) fail('Choose a Grandpa AI JSON backup made with Create backup.');
-  const chats = list(value.chats,100,'conversations').map(chat => ({
+  const chats = list(value.chats,Infinity,'conversations').map(chat => ({
     id:identity(chat?.id), title:text(chat.title || '',300,'conversation title'),
     persona:text(chat.persona || 'general',80,'persona'), messages:messages(chat.messages),
     createdAt:stamp(chat.createdAt),updatedAt:stamp(chat.updatedAt),
   }));
-  const projects = list(value.projects,12,'projects').map(project => ({
+  const projects = list(value.projects,Infinity,'projects').map(project => ({
     id:identity(project?.id),name:text(project.name || 'Untitled build',300,'project name'),
     named:project.named === true, files:files(project.files),messages:messages(project.messages,true),
-    versions:list(project.versions || [],10,'versions').map(version => ({
+    versions:list(project.versions || [],Infinity,'versions').map(version => ({
       at:stamp(version?.at),note:text(version.note || '',300,'version note'),files:files(version.files),
     })),createdAt:stamp(project.createdAt),updatedAt:stamp(project.updatedAt),repo:null,
   }));
-  for (const group of [chats,projects]) if (new Set(group.map(item=>item.id)).size !== group.length) fail('Duplicate identifiers in this backup.');
-  return {format:'grandpa-ai-backup',version:1,savedAt:stamp(value.savedAt),chats,projects};
+  const journal=list(value.journal || [],Infinity,'journal entries').map(item=>{
+    const kind=text(item?.kind,40,'journal kind');
+    if (!['story','names','recipe','album','history','wisdom','learn'].includes(kind)) fail('Unknown journal entry kind.');
+    const entry={id:identity(item.id),at:stamp(item.at),kind,kindLabel:text(item.kindLabel || kind,80,'journal label'),
+      title:text(item.title,300,'journal title'),summary:text(item.summary || '',10_000,'journal summary'),body:text(item.body || '',500_000,'journal contents')};
+    if(item.thumb) {
+      const thumb=text(item.thumb,BACKUP_LIMIT,'journal thumbnail');
+      if (!/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(thumb)) fail('Unsupported journal thumbnail.');
+      entry.thumb=thumb;
+    }
+    return entry;
+  });
+  for (const group of [chats,projects,journal]) if (new Set(group.map(item=>item.id)).size !== group.length) fail('Duplicate identifiers in this backup.');
+  return {format:'grandpa-ai-backup',version:1,savedAt:stamp(value.savedAt),chats,projects,journal};
 }
-export function createBackup(chats, projects) {
-  const body = JSON.stringify(cleanBackup({format:'grandpa-ai-backup',version:1,savedAt:Date.now(),chats,projects}),null,2);
+export function createBackup(chats, projects, journal=[]) {
+  const body = JSON.stringify(cleanBackup({format:'grandpa-ai-backup',version:1,savedAt:Date.now(),chats,projects,journal}),null,2);
   if (new TextEncoder().encode(body).length > BACKUP_LIMIT) fail('This backup is too large. Download conversations and project files separately.');
   return body;
 }
@@ -81,23 +95,22 @@ export function parseBackup(body) {
   try { value = JSON.parse(body); } catch { fail('This file is not valid JSON.'); }
   return cleanBackup(value);
 }
-export function prepareRestore(backup, chats, projects) {
+export function prepareRestore(backup, chats, projects, journal=[]) {
   const clean = cleanBackup(backup);
   const addChats = clean.chats.filter(item=>!chats.some(existing=>existing.id === item.id));
   const addProjects = clean.projects.filter(item=>!projects.some(existing=>existing.id === item.id));
-  if (chats.length + addChats.length > 100 || projects.length + addProjects.length > 12) {
-    fail('Restoring would exceed this device’s limit of 100 conversations or 12 builds. Make a backup and remove unneeded items first.');
-  }
+  const addJournal=clean.journal.filter(item=>!journal.some(existing=>existing.id===item.id));
   return {
     chats:[...chats,...addChats], projects:[...projects,...addProjects],
+    journal:[...journal,...addJournal],addedJournal:addJournal.length,
     addedChats:addChats.length,addedProjects:addProjects.length,
-    skipped:clean.chats.length + clean.projects.length - addChats.length - addProjects.length,
+    skipped:clean.chats.length + clean.projects.length + clean.journal.length - addChats.length - addProjects.length - addJournal.length,
   };
 }
 export function commitRestore(prepared, storage = localStorage) {
-  const keys = [CHAT_KEY,BUILD_KEY];
+  const keys = [CHAT_KEY,BUILD_KEY,JOURNAL_KEY];
   const previous = keys.map(key=>storage.getItem(key));
-  const contents = [JSON.stringify(prepared.chats),JSON.stringify(prepared.projects)];
+  const contents = [JSON.stringify(prepared.chats),JSON.stringify(prepared.projects),JSON.stringify(prepared.journal || [])];
   try {
     keys.forEach((key,index)=>storage.setItem(key,contents[index]));
   } catch {

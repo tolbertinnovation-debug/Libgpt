@@ -33,9 +33,10 @@ test('restoring is additive and repeated restores skip matching identifiers',()=
   const twice=prepareRestore(backup(),prepared.chats,prepared.projects);
   assert.equal(twice.addedChats+twice.addedProjects,0);
 });
-test('restore refuses to silently evict existing work at the device limit',()=>{
+test('restore adds beyond former count caps without evicting existing work',()=>{
   const projects=Array.from({length:12},(_,i)=>({...project,id:'existing-'+i}));
-  assert.throws(()=>prepareRestore(backup(),[],projects),/limit/);
+  const result=prepareRestore(backup(),[],projects);
+  assert.equal(result.projects.length,13);assert.equal(result.projects[0],projects[0]);
 });
 test('rejects unsupported versions, malformed messages and unsafe or duplicate paths',()=>{
   assert.throws(()=>parseBackup('not JSON'),/JSON/);

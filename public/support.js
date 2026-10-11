@@ -35,7 +35,7 @@ export function mountSupport({snapshot,restored,busy,area}) {
     }
   },true);
   const backup = () => {
-    open('Keep your work',`<p class="settings-note">Save a JSON backup of your conversations, project files, and build history. You can restore it on another device. It contains your messages and attachments; keep it somewhere safe.</p>
+    open('Keep your work',`<p class="settings-note">Save a JSON backup of your conversations, journal entries, project files, and build history. You can restore it on another device. It contains your messages and attachments; keep it somewhere safe.</p>
       <div class="setting-actions"><button class="setting-btn" data-backup-download type="button">Create backup</button><button class="setting-btn" data-backup-import type="button">Restore backup</button></div>
       <p class="settings-note">This is a file backup. Restore keeps existing work and skips items with the same identifier. Restored builds are local copies; GitHub connections and deployment records need to be set up again.</p>`);
   };
@@ -67,7 +67,7 @@ export function mountSupport({snapshot,restored,busy,area}) {
       if(event.target.closest('[data-backup-download]')) {
         if(busy()) throw new Error('Finish or stop the current conversation or build before making a backup.');
         const value=snapshot();
-        download(`grandpa-ai-backup-${new Date().toISOString().slice(0,10)}.json`,createBackup(value.chats,value.projects),'application/json');
+        download(`grandpa-ai-backup-${new Date().toISOString().slice(0,10)}.json`,createBackup(value.chats,value.projects,value.journal),'application/json');
         say('Backup download started. Keep the file to restore your work later.');
       }
       if(event.target.closest('[data-backup-import]')) {
@@ -77,9 +77,9 @@ export function mountSupport({snapshot,restored,busy,area}) {
       if(event.target.closest('[data-backup-confirm]') && pending) {
         if(busy()) throw new Error('Finish or stop the current work before restoring.');
         const current=snapshot();
-        const prepared=prepareRestore(pending,current.chats,current.projects);
+        const prepared=prepareRestore(pending,current.chats,current.projects,current.journal);
         commitRestore(prepared);restored(prepared);pending=null;
-        open('Backup restored',`<p class="settings-note">Added ${prepared.addedChats} conversations and ${prepared.addedProjects} builds. Kept your existing work; skipped ${prepared.skipped} items already present.</p>`);
+        open('Backup restored',`<p class="settings-note">Added ${prepared.addedChats} conversations and ${prepared.addedProjects} builds, and ${prepared.addedJournal} journal entries. Kept your existing work; skipped ${prepared.skipped} items already present.</p>`);
       }
       if(event.target.closest('[data-report-copy]')) {
         try {await navigator.clipboard.writeText(report);} catch {throw new Error('This browser could not copy the report. Download it, or select and copy the report text.');}
@@ -95,8 +95,8 @@ export function mountSupport({snapshot,restored,busy,area}) {
       if(file.size>BACKUP_LIMIT) throw new Error('Choose a backup smaller than 8 MB.');
       const parsed=parseBackup(await file.text());
       if(version!==generation || modal.hidden) return;
-      const current=snapshot(),prepared=prepareRestore(parsed,current.chats,current.projects);
-      open('Review restore',`<p class="settings-note">Add ${prepared.addedChats} conversations and ${prepared.addedProjects} builds. ${prepared.skipped} items already present will be skipped. Existing work will stay.</p>
+      const current=snapshot(),prepared=prepareRestore(parsed,current.chats,current.projects,current.journal);
+      open('Review restore',`<p class="settings-note">Add ${prepared.addedChats} conversations and ${prepared.addedProjects} builds, and ${prepared.addedJournal} journal entries. ${prepared.skipped} items already present will be skipped. Existing work will stay.</p>
         <button class="setting-btn" data-backup-confirm type="button">Restore these items</button>`);
       pending=parsed;
     } catch(error) {if(version===generation) say(error.message);}

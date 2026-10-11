@@ -7,7 +7,6 @@ import { migrateVoicePrefs } from './voice-settings.js';
 
 const KEY = 'grandpa-ai:chats:v1';
 const PREFS = 'grandpa-ai:prefs:v1';
-const MAX_CHATS = 100;
 
 const read = (key, fallback) => {
   try {
@@ -38,12 +37,8 @@ export function loadChats() {
 }
 
 export function saveChats(chats) {
-  // Newest first, and capped — an old phone should not fill its storage with
-  // chat history.
-  const trimmed = [...chats]
-    .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
-    .slice(0, MAX_CHATS);
-  return write(KEY, trimmed);
+  // Keep every saved conversation. Storage failure leaves the prior value intact.
+  return write(KEY, [...chats].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
 }
 
 export function loadPrefs() {
