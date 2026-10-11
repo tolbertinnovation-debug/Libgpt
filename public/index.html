@@ -471,50 +471,24 @@
       </button>
     </div>
 
-    <div class="settings-group">
-      <p class="settings-label">You</p>
-      <label class="setting-row" for="settings-name">
+    <div class="settings-content">
+    <p class="settings-intro">Make Grandpa feel like home.</p>
+    <p class="settings-save-note">Changes save automatically on this device.</p>
+    <div class="settings-basics">
+<div class="settings-group ">
+<p class="settings-label">You & your language</p>
+<label class="setting-row" for="settings-name">
         <span><strong>Your name</strong><small>So Grandpa can greet you properly</small></span>
         <input type="text" id="settings-name" placeholder="Your name" maxlength="40"
                autocomplete="given-name">
       </label>
-    </div>
-
-    <div class="settings-group">
-      <p class="settings-label">Who is talking</p>
-      <label class="setting-row" for="settings-speaker">
-        <span><strong>The elder</strong><small id="settings-speaker-hint">Whose voice you want to hear</small></span>
-        <select id="settings-speaker"></select>
-      </label>
-      <label class="setting-row" for="settings-register">
-        <span><strong>Way of speaking</strong><small id="settings-register-hint">How formal, and how much everyday Liberian English</small></span>
-        <select id="settings-register"></select>
-      </label>
-      <label class="setting-row" for="settings-tone">
-        <span><strong>How they talk</strong><small>Warm, playful, solemn, or all proverbs</small></span>
-        <select id="settings-tone"></select>
-      </label>
-    </div>
-
-    <div class="settings-group">
-      <p class="settings-label">Conversation</p>
-      <label class="setting-row" for="settings-language">
+<label class="setting-row" for="settings-language">
         <span><strong>Answer language</strong><small>Choose how Grandpa replies</small></span>
         <select id="settings-language"></select>
       </label>
-      <label class="setting-row" for="settings-depth">
-        <span><strong>Answer depth</strong><small>Full explanations at the level you need</small></span>
-        <select id="settings-depth"><option value="auto">Match my question</option><option value="detailed">Detailed</option><option value="thorough">Thorough</option></select>
-      </label>
-      <label class="setting-row" for="settings-research">
-        <span><strong>Web research</strong><small>Current information with sources. Research and longer answers use more API credit.</small></span>
-        <select id="settings-research"><option value="auto">When needed</option><option value="always">Research factual questions</option><option value="off">Off</option></select>
-      </label>
-    </div>
-
-    <div class="settings-group">
-      <p class="settings-label">Appearance</p>
-      <label class="setting-row" for="settings-theme">
+</div><div class="settings-group ">
+<p class="settings-label">Appearance</p>
+<label class="setting-row" for="settings-theme">
         <span><strong>Theme</strong><small>Adjust the look of your workspace</small></span>
         <select id="settings-theme">
           <option value="light">Light</option>
@@ -522,7 +496,7 @@
           <option value="system">Follow my phone</option>
         </select>
       </label>
-      <label class="setting-row" for="settings-size">
+<label class="setting-row" for="settings-size">
         <span><strong>Text size</strong><small>Bigger letters are easier on the eyes</small></span>
         <select id="settings-size">
           <option value="sm">Small</option>
@@ -530,99 +504,105 @@
           <option value="lg">Large</option>
         </select>
       </label>
-    </div>
-
-    <div class="settings-group">
-      <p class="settings-label">Voice</p>
-      <label class="setting-row setting-toggle" for="settings-autospeak">
+</div><div class="settings-group settings-voice-basics">
+<p class="settings-label">Voice & listening</p>
+<label class="setting-row setting-toggle" for="settings-autospeak">
         <span><strong>Read answers aloud</strong><small>Grandpa speaks every answer, for anyone who reads slowly</small></span>
         <input type="checkbox" id="settings-autospeak">
         <span class="toggle-track" aria-hidden="true"></span>
       </label>
-      <label class="setting-row setting-toggle" for="settings-realvoice">
+<label class="setting-row" for="settings-openai-voice">
+        <span><strong>OpenAI voice</strong><small>Cedar or Marin — natural, clear AI generated speech</small></span>
+        <select id="settings-openai-voice"></select>
+      </label>
+<label class="setting-row" for="settings-rate">
+        <span><strong>Speaking speed</strong><small id="settings-rate-value">Normal</small></span>
+        <input type="range" id="settings-rate" min="0.75" max="1.5" step="0.05" value="0.95">
+      </label><div class="setting-actions"><button type="button" class="setting-btn" id="settings-voice-test">Test the voice</button></div>
+</div></div>
+    <details class="settings-advanced" id="settings-advanced">
+      <summary><span><strong>Advanced settings</strong><small>Conversation style, research and voice controls</small></span><span class="settings-chevron" aria-hidden="true"></span></summary>
+      <div class="settings-advanced-body">
+<div class="settings-group ">
+<p class="settings-label">Conversation style</p>
+<label class="setting-row" for="settings-speaker">
+        <span><strong>The elder</strong><small id="settings-speaker-hint">Whose voice you want to hear</small></span>
+        <select id="settings-speaker"></select>
+      </label>
+<label class="setting-row" for="settings-register">
+        <span><strong>Way of speaking</strong><small id="settings-register-hint">How formal, and how much everyday Liberian English</small></span>
+        <select id="settings-register"></select>
+      </label>
+<label class="setting-row" for="settings-tone">
+        <span><strong>How they talk</strong><small>Warm, playful, solemn, or all proverbs</small></span>
+        <select id="settings-tone"></select>
+      </label>
+<label class="setting-row" for="settings-depth">
+        <span><strong>Answer depth</strong><small>Full explanations at the level you need</small></span>
+        <select id="settings-depth"><option value="auto">Match my question</option><option value="detailed">Detailed</option><option value="thorough">Thorough</option></select>
+      </label>
+<label class="setting-row" for="settings-research">
+        <span><strong>Web research</strong><small>Current information with sources. Research and longer answers use more API credit.</small></span>
+        <select id="settings-research"><option value="auto">When needed</option><option value="always">Research factual questions</option><option value="off">Off</option></select>
+      </label>
+</div><div class="settings-group ">
+<p class="settings-label">Voice preferences</p>
+<label class="setting-row setting-toggle" for="settings-realvoice">
         <span><strong>Natural OpenAI voice</strong><small id="settings-realvoice-hint">AI generated speech from OpenAI. Uses the internet.</small></span>
         <input type="checkbox" id="settings-realvoice">
         <span class="toggle-track" aria-hidden="true"></span>
       </label>
-      <label class="setting-row" for="settings-openai-voice">
-        <span><strong>OpenAI voice</strong><small>Cedar or Marin — natural, clear AI generated speech</small></span>
-        <select id="settings-openai-voice"></select>
-      </label>
-      <label class="setting-row" for="settings-voice">
-        <span><strong>Fallback voice</strong><small id="settings-voice-hint">Used when the internet is gone</small></span>
-        <select id="settings-voice"></select>
-      </label>
-      <label class="setting-row" for="settings-rate">
-        <span><strong>Speaking speed</strong><small id="settings-rate-value">Normal</small></span>
-        <input type="range" id="settings-rate" min="0.75" max="1.5" step="0.05" value="0.95">
-      </label>
-      <label class="setting-row" for="settings-pitch">
-        <span><strong>Phone voice depth</strong><small id="settings-pitch-value">Deep</small></span>
-        <input type="range" id="settings-pitch" min="0.6" max="1.4" step="0.05" value="0.9">
-      </label>
-      <label class="setting-row" for="settings-accent">
-        <span><strong>Your accent</strong><small>Helps Grandpa hear you when you speak</small></span>
-        <select id="settings-accent"></select>
-      </label>
-      <label class="setting-row" for="settings-spoken-accent">
+<label class="setting-row" for="settings-spoken-accent">
         <span><strong>Grandpa's accent</strong><small id="settings-spoken-accent-hint">How strongly the voice sounds Liberian out loud</small></span>
         <select id="settings-spoken-accent"></select>
       </label>
-      <label class="setting-row" for="settings-loudness" hidden>
-        <span><strong>How loud the voice is</strong><small id="settings-loudness-hint">Louder than the phone alone can go</small></span>
-        <select id="settings-loudness"></select>
-      </label>
-      <label class="setting-row" for="settings-room" hidden>
-        <span><strong>Where the voice is sitting</strong><small id="settings-room-hint">A room around the voice</small></span>
-        <select id="settings-room"></select>
-      </label>
-      <label class="setting-row setting-toggle" for="settings-cutin">
-        <span><strong>Cut in by talking</strong><small id="settings-cutin-hint">Talk over the answer to stop it, instead of tapping</small></span>
-        <input type="checkbox" id="settings-cutin">
-        <span class="toggle-track" aria-hidden="true"></span>
-      </label>
-      <label class="setting-row" for="settings-patience">
-        <span><strong>When talking, wait for me</strong><small id="settings-patience-hint">How long a pause means you have finished</small></span>
-        <select id="settings-patience"></select>
-      </label>
-      <label class="setting-row setting-toggle" for="settings-sound">
+<label class="setting-row setting-toggle" for="settings-sound">
         <span><strong>Interface sounds</strong><small>Soft taps and chimes, made on the device</small></span>
         <input type="checkbox" id="settings-sound">
         <span class="toggle-track" aria-hidden="true"></span>
       </label>
-      <div class="setting-actions">
-        <button type="button" class="setting-btn" id="settings-voice-test">Test the voice</button>
-        <button type="button" class="setting-btn" id="settings-mic-check">Check the microphone</button>
-      </div>
-      <!-- What the phone actually did, in plain lines, for when the talking
-           screen sits there listening and nothing happens. -->
-      <pre class="mic-report" id="settings-mic-report" hidden></pre>
-      <div class="setting-actions" id="settings-mic-actions" hidden>
-        <button type="button" class="setting-btn" id="settings-mic-copy">Copy this</button>
-      </div>
-    </div>
-
-    <div class="settings-group">
-      <p class="settings-label">Your conversations</p>
-      <p class="settings-note" id="settings-count"></p>
-      <div class="setting-actions">
-        <button type="button" class="setting-btn" id="settings-export">Download all</button>
-        <button type="button" class="setting-btn danger" id="settings-clear">Delete all</button>
-      </div>
-    </div>
-
-    <div class="settings-group">
-      <p class="settings-label">Keep your work and get help</p>
-      <div class="setting-actions">
-        <button class="setting-btn" id="settings-backup" type="button">Backup and restore</button>
-        <button class="setting-btn" id="settings-report" type="button">Report a problem</button>
-      </div>
-    </div>
-
-    <p class="settings-note">
-      Your preferences and conversations stay in this browser — never on a server.
-      On a shared phone, delete them when you finish.
-    </p>
+</div><div class="settings-group ">
+<p class="settings-label">Microphone & conversations</p>
+<label class="setting-row" for="settings-accent">
+        <span><strong>Your accent</strong><small>Helps Grandpa hear you when you speak</small></span>
+        <select id="settings-accent"></select>
+      </label>
+<label class="setting-row setting-toggle" for="settings-cutin">
+        <span><strong>Cut in by talking</strong><small id="settings-cutin-hint">Talk over the answer to stop it, instead of tapping</small></span>
+        <input type="checkbox" id="settings-cutin">
+        <span class="toggle-track" aria-hidden="true"></span>
+      </label>
+<label class="setting-row" for="settings-patience">
+        <span><strong>When talking, wait for me</strong><small id="settings-patience-hint">How long a pause means you have finished</small></span>
+        <select id="settings-patience"></select>
+      </label><div class="setting-actions"><button type="button" class="setting-btn" id="settings-mic-check">Check the microphone</button></div><pre class="mic-report" id="settings-mic-report" hidden></pre><div class="setting-actions" id="settings-mic-actions" hidden><button type="button" class="setting-btn" id="settings-mic-copy">Copy this</button></div>
+</div><div class="settings-group ">
+<p class="settings-label">Phone fallback voice</p>
+<label class="setting-row" for="settings-voice">
+        <span><strong>Fallback voice</strong><small id="settings-voice-hint">Used when the internet is gone</small></span>
+        <select id="settings-voice"></select>
+      </label>
+<label class="setting-row" for="settings-pitch">
+        <span><strong>Phone voice depth</strong><small id="settings-pitch-value">Deep</small></span>
+        <input type="range" id="settings-pitch" min="0.6" max="1.4" step="0.05" value="0.9">
+      </label>
+<label class="setting-row" for="settings-loudness" hidden>
+        <span><strong>How loud the voice is</strong><small id="settings-loudness-hint">Louder than the phone alone can go</small></span>
+        <select id="settings-loudness"></select>
+      </label>
+<label class="setting-row" for="settings-room" hidden>
+        <span><strong>Where the voice is sitting</strong><small id="settings-room-hint">A room around the voice</small></span>
+        <select id="settings-room"></select>
+      </label>
+</div><div class="settings-group ">
+<p class="settings-label">Your conversations</p>
+<p class="settings-note" id="settings-count"></p><div class="setting-actions"><button type="button" class="setting-btn" id="settings-export">Download all</button><button type="button" class="setting-btn danger" id="settings-clear">Delete all</button></div><p class="settings-note">Conversations stay in this browser. On a shared device, delete them when you finish.</p>
+</div></div>
+</details>
+<div class="settings-group settings-support">
+<p class="settings-label">Your work & support</p>
+<div class="setting-actions"><button class="setting-btn" id="settings-backup" type="button">Backup and restore</button><button class="setting-btn" id="settings-report" type="button">Report a problem</button></div>
+</div>    </div>
   </section>
 </div>
 
@@ -778,3 +758,4 @@
 <script type="module" src="app.js"></script>
 </body>
 </html>
+
