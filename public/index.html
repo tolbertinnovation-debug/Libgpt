@@ -531,9 +531,13 @@
         <span class="toggle-track" aria-hidden="true"></span>
       </label>
       <label class="setting-row setting-toggle" for="settings-realvoice">
-        <span><strong>Grandpa's own voice</strong><small id="settings-realvoice-hint">A real elder's voice instead of the phone's robot. Uses the internet.</small></span>
+        <span><strong>Natural OpenAI voice</strong><small id="settings-realvoice-hint">AI generated speech from OpenAI. Uses the internet.</small></span>
         <input type="checkbox" id="settings-realvoice">
         <span class="toggle-track" aria-hidden="true"></span>
+      </label>
+      <label class="setting-row" for="settings-openai-voice">
+        <span><strong>OpenAI voice</strong><small>Cedar or Marin — natural, clear AI generated speech</small></span>
+        <select id="settings-openai-voice"></select>
       </label>
       <label class="setting-row" for="settings-voice">
         <span><strong>Fallback voice</strong><small id="settings-voice-hint">Used when the internet is gone</small></span>
@@ -544,7 +548,7 @@
         <input type="range" id="settings-rate" min="0.75" max="1.5" step="0.05" value="0.95">
       </label>
       <label class="setting-row" for="settings-pitch">
-        <span><strong>Voice depth</strong><small id="settings-pitch-value">Deep</small></span>
+        <span><strong>Phone voice depth</strong><small id="settings-pitch-value">Deep</small></span>
         <input type="range" id="settings-pitch" min="0.6" max="1.4" step="0.05" value="0.9">
       </label>
       <label class="setting-row" for="settings-accent">
@@ -555,11 +559,11 @@
         <span><strong>Grandpa's accent</strong><small id="settings-spoken-accent-hint">How strongly the voice sounds Liberian out loud</small></span>
         <select id="settings-spoken-accent"></select>
       </label>
-      <label class="setting-row" for="settings-loudness">
+      <label class="setting-row" for="settings-loudness" hidden>
         <span><strong>How loud the voice is</strong><small id="settings-loudness-hint">Louder than the phone alone can go</small></span>
         <select id="settings-loudness"></select>
       </label>
-      <label class="setting-row" for="settings-room">
+      <label class="setting-row" for="settings-room" hidden>
         <span><strong>Where the voice is sitting</strong><small id="settings-room-hint">A room around the voice</small></span>
         <select id="settings-room"></select>
       </label>
@@ -754,7 +758,7 @@
     </button>
   </div>
 
-  <p class="talk-foot">Your words and Grandpa’s replies are saved as text in this browser. Tap Done to return to the chat.</p>
+  <p class="talk-foot">The voice is AI generated. Your words and Grandpa’s replies are saved as text in this browser. Tap Done to return to the chat.</p>
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
@@ -762,4 +766,5 @@
 <script type="module" src="app.js"></script>
 </body>
 </html>
+
 
