@@ -437,7 +437,7 @@ export async function generateImage({ prompt, size = '1024x1024', signal }) {
  * Returns the audio as bytes, for the server to hand on; the browser never
  * talks to OpenAI directly.
  */
-export async function speakAloud({ text, voice = 'verse', delivery = '', speed, signal }) {
+export async function speakAloud({ text, voice = 'cedar', delivery = '', speed, signal }) {
   const body = {
     model: config.voiceModel,
     voice,
@@ -556,3 +556,4 @@ export async function complete({
   const parsed = await response.json();
   return parsed.choices?.[0]?.message?.content?.trim() || '';
 }
+

@@ -3,6 +3,8 @@
 // platform whose users may be discussing their farm, their business or their
 // health on a shared phone.
 
+import { migrateVoicePrefs } from './voice-settings.js';
+
 const KEY = 'grandpa-ai:chats:v1';
 const PREFS = 'grandpa-ai:prefs:v1';
 const MAX_CHATS = 100;
@@ -45,7 +47,10 @@ export function saveChats(chats) {
 }
 
 export function loadPrefs() {
-  return read(PREFS, {});
+  const prefs = migrateVoicePrefs(read(PREFS, {}));
+  write(PREFS, prefs);
+  try { localStorage.removeItem('grandpa-team-voice'); } catch { /* blocked storage */ }
+  return prefs;
 }
 
 export function savePrefs(prefs) {
@@ -78,3 +83,4 @@ export function groupByDate(chats) {
 
   return groups.filter((g) => g.chats.length > 0);
 }
+
