@@ -73,8 +73,10 @@ export function createLibrary({
   let storySettings = {storyKind:'folktale',theme:'wisdom',subject:'',region:'Africa'};
   let previousStories = loadStoryMemory();
   let storyError = '';
-  const explorers=Object.fromEntries(Object.keys(EXPLORERS).map(kind=>[kind,
-    {region:'Liberia',subject:'',entry:loadExploration(kind).latest,busy:false,error:''}]));
+  const explorers=Object.fromEntries(Object.keys(EXPLORERS).map(kind=>{
+    const saved=loadExploration(kind);
+    return [kind,{region:saved.region,subject:saved.subject,entry:saved.latest,busy:false,error:''}];
+  }));
 
   /**
    * A Listen control for a Library result.
@@ -275,7 +277,7 @@ export function createLibrary({
       <p class="settings-note">${escapeHtml(spec.description)} Generate more whenever you want; there is no fixed list of results.</p>
       ${kind!=='learn' ? `<div class="lib-field"><label for="explore-region">Explore where</label><select id="explore-region">${['Liberia','Africa','World'].map(r=>option(r,r,s.region)).join('')}</select></div>` : ''}
       <div class="lib-field"><label for="explore-subject">A topic (optional)</label><input id="explore-subject" type="text" maxlength="500" value="${escapeHtml(s.subject)}" placeholder="${kind==='history' ? 'an event, a person, an era…' : kind==='wisdom' ? 'patience, courage, family, work…' : 'anything you want to understand…'}"></div>
-      <button class="lib-go" type="submit" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Generating…' : d ? escapeHtml(spec.action) : `Generate ${escapeHtml(spec.title.toLowerCase())}`}</button>
+      <button class="lib-go" type="submit" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Generating…' : d ? escapeHtml(spec.action) : `Generate ${kind==='learn' ? 'a lesson' : escapeHtml(spec.title.toLowerCase())}`}</button>
     </form>
     ${s.error ? failure(s.error) : ''}
     ${s.busy ? loading('Grandpa is exploring something new…') : ''}
@@ -293,12 +295,13 @@ export function createLibrary({
     if (!s || s.busy) return;
     s.region=root.querySelector('#explore-region')?.value || s.region;
     s.subject=root.querySelector('#explore-subject')?.value.trim() || '';
+    const choices={region:s.region,subject:s.subject};
     s.busy=true;s.error='';onSpeakStop();render();
     try {
-      const result=await ask(kind,{region:s.region,subject:s.subject,recentStories:loadExploration(kind).recent});
+      const result=await ask(kind,{...choices,recentStories:loadExploration(kind).recent});
       if (!result.ok) throw new Error(result.error || 'That could not finish. Try again.');
       s.entry=result.data;
-      if (!saveExploration(kind,s.entry)) onError('Device storage is full or blocked. Keep or download the result before closing.');
+      if (!saveExploration(kind,s.entry,localStorage,choices)) onError('Device storage is full or blocked. Keep or download the result before closing.');
     } catch(error) {s.error=error.message || 'Could not generate something new. Try again.';}
     finally {s.busy=false;if(tab===kind) render();}
   }
