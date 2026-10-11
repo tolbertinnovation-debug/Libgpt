@@ -266,7 +266,9 @@ export async function* streamSearch({
     input: messages.map(m => ({ ...m, content: Array.isArray(m.content)
       ? m.content.map(part => part.type === 'image_url'
         ? { type: 'input_image', image_url: part.image_url.url, detail: part.image_url.detail || 'high' }
-        : { type: 'input_text', text: part.text || '' }) : m.content })),
+        : part.type === 'file'
+          ? { type: 'input_file', filename: part.file.filename, file_data: part.file.file_data }
+          : { type: 'input_text', text: part.text || '' }) : m.content })),
     store: false,
     tools: [{ type: tool }],
     // Not "here is a tool if you want it" — go and use it.
@@ -558,4 +560,5 @@ export async function complete({
   const parsed = await response.json();
   return parsed.choices?.[0]?.message?.content?.trim() || '';
 }
+
 

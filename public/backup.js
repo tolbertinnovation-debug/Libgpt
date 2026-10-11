@@ -43,6 +43,11 @@ function messages(value, building = false) {
       if (!/^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(photo)) fail('Unsupported photo in this backup.');
       clean.photo = photo;
     }
+    if (!building && message.photoSource) {
+      const source = text(message.photoSource, 1_400_000, 'readable photo');
+      if (!/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(source)) fail('Unsupported readable photo in this backup.');
+      clean.photoSource = source;
+    }
     if(!building && message.image) {
       const url=text(message.image.url,4_000_040,'generated image');
       if(!/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(url)) fail('Unsupported generated image in this backup.');
@@ -53,6 +58,13 @@ function messages(value, building = false) {
       name:text(message.paper.name, 200, 'document name'),
       text:text(message.paper.text, 500_000, 'document contents'),
     };
+    if (!building && message.paper?.data) {
+      const data = text(message.paper.data, 1_200_100, 'PDF pages');
+      if (!/^data:application\/pdf;base64,[A-Za-z0-9+/=]+$/.test(data)) fail('Unsupported PDF in this backup.');
+      clean.paper.data = data;
+      clean.paper.bytes = Math.floor(data.split(',')[1].length * 0.75);
+    }
+    if (clean.paper && message.paper.clipped === true) clean.paper.clipped = true;
     if (!building && Array.isArray(message.sources)) clean.sources = message.sources.slice(0,30)
       .filter(source => typeof source?.url === 'string' && /^https?:\/\//.test(source.url))
       .map(source => ({url:source.url.slice(0,2_000),title:String(source.title || '').slice(0,300)}));
@@ -126,3 +138,4 @@ export function commitRestore(prepared, storage = localStorage) {
     fail('Device storage is full or blocked. Existing saved work was kept.');
   }
 }
+
