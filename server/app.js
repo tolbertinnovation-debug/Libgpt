@@ -32,6 +32,7 @@ import { needsLookingUp, searchModelFrom, SEARCH_PROMPT } from './search.js';
 import { conversationWindow, QUESTION_CHARS, answerDepth, researchMode, generationBudget } from '../public/knowledge.js';
 import { KINDS, isKind, libraryCatalogue } from './structured.js';
 import {generateFreshStory,StoryGenerationError} from './stories.js';
+import {imageRequest} from './image-options.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -241,6 +242,7 @@ app.get('/api/config', async (_req, res) => {
     ...publicCatalogue(),
     library: libraryCatalogue(),
     imagesEnabled: config.imagesEnabled,
+    chatImages: config.imagesEnabled && Boolean(config.apiKey) && !(config.serverless && !config.accessCode),
     realVoice: config.realVoice && Boolean(config.apiKey),
     voices: OPENAI_VOICES,
     defaultVoice: DEFAULT_OPENAI_VOICE,
@@ -1348,19 +1350,42 @@ app.post('/api/picture', rateLimit, requireAccess, async (req, res) => {
     // Small on purpose. A page on a phone shows this a few hundred pixels
     // wide, and the browser shrinks it further before saving; asking for a
     // larger one would cost more and be thrown away.
+    pictureTimes.push(Date.now());
     const picture = await generateImage({
       prompt: `${asked}\n\nA clear, warm photograph suitable for a small business web page. `
         + 'No text, no lettering, no watermark, no logo. Nothing that needs reading.',
       size: '1024x1024',
       signal: controller.signal,
     });
-    pictureTimes.push(Date.now());
     res.json({ picture });
   } catch (error) {
     if (controller.signal.aborted) return;
     const status = error?.status || 502;
     res.status(status).json({ error: error?.message || 'The picture could not be drawn.' });
   }
+});
+
+// Image creation in chat uses the same access gate and spending budget as Album.
+app.post('/api/image', rateLimit, requireAccess, async (req,res)=>{
+  if(!config.imagesEnabled || !config.apiKey) return res.status(503).json({error:'Image creation is not enabled on this app yet.'});
+  if(config.serverless && !config.accessCode) return res.status(503).json({error:'Image creation needs the app access code to be configured.'});
+  let options;
+  try {options=imageRequest(req.body);} catch(error) {return res.status(400).json({error:error.message});}
+  if(pictureBudgetLeft()<=0) return res.status(429).json({error:'The picture limit for this hour is used up. Try again later.'});
+  const controller=new AbortController();
+  res.on('close',()=>controller.abort());
+  const timer=setTimeout(()=>controller.abort(),120_000);
+  // Reserve before awaiting the provider; simultaneous requests cannot pass the same slot.
+  pictureTimes.push(Date.now());
+  try {
+    const image=await generateImage({prompt:options.renderPrompt,size:options.size,quality:options.quality,format:'jpeg',signal:controller.signal});
+    if(controller.signal.aborted || res.destroyed) return;
+    res.json({image,prompt:options.prompt,size:options.size,quality:options.quality,style:options.style,remaining:pictureBudgetLeft()});
+  } catch(error) {
+    if(res.destroyed) return;
+    if(controller.signal.aborted) return res.status(504).json({error:'Image creation took too long. Try a simpler description or lower quality.'});
+    res.status(error.status || 502).json({error:error instanceof OpenAIError ? error.message : 'The image could not be created. Try again.'});
+  } finally {clearTimeout(timer);}
 });
 
 app.post('/api/album', rateLimit, requireAccess, async (req, res) => {

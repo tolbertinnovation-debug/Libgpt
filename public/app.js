@@ -24,6 +24,7 @@ import * as ritual from './ritual.js';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 import { mountSupport } from './support.js';
+import {imageCard,mountImageComposer,safeChatImage} from './image-chat.js';
 
 /* ========================================================================
    State
@@ -597,7 +598,7 @@ function messageActions(index, content) {
       <button class="msg-action" data-report="${index}" type="button">Report</button>
       ${unfinished
         ? '<button class="msg-action" data-continue type="button">Continue unfinished answer</button>' : ''}
-      ${index === lastAiIndex() ? `
+      ${index === lastAiIndex() && !currentChat()?.messages[index]?.image ? `
       <button class="msg-action" data-regen="${index}" type="button">
         <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" fill="none"
              stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -737,6 +738,7 @@ function renderThread() {
             ${message.trimmed ? trimmedNote(message.trimmed) : ''}
             ${message.searched ? lookedUp() : ''}
             <div class="prose">${renderMarkdown(message.content)}</div>
+            ${imageCard(message.image,index)}
             ${sourceList(message.sources)}
             ${messageActions(index, message.content)}
           </div>
@@ -1568,9 +1570,59 @@ el.paper.addEventListener('click', () => {
 el.paperInput.addEventListener('change', () => choosePaper(el.paperInput.files?.[0]));
 el.paperDrop.addEventListener('click', dropPaper);
 
+const imageComposer=mountImageComposer({
+  enabled:()=>Boolean(state.catalogue.chatImages),
+  onGenerate:async(options,controller)=>{
+    if(state.streaming || ritual.isBusy() || conversation.active) throw new Error('Finish the current conversation or build first.');
+    speaker.stop();if(listening) stopListening();
+    const chat=ensureChat();
+    if(!chat.title) chat.title=options.prompt.slice(0,48);
+    chat.messages.push({role:'user',content:'Create an image: '+options.prompt});
+    chat.updatedAt=Date.now();persist();renderThread();renderSidebar();
+    state.streaming=controller;setBusy(true);
+    const pending=startAiTurn();pending.textContent='Creating your image…';
+    try {
+      const response=await fetch('/api/image',{method:'POST',headers:apiHeaders(),signal:controller.signal,body:JSON.stringify(options)});
+      const result=await response.json().catch(()=>({}));
+      if(response.status===401) {imageComposer.close();showGate(result.error);}
+      if(!response.ok) throw new Error(result.error || 'The image could not be created.');
+      if(!safeChatImage(result.image)) throw new Error('The image response could not be displayed.');
+      if(controller.signal.aborted) throw new DOMException('Cancelled','AbortError');
+      if(!state.chats.includes(chat)) return;
+      chat.messages.push({role:'assistant',content:'Created an AI-generated image from your description.',image:{url:result.image,prompt:options.prompt,size:result.size,quality:result.quality,style:result.style}});
+      chat.updatedAt=Date.now();persist();renderSidebar();sounds.reply();
+    } catch(error) {
+      if(state.chats.includes(chat)) {
+        chat.messages.push({role:'assistant',content:controller.signal.aborted ? 'Image creation was cancelled.' : 'Image creation failed: '+error.message});
+        chat.updatedAt=Date.now();persist();renderSidebar();
+      }
+      throw error;
+    } finally {
+      pending.closest('.turn')?.remove();
+      if(state.streaming===controller) {state.streaming=null;setBusy(false);}
+      if(currentChat()===chat) renderThread();
+    }
+  },
+});
+el.thread.addEventListener('click',event=>{
+  const preview=event.target.closest('[data-preview-image]');
+  const another=event.target.closest('[data-another-image]');
+  const index=Number(preview?.dataset.previewImage ?? another?.dataset.anotherImage);
+  const image=currentChat()?.messages[index]?.image;
+  if(!image || !safeChatImage(image.url)) return;
+  if(another) {imageComposer.open(image);return;}
+  if(preview) {
+    const view=document.createElement('dialog');view.className='image-viewer';view.setAttribute('aria-label','Generated image preview');
+    const close=document.createElement('button');close.type='button';close.textContent='Close preview';
+    const img=document.createElement('img');img.src=image.url;img.alt=image.prompt || 'AI-generated image';
+    view.append(close,img);document.body.append(view);
+    close.addEventListener('click',()=>view.close());view.addEventListener('close',()=>view.remove());view.showModal();
+  }
+});
+
 el.draw.addEventListener('click', () => {
   showMore(false);
-  openLibrary('album');
+  imageComposer.open({prompt:el.input.value.trim()});
 });
 
 el.camera.addEventListener('click', () => {
@@ -3208,7 +3260,7 @@ async function boot() {
 
     // Drawing costs cents rather than fractions of a penny, so it is only
     // offered where pictures are actually switched on.
-    el.draw.hidden = !config.imagesEnabled;
+    el.draw.hidden = false;
 
     // And the plus itself is only worth a place if something is behind it.
     refreshMore();

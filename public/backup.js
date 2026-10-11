@@ -43,6 +43,11 @@ function messages(value, building = false) {
       if (!/^data:image\/(?:png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(photo)) fail('Unsupported photo in this backup.');
       clean.photo = photo;
     }
+    if(!building && message.image) {
+      const url=text(message.image.url,4_000_040,'generated image');
+      if(!/^data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(url)) fail('Unsupported generated image in this backup.');
+      clean.image={url,prompt:text(message.image.prompt || '',4000,'image prompt'),size:text(message.image.size || '',40,'image size'),quality:text(message.image.quality || '',40,'image quality'),style:text(message.image.style || '',40,'image style')};
+    }
     if (!building && message.paper) clean.paper = {
       name:text(message.paper.name, 200, 'document name'),
       text:text(message.paper.text, 500_000, 'document contents'),

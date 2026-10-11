@@ -3332,3 +3332,23 @@ body.is-talking { overflow: hidden; }
 
 .build-live .thinking { flex: none; }
 
+
+/* Images live in the conversation, with a composer that fits a phone. */
+.chat-image {margin:1rem 0;max-width:640px;}
+.chat-image-open {display:block;width:100%;padding:0;border:0;background:none;cursor:zoom-in;}
+.chat-image img {display:block;width:100%;max-height:640px;object-fit:contain;border-radius:var(--radius);background:var(--bg-hover);}
+.chat-image figcaption {font-size:.78rem;color:var(--text-soft);margin:.45rem 0;}
+.image-composer,.image-viewer {color:var(--text);background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:1.2rem;width:min(640px,calc(100vw - 1.5rem));max-height:90dvh;overflow:auto;box-sizing:border-box;}
+.image-composer::backdrop,.image-viewer::backdrop {background:rgba(0,0,0,.55);}
+.image-form {display:flex;flex-direction:column;gap:.8rem;}
+.image-heading {display:flex;align-items:center;justify-content:space-between;gap:1rem;}
+.image-heading h2 {margin:0;}
+.image-heading button {background:transparent;color:inherit;border:0;font-size:1.2rem;padding:.5rem;cursor:pointer;}
+.image-form textarea,.image-form select {box-sizing:border-box;width:100%;font:inherit;background:var(--bg);color:var(--text);border:1px solid var(--border-strong);border-radius:var(--radius-sm);padding:.65rem;}
+.image-form textarea {resize:vertical;min-height:120px;}
+.image-options {display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:.7rem;}
+.image-options label {display:flex;flex-direction:column;gap:.35rem;font-size:.85rem;}
+.image-viewer {width:min(1100px,calc(100vw - 1rem));}
+.image-viewer img {display:block;width:100%;max-height:78dvh;object-fit:contain;}
+.image-viewer button {font:inherit;padding:.6rem .8rem;border-radius:var(--radius-sm);margin-bottom:.7rem;}
+@media(max-width:480px) {.image-options {grid-template-columns:1fr;}.image-composer {padding:1rem;}}
