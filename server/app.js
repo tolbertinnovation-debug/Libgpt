@@ -1080,7 +1080,7 @@ app.post('/api/structured', rateLimit, requireAccess, async (req, res) => {
   }
 
   const spec = KINDS[kind];
-  const { system, user } = kind === 'story' ? {} : spec.build(req.body?.input || {});
+  const { system, user } = kind === 'story' || spec.fresh ? {} : spec.build(req.body?.input || {});
   // A folktale is worth the account's best model; a quiz question is not.
   const model = await pickModel(req.body?.model, kind);
 
@@ -1088,7 +1088,7 @@ app.post('/api/structured', rateLimit, requireAccess, async (req, res) => {
   res.on('close', () => controller.abort());
 
   try {
-    if(kind==='story') {
+    if(kind==='story' || spec.fresh) {
       const data=await generateFreshStory(spec,req.body?.input || {},({system,user})=>complete({
         model,messages:[{role:'system',content:system},{role:'user',content:user}],
         maxTokens:spec.maxTokens,temperature:spec.temperature,json:true,signal:controller.signal,
