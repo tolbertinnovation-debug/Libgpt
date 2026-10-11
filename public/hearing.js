@@ -31,7 +31,6 @@ export const canListenByRecording = () => Boolean(
   typeof MediaRecorder !== 'undefined'
   && navigator.mediaDevices?.getUserMedia
   && typeof window !== 'undefined'
-  && (window.AudioContext || window.webkitAudioContext),
 );
 
 // How often the level is read. Fast enough to catch the end of a sentence,
@@ -88,12 +87,13 @@ export class RecordedEar {
    * @param {(audio: Blob, headers: object) => Promise<string>} [deps.transcribe]
    */
   constructor({
-    endpointMs, headers = () => ({}), onLevel = null, transcribe = null, lang = '',
+    endpointMs, headers = () => ({}), onLevel = null, transcribe = null, lang = '', manual = false, onNotice = null,
   } = {}) {
     this.endpointMs = endpointMs || (() => 1_600);
     this.headers = headers;
     this.onLevel = onLevel;
     this.transcribe = transcribe || sendForWords;
+    this.manual = manual; this.onNotice = onNotice; this.request = new AbortController();
 
     // This ear works out the end of a turn by itself.
     this.endpoints = true;
@@ -180,13 +180,15 @@ export class RecordedEar {
 
   /** End the turn now and send what there is — the equivalent of letting go. */
   stop() {
-    if (!this.recorder) { this.#done(); return; }
-    this.#finish();
+    if (this.finishing) return;
+    if (!this.recorder) { this.dead = true; this.request.abort(); this.#done(); return; }
+    this.#finish(true);
   }
 
   /** Throw the turn away. Nothing is sent and nothing is charged for. */
   abort() {
     this.dead = true;
+    this.request.abort();
     this.#stopWatching();
     try { this.recorder?.stop(); } catch { /* already stopped */ }
     this.recorder = null;
@@ -197,17 +199,27 @@ export class RecordedEar {
 
   /* ---- working out when the talking has stopped -------------------------- */
 
-  #listenForTheEnd() {
+  async #listenForTheEnd() {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     let analyser;
     try {
       this.context = new Ctx();
+      if (this.context.state === 'suspended') {
+        let timer;
+        try { await Promise.race([this.context.resume(), new Promise(resolve => { timer = setTimeout(resolve, 1500); })]); }
+        finally { clearTimeout(timer); }
+      }
+      if (this.dead || this.finishing || !this.recorder) { try { await this.context?.close(); } catch {} return; }
+      if (this.context.state && this.context.state !== 'running') throw new Error('Audio meter suspended');
       analyser = this.context.createAnalyser();
       analyser.fftSize = 512;
       this.context.createMediaStreamSource(this.stream).connect(analyser);
     } catch {
+      if (this.dead || this.finishing || !this.recorder) return;
       // No meter, so no way to hear the end of a sentence. The turn still
       // records; it is ended by the conversation or by the ceiling below.
+      this.manual = true;
+      this.onNotice?.('Automatic pause detection is unavailable. Speak, then tap Send now.');
       this.timer = setInterval(() => {
         if (Date.now() - this.started > LONGEST_TURN_MS) this.#finish();
       }, TICK_MS);
@@ -228,7 +240,7 @@ export class RecordedEar {
       this.onLevel?.(level);
 
       // The room, learnt from the quiet parts and never from the loud ones.
-      if (!this.heardSomebody || level < this.floor) {
+      if (level < this.floor * 1.4) {
         this.floor = Math.max(FLOOR_MIN, this.floor * 0.95 + level * 0.05);
       }
 
@@ -246,7 +258,7 @@ export class RecordedEar {
         // own timers decide how long to wait for a first word.
         if (this.heardSomebody) {
           this.quietFor += TICK_MS;
-          if (this.quietFor >= this.endpointMs()) { this.#finish(); return; }
+          if (!this.manual && this.quietFor >= this.endpointMs()) { this.#finish(); return; }
         }
       }
 
@@ -264,7 +276,7 @@ export class RecordedEar {
 
   /* ---- the words --------------------------------------------------------- */
 
-  async #finish() {
+  async #finish(forced = false) {
     if (this.finishing || !this.recorder) return;
     this.finishing = true;
     this.#stopWatching();
@@ -291,7 +303,7 @@ export class RecordedEar {
 
     if (this.dead) { this.#done(); return; }
 
-    if (!this.heardSomebody || audio.size < TOO_SMALL_BYTES) {
+    if ((!this.heardSomebody && !forced && !this.manual) || audio.size < TOO_SMALL_BYTES) {
       // Nobody said anything. Not an error — the commonest thing a microphone
       // hears is a room.
       this.#done();
@@ -300,16 +312,18 @@ export class RecordedEar {
 
     let text = '';
     try {
-      text = await this.transcribe(audio, this.headers());
+      this.ontranscribing?.();
+      text = await this.transcribe(audio, this.headers(), this.request.signal);
     } catch (error) {
-      this.#report(/allow|permission/i.test(error?.message || '') ? 'not-allowed' : 'network');
+      if (this.dead) { this.#done(); return; }
+      this.#report(error?.name === 'TimeoutError' ? 'timeout' : 'transcription', error?.message || 'The recording could not be transcribed. Try again.');
       return;
     }
 
     if (this.dead) { this.#done(); return; }
     if (text) {
       try { this.onresult?.(resultEvent(text)); } catch { /* a listener's problem */ }
-    }
+    } else this.onNotice?.('No clear words were found. Try speaking closer to the microphone, or tap Send now after a short sentence.');
     this.#done();
   }
 
@@ -320,11 +334,11 @@ export class RecordedEar {
     this.stream = null;
   }
 
-  #report(error) {
+  #report(error, message = '') {
     this.#stopWatching();
     this.#release();
     this.recorder = null;
-    try { this.onerror?.({ error }); } catch { /* a listener's problem */ }
+    try { this.onerror?.({ error, message }); } catch { /* a listener's problem */ }
     this.#done();
   }
 
@@ -336,11 +350,17 @@ export class RecordedEar {
 }
 
 /** The bytes go up, the words come back. */
-async function sendForWords(audio, headers) {
+async function sendForWords(audio, headers, signal) {
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal?.reason);
+  signal?.addEventListener('abort', abort, {once:true}); if (signal?.aborted) abort();
+  const timer = setTimeout(() => controller.abort(new DOMException('Transcription took too long. Check your connection and retry.', 'TimeoutError')), 30_000);
+  try {
   const response = await fetch('/api/transcribe', {
     method: 'POST',
     headers: { ...headers, 'Content-Type': audio.type || 'audio/webm' },
     body: audio,
+    signal: controller.signal,
   });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
@@ -348,4 +368,6 @@ async function sendForWords(audio, headers) {
   }
   const body = await response.json();
   return String(body.text || '').trim();
+  } finally { clearTimeout(timer); signal?.removeEventListener('abort', abort); }
 }
+
