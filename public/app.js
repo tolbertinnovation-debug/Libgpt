@@ -1112,7 +1112,9 @@ function send(rawText) {
   if(!waiting && !paper && visualPrompt!==null) {
     speaker.stop();
     if(listening) stopListening();
-    imageComposer.open({prompt:visualPrompt});
+    if(!visualPrompt) {imageComposer.open();return;}
+    imageComposer.generate({prompt:visualPrompt}).catch(error=>toast(error.message || 'Image creation failed.'));
+    if(state.streaming) {el.input.value='';autoGrow();updateSendState();}
     return;
   }
 
@@ -1589,7 +1591,7 @@ const imageComposer=mountImageComposer({
     chat.messages.push({role:'user',content:'Create an image: '+options.prompt});
     chat.updatedAt=Date.now();persist();renderThread();renderSidebar();
     state.streaming=controller;setBusy(true);
-    const pending=startAiTurn();pending.textContent='Creating your image…';
+    const pending=startAiTurn();pending.textContent='Creating your image… This may take a minute. You can stop it with the Stop button.';
     try {
       const response=await fetch('/api/image',{method:'POST',headers:apiHeaders(),signal:controller.signal,body:JSON.stringify(options)});
       const result=await response.json().catch(()=>({}));

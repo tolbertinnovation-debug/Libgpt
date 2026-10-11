@@ -111,13 +111,32 @@ test('visual requests route to images while stories, code and prompt-writing sta
   for(const prompt of ['Create a story about a classroom','Generate classroom lesson notes','Design a website for a photo studio','Create an image prompt about a forest','Explain how images work','Create a business plan','Create an essay on art',null]) assert.equal(imagePrompt(prompt),null,prompt);
   assert.equal(imagePrompt('/image A beautiful classroom'),'A beautiful classroom');
 });
-test('sending the reported classroom request opens image creation without a text model request',async()=>{
+test('sending the reported classroom request generates directly without a popup or text model request',async()=>{
   const source=await readFile(new URL('../public/app.js',import.meta.url),'utf8');
   const code=source.slice(source.indexOf('function send(rawText)'),source.indexOf('function regenerate(index)'));
   let opened,stopped=0,textRequests=0,built;
-  const env={el:{input:{value:''}},ritual:{currentMode:()=> 'ask',isStreaming:()=>false,ask:value=>built=value},waiting:null,paper:null,state:{streaming:null},speaker:{stop:()=>stopped++},listening:false,stopListening(){},imagePrompt,imageComposer:{open:value=>opened=value},streamReply:()=>textRequests++,autoGrow(){},updateSendState(){}};
+  const env={el:{input:{value:''}},ritual:{currentMode:()=> 'ask',isStreaming:()=>false,ask:value=>built=value},waiting:null,paper:null,state:{streaming:null},speaker:{stop:()=>stopped++},listening:false,stopListening(){},imagePrompt,imageComposer:{open(){throw new Error('Must not open popup');},generate:value=>{opened=value;return Promise.resolve();}},toast(){},streamReply:()=>textRequests++,autoGrow(){},updateSendState(){}};
   const send=new Function(...Object.keys(env),code+';return send;')(...Object.values(env));
   const prompt='Create A beautiful Liberian classroom with students learning on laptops';
   send(prompt);assert.deepEqual(opened,{prompt});assert.equal(stopped,1);assert.equal(textRequests,0);
   env.ritual.currentMode=()=> 'build';opened=null;send('Create a photo website');assert.equal(built,'Create a photo website');assert.equal(opened,null);
+});
+
+test('image generation closes options before starting, blocks duplicate requests and recovers after errors',async()=>{
+  const source=await readFile(new URL('../public/image-chat.js',import.meta.url),'utf8');
+  const start=source.indexOf('  const generate=async('),end=source.indexOf("  form.addEventListener('submit'",start);
+  const events=[],submit={disabled:false},cancel={hidden:true};
+  let finish,options;
+  const make=new Function('enabled','dialog','submit','cancel','onGenerate','let controller=null;'+source.slice(start,end)+';return generate;');
+  const generate=make(()=>true,{close:()=>events.push('close')},submit,cancel,async value=>{events.push('start');options=value;await new Promise(resolve=>finish=resolve);});
+  const pending=generate({prompt:' A classroom '});
+  assert.deepEqual(events,['close','start']);assert.equal(submit.disabled,true);
+  assert.deepEqual(options,{prompt:'A classroom',style:'natural',size:'1024x1024',quality:'high'});
+  await assert.rejects(generate({prompt:'Duplicate'}),/already/);
+  finish();await pending;assert.equal(submit.disabled,false);
+  const failed=make(()=>true,{close(){}},submit,cancel,async()=>{throw new Error('Provider failed');});
+  await assert.rejects(failed({prompt:'A classroom'}),/Provider failed/);assert.equal(submit.disabled,false);
+  await assert.rejects(failed({prompt:'A classroom'}),/Provider failed/);
+  const disabled=make(()=>false,{close(){throw new Error('Must not start');}},submit,cancel,()=>assert.fail());
+  await assert.rejects(disabled({prompt:'A classroom'}),/not enabled/);
 });

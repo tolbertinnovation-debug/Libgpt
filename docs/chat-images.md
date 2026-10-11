@@ -1,6 +1,8 @@
 # Create images in chat
 
-Use **+ → Create an image**. Describe the subject, background, colors and any exact wording. Choose a style, square/landscape/portrait shape, and quality. Create one image at a time using the app’s existing OpenAI API key.
+Type a clear image request in chat, or use `/image` followed by a description, to generate directly without a popup. Direct generation uses natural style, square shape, and high detail. Progress appears in the conversation; the shared Stop button cancels the request.
+
+For custom options, use **Create image** or **+ → Create an image**. Describe the subject, background, colors and any exact wording. Choose a style, square/landscape/portrait shape, and quality. The options popup closes immediately when creation starts. Create one image at a time using the app’s existing OpenAI API key.
 
 The image appears inside the conversation with an AI-generated label. Tap it to enlarge, download the JPEG, or choose **Create another** to reopen the description and options. This creates a new image from text; it does not edit an uploaded photo. Photo questions remain available through **+ → Photos**.
 

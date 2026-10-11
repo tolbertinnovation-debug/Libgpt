@@ -28,6 +28,18 @@ export function mountImageComposer({onGenerate,enabled=()=>true}) {
   dialog.querySelector('[data-image-close]').addEventListener('click',close);
   dialog.addEventListener('cancel',()=>controller?.abort());
   cancel.addEventListener('click',()=>controller?.abort());
+  const generate=async(options={})=>{
+    if(controller) throw new Error('An image is already being created.');
+    if(!enabled()) throw new Error('Image creation is not enabled on this app yet.');
+    const prompt=String(options.prompt || '').trim();
+    if(!prompt) throw new Error('Describe the image you want.');
+    controller=new AbortController();const active=controller;
+    submit.disabled=true;
+    // Keep progress and cancellation in the conversation, not over it.
+    dialog.close();
+    try {await onGenerate({style:'natural',size:'1024x1024',quality:'high',...options,prompt},active);}
+    finally {if(controller===active) controller=null;submit.disabled=false;cancel.hidden=true;}
+  };
   form.addEventListener('submit',async event=>{
     event.preventDefault();
     if(controller) return;
@@ -35,13 +47,10 @@ export function mountImageComposer({onGenerate,enabled=()=>true}) {
     const options=Object.fromEntries(new FormData(form));
     options.prompt=options.prompt.trim();
     if(!options.prompt) {say('Describe the image you want.');return;}
-    controller=new AbortController();const active=controller;
-    submit.disabled=true;cancel.hidden=false;say('Creating your image… This may take a minute.');
-    try {await onGenerate(options,active);if(!active.signal.aborted) dialog.close();}
-    catch(error) {say(active.signal.aborted ? 'Generation cancelled. If creation had already started, API credits may still have been used.' : error.message || 'Image creation failed. Try again.');}
-    finally {if(controller===active) controller=null;submit.disabled=false;cancel.hidden=true;}
+    try {await generate(options);}
+    catch(error) {say(error.message || 'Image creation failed. Try again.');}
   });
-  return {close(){dialog.close();},open(options={}) {
+  return {generate,close(){dialog.close();},open(options={}) {
     if(controller) return;
     form.elements.prompt.value=options.prompt || '';
     for(const key of ['style','size','quality']) if(options[key] && [...form.elements[key].options].some(o=>o.value===options[key])) form.elements[key].value=options[key];
@@ -51,7 +60,7 @@ export function mountImageComposer({onGenerate,enabled=()=>true}) {
   }};
 }
 
-// Route clear visual creation requests to the image composer. Ambiguous requests
+// Identify clear visual creation requests for direct image generation. Ambiguous requests
 // can always use the visible Create image control or the /image command.
 export function imagePrompt(text) {
   if(typeof text!=='string') return null;
