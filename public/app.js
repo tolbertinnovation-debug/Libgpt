@@ -1,4 +1,4 @@
-import {imageDiscussion,validImageDiscussion} from './image-context.js';
+import {imageDiscussion,validImageDiscussion,imageRequestLabel} from './image-context.js';
 import { renderMarkdown, escapeHtml } from './markdown.js';
 import { conversationWindow, answerDepth, researchMode } from './knowledge.js';
 import { groupByDate, loadChats, loadPrefs, newId, savePrefs, saveChats } from './storage.js';
@@ -730,7 +730,7 @@ function renderThread() {
               + `<path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg>`
               + `${escapeHtml(message.paper.name)}</span>`
             : ''
-        }${escapeHtml(message.content)}</div></div>`;
+        }${escapeHtml(imageRequestLabel(message.content))}</div></div>`;
       }
       return `
         <div class="turn turn-ai">
@@ -1590,7 +1590,7 @@ const imageComposer=mountImageComposer({
     const chat=ensureChat();
     options={...options,context:validImageDiscussion(options.context) || imageDiscussion(options.prompt,chat.messages)};
     if(!chat.title) chat.title=options.prompt.slice(0,48);
-    chat.messages.push({role:'user',content:'Create an image: '+options.prompt});
+    chat.messages.push({role:'user',content:options.prompt});
     chat.updatedAt=Date.now();persist();renderThread();renderSidebar();
     state.streaming=controller;setBusy(true);
     const pending=startAiTurn();pending.innerHTML=imageLoadingMarkup();
@@ -3353,3 +3353,4 @@ document.addEventListener('visibilitychange', () => {
 });
 
 boot();
+

@@ -1,4 +1,4 @@
-import {imageDiscussion,validImageDiscussion} from '../public/image-context.js';
+import {imageDiscussion,validImageDiscussion,genericImageRequest,imageRequestLabel} from '../public/image-context.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -87,7 +87,7 @@ test('chat image host saves to the original conversation and resets busy state',
   const environment={state,ritual:{isBusy:()=>false},conversation:{active:false},speaker:{stop(){}},listening:false,stopListening(){},ensureChat:()=>chat,persist:()=>persists++,renderThread(){},renderSidebar(){},setBusy:b=>busy.push(b),startAiTurn:()=>pending,apiHeaders:()=>({}),showGate(){},safeChatImage,imageLoadingMarkup,imageDiscussion,validImageDiscussion,sounds:{reply(){}},currentChat:()=>chat,fetch:async(_url,request)=>{sent=JSON.parse(request.body);return new Response(JSON.stringify({image,size:'1024x1024',quality:'high',style:'photo'}),{status:200});},mountImageComposer:value=>{options=value;}};
   new Function(...Object.keys(environment),source.slice(start,end))(...Object.values(environment));
   await options.onGenerate({prompt:'Create an image of it',size:'1024x1024',quality:'high',style:'photo'},new AbortController());
-  assert.equal(chat.messages.length,4);assert.equal(chat.messages[3].image.url,image);assert.match(sent.context,/classroom in Liberia/);assert.equal(chat.messages[3].image.context,sent.context);
+  assert.equal(chat.messages[2].content,'Create an image of it');assert.equal(chat.messages.length,4);assert.equal(chat.messages[3].image.url,image);assert.match(sent.context,/classroom in Liberia/);assert.equal(chat.messages[3].image.context,sent.context);
   assert.equal(state.streaming,null);assert.deepEqual(busy,[true,false]);assert.ok(persists>=2);
 });
 
@@ -166,4 +166,40 @@ test('image discussion survives backups so Create another keeps its original sub
   const chats=[{id:'c1',title:'Images',messages:[{role:'assistant',content:'Created',image:{url:image,prompt:'Create an image of it',context:'user: A classroom in Liberia'}}]}];
   const restored=parseBackup(createBackup(chats,[]));
   assert.equal(restored.chats[0].messages[0].image.context,'user: A classroom in Liberia');
+});
+
+
+test('bare image requests retain the discussed flag or map rather than a previous unrelated image',()=>{
+  for(const subject of ['Liberia flag','Liberia map']) {
+    const history=[{role:'user',content:'I want to see '+subject},{role:'assistant',content:'Here is the '+subject+'.'},
+      {role:'user',content:'Create an image: Create a image'},{role:'assistant',content:'Created an image',image:{prompt:'Create a image',url:image}},
+      {role:'assistant',content:'Image creation failed: example'}];
+    const context=imageDiscussion('Create an image',history);
+    assert.match(context,new RegExp(subject));assert.doesNotMatch(context,/Previous image|Create a image|Image creation failed/);
+    const request=imageRequest({prompt:'Create an image',context});
+    assert.match(request.renderPrompt,new RegExp(subject));assert.match(request.renderPrompt,/Never substitute an unrelated/);
+  }
+  for(const prompt of ['Create an image','Create a image','Create picture','Create an image: Create a image']) assert.equal(genericImageRequest(prompt),true,prompt);
+  assert.throws(()=>imageRequest({prompt:'Create an image'}),/which subject/);
+  assert.equal(imageDiscussion('Create an image',[]),'');
+});
+test('map and flag viewing requests use the image route but explanations stay in text',()=>{
+  for(const prompt of ['Create Liberia map','I want to see Liberia flag','Show me the flag of Liberia','Please draw a map of Liberia']) assert.notEqual(imagePrompt(prompt),null,prompt);
+  for(const prompt of ['Explain the Liberia flag','What does the Liberia flag mean?','Create a lesson about the Liberia map','I want to see the history of Liberia']) assert.equal(imagePrompt(prompt),null,prompt);
+});
+
+test('new and legacy image requests display without the duplicated action prefix',()=>{
+  assert.equal(imageRequestLabel('Create an image: Create a image'),'Create a image');
+  assert.equal(imageRequestLabel('Create an image: Create an image: Create an image'),'Create an image');
+  assert.equal(imageRequestLabel('Create Liberia map'),'Create Liberia map');
+  assert.equal(imageRequestLabel('Explain the map of Liberia'),'Explain the map of Liberia');
+});
+
+test('the image API refuses an empty-subject command before billing and forwards a discussed flag',async()=>{
+  let calls=0,prompt;
+  const route=await imageRoute({imagesEnabled:true,apiKey:'test'},async options=>{calls++;prompt=options.prompt;return image;});
+  const missing=route.res();await route.handler({body:{prompt:'Create a image'}},missing);
+  assert.equal(missing.statusCode,400);assert.equal(calls,0);assert.equal(route.pictureTimes.length,0);
+  const success=route.res();await route.handler({body:{prompt:'Create a image',context:imageDiscussion('Create a image',[{role:'user',content:'I want to see Liberia flag'},{role:'assistant',content:'Liberia flag has one white star.'}])}},success);
+  assert.equal(success.statusCode,200);assert.equal(calls,1);assert.match(prompt,/Liberia flag/);assert.equal(success.body.image,image);
 });
