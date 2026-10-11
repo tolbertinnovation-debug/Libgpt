@@ -5,7 +5,7 @@
 // choices from fixed lists.
 
 import { escapeHtml } from './markdown.js';
-import {CookingPictures,cookingPicture,cookingCaption,cookingLessonHTML} from './cooking.js';
+import {CookingPictures,cookingPicture,cookingCaption,cookingLessonHTML,cookingStageButton} from './cooking.js';
 import {JOURNAL_TYPES,journalPage,journalText,journalFilename} from './journal.js';
 import {loadStoryMemory,saveStoryMemory,recentStories,storyRecord} from './story-memory.js';
 import {EXPLORERS,loadExploration,saveExploration} from './explore.js';
@@ -414,13 +414,19 @@ export function createLibrary({
   function renderRecipe() {
     const out=root.querySelector('#recipe-out');if(!out || !cooking || tab!=='recipe')return;
     const d=cooking.recipe;
-    const pictureButton=stage => imagesEnabled() && onRecipeImage ? `<button type="button" class="setting-btn" data-cooking-picture="${stage}" ${cooking.busy || cooking.images[stage] ? 'disabled' : ''}>${cooking.images[stage] ? 'Picture ready' : 'Show this stage'}</button>` : '';
+    const pictureButton=stage => imagesEnabled() && onRecipeImage ? cookingStageButton(cooking,stage) : '';
+    const activeStage=cooking.stage || out.querySelector('[data-cooking-picture][aria-busy="true"]')?.dataset.cookingPicture;
+    const anchor=activeStage && !cooking.images[activeStage] ? out.querySelector(`[data-cooking-picture="${activeStage}"]`) : null;
+    const scroller=root.closest('.library-panel') || root;
+    const bounds=anchor?.getBoundingClientRect(),viewport=scroller.getBoundingClientRect();
+    const anchorTop=bounds && bounds.bottom>=viewport.top && bounds.top<=viewport.bottom ? bounds.top : null;
     out.innerHTML=`<div class="lib-result cooking-lesson"><h3 class="lib-title">${escapeHtml(d.dish)}</h3><div class="lib-note">${escapeHtml(d.backstory)}</div><p>${escapeHtml([d.serves && 'Serves '+d.serves,d.prepTime && 'Preparation: '+d.prepTime,d.cookTime && 'Cooking: '+d.cookTime].filter(Boolean).join(' · '))}</p>
       ${cooking.busy ? `<div class="cooking-progress" role="status"><progress aria-label="Cooking illustration generation"></progress><p>Creating ${escapeHtml(cookingCaption(d,cooking.stage))}…</p><button class="setting-btn" type="button" data-cooking-cancel>Stop pictures</button></div>` : ''}
       ${cooking.error ? failure(cooking.error) : ''}<h4>You will need</h4><ul>${d.ingredients.map(i=>`<li>${escapeHtml(i)}</li>`).join('')}</ul>${cookingPicture(cooking,'ingredients')}${pictureButton('ingredients')}
       <h4>How to cook it</h4><ol class="cooking-steps">${d.steps.map((step,i)=>`<li><p>${escapeHtml(step)}</p>${d.stepCues[i]?`<p class="cooking-cue"><strong>Look for:</strong> ${escapeHtml(d.stepCues[i])}</p>`:''}${cookingPicture(cooking,`step-${i}`)}${pictureButton(`step-${i}`)}</li>`).join('')}</ol>
       <h4>Serving suggestion</h4>${cookingPicture(cooking,'finished')}${pictureButton('finished')}${d.tip ? `<div class="lib-moral"><em>Grandpa says</em>${escapeHtml(d.tip)}</div>` : ''}${d.safety ? `<p class="cooking-safety"><strong>Food preparation:</strong> ${escapeHtml(d.safety)}</p>` : ''}<p class="settings-note">AI-generated pictures may contain mistakes. Follow the written recipe; pictures cannot establish safe doneness.</p>
       <div class="lib-actions"><button class="setting-btn" type="button" data-save-recipe>Keep this recipe</button>${readButton('recipe','Read it to me')}<button class="setting-btn" type="button" data-cooking-download>Download illustrated lesson</button>${imagesEnabled() && onRecipeImage ? `<button class="setting-btn" type="button" data-cooking-all ${cooking.busy ? 'disabled' : ''}>Create missing lesson pictures</button>` : ''}</div></div>`;
+    if(anchorTop!==null){const replacement=out.querySelector(`[data-cooking-picture="${activeStage}"]`);if(replacement)scroller.scrollTop+=replacement.getBoundingClientRect().top-anchorTop;}
   }
   async function generateRecipe(event) {
     event.preventDefault();if(recipeBusy)return;
