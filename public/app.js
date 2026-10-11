@@ -2155,6 +2155,13 @@ function registerHint() {
  * showing the change is worth more than describing it.
  */
 function spokenAccentHint() {
+  if (state.catalogue.realVoice && state.prefs.realVoice !== false) {
+    return {
+      full: 'Natural Liberian cadence with clarity first.',
+      light: 'A gentle Liberian cadence, easy to understand.',
+      off: 'Clear, neutral English pronunciation.',
+    }[state.prefs.accent] || 'A gentle Liberian cadence, easy to understand.';
+  }
   const chosen = ACCENTS.find((a) => a.id === state.prefs.accent);
   const sample = {
     full: '"I tink dat ting will be betta afta de rain."',
