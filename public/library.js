@@ -6,6 +6,7 @@
 
 import { escapeHtml } from './markdown.js';
 import {loadStoryMemory,saveStoryMemory,recentStories,storyRecord} from './story-memory.js';
+import {EXPLORERS,loadExploration,saveExploration} from './explore.js';
 
 const JOURNAL_KEY = 'grandpa-ai:journal:v1';
 const QUIZ_KEY = 'grandpa-ai:quiz:v1';
@@ -31,7 +32,7 @@ export const loadJournal = () => {
   return Array.isArray(items) ? items : [];
 };
 
-export const saveJournal = (items) => write(JOURNAL_KEY, items.slice(0, 100));
+export const saveJournal = (items) => write(JOURNAL_KEY, items);
 
 export const loadQuizState = () => {
   const s = read(QUIZ_KEY, {});
@@ -62,15 +63,18 @@ const failure = (message) => `
  */
 export function createLibrary({
   root, catalogue, ask, onSaved = () => {}, onSpeak = null, onSpeakStop = () => {},
+  onError = () => {}, onExplore = null,
 }) {
   // `ask(kind, input, path)` — the album has its own endpoint because a
   // picture is a different kind of request, with its own ceiling.
   let tab = 'story';
   let story = null;   // { title, parts[], choicePrompt, choices[], finished }
   let storyBusy = false;
-  let storySettings = {storyKind:'folktale',theme:'wisdom',subject:''};
+  let storySettings = {storyKind:'folktale',theme:'wisdom',subject:'',region:'Africa'};
   let previousStories = loadStoryMemory();
   let storyError = '';
+  const explorers=Object.fromEntries(Object.keys(EXPLORERS).map(kind=>[kind,
+    {region:'Liberia',subject:'',entry:loadExploration(kind).latest,busy:false,error:''}]));
 
   /**
    * A Listen control for a Library result.
@@ -88,6 +92,10 @@ export function createLibrary({
 
   /** What a result sounds like, as opposed to how it looks. */
   function spokenText(key) {
+    if (explorers[key]?.entry) {
+      const d=explorers[key].entry;
+      return [d.title,...d.opening,d.takeaway,d.note].filter(Boolean).join('\n\n');
+    }
     if (key === 'story' && story) {
       const parts = [story.title, ...story.parts];
       if (story.finished) {
@@ -147,6 +155,9 @@ export function createLibrary({
     const themes = catalogue.themes || [];
     return `
       <form class="lib-form" id="story-form">
+        <div class="lib-field"><label for="story-region">Where the story comes from</label>
+          <select id="story-region">${['Liberia','Africa','World'].map(r=>option(r,r,storySettings.region)).join('')}</select>
+        </div>
         <div class="lib-row">
           <div class="lib-field">
             <label for="story-kind">What kind</label>
@@ -208,7 +219,8 @@ export function createLibrary({
     onSpeakStop();
     storyBusy=true;storyError='';
     storySettings={storyKind:root.querySelector('#story-kind').value,
-      theme:root.querySelector('#story-theme').value,subject:root.querySelector('#story-subject').value.trim()};
+      theme:root.querySelector('#story-theme').value,subject:root.querySelector('#story-subject').value.trim(),
+      region:root.querySelector('#story-region')?.value || storySettings.region};
     root.querySelector('#story-form button').disabled=true;
     const out = root.querySelector('#story-out');
     out.innerHTML = loading('Grandpa is gathering the story…');
@@ -255,6 +267,41 @@ export function createLibrary({
 
   const storyText = () =>
     `${story.parts.join('\n\n')}\n\n${story.proverb}\n\n${story.moral}`;
+
+  /* ---- Open-ended history, wisdom and learning ---- */
+  function explorerPanel(kind) {
+    const s=explorers[kind],spec=EXPLORERS[kind],d=s.entry;
+    return `<form class="lib-form" id="explore-form">
+      <p class="settings-note">${escapeHtml(spec.description)} Generate more whenever you want; there is no fixed list of results.</p>
+      ${kind!=='learn' ? `<div class="lib-field"><label for="explore-region">Explore where</label><select id="explore-region">${['Liberia','Africa','World'].map(r=>option(r,r,s.region)).join('')}</select></div>` : ''}
+      <div class="lib-field"><label for="explore-subject">A topic (optional)</label><input id="explore-subject" type="text" maxlength="500" value="${escapeHtml(s.subject)}" placeholder="${kind==='history' ? 'an event, a person, an era…' : kind==='wisdom' ? 'patience, courage, family, work…' : 'anything you want to understand…'}"></div>
+      <button class="lib-go" type="submit" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Generating…' : d ? escapeHtml(spec.action) : `Generate ${escapeHtml(spec.title.toLowerCase())}`}</button>
+    </form>
+    ${s.error ? failure(s.error) : ''}
+    ${s.busy ? loading('Grandpa is exploring something new…') : ''}
+    ${d ? `<div class="lib-result"><h3 class="lib-title">${escapeHtml(d.title)}</h3>${paragraphs(d.opening)}
+      <div class="lib-moral">${escapeHtml(d.takeaway)}</div>${d.note ? `<p class="settings-note">${escapeHtml(d.note)}</p>` : ''}
+      ${kind==='history' ? '<p class="settings-note">AI-generated historical explanation. Use Check sources for live verification of important details.</p>' : ''}
+      <div class="lib-actions"><button class="setting-btn" data-save-explore type="button">Keep this in my journal</button>${readButton(kind)}
+      <button class="setting-btn" data-download-explore type="button">Download</button>
+      <button class="setting-btn" data-more-explore type="button" ${s.busy ? 'disabled' : ''}>${escapeHtml(spec.action)}</button>
+      ${onExplore ? '<button class="setting-btn" data-check-explore type="button">Check sources in chat</button>' : ''}</div></div>` : ''}`;
+  }
+  async function beginExploration(event) {
+    event?.preventDefault();
+    const kind=tab,s=explorers[kind];
+    if (!s || s.busy) return;
+    s.region=root.querySelector('#explore-region')?.value || s.region;
+    s.subject=root.querySelector('#explore-subject')?.value.trim() || '';
+    s.busy=true;s.error='';onSpeakStop();render();
+    try {
+      const result=await ask(kind,{region:s.region,subject:s.subject,recentStories:loadExploration(kind).recent});
+      if (!result.ok) throw new Error(result.error || 'That could not finish. Try again.');
+      s.entry=result.data;
+      if (!saveExploration(kind,s.entry)) onError('Device storage is full or blocked. Keep or download the result before closing.');
+    } catch(error) {s.error=error.message || 'Could not generate something new. Try again.';}
+    finally {s.busy=false;if(tab===kind) render();}
+  }
 
   /* ---- Names ---- */
   function namesForm() {
@@ -557,12 +604,18 @@ export function createLibrary({
   function keep(entry) {
     const items = loadJournal();
     items.unshift({ id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, at: Date.now(), ...entry });
-    saveJournal(items);
+    if (!saveJournal(items)) {
+      onError('The journal could not save because device storage is full or blocked. Your older saved entries were kept.');
+      return;
+    }
     onSaved(entry);
   }
 
   /* ---- Tabs ---- */
   const PANELS = {
+    history:()=>explorerPanel('history'),
+    wisdom:()=>explorerPanel('wisdom'),
+    learn:()=>explorerPanel('learn'),
     story: storyForm,
     names: namesForm,
     recipe: recipeForm,
@@ -588,6 +641,7 @@ export function createLibrary({
 
   /* ---- One delegated listener for the whole panel ---- */
   root.addEventListener('submit', (event) => {
+    if (event.target.id === 'explore-form') beginExploration(event);
     if (event.target.id === 'story-form') beginStory(event);
     if (event.target.id === 'names-form') generateNames(event);
     if (event.target.id === 'recipe-form') generateRecipe(event);
@@ -595,6 +649,8 @@ export function createLibrary({
   });
 
   root.addEventListener('change', (event) => {
+    if(event.target.id==='story-region') storySettings.region=event.target.value;
+    if(event.target.id==='explore-region' && explorers[tab]) explorers[tab].region=event.target.value;
     if(event.target.id==='story-kind') storySettings.storyKind=event.target.value;
     if(event.target.id==='story-theme') storySettings.theme=event.target.value;
     if (event.target.id === 'recipe-pick') {
@@ -603,10 +659,26 @@ export function createLibrary({
   });
 
   root.addEventListener('input',event=>{
+    if(event.target.id==='explore-subject' && explorers[tab]) explorers[tab].subject=event.target.value;
     if(event.target.id==='story-subject') storySettings.subject=event.target.value.slice(0,120);
   });
 
   root.addEventListener('click', (event) => {
+    if (event.target.closest('[data-download-explore]') && explorers[tab]?.entry) {
+      const d=explorers[tab].entry;
+      const url=URL.createObjectURL(new Blob([[d.title,...d.opening,d.takeaway,d.note].filter(Boolean).join('\n\n')],{type:'text/plain;charset=utf-8'}));
+      const link=document.createElement('a');link.href=url;link.download=`grandpa-${tab}.txt`;
+      document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
+      return;
+    }
+    if (event.target.closest('[data-more-explore]')) return beginExploration();
+    if (event.target.closest('[data-check-explore]') && explorers[tab]?.entry && onExplore) return onExplore(tab,explorers[tab].entry.title);
+    if (event.target.closest('[data-save-explore]') && explorers[tab]?.entry) {
+      const d=explorers[tab].entry;
+      keep({kind:tab,kindLabel:EXPLORERS[tab].title,title:d.title,summary:d.summary,
+        body:[...d.opening,d.takeaway,d.note].filter(Boolean).join('\n\n')});
+      return;
+    }
     // Anything that replaces what is on screen also stops the reading of it —
     // being read a story you have already moved on from is worse than silence.
     const read = event.target.closest('[data-read]');
