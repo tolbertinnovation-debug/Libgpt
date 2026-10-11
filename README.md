@@ -6,6 +6,8 @@
 
 **Rich documents:** Add data charts, process diagrams, labelled drawings and tables with captions, totals and custom column layouts. Use **Add another section** to extend a saved document; larger volumes support 400 blocks and up to 200 PDF pages.
 
+**Long documents:** Choose a length or ask for more than 10 pages. Goals of 11–100 pages trigger automatic section-by-section writing with measured PDF page counts, saved progress and a resume action after interruptions. Content follows the document type; Word pagination can differ.
+
 **Open exploration:** History, Wisdom and Learn panels generate more on demand, with recent-repeat checks, journal saving, downloads and source verification in chat. Fixed saved-history count caps are removed. See [open exploration](docs/open-exploration.md).
 
 **Knowledge update:** Broader live research, answer-depth settings, larger conversation and generation budgets, and saved continuation controls. See [knowledge and generation](docs/knowledge.md). Earlier limits described below are superseded by this update.

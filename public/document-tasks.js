@@ -33,6 +33,7 @@ export const TASK_FIELDS = {
   skills: ['Skills', 'Which relevant skills and certifications can you confirm?'],
   payment: ['Payment status and details', 'Is this an unpaid invoice or a paid receipt, and what payment details and reference should appear?'],
   scope: ['Scope and sources', 'What topics, length, source materials and level of detail should this cover?'],
+  length: ['Requested length', 'How many pages or how much detail should this document contain?'],
   tone: ['Tone and language', 'What tone and language do you prefer?'],
 };
 

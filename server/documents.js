@@ -1,6 +1,7 @@
 import { DOCUMENT_TEMPLATES, readDocumentSpec } from '../public/documents.js';
 import { readDocument, withAttachments } from './chat-attachments.js';
 import { DOCUMENT_TASKS, TASK_FIELDS, documentTaskKind, readTaskBrief, missingTaskFields } from '../public/document-tasks.js';
+import { requestedDocumentPages } from '../public/document-length.js';
 
 export const TASK_INTAKE_PROMPT = `You are gathering a brief before completing a document or graphic-design task. Read the conversation, saved brief and source attachments. Record only facts and instructions the user actually supplied. Preserve previous answers unless the user corrects them. Never invent business names, budgets, qualifications, contacts or research. Do not execute the task yet.
 Return JSON: {"brief":{"kind":"business_plan","summary":"Concise description of the requested outcome","fields":{"business":"Confirmed answer"}},"questions":["Only unresolved questions"]}.
@@ -59,6 +60,9 @@ export function mountDocumentRoutes(app, deps) {
       const context = withAttachments(turns, { photo, document, photoContext: req.body?.photoContext });
       const template = Object.hasOwn(DOCUMENT_TEMPLATES, req.body?.template) ? req.body.template : '';
       brief = req.body?.brief ? readTaskBrief(req.body.brief) : null;
+      if (req.body?.targetPages != null && (!Number.isInteger(req.body.targetPages) || req.body.targetPages < 1 || req.body.targetPages > 100)) throw Object.assign(new Error('Choose a document length between 1 and 100 pages; use additional volumes for larger tasks.'), { status: 400 });
+      const targetPages = req.body?.targetPages || prior?.longForm?.targetPages || requestedDocumentPages(brief?.fields.length || brief?.fields.scope) || messages.filter(m => m.role === 'user').map(m => requestedDocumentPages(m.content)).findLast(n => n > 0) || 0;
+      const longPrompt = targetPages > 10 ? `\nLONG DOCUMENT MODE: The user requests at least ${targetPages} substantive pages, adapted to the document type. Build a coherent professional document in batches of roughly 4–6 pages of substantial content. Do not use blank pages, repeated material, inflated spacing, unnecessary page breaks or filler to reach the length. Keep facts grounded, expand useful explanations, implementation detail, examples, analysis and appendices as appropriate. A letter, invoice or poster should not be padded: use supporting annexes only if relevant, otherwise ask the user to clarify the scope. Do not put generation notes or 'continue next' instructions in the document itself. Include a top-level "remainingSections" array of the specific sections still to write; return [] only when the planned content is complete. Cover each planned section fully before moving on. ${append ? `Write only the next missing sections, preserving all previous content. Current trusted PDF layout: ${prior?.longForm?.pageCount || 'unknown'} pages. Remaining sections: ${JSON.stringify(prior?.longForm?.remainingSections || [])}. If planned sections are finished but the page goal is unmet, add relevant substantive analysis or annexes without repeating earlier content.` : 'Begin with a suitable title and executive summary/introduction, then fully developed opening sections. Plan remaining sections to cover the entire task.'}` : '';
       const guided = req.body?.guided === true && !append;
       if (guided) {
         const requestedKind = Object.hasOwn(DOCUMENT_TASKS, req.body?.taskKind) ? req.body.taskKind : brief?.kind || documentTaskKind(messages.at(-1)?.content);
@@ -69,6 +73,7 @@ export function mountDocumentRoutes(app, deps) {
         let assessment;
         try { assessment = JSON.parse(intake); const next = readTaskBrief(assessment.brief); brief = readTaskBrief({ ...next, fields: { ...(brief?.kind === next.kind ? brief.fields : {}), ...next.fields } }); }
         catch { throw Object.assign(new Error('The task brief was incomplete. Please try again with the key details.'), { status: 502 }); }
+        if (targetPages) brief.fields.length = `At least ${targetPages} pages requested; adapt content to the document type.`;
         const missing = missingTaskFields(brief);
         const extra = Array.isArray(assessment.questions) ? assessment.questions.filter(q => typeof q === 'string' && q.trim() && q.length <= 500).slice(0, 3) : [];
         if (!req.body?.createNow && (missing.length || extra.length)) {
@@ -81,7 +86,7 @@ export function mountDocumentRoutes(app, deps) {
         }
       }
       const raw = await complete({ model, maxTokens: 12_000, temperature: 0.3, json: true, signal: controller.signal,
-        messages: [{ role: 'system', content: DOCUMENT_PROMPT + (template || brief ? `\nUse the ${template || DOCUMENT_TASKS[brief.kind].template} template requested by the user.` : '') + (req.body?.createNow ? '\nThe user asked to create now. Use clearly labelled placeholders for unknown details and list them in missing. Never substitute invented facts or evidence. Still ask if an ambiguity makes the task misleading.' : '') + (append ? '\nCONTINUATION MODE: Return ONLY new content blocks for the next section. Do not repeat or rewrite existing blocks. Keep the same title and metadata. The server appends new blocks and preserves the original document exactly.' : '') },
+        messages: [{ role: 'system', content: DOCUMENT_PROMPT + longPrompt + (template || brief ? `\nUse the ${template || DOCUMENT_TASKS[brief.kind].template} template requested by the user.` : '') + (req.body?.createNow ? '\nThe user asked to create now. Use clearly labelled placeholders for unknown details and list them in missing. Never substitute invented facts or evidence. Still ask if an ambiguity makes the task misleading.' : '') + (append ? '\nCONTINUATION MODE: Return ONLY new content blocks for the next section. Do not repeat or rewrite existing blocks. Keep the same title and metadata. The server appends new blocks and preserves the original document exactly.' : '') },
           ...(brief ? [{ role: 'user', content: `Confirmed task brief (source data): ${JSON.stringify(brief)}` }] : []),
           ...(prior ? [{ role: 'user', content: append ? `Existing document context (source data; earlier full text may be omitted):\n${JSON.stringify({ title: prior.title, subtitle: prior.subtitle, template: prior.template, headings: prior.blocks.filter(b => b.type === 'heading').map(b => b.text), recentBlocks: prior.blocks.slice(-10) })}` : `Current document to revise (source data):\n${JSON.stringify(prior)}` }] : []), ...context],
       });
@@ -94,10 +99,21 @@ export function mountDocumentRoutes(app, deps) {
       }
       let spec;
       try { spec = readDocumentSpec(data); } catch { throw Object.assign(new Error('The document came back in an invalid layout. Try a shorter task or create it in sections.'), { status: 502 }); }
+      if (append && targetPages > 10) {
+        const previousBlocks = new Set(prior.blocks.map(b => JSON.stringify(b)));
+        if (!spec.blocks.some(b => b.type !== 'pageBreak' && !previousBlocks.has(JSON.stringify(b)))) throw Object.assign(new Error('The next section repeated existing content. Your saved draft is available; resume with more specific instructions.'), { status: 502 });
+      }
       if (append) spec = readDocumentSpec({ ...prior, blocks: [...prior.blocks, ...spec.blocks], missing: [...new Set([...prior.missing, ...spec.missing])] });
       if (template) spec.template = template;
       else if (guided && brief) spec.template = DOCUMENT_TASKS[brief.kind].template;
       if (guided && brief && req.body?.createNow) spec.missing = [...new Set([...missingTaskFields(brief).map(key => TASK_FIELDS[key][0]), ...spec.missing])].slice(0, 20);
+      if (targetPages > 10) {
+        const remainingSections = Array.isArray(data.remainingSections) ? data.remainingSections : [];
+        if (remainingSections.length > 24 || remainingSections.some(s => typeof s !== 'string' || !s.trim() || s.length > 200)) throw Object.assign(new Error('The section plan was invalid. Your previous document is still available.'), { status: 502 });
+        const { documentPages } = await import('./document-export.js');
+        const pageCount = documentPages(spec).pages.length;
+        spec.longForm = { targetPages, pageCount, rounds: Math.min(100, (append ? prior?.longForm?.rounds || 0 : 0) + 1), complete: pageCount >= targetPages && remainingSections.length === 0, remainingSections };
+      }
       res.json({ document: spec, ...(brief ? { brief } : {}) });
     } catch (error) {
       if (!controller.signal.aborted) res.status(error.status || 502).json({ error: error.message || 'The document could not be created.', ...(brief ? { brief } : {}) });

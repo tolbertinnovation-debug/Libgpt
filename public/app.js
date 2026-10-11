@@ -1,6 +1,7 @@
 import { documentIntent, documentMarkdown, readDocumentSpec, DOCUMENT_TEMPLATES } from './documents.js';
 import { documentCard, downloadDocument, taskBriefCard } from './document-chat.js';
 import { DOCUMENT_TASKS, documentTaskKind, readTaskBrief, wantsTaskDraft, startsNewDocumentTask } from './document-tasks.js';
+import { continueLongDocument } from './document-length.js';
 import { chatContext } from './chat-context.js';
 import {imageDiscussion,validImageDiscussion,imageRequestLabel} from './image-context.js';
 import { renderMarkdown, escapeHtml } from './markdown.js';
@@ -1594,6 +1595,7 @@ let documentTarget = null;
 const documentModeBar = $('document-mode');
 const documentTemplate = $('document-task-template');
 const documentKind = $('document-task-kind');
+const documentLength = $('document-task-pages');
 if (documentKind) documentKind.innerHTML = '<option value="">Choose automatically</option>' + Object.entries(DOCUMENT_TASKS).map(([id, t]) => `<option value="${id}">${escapeHtml(t.label)}</option>`).join('');
 if (documentTemplate) documentTemplate.innerHTML = '<option value="">Choose automatically</option>'
   + Object.entries(DOCUMENT_TEMPLATES).map(([id, t]) => `<option value="${id}">${escapeHtml(t.label)}</option>`).join('');
@@ -1602,7 +1604,7 @@ function setDocumentMode(on) {
   if (documentModeBar) documentModeBar.hidden = !on;
 }
 $('create-document-btn')?.addEventListener('click', () => {
-  showMore(false); setDocumentMode(true); documentTarget = { chatId: currentChat()?.id, index: -1, mode: 'new' }; el.input.focus();
+  showMore(false); setDocumentMode(true); if (documentLength) documentLength.value = ''; documentTarget = { chatId: currentChat()?.id, index: -1, mode: 'new' }; el.input.focus();
 });
 $('document-mode-cancel')?.addEventListener('click', () => { setDocumentMode(false); documentTarget = null; });
 
@@ -1620,15 +1622,17 @@ async function createChatDocument(chat) {
   const createNow = documentTarget?.createNow === true || Boolean(pending?.documentQuestions && wantsTaskDraft(chat.messages.at(-1)?.content));
   const taskKind = documentMode && documentKind?.value ? documentKind.value : brief?.kind || documentTaskKind(chat.messages.at(-1)?.content);
   const guided = !previous || Boolean(brief && pending?.documentQuestions);
+  const targetPages = documentMode && documentLength?.value ? Number(documentLength.value) : undefined;
   documentTarget = null;
   const mode = fresh ? 'new' : action || (pending?.documentQuestions ? pending.documentAction : '') || '';
   const template = documentMode ? documentTemplate?.value : pending?.documentQuestions ? pending.documentTemplate || '' : '';
   setDocumentMode(false);
+  let savedDocumentMessage = null;
   try {
     const context = await forSending(chat.messages);
     const response = await fetch('/api/document', { method: 'POST', headers: apiHeaders(), signal: controller.signal,
       body: JSON.stringify({ messages: context.list, photo: context.photo, photoContext: context.photoContext,
-        document: context.document, currentDocument: previous, template, mode, guided, taskKind, brief, createNow }) });
+        document: context.document, currentDocument: previous, template, mode, guided, taskKind, brief, createNow, targetPages }) });
     const result = await response.json().catch(() => ({}));
     if (result.brief) brief = readTaskBrief(result.brief);
     if (response.status === 401) showGate(result.error);
@@ -1639,13 +1643,27 @@ async function createChatDocument(chat) {
       chat.messages.push({ role: 'assistant', content: 'To complete your task, please provide:\n\n' + result.questions.map(q => '- ' + q).join('\n'), documentQuestions: true, documentTemplate: template || '', documentAction: mode, ...(result.brief ? { taskBrief: readTaskBrief(result.brief) } : {}) });
     } else {
       const spec = readDocumentSpec(result.document);
-      chat.messages.push({ role: 'assistant', content: documentMarkdown(spec), document: spec, ...(result.brief ? { taskBrief: readTaskBrief(result.brief) } : {}) });
+      savedDocumentMessage = { role: 'assistant', content: documentMarkdown(spec), document: spec, ...(result.brief ? { taskBrief: readTaskBrief(result.brief) } : {}) };
+      chat.messages.push(savedDocumentMessage);
+      chat.updatedAt = Date.now(); persist(); renderThread(); renderSidebar();
+      await continueLongDocument(spec, {
+        signal: controller.signal,
+        next: async current => {
+          const response = await fetch('/api/document', { method: 'POST', headers: apiHeaders(), signal: controller.signal,
+            body: JSON.stringify({ messages: [...context.list.filter(m => m.role === 'user').slice(-2), { role: 'user', content: 'Complete the next planned sections of this document. Keep the approved facts and requested length.' }], photo: context.photo, photoContext: context.photoContext, document: context.document, currentDocument: current, mode: 'append', brief, targetPages: current.longForm.targetPages }) });
+          const next = await response.json().catch(() => ({}));
+          if (!response.ok) { if (response.status === 401) showGate(next.error); throw new Error(next.error || 'The next section could not be created.'); }
+          if (next.questions) throw new Error('More details are needed: ' + next.questions.join(' '));
+          return readDocumentSpec(next.document);
+        },
+        save: updated => { savedDocumentMessage.document = updated; savedDocumentMessage.content = documentMarkdown(updated); chat.updatedAt = Date.now(); persist(); if (currentChat() === chat) renderThread(); },
+      });
       sounds.reply();
     }
     chat.updatedAt = Date.now(); persist(); renderSidebar();
   } catch (error) {
     if (state.chats.includes(chat)) {
-      chat.messages.push({ role: 'assistant', content: controller.signal.aborted ? 'Document creation was cancelled.' : 'Document creation failed: ' + error.message, ...(brief && !controller.signal.aborted ? { taskBrief: brief, documentQuestions: true, documentTemplate: template || '', documentAction: mode } : {}) });
+      chat.messages.push({ role: 'assistant', content: savedDocumentMessage ? 'Long-document creation paused. Your completed sections are saved and downloadable. Use Resume long document to continue.' + (controller.signal.aborted ? '' : ' ' + error.message) : controller.signal.aborted ? 'Document creation was cancelled.' : 'Document creation failed: ' + error.message, ...(brief && !controller.signal.aborted && !savedDocumentMessage ? { taskBrief: brief, documentQuestions: true, documentTemplate: template || '', documentAction: mode } : {}) });
       chat.updatedAt = Date.now(); persist(); renderSidebar();
     }
     if (!controller.signal.aborted) throw error;
@@ -1678,16 +1696,25 @@ el.thread.addEventListener('click', async event => {
     documentTarget = { chatId: chat.id, index, brief: message.taskBrief, createNow: true };
     setDocumentMode(true); if (documentKind) documentKind.value = message.taskBrief.kind;
     if (documentTemplate) documentTemplate.value = message.documentTemplate || '';
+    if (documentLength) documentLength.value = '';
     send('Create this task now using the reviewed details. Use clearly labelled placeholders for any missing facts.'); return;
   }
   const link = event.target.closest('[data-document-download]');
   const revise = event.target.closest('[data-document-revise]');
   const continuation = event.target.closest('[data-document-continue]');
-  if (!link && !revise && !continuation) return;
+  const resume = event.target.closest('[data-document-resume]');
+  if (!link && !revise && !continuation && !resume) return;
   event.preventDefault();
-  const chat = currentChat(), index = Number(link?.dataset.documentDownload ?? revise?.dataset.documentRevise ?? continuation.dataset.documentContinue);
+  const chat = currentChat(), index = Number(link?.dataset.documentDownload ?? revise?.dataset.documentRevise ?? continuation?.dataset.documentContinue ?? resume?.dataset.documentResume);
   const spec = chat?.messages[index]?.document;
   if (!spec) return;
+  if (resume) {
+    if (state.streaming) { toast('Finish the current task first.'); return; }
+    documentTarget = { chatId: chat.id, index, mode: 'append', brief: chat.messages[index].taskBrief };
+    setDocumentMode(true); if (documentTemplate) documentTemplate.value = spec.template;
+    if (documentLength) documentLength.value = '';
+    send('Resume the long document with its next planned sections.'); return;
+  }
   if (revise || continuation) {
     documentTarget = { chatId: chat.id, index, mode: continuation ? 'append' : '' }; setDocumentMode(true);
     if (documentTemplate) documentTemplate.value = spec.template;
