@@ -15,6 +15,8 @@ export const DESIGN_SIZES = {
   landscape: { label: 'Landscape · 1920 × 1080', width: 1920, height: 1080 },
 };
 
+export const ARTWORK_FORMATS = { png: 'PNG', jpg: 'JPEG', webp: 'WebP', svg: 'SVG', pdf: 'PDF' };
+
 // Shared conservative wrapping keeps explicit line breaks and uses the same
 // line count for validation, browser preview and every exporter.
 export function drawingTextLines(value, width, size, tracking = 0) {

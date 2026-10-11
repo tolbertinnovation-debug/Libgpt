@@ -1718,11 +1718,21 @@ el.thread.addEventListener('click', async event => {
   const revise = event.target.closest('[data-document-revise]');
   const continuation = event.target.closest('[data-document-continue]');
   const resume = event.target.closest('[data-document-resume]');
-  if (!link && !revise && !continuation && !resume) return;
+  const refine = event.target.closest('[data-artwork-refine]');
+  if (!link && !revise && !continuation && !resume && !refine) return;
   event.preventDefault();
-  const chat = currentChat(), index = Number(link?.dataset.documentDownload ?? revise?.dataset.documentRevise ?? continuation?.dataset.documentContinue ?? resume?.dataset.documentResume);
+  const chat = currentChat(), index = Number(link?.dataset.documentDownload ?? revise?.dataset.documentRevise ?? continuation?.dataset.documentContinue ?? resume?.dataset.documentResume ?? refine?.dataset.artworkRefine);
   const spec = chat?.messages[index]?.document;
   if (!spec) return;
+  if (refine) {
+    if (state.streaming) { toast('Finish the current task first.'); return; }
+    const figure = spec.blocks[Number(refine.dataset.artworkIndex)]; if (figure?.type !== 'drawing') return;
+    documentTarget = {chatId:chat.id,index,mode:''}; restoreDesignChoices(chat.messages[index].taskBrief);
+    if (documentKind) documentKind.value = 'graphic_design'; if (documentTemplate) documentTemplate.value = spec.template;
+    if (documentLength) documentLength.value = ''; setDocumentMode(true);
+    el.input.value = `Refine only artwork ${Number(refine.dataset.artworkIndex)+1}, titled ${JSON.stringify(figure.title)}. Preserve the other designs and confirmed facts. Changes: `;
+    autoGrow(); updateSendState(); el.input.focus(); return;
+  }
   if (resume) {
     if (state.streaming) { toast('Finish the current task first.'); return; }
     documentTarget = { chatId: chat.id, index, mode: 'append', brief: chat.messages[index].taskBrief };

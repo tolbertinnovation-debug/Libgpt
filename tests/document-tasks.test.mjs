@@ -61,7 +61,7 @@ test('square and portrait artwork downloads have the requested aspect ratio and 
   assert.equal(documentPages(custom).pages[0].width, 595.28);
   assert.match((await exportDocument(custom, 'rtf')).buffer.toString(), /\\paperw11906\\paperh16838/);
   assert.ok(documentPages(portrait).pages.every(p => p.elements.filter(e => e.kind === 'figure').every(e => e.y + e.h <= p.height - 62)));
-  await assert.rejects(exportDocument(artwork, 'docx', { figureIndex: 0 }), /PNG, SVG or PDF/);
+  await assert.rejects(exportDocument(artwork, 'docx', { figureIndex: 0 }), /PNG, JPEG, WebP, SVG or PDF/);
   await assert.rejects(exportDocument(artwork, 'png', { figureIndex: 100 }), /valid figure/);
   const result = await downloadDocument(artwork, 'svg', () => ({}), async (_, options) => { assert.equal(JSON.parse(options.body).figureIndex, 0); return new Response('svg', { headers: { 'Content-Disposition': 'attachment; filename="artwork.svg"' } }); }, { figureIndex: 0 });
   assert.equal(result.filename, 'artwork.svg');
