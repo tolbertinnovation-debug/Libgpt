@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import { speechModel } from './voice.js';
+import { modelId } from './model-id.js';
 
 const int = (value, fallback) => {
   const parsed = Number.parseInt(value ?? '', 10);
@@ -10,8 +11,8 @@ export const config = {
   port: int(process.env.PORT, 3000),
   apiKey: process.env.OPENAI_API_KEY?.trim() || '',
   baseUrl: (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, ''),
-  model: process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
-  titleModel: process.env.OPENAI_TITLE_MODEL?.trim() || process.env.OPENAI_MODEL?.trim() || 'gpt-4o-mini',
+  model: modelId(process.env.OPENAI_MODEL, 'gpt-4o-mini'),
+  titleModel: modelId(process.env.OPENAI_TITLE_MODEL, modelId(process.env.OPENAI_MODEL, 'gpt-4o-mini')),
   rateLimitPerMinute: int(process.env.RATE_LIMIT_PER_MINUTE, 30),
 
   // Normally the server picks a model per task from the account's own list
