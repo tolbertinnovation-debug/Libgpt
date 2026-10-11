@@ -1,3 +1,4 @@
+import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
 //
 // This owns the Build mode end to end: its projects, its files, its editor,
@@ -346,9 +347,7 @@ async function send(text) {
       signal: controller.signal,
       body: JSON.stringify({
         mode: 'build',
-        messages: p.messages
-          .filter((m) => m.content)
-          .map((m) => ({ role: m.role, content: m.content })),
+        messages: conversationWindow(p.messages.filter(m => m.content)).list,
         files: forSending(p.files),
       }),
     });
