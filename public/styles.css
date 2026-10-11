@@ -2120,7 +2120,8 @@ body {
 .lib-field { display: flex; flex-direction: column; gap: .25rem; }
 .lib-field label { font-size: .78rem; font-weight: 600; color: var(--text-soft); }
 .lib-field select,
-.lib-field input[type="text"] {
+.lib-field input[type="text"],
+.lib-field input[type="search"] {
   padding: .5rem .65rem;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
