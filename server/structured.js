@@ -10,6 +10,7 @@ import { liberianVoice } from './liberian.js';
 import {storyDirection} from './stories.js';
 import {recentStories} from '../public/story-memory.js';
 import {randomUUID} from 'node:crypto';
+import {readCookingRecipe} from '../public/cooking.js';
 
 // A folktale is family talk, so it is told in the warm familial register —
 // this is the piece where the voice matters most, and where a narrator who
@@ -199,7 +200,7 @@ names you are sure of than five you are not.`,
 
   /* -------------------------------------------------------------- recipe */
   recipe: {
-    maxTokens: 3000,
+    maxTokens: 4000,
     temperature: 0.6,
     build(input) {
       const dish = asText(input?.dish, 80) || 'palava sauce';
@@ -220,15 +221,11 @@ Reply with a JSON object, and nothing else:
 }
 
 Use ingredients available in a Liberian market. Where an ingredient is hard to
-find, name what can stand in for it.`,
-        user: `The dish: ${dish}`,
+find, name what can stand in for it. Include optional prepTime, cookTime, safety and stepCues (one short observable cue per step). Provide quantities, an orderly method, approximate timings and clear texture/heat cues suitable for the learner. Respect dietary restrictions and available equipment; clarify an unsuitable substitution instead of pretending it is equivalent. Include appropriate handling of raw foods, allergens and safe preparation of ingredients such as cassava; do not rely on appearance or a generated picture to establish food safety. Images will be illustrations of these written steps, so keep each step specific. At most 40 ingredients and 20 steps.`,
+        user: JSON.stringify({dish,servings:oneOf(input?.servings,['2','4','6'],'4'),level:oneOf(input?.level,['beginner','regular'],'beginner'),preferences:asText(input?.preferences,300)}),
       };
     },
-    valid: (o) =>
-      isFilledString(o.dish) &&
-      isFilledString(o.backstory) &&
-      isArrayOf(o.ingredients, 2, (i) => isFilledString(i)) &&
-      isArrayOf(o.steps, 2, (i) => isFilledString(i, 5)),
+    valid: o => { try {readCookingRecipe(o);return true;} catch {return false;} },
   },
 
   /* ---------------------------------------------------------------- quiz */
@@ -339,4 +336,5 @@ export const libraryCatalogue = () => ({
   birthOrders: BIRTH_ORDERS,
   scenes: SCENES,
 });
+
 

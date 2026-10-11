@@ -5,6 +5,7 @@
 // choices from fixed lists.
 
 import { escapeHtml } from './markdown.js';
+import {CookingPictures,cookingPicture,cookingCaption,cookingLessonHTML} from './cooking.js';
 import {JOURNAL_TYPES,journalPage,journalText,journalFilename} from './journal.js';
 import {loadStoryMemory,saveStoryMemory,recentStories,storyRecord} from './story-memory.js';
 import {EXPLORERS,loadExploration,saveExploration} from './explore.js';
@@ -64,7 +65,7 @@ const failure = (message) => `
  */
 export function createLibrary({
   root, catalogue, ask, onSaved = () => {}, onSpeak = null, onSpeakStop = () => {},
-  onError = () => {}, onExplore = null,
+  onError = () => {}, onExplore = null, onRecipeImage = null, imagesEnabled = () => false,
 }) {
   // `ask(kind, input, path)` — the album has its own endpoint because a
   // picture is a different kind of request, with its own ceiling.
@@ -130,8 +131,9 @@ export function createLibrary({
         d.backstory,
         d.serves ? `It feeds ${d.serves}.` : '',
         `You will need: ${d.ingredients.join(', ')}.`,
-        `How to cook it. ${listed(d.steps)}`,
+        `How to cook it. ${listed(d.steps.map((step,i)=>step+(d.stepCues?.[i] ? ' Look for: '+d.stepCues[i] : '')))}`,
         d.tip ? `Grandpa says: ${d.tip}` : '',
+        d.safety || '',
       ].filter(Boolean).join('\n\n');
     }
 
@@ -384,56 +386,55 @@ export function createLibrary({
     'Potato greens', 'Fufu and soup', 'Check rice', 'Rice bread', 'Torborgee',
   ];
 
+  let cooking = null, recipeBusy = false, recipeController = null;
+  let recipeOptions={dish:'Palava sauce',servings:'4',level:'beginner',preferences:'',pictures:true};
+  function cancelCooking() { recipeController?.abort(); cooking?.cancel(); }
   function recipeForm() {
     return `
       <form class="lib-form" id="recipe-form">
         <div class="lib-field">
           <label for="recipe-pick">A dish</label>
           <select id="recipe-pick">
-            ${DISHES.map((d) => option(d, d)).join('')}
-            <option value="__other">Something else…</option>
+            ${DISHES.map((d) => option(d, d,recipeOptions.dish)).join('')}
+            ${option('__other','Something else…',DISHES.includes(recipeOptions.dish)?recipeOptions.dish:'__other')}
           </select>
         </div>
-        <div class="lib-field" id="recipe-other-wrap" hidden>
+        <div class="lib-field" id="recipe-other-wrap" ${DISHES.includes(recipeOptions.dish)?'hidden':''}>
           <label for="recipe-other">Which dish?</label>
-          <input type="text" id="recipe-other" maxlength="80" placeholder="name the dish">
+          <input type="text" id="recipe-other" maxlength="80" placeholder="name the dish" value="${escapeHtml(DISHES.includes(recipeOptions.dish)?'':recipeOptions.dish)}">
         </div>
-        <button class="lib-go" type="submit">Show me how</button>
+        <div class="lib-row"><div class="lib-field"><label for="recipe-servings">Servings</label><select id="recipe-servings">${['2','4','6'].map(n=>option(n,n,recipeOptions.servings)).join('')}</select></div><div class="lib-field"><label for="recipe-level">Experience</label><select id="recipe-level">${option('beginner','Beginner',recipeOptions.level)}${option('regular','Regular cook',recipeOptions.level)}</select></div></div>
+        <div class="lib-field"><label for="recipe-preferences">Diet, allergies or equipment (optional)</label><input type="text" id="recipe-preferences" value="${escapeHtml(recipeOptions.preferences)}" maxlength="300" placeholder="Vegetarian, peanut allergy, one pot…"></div>
+        <label class="recipe-images-choice"><input id="recipe-images" type="checkbox" ${imagesEnabled() && onRecipeImage ? recipeOptions.pictures ? 'checked' : '' : 'disabled'}> Create teaching pictures with the recipe</label><p class="settings-note">${imagesEnabled() && onRecipeImage ? 'Creates up to three illustrations using the app’s image credits. You can stop pictures or read the lesson without them.' : 'Pictures are unavailable on this deployment. The written cooking lesson still works.'}</p>
+        <button class="lib-go" type="submit" ${recipeBusy ? 'disabled' : ''}>Show me how</button>
       </form>
       <div id="recipe-out"></div>`;
   }
 
+  function renderRecipe() {
+    const out=root.querySelector('#recipe-out');if(!out || !cooking || tab!=='recipe')return;
+    const d=cooking.recipe;
+    const pictureButton=stage => imagesEnabled() && onRecipeImage ? `<button type="button" class="setting-btn" data-cooking-picture="${stage}" ${cooking.busy || cooking.images[stage] ? 'disabled' : ''}>${cooking.images[stage] ? 'Picture ready' : 'Show this stage'}</button>` : '';
+    out.innerHTML=`<div class="lib-result cooking-lesson"><h3 class="lib-title">${escapeHtml(d.dish)}</h3><div class="lib-note">${escapeHtml(d.backstory)}</div><p>${escapeHtml([d.serves && 'Serves '+d.serves,d.prepTime && 'Preparation: '+d.prepTime,d.cookTime && 'Cooking: '+d.cookTime].filter(Boolean).join(' · '))}</p>
+      ${cooking.busy ? `<div class="cooking-progress" role="status"><progress aria-label="Cooking illustration generation"></progress><p>Creating ${escapeHtml(cookingCaption(d,cooking.stage))}…</p><button class="setting-btn" type="button" data-cooking-cancel>Stop pictures</button></div>` : ''}
+      ${cooking.error ? failure(cooking.error) : ''}<h4>You will need</h4><ul>${d.ingredients.map(i=>`<li>${escapeHtml(i)}</li>`).join('')}</ul>${cookingPicture(cooking,'ingredients')}${pictureButton('ingredients')}
+      <h4>How to cook it</h4><ol class="cooking-steps">${d.steps.map((step,i)=>`<li><p>${escapeHtml(step)}</p>${d.stepCues[i]?`<p class="cooking-cue"><strong>Look for:</strong> ${escapeHtml(d.stepCues[i])}</p>`:''}${cookingPicture(cooking,`step-${i}`)}${pictureButton(`step-${i}`)}</li>`).join('')}</ol>
+      <h4>Serving suggestion</h4>${cookingPicture(cooking,'finished')}${pictureButton('finished')}${d.tip ? `<div class="lib-moral"><em>Grandpa says</em>${escapeHtml(d.tip)}</div>` : ''}${d.safety ? `<p class="cooking-safety"><strong>Food preparation:</strong> ${escapeHtml(d.safety)}</p>` : ''}<p class="settings-note">AI-generated pictures may contain mistakes. Follow the written recipe; pictures cannot establish safe doneness.</p>
+      <div class="lib-actions"><button class="setting-btn" type="button" data-save-recipe>Keep this recipe</button>${readButton('recipe','Read it to me')}<button class="setting-btn" type="button" data-cooking-download>Download illustrated lesson</button>${imagesEnabled() && onRecipeImage ? `<button class="setting-btn" type="button" data-cooking-all ${cooking.busy ? 'disabled' : ''}>Create missing lesson pictures</button>` : ''}</div></div>`;
+  }
   async function generateRecipe(event) {
-    event.preventDefault();
-    const pick = root.querySelector('#recipe-pick').value;
-    const dish = pick === '__other'
-      ? root.querySelector('#recipe-other').value.trim()
-      : pick;
-    if (!dish) return;
-
-    const out = root.querySelector('#recipe-out');
-    out.innerHTML = loading('Grandpa is remembering the pot…');
-
-    const result = await ask('recipe', { dish });
-    if (!result.ok) { out.innerHTML = failure(result.error); return; }
-    const d = result.data;
-
-    out.innerHTML = `
-      <div class="lib-result">
-        <h3 class="lib-title">${escapeHtml(d.dish)}</h3>
-        <div class="lib-note">${escapeHtml(d.backstory)}</div>
-        ${d.serves ? `<p><strong>Feeds:</strong> ${escapeHtml(d.serves)}</p>` : ''}
-        <p><strong>You will need</strong></p>
-        <ul>${d.ingredients.map((i) => `<li>${escapeHtml(i)}</li>`).join('')}</ul>
-        <p><strong>How to cook it</strong></p>
-        <ol>${d.steps.map((i) => `<li>${escapeHtml(i)}</li>`).join('')}</ol>
-        ${d.tip ? `<div class="lib-moral"><em>Grandpa says</em>${escapeHtml(d.tip)}</div>` : ''}
-        <div class="lib-actions">
-          <button class="setting-btn" type="button" data-save-recipe>Keep this recipe</button>
-          ${readButton('recipe', 'Read it to me')}
-        </div>
-      </div>`;
-    root.__lastRecipe = d;
+    event.preventDefault();if(recipeBusy)return;
+    const pick=root.querySelector('#recipe-pick').value,dish=pick==='__other'?root.querySelector('#recipe-other').value.trim():pick;if(!dish)return;
+    const wantsPictures=root.querySelector('#recipe-images')?.checked;
+    const input={dish,servings:root.querySelector('#recipe-servings').value,level:root.querySelector('#recipe-level').value,preferences:root.querySelector('#recipe-preferences').value.trim()};
+    recipeOptions={...input,pictures:wantsPictures};
+    cancelCooking();cooking=null;root.__lastRecipe=null;recipeBusy=true;const controller=new AbortController();recipeController=controller;root.querySelector('#recipe-form button').disabled=true;root.querySelector('#recipe-out').innerHTML=loading('Grandpa is preparing your cooking lesson…');
+    try {
+      const result=await ask('recipe',input,'/api/structured',{signal:controller.signal});if(controller.signal.aborted)return;if(!result.ok)throw Error(result.error || 'The recipe could not be created.');
+      const lesson=new CookingPictures(result.data,onRecipeImage || (()=>{throw Error('Cooking pictures are unavailable.');}),()=>{if(cooking===lesson)renderRecipe();});cooking=lesson;root.__lastRecipe=lesson.recipe;renderRecipe();
+      if(wantsPictures && imagesEnabled() && onRecipeImage)await lesson.generate();
+    } catch(error){if(!controller.signal.aborted && tab==='recipe')root.querySelector('#recipe-out').innerHTML=failure(error.message);}
+    finally{if(recipeController===controller){recipeBusy=false;recipeController=null;if(tab==='recipe'){const button=root.querySelector('#recipe-form button');if(button)button.disabled=false;}}}
   }
 
   /* ---- Quiz ---- */
@@ -640,6 +641,7 @@ export function createLibrary({
       return;
     }
     onSaved(entry);
+    if(tab==='journal')refreshJournal();
   }
 
   /* ---- Tabs ---- */
@@ -657,12 +659,14 @@ export function createLibrary({
 
   function render() {
     root.innerHTML = (PANELS[tab] || storyForm)();
+    if (tab === 'recipe' && cooking) renderRecipe();
     if (tab === 'story' && story) renderStory();
     if(tab==='story' && storyBusy) root.querySelector('#story-out').innerHTML=loading('Grandpa is gathering the story…');
     else if(tab==='story' && !story && storyError) root.querySelector('#story-out').innerHTML=failure(storyError);
   }
 
   function show(next) {
+    if(next !== 'recipe')cancelCooking();
     tab = next;
     document.querySelectorAll('#library-tabs [data-tab]').forEach((b) => {
       b.setAttribute('aria-selected', String(b.dataset.tab === next));
@@ -699,6 +703,12 @@ export function createLibrary({
   });
 
   root.addEventListener('click', (event) => {
+    const cookingStep=event.target.closest('[data-cooking-picture]');
+    if(cookingStep && cooking)return cooking.generate([cookingStep.dataset.cookingPicture]);
+    if(event.target.closest('[data-cooking-all]') && cooking)return cooking.generate();
+    if(event.target.closest('[data-cooking-cancel]')){cooking?.cancel();return;}
+    if(event.target.closest('[data-cooking-download]') && cooking){const url=URL.createObjectURL(new Blob([cookingLessonHTML(cooking)],{type:'text/html'}));const a=document.createElement('a');a.href=url;a.download='grandpa-cooking-lesson.html';document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);return;}
+
     const page=event.target.closest('[data-journal-page]');
     if(page) {onSpeakStop();journalFilters.page+=Number(page.dataset.journalPage)||0;refreshJournal();return;}
     if(event.target.closest('[data-clear-journal]')) {Object.assign(journalFilters,{query:'',kind:'all',favorites:false,sort:'newest',page:0});render();return;}
@@ -775,11 +785,10 @@ export function createLibrary({
     }
 
     if (event.target.closest('[data-save-recipe]') && root.__lastRecipe) {
-      const d = root.__lastRecipe;
-      keep({
-        kind: 'recipe', kindLabel: 'Recipe', title: d.dish, summary: d.backstory,
-        body: `${d.backstory}\n\nYou will need:\n${d.ingredients.join('\n')}\n\nHow to cook it:\n${d.steps.join('\n')}`,
-      });
+      const d=root.__lastRecipe;
+      const entry={kind:'recipe',kindLabel:'Recipe',title:d.dish,summary:d.backstory,body:`${d.backstory}\n\nYou will need:\n${d.ingredients.join('\n')}\n\nHow to cook it:\n${d.steps.map((s,i)=>`${i+1}. ${s}${d.stepCues[i] ? '\nLook for: '+d.stepCues[i] : ''}`).join('\n\n')}\n\n${d.tip}\n${d.safety}`};
+      const picture=cooking?.images.finished?.url || cooking?.images.ingredients?.url;
+      if(picture)thumbnail(picture).then(thumb=>keep({...entry,thumb}));else keep(entry);
       return;
     }
 
@@ -834,6 +843,7 @@ export function createLibrary({
     }
   });
 
-  return { show, render, get tab() { return tab; } };
+  return { show, render, cancel:cancelCooking, get tab() { return tab; } };
 }
+
 
