@@ -1,5 +1,7 @@
 # Grandpa AI
 
+**Voice update:** The current app uses Cedar or Marin from OpenAI with natural speech instructions. See [voice setup](docs/natural-voice.md). Older descriptions of per-elder voices and cloud accent respelling below are superseded by this update.
+
 **African-centred conversational AI — powered by Tolbert Innovation Hub, Monrovia, Liberia.**
 
 > *"Empowering Africa's Future — One Conversation at a Time"*
@@ -37,7 +39,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 | **Where the voice is sitting** | The spoken voice can be put in a room: a palaver hut, an evening fire, or a county shortwave set. Built with Web Audio filters on the device — no audio files to download. |
 | **Said, not read** | "20cm x 20cm" read aloud is "twenty see em ex twenty see em", and one of those in a sentence undoes any voice. Numbers, money, measures, times, years, ordinals and short forms are turned into the words a person would actually say before either voice sees them — and a colon becomes a held breath, because a list read without one is the sound of a machine getting through it. See below. |
 | **The accent** | There is no Liberian voice in any speech service. So the text going to the voice is not the text on the screen: the page stays easy to read, while the speaker is handed the spoken spelling — *"I tink dat ting will be betta afta de wata."* See below. |
-| **A better voice, optionally** | ElevenLabs can do the talking instead, in any voice that account has — including one you cloned yourself from a recording of a real Liberian elder. **Off unless a key is set**: no key, no calls, no second bill. When it is on and their end fails, OpenAI's voice finishes the sentence rather than the listener losing it. See below. |
+| **Natural OpenAI voice** | Cedar (default) and Marin use `gpt-4o-mini-tts`, with clear conversational delivery and no added room effects. See [voice setup](docs/natural-voice.md).
 | **Grandpa's own voice** | Not the phone's robot: a real voice, one per elder, told how an old man on his porch talks. The phone's own voice stays underneath and takes over when the network is gone or on a metered connection. See below. |
 | **Voice out** | Press **Listen** on any answer, or turn on auto-read. Long answers are split into sentence-sized chunks, which is what stops browsers cutting them off part-way. Pause, continue and stop from a bar above the composer. |
 | **Check the microphone** | A talking screen that says "Listening…" and never hears anything cannot be debugged from the outside. Settings has a check that asks the phone and prints what it says — whether this browser has speech recognition at all, what the permission is, whether the microphone opens, every event the recogniser fires with the millisecond it happened, and whether a single word ever arrived — plus a Copy button, so the answer can be sent to whoever is fixing it. |
@@ -929,79 +931,10 @@ On a serverless host the hourly ceiling is counted per instance and resets with
 every cold start, the same caveat as the picture limit; `ACCESS_CODE` is the
 real protection on a public address.
 
-### A better voice, optionally
+### Natural OpenAI speech
 
-Everything else in this app runs on one key and one bill, deliberately. This is the
-exception, and it is here because the voice *is* the product: an app whose promise is
-an elder talking to you lives or dies on whether the talking sounds like a person, and
-ElevenLabs is better at that than anything you can buy by the character.
+See [Natural OpenAI speech](docs/natural-voice.md) for the current voice choices, preference migration, configuration and fallback behavior. ElevenLabs and pending custom/team voices are no longer used by the app.
 
-Set `ELEVENLABS_API_KEY` and it does the talking. Leave it empty and nothing changes —
-nothing is called, nothing is charged, and `/api/config` reports `voiceFrom: "openai"`
-rather than implying the better voice when it has not got it.
-
-**One thing it cannot do, which people reasonably expect it to.** An audio file is not
-a voice. Neither this API nor OpenAI's will take a recording and read new words in it.
-A voice has to exist *in the account* first — either a premade one (`Daniel`, `Brian`,
-`Charlotte`…) or one cloned there from a recording.
-
-That cloning step is the one worth doing, and there is a command for it:
-
-```
-node scripts/voice-clone.mjs recording.mp4 --name "Grandpa Tolbert"
-```
-
-Record a real Liberian elder — a minute or two of ordinary talking, in as quiet a room
-as you can find — run that, and put the name it prints into `ELEVENLABS_VOICE`. From
-then on every answer is said in that person's voice, with the Liberian respelling
-still doing its work underneath.
-
-**A video is fine, and is what people actually have.** Nobody has a studio recording of
-their grandfather; they have a thirteen-megabyte phone video of him talking, of which
-the voice is about one megabyte and the picture is the rest. The usual answer to that
-is *install ffmpeg and run this incantation*, which is no answer at all on a phone, or
-on a borrowed laptop in Monrovia. So `scripts/mp4-audio.mjs` does the one narrow job by
-hand, in plain JavaScript with nothing installed: it reads the MP4's box tree, finds
-the sound track's table of contents, copies the AAC frames out and puts an ADTS header
-on each. A 13 MB video becomes 0.3 MB of audio and only the audio is uploaded — the
-picture never leaves the machine. Pass `--keep out.aac` to listen to it first.
-
-The setting takes a name rather than only an id precisely so that a voice you made
-yourself is named the way you named it.
-
-Two things to know before running it. **Cloning needs a paid ElevenLabs plan** — the
-free tier refuses, and the command says so in as many words rather than printing a
-status code. And **the voice belongs to the person who owns it**: clone somebody's
-voice because they agreed to it, not because you have a recording of them. Their terms
-require that of you; the script cannot check it and does not pretend to.
-
-Four things it does carefully:
-
-- **mp3 at 22kHz, 32kbps.** About a quarter of the bytes of their default, and barely
-  different through a phone loudspeaker — which is what this is heard through, on a
-  connection somebody is paying for by the megabyte.
-- **A failure never costs a sentence.** Their quota spent, their server having a bad
-  minute, the network gone: OpenAI's voice says it instead. A failure that will still
-  be a failure in five minutes — a rejected key, a voice the account has not got — is
-  remembered, so the next sentence does not wait for it again; a passing one is not.
-- **A wrong voice name is refused, not swapped.** If one request names a voice the
-  account does not have, that is an error naming the voices it does have. Speaking it
-  in some other voice would be answering as somebody nobody chose.
-- **Settings say which engine is talking**, because the two do not sound alike and
-  someone wondering why it changed deserves to be told.
-
-**On the bitrate, which was set wrong.** The audio came back as mp3 at 22kHz and
-32kbps, chosen to be small on a metered line on the reasoning that the difference
-would be inaudible through a phone loudspeaker. The first half of that was wrong.
-Thirty-two kilobits is where MP3 starts laying a fine grain of its own around a
-voice, and on a small speaker that grain is precisely what gets heard — reported
-from a phone, accurately, as *noise in the voice*. The bytes were being saved at
-the cost of the thing they were being spent on. It is 64kbps at 44kHz now, about
-double the bytes and clean; `ELEVENLABS_FORMAT` drops it back for a deployment
-where the data really is the binding constraint.
-
-Mind the plan: their free tier is about 10,000 characters a month — fifteen or twenty
-spoken answers — and does not allow commercial use.
 
 ### Pictures cost real money
 
@@ -1438,3 +1371,4 @@ terms.
 
 "Grandpa AI", the Grandpa AI seal, and the elder voices are ours. They may
 not be used to identify anything that is not ours.
+
