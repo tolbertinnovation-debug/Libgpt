@@ -24,6 +24,9 @@ function fixture(overrides = {}) {
   const calls = [];
   const hooks = {
     requestPlan: async () => plan(),
+    architecture: async () => ({ decisions: [{ topic: 'Runtime', choice: 'Static website', reason: 'Works offline.' }], constraints: ['No server required.'], testPlan: ['Check navigation.'], deployment: { type: 'static', requirements: [] } }),
+    releaseGate: async () => ({ approved: true, faults: [], approvalToken: 'test-signed-evidence', artifactHash: 'test-artifact',
+      gates: Object.fromEntries(['review', 'security', 'qa', 'approver'].map(id => [id, { passed: true, summary: 'Passed.' }])) }),
     generate: async (agent, paths, instruction, { onFile, round }) => {
       calls.push({ agent, paths, instruction, round });
       const files = paths.map(path => ({ path, body: body(path) }));
@@ -53,7 +56,7 @@ test('four specialists overlap and every closed file is saved before supervisor 
   };
   const result = await runTeam({ asked: 'Build my complete shop website', hooks: f.hooks });
   assert.equal(result.status, 'approved');
-  assert.equal(TEAM_ROLES.length, 5);
+  assert.equal(TEAM_ROLES.length, 12);
   assert.deepEqual(Object.keys(result.checkpoint.agents), TEAM_ROLES.map(role => role.id));
   assert.equal(result.files.length, 6);
   for (const file of result.files) {

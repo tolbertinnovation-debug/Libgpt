@@ -10,11 +10,9 @@
 // server. A token in page JavaScript is one bad script tag away from being
 // somebody else's token, and this one can write to their repositories.
 //
-// NOTHING IS WRITTEN WITHOUT BEING ASKED FOR, EXPLICITLY, THAT TIME. There is
-// no automatic commit, no push on save, no "syncing…". The one write path
-// takes a confirmation in the body and refuses without it. Somebody trying
-// Ritual Coding for the first time must not be able to change a real branch by
-// accident.
+// Repository reads remain separate from release writes. Automatic publishing
+// uses a configured project target and fresh server-signed gate approval;
+// builders cannot bypass release policy by pushing a single file.
 //
 // MISSING SETUP IS A STATE, NOT A FAILURE. A deployment with no GitHub app
 // configured says so plainly and shows what to set. A switch that does
@@ -183,7 +181,7 @@ async function call(token, path, { method = 'GET', body, signal, withMeta = fals
 
 export async function whoami(token, signal) {
   const {data:me, scopes} = await call(token, '/user', { signal, withMeta:true });
-  return { login: me.login, name: me.name || me.login, avatar: me.avatar_url, pagesScope:scopes.includes('repo') };
+  return { login: me.login, name: me.name || me.login, avatar: me.avatar_url, pagesScope:scopes.includes('repo'), workflowScope:scopes.includes('workflow') };
 }
 
 export async function listRepos(token, signal) {
@@ -252,3 +250,4 @@ export async function commitFile(token, { repo, branch, path, body, message, sha
 
 // Used only by the static publishing service; credentials stay server-side.
 export const githubRequest = call;
+

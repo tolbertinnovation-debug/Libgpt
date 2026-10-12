@@ -1,37 +1,31 @@
-# Live generation and website publishing
+# Approved website publishing and recovery
 
-Ritual Coding already streams generated project files from OpenAI. Its Build menu now includes **Check live AI connection** and **Publish website**. The connection check makes a small, real completion request and requires text back; it uses API tokens.
+## Host configuration
 
-## Configure the Grandpa AI host
+Configure OPENAI_API_KEY, ENABLE_BUILDING=true, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET and a stable GITHUB_SEAL_KEY on the Grandpa AI host. Register the OAuth callback for the actual host at /api/github/callback. Follow README for secret formats and cookie settings. Never place these credentials in generated websites.
 
-Keep these values in the host's environment, never in generated websites:
+Publishing requests GitHub repo scope. Automatic release monitoring also requests workflow scope. Tokens stay sealed in HttpOnly cookies and server-side GitHub requests. GitHub Actions must be available and enabled for unattended scheduled monitoring.
 
-- `OPENAI_API_KEY`: an active OpenAI project key with model access and billing.
-- `ENABLE_BUILDING=true`: enable Ritual Coding.
-- `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`: from your GitHub OAuth app.
-- `GITHUB_SEAL_KEY`: the existing stable secret used to seal tokens and publication receipts.
+## Configure a project once
 
-Register the OAuth callback as `https://YOUR-APP-HOST/api/github/callback`. For the current app URL, use `https://libgpt.vercel.app/api/github/callback`. Follow the existing GitHub setup in README for seal-key format and production cookie settings. Redeploy Grandpa AI after changing environment variables.
+Build a website and resolve the team's reported issues. Choose Publish website to configure the public repository target, authorize GitHub and optionally enable automatic approved updates. The configuration explains that all published files become public. Existing unrelated repositories cannot be selected through this flow.
 
-Normal repository connections keep their configured scope. The publishing button explicitly requests GitHub's `repo` OAuth scope, which GitHub requires for the Pages API. This permission can include private repositories; the app explains it before redirecting to GitHub. Tokens remain in sealed HttpOnly cookies and are sent to GitHub from the server.
+Once configured, approved updates automatically publish to that project target without repeated human engineering sign-off. The server independently verifies the signed approval against every submitted file before any GitHub write. Expired approval or changed files require fresh gates. Direct file pushes are disabled so they cannot bypass the approver.
 
-## Publish a generated website
+All files are uploaded in one atomic commit. The app retains a sealed receipt identifying the repository, exact deployment commit and last verified healthy approved version. Keep browser project storage and the seal key stable. Pause automatic releases from the publication controls if desired.
 
-1. Open Build, check the live AI connection, then describe the website you want.
-2. Review the generated preview, fix reported issues, and test buttons and forms.
-3. Choose **Publish website** in the Build menu and authorize GitHub publishing.
-4. Return to Build, choose **Publish website**, review the repository name and public-file notice, and click **Publish publicly**.
-5. The app creates a new public repository in your account, uploads the complete project in one commit, starts GitHub Pages, and displays a website link.
-6. Use the same publishing action for updates. Status changes to **Live** only when GitHub reports the requested commit as built.
+## Deployment and rollback
 
-The app polls for about 90 seconds. If GitHub needs longer, use **Check deployment status**. If uploading or configuring Pages fails after repository creation, retry from the same saved project: its signed receipt reuses that repository. Keep the seal key stable and project browser storage intact to retain this association. Existing, unrelated repositories cannot be selected by this publishing flow.
+Live status requires GitHub Pages to build the exact requested commit and the fixed website URL to return HTTP 200. If the initial polling window ends, Check deployment status continues the same deployment check. A failed initial release has no prior healthy version to restore.
 
-## Supported projects
+For approved updates, a definite Pages build failure or two failed bounded health probes can restore the signed prior healthy approved tree using a new commit. Cancellation and a single transient failed probe do not trigger rollback. The app refuses to overwrite an unrelated newer branch change and never force-pushes history.
 
-This publishes static HTML, CSS, JavaScript, JSON, text, SVG, and supported image files. A root `index.html` is required. Use relative links and asset URLs so pages work under `/<repository>/`. Hidden files and unsupported file types are refused. Limits are 60 input files and 1.5 MB of decoded contents; a `.nojekyll` file is added automatically.
+Automatic mode adds a trusted server-authored GitHub workflow, scheduled about every fifteen minutes and available through workflow_dispatch. It checks the expected artifact manifest and exact current deployment. It runs no generated scripts, performs no checkout and installs no generated dependencies. A failed release can restore only its fixed previous healthy approved commit. The restoration message and artifact binding prevent cascading rollbacks. GitHub scheduling and build availability remain external dependencies.
 
-All published source files and the resulting website are public. Review them before confirming. The generated site's JavaScript runs in visitors' browsers: never embed provider keys, secrets, or private data.
+## Supported deployment types
 
-Server-side APIs, databases, authentication services, and payment processing need separate backend hosting. Publishing does not automatically give a generated website access to Grandpa AI's OpenAI key.
+GitHub Pages supports public static HTML, CSS, JavaScript, JSON, text, SVG and supported images. A root index.html is required. Use relative asset links under the repository path. Limits are seventy-two input files and 1.5 MB decoded contents. A .nojekyll file and, when enabled, the trusted monitoring workflow are added by the server; generated hidden files remain rejected.
 
-GitHub Pages remains an external build service. The app verifies build status, not every browser interaction. Source checks and deployment tests run without real API credentials; validate a real generation and publication on the configured host.
+Backend, authentication, payment and database code can be generated and saved, but cannot pass the static production gate without a verified runtime and test environment. The app does not execute generated backend code or share its provider credentials with generated websites.
+
+Automated source checks, mock provider tests and browser startup checks have practical limits. They do not certify every interaction or external service. Release results show what passed and what remains blocked.

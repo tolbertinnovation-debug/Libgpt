@@ -98,7 +98,7 @@ function cleanTeam(value, projectFiles) {
       contract: text(value.plan.contract, 20_000, 'project contract'),
       requirements: list(value.plan.requirements || [], 40, 'project requirements').map(item => text(item, 1_000, 'project requirement')),
       pages: list(value.plan.pages, 48, 'planned pages').map(page => ({ path: text(page.path, 180, 'planned page path'), title: text(page.title || '', 300, 'planned page title') })),
-      tasks: list(value.plan.tasks, 4, 'specialist tasks').map(task => ({
+      tasks: list(value.plan.tasks, 6, 'specialist tasks').map(task => ({
         agent: text(task.agent, 40, 'specialist role'),
         instruction: text(task.instruction, 10_000, 'specialist instruction'),
         files: list(task.files, 12, 'specialist files').map(path => text(path, 180, 'planned filename')),
@@ -106,8 +106,27 @@ function cleanTeam(value, projectFiles) {
     };
     validateTeamPlan(plan);
   }
+  // Keep architecture notes as reference material, never as executable or
+  // release evidence. A restored project requests fresh architecture approval.
+  let architectureNotes = null;
+  const notes = value.architecture || value.architectureNotes;
+  if (notes) {
+    architectureNotes = {
+      decisions: list(notes.decisions || [], 30, 'architecture decisions').map(item => ({
+        topic: text(item.topic, 300, 'architecture topic'),
+        choice: text(item.choice, 2000, 'architecture choice'),
+        reason: text(item.reason, 2000, 'architecture reason'),
+      })),
+      constraints: list(notes.constraints || [], 40, 'architecture constraints').map(item => text(item, 2000, 'architecture constraint')),
+      testPlan: list(notes.testPlan || [], 40, 'architecture test plan').map(item => text(item, 2000, 'architecture test')),
+      deployment: {
+        type: notes.deployment?.type === 'external' ? 'external' : 'static',
+        requirements: list(notes.deployment?.requirements || [], 40, 'deployment requirements').map(item => text(item, 2000, 'deployment requirement')),
+      },
+    };
+  }
   const present = new Set(projectFiles.map(file => file.path));
-  const safePaths = paths => list(paths || [], 48, 'checkpoint paths').map(path => {
+  const safePaths = paths => list(paths || [], 72, 'checkpoint paths').map(path => {
     text(path, 180, 'checkpoint path');
     if (!teamPath(path)) fail('Unsafe path in this build team checkpoint.');
     return path;
@@ -122,7 +141,7 @@ function cleanTeam(value, projectFiles) {
   return {
     version: 1, asked, status: 'interrupted', plan, agents,
     latestRequest: typeof value.latestRequest === 'string' ? text(value.latestRequest,6000,'latest build request') : '',
-    reviewRound: 0, faults: [], savedPaths: safePaths(value.savedPaths), review: null,
+    architecture: null, architectureNotes, release: null, reviewRound: 0, faults: [], savedPaths: safePaths(value.savedPaths), review: null,
     updatedAt: stamp(value.updatedAt), message: 'Restored build. Resume the team to check and finish the website.',
   };
 }

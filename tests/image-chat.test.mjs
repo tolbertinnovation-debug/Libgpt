@@ -117,11 +117,12 @@ test('sending the reported classroom request generates directly without a popup 
   const source=await readFile(new URL('../public/app.js',import.meta.url),'utf8');
   const code=source.slice(source.indexOf('function send(rawText)'),source.indexOf('function regenerate(index)'));
   let opened,stopped=0,textRequests=0,built;
-  const env={currentChat:()=>null,documentMode:false,documentIntent,el:{input:{value:''}},ritual:{currentMode:()=> 'ask',isStreaming:()=>false,ask:value=>built=value},waiting:null,paper:null,state:{streaming:null},speaker:{stop:()=>stopped++},listening:false,stopListening(){},imagePrompt,imageComposer:{open(){throw new Error('Must not open popup');},generate:value=>{opened=value;return Promise.resolve();}},toast(){},streamReply:()=>textRequests++,autoGrow(){},updateSendState(){}};
+  const env={currentChat:()=>null,documentMode:false,documentIntent,el:{input:{value:''}},ritual:{currentMode:()=> 'ask',isBusy:()=>false,ask:value=>built=value},waiting:null,paper:null,state:{streaming:null},speaker:{stop:()=>stopped++},listening:false,stopListening(){},imagePrompt,imageComposer:{open(){throw new Error('Must not open popup');},generate:value=>{opened=value;return Promise.resolve();}},toast(){},streamReply:()=>textRequests++,autoGrow(){},updateSendState(){}};
   const send=new Function(...Object.keys(env),code+';return send;')(...Object.values(env));
   const prompt='Create A beautiful Liberian classroom with students learning on laptops';
   send(prompt);assert.deepEqual(opened,{prompt});assert.equal(stopped,1);assert.equal(textRequests,0);
   env.ritual.currentMode=()=> 'build';opened=null;send('Create a photo website');assert.equal(built,'Create a photo website');assert.equal(opened,null);
+  env.ritual.isBusy=()=>true;env.el.input.value='Keep this request';built=null;send('Another website');assert.equal(built,null);assert.equal(env.el.input.value,'Keep this request');
 });
 
 test('image generation closes options before starting, blocks duplicate requests and recovers after errors',async()=>{

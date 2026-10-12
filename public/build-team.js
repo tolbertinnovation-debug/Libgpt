@@ -1,14 +1,23 @@
-// Five cooperating roles, with a supervisor gate after every complete pass.
+// Engineering roles with separate authors, reviewers, security, QA, and approval.
 // Provider calls and device persistence belong to the host, so this engine is
 // also usable with recorded responses for testing and interrupted-build recovery.
 export const TEAM_ROLES = Object.freeze([
-  { id: 'supervisor', name: 'Project supervisor', job: 'Plans, assigns work, and reviews the whole website.' },
-  { id: 'design', name: 'Visual designer', job: 'Shared styles, responsive layouts, and SVG artwork.' },
-  { id: 'pages', name: 'Page developer', job: 'Complete HTML pages and consistent navigation.' },
-  { id: 'interactions', name: 'Interaction developer', job: 'Menus, forms, and browser interactions.' },
-  { id: 'content', name: 'Content specialist', job: 'Structured content and project documentation.' },
+  { id: 'supervisor', name: 'Head of Engineering', job: 'Orchestrates goals, assigns work, and tracks completion.' },
+  { id: 'architect', name: 'Architect', job: 'Records architecture decisions and shared contracts.' },
+  { id: 'design', name: 'Design & assets', job: 'Responsive styles and accessible artwork.' },
+  { id: 'pages', name: 'Frontend builder', job: 'Complete pages and shared navigation.' },
+  { id: 'interactions', name: 'Interaction builder', job: 'Menus, forms, and browser interactions.' },
+  { id: 'content', name: 'Content & materials', job: 'Truthful content and project documentation.' },
+  { id: 'backend', name: 'Backend builder', job: 'Server code and integration contracts when required.' },
+  { id: 'cloud', name: 'Data & cloud builder', job: 'Data models and deployment configuration when required.' },
+  { id: 'reviewer', name: 'Independent reviewer', job: 'Reviews changes separately from their authors.' },
+  { id: 'security', name: 'Security agent', job: 'Vetoes release when security checks fail.' },
+  { id: 'qa', name: 'QA / DevOps', job: 'Validates tests and release readiness.' },
+  { id: 'approver', name: 'Release approver', job: 'Releases only after review, security, and QA pass.' },
 ]);
-const WORKERS = TEAM_ROLES.slice(1).map(role => role.id);
+export const WORKER_IDS = Object.freeze(['design', 'pages', 'interactions', 'content', 'backend', 'cloud']);
+const WORKERS = WORKER_IDS;
+const GATES = ['review', 'security', 'qa', 'approver'];
 const copy = value => JSON.parse(JSON.stringify(value));
 const message = error => String(error?.message || error || 'The task did not finish.');
 const aborted = () => Object.assign(new Error('Build stopped.'), { name: 'AbortError' });
@@ -24,7 +33,7 @@ export function teamPath(raw) {
 export function validateTeamPlan(plan) {
   if (!plan || typeof plan.title !== 'string' || !plan.title.trim()
     || typeof plan.contract !== 'string' || !plan.contract.trim()
-    || !Array.isArray(plan.tasks) || plan.tasks.length !== WORKERS.length
+    || !Array.isArray(plan.tasks) || ![4, 6].includes(plan.tasks.length)
     || !Array.isArray(plan.pages) || !plan.pages.length) {
     throw new Error('The supervisor did not return a complete website plan.');
   }
@@ -33,8 +42,8 @@ export function validateTeamPlan(plan) {
   for (const task of plan.tasks) {
     if (!WORKERS.includes(task.agent) || roles.has(task.agent)
       || typeof task.instruction !== 'string' || !task.instruction.trim()
-      || !Array.isArray(task.files) || !task.files.length || task.files.length > 12) {
-      throw new Error('The supervisor must assign four distinct specialists and their files.');
+      || !Array.isArray(task.files) || (!task.files.length && !['backend', 'cloud'].includes(task.agent)) || task.files.length > 12) {
+      throw new Error('The supervisor must assign distinct builders and their files.');
     }
     roles.add(task.agent);
     for (const path of task.files) {
@@ -42,6 +51,8 @@ export function validateTeamPlan(plan) {
       owners.set(path, task.agent);
     }
   }
+  const requiredRoles = plan.tasks.length === 4 ? WORKERS.slice(0, 4) : WORKERS;
+  if (requiredRoles.some(id => !roles.has(id))) throw new Error('The plan is missing a required builder.');
   const pagePaths = new Set();
   for (const page of plan.pages) {
     if (!teamPath(page.path) || !/\.html?$/i.test(page.path) || pagePaths.has(page.path)
@@ -75,6 +86,8 @@ function bodyProblem(file) {
 /**
  * Hooks:
  * requestPlan(asked, {signal}) -> plan (or {plan})
+ * architecture({asked, plan, files}, {signal}) -> recorded design decisions
+ * releaseGate({asked, plan, files, issues, architecture}, {signal}) -> signed approval evidence
  * generate(agent, paths, instruction, {onFile, signal, plan, files, round})
  *   -> {files?, unfinished?}; onFile receives only closed, complete fences.
  * review({asked, plan, files, issues, round}, {signal}) -> review (or {review})
@@ -85,8 +98,8 @@ function bodyProblem(file) {
  * second copy of the file bodies. Resume with the project's saved files.
  */
 export async function runTeam({ asked, checkpoint, files = [], hooks, signal, maxRepairRounds = 3 }) {
-  if (!hooks?.requestPlan || !hooks.generate || !hooks.review || !hooks.check || !hooks.save) {
-    throw new Error('The build team needs planning, generation, review, checking, and saving hooks.');
+  if (!hooks?.requestPlan || !hooks.generate || !hooks.review || !hooks.architecture || !hooks.releaseGate || !hooks.check || !hooks.save) {
+    throw new Error('The build team needs planning, architecture, generation, independent review, release gating, checking, and saving hooks.');
   }
   const controller = new AbortController();
   const cancel = () => controller.abort(signal?.reason);
@@ -102,6 +115,8 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
   state.savedPaths ||= [];
   state.faults ||= [];
   state.reviewRound ||= 0;
+  // Approval evidence is never reused across a new run.
+  state.release = null;
   let durablePaths = [...state.savedPaths];
   let storageFailure = '';
   let saves = Promise.resolve();
@@ -181,6 +196,7 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
         received.add(path);
         const changed = current.get(path)?.body !== file.body;
         if (repairInstruction && !changed) agent.faults.push(`The repair made no change to ${path}.`);
+        if (changed) { state.release = null; state.review = null; }
         current.set(path, { path, body: file.body });
         agent.completed = [...new Set([...agent.completed, path])];
         state.savedPaths = [...new Set([...state.savedPaths, path])];
@@ -196,6 +212,7 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
           `Original request: ${state.asked}`,
           `Shared project contract:\n${state.plan.contract}`,
           `Requirements:\n${(state.plan.requirements || []).join('\n')}`,
+          `Recorded architecture decisions:\n${(state.architecture?.decisions || []).map(item => `${item.topic}: ${item.choice} (${item.reason})`).join('\n')}`,
           `Your role: ${task.agent}. ${task.instruction}`,
           `Write only these complete files in this batch: ${batch.join(', ')}.`,
           'Return each whole file inside a closed fenced block such as ```html path=index.html. Do not send diffs, snippets, unfinished fences, or image-generation requests.',
@@ -268,6 +285,27 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
       emit({ type: 'planned' });
       await save();
     } else validateTeamPlan(state.plan);
+    if (!state.architecture) {
+    state.status = 'architecting';
+    agentFor('architect').status = 'working';
+    emit({ type: 'architecting' });
+    await save();
+    const architectureResult = await hooks.architecture({ asked: state.asked, plan: copy(state.plan), files: list() }, { signal: controller.signal });
+    ensureActive();
+    const architecture = architectureResult?.architecture || architectureResult;
+    if (!architecture || !Array.isArray(architecture.decisions) || !architecture.decisions.length
+      || architecture.decisions.some(item => !item || ['topic', 'choice', 'reason'].some(key => typeof item[key] !== 'string' || !item[key].trim()))
+      || !Array.isArray(architecture.constraints) || !Array.isArray(architecture.testPlan)
+      || !architecture.deployment || !['static', 'external'].includes(architecture.deployment.type)
+      || !Array.isArray(architecture.deployment.requirements)
+      || [...architecture.constraints, ...architecture.testPlan, ...architecture.deployment.requirements].some(item => typeof item !== 'string' || !item.trim())) {
+      throw new Error('The architect did not record complete design decisions.');
+    }
+    state.architecture = copy(architecture);
+    agentFor('architect').status = 'complete';
+    emit({ type: 'architecture' });
+    await save();
+    }
     state.status = 'building';
     const results = await Promise.allSettled(state.plan.tasks.map(task => {
       const agent = agentFor(task.agent);
@@ -282,7 +320,7 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
     const limit = Math.min(3, Math.max(0, Number(maxRepairRounds) || 0));
     for (let repairPass = 0; ; repairPass++) {
       state.status = 'reviewing';
-      agentFor('supervisor').status = 'working';
+      agentFor('reviewer').status = 'working';
       emit({ type: 'checking' });
       await save();
       const issues = await deterministicCheck();
@@ -296,10 +334,34 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
       if (!review || typeof review.approved !== 'boolean' || !Array.isArray(review.repairs || [])
         || !Array.isArray(review.faults || [])) throw new Error('The supervisor review did not finish.');
       state.review = copy(review);
+      agentFor('reviewer').status = review.approved && !issues.length && !(review.faults || []).length && !(review.repairs || []).length ? 'complete' : 'needs_attention';
       state.faults = [...new Set([...issues, ...(review.faults || []).map(String)])];
       if (review.approved && !state.faults.length && !(review.repairs || []).length) {
+        agentFor('reviewer').status = 'complete';
+        state.status = 'security';
+        for (const id of ['security', 'qa', 'approver']) agentFor(id).status = 'working';
+        emit({ type: 'release_checking' });
+        await save();
+        const release = await hooks.releaseGate({ asked: state.asked, plan: copy(state.plan), files: list(), issues, faults: issues,
+          architecture: copy(state.architecture), round: state.reviewRound }, { signal: controller.signal });
+        ensureActive();
+        state.release = copy(release || {});
+        const gateFaults = GATES.flatMap(id => release?.gates?.[id]?.passed === true ? []
+          : [release?.gates?.[id]?.summary || `The ${id} release gate did not pass.`]);
+        if (!release?.approved || typeof release.approvalToken !== 'string' || !release.approvalToken.trim()
+          || typeof release.artifactHash !== 'string' || !release.artifactHash.trim()
+          || !Array.isArray(release.faults) || release.faults.length || gateFaults.length) {
+          state.status = 'needs_attention';
+          state.faults = [...new Set([...gateFaults, ...(Array.isArray(release?.faults) ? release.faults.map(String) : []),
+            ...(!gateFaults.length && !release?.faults?.length ? ['Release approval evidence is missing.'] : [])])];
+          for (const [gate, id] of [['review', 'reviewer'], ['security', 'security'], ['qa', 'qa'], ['approver', 'approver']]) {
+            agentFor(id).status = release?.gates?.[gate]?.passed === true ? 'complete' : 'needs_attention';
+          }
+          agentFor('supervisor').status = 'needs_attention';
+          await save(); emit({ type: 'needs_attention' }); break;
+        }
         state.status = 'approved';
-        agentFor('supervisor').status = 'complete';
+        for (const id of ['supervisor', 'reviewer', 'security', 'qa', 'approver']) agentFor(id).status = 'complete';
         await save();
         emit({ type: 'approved' });
         break;
