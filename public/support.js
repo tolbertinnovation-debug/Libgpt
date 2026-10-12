@@ -1,5 +1,5 @@
 import {escapeHtml} from './markdown.js';
-import {BACKUP_LIMIT,createBackup,parseBackup,prepareRestore,commitRestore} from './backup.js';
+import {BACKUP_LIMIT,createBackup,parseBackup,prepareRestore,commitRestoreDurable} from './backup.js';
 import {REPORT_CATEGORIES,feedbackReport} from './feedback.js';
 
 const download = (name,body,type) => {
@@ -78,7 +78,7 @@ export function mountSupport({snapshot,restored,busy,area}) {
         if(busy()) throw new Error('Finish or stop the current work before restoring.');
         const current=snapshot();
         const prepared=prepareRestore(pending,current.chats,current.projects,current.journal);
-        commitRestore(prepared);restored(prepared);pending=null;
+        await commitRestoreDurable(prepared);await restored(prepared);pending=null;
         open('Backup restored',`<p class="settings-note">Added ${prepared.addedChats} conversations and ${prepared.addedProjects} builds, and ${prepared.addedJournal} journal entries. Kept your existing work; skipped ${prepared.skipped} items already present.</p>`);
       }
       if(event.target.closest('[data-report-copy]')) {
@@ -104,3 +104,4 @@ export function mountSupport({snapshot,restored,busy,area}) {
   });
   return {backup,feedback};
 }
+

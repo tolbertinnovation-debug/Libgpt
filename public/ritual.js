@@ -13,9 +13,11 @@ import { conversationWindow } from './knowledge.js';
 
 import {
   applyChanges, danglingLinks, describeChanges, downloadFile, downloadProject, downloadSingleFile,
-  filesFrom, forSending, highlightFile, loadProjects, looksEmpty, makeProject, previewDocument,
+  filesFrom, forSending, highlightFile, looksEmpty, makeProject, previewDocument,
   previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
+  loadProjectsDurable, saveProjectsDurable,
 } from './build.js';
+import { runTeam } from './build-team.js';
 import { shrink } from './photo.js';
 import { renderMarkdown } from './markdown.js';
 
@@ -56,9 +58,9 @@ let activeChecks = 0;
 let manualCheck = null;
 
 const project = () => state.projects.find((p) => p.id === state.currentId) || null;
-const persist = () => {
-  const ok = saveProjects(state.projects);
-  if (!ok) deps.toast('Device storage is full. Download your project to keep a backup before closing this tab.');
+const persist = async () => {
+  const ok = await saveProjectsDurable(state.projects);
+  if (!ok) deps.toast('Your files are still open, but device storage could not save them. Download your project before leaving this page.');
   announce();
   return ok;
 };
@@ -102,6 +104,7 @@ function startProject(name) {
   state.projects.unshift(made);
   state.currentId = made.id;
   state.openPath = '';
+  state.previewPath = '';
   persist();
   return made;
 }
@@ -121,6 +124,7 @@ function render() {
   const p = project();
   if (!p) return;
   el.nameText.textContent = p.name;
+  renderPlan(ritualRun?.running ? ritualRun : p.team ? {checkpoint:p.team,running:false} : null);
   renderThread();
   renderTree();
   renderEditor();
@@ -155,7 +159,7 @@ function renderThread() {
       return `<div class="build-turn build-turn-you">${escapeHtml(turn.content)}</div>`;
     }
     const proposal = turn.proposal
-      ? proposalHtml(turn.proposal, index, turn.applied, turn.checked)
+      ? proposalHtml(turn.proposal, index, turn.applied, turn.checked, turn.changeReceipt)
       : '';
     return `<div class="build-turn build-turn-ai">
       <div class="prose">${renderMarkdown(turn.content || '')}</div>${proposal}
@@ -164,14 +168,15 @@ function renderThread() {
   el.thread.scrollTop = el.thread.scrollHeight;
 }
 
-function proposalHtml(files, index, applied, checked) {
+function proposalHtml(files, index, applied, checked, receipt) {
   const p = project();
-  const shape = describeChanges(p.files, files);
+  const shape = applied ? receipt || files.map(f=>({path:f.path,kind:"saved"})) : describeChanges(p.files, files);
+  const changed = shape.some(f=>f.kind!=="same");
   const rows = shape.map((f) => `
     <div class="proposal-file">
-      <span class="proposal-kind is-${f.kind}">${f.kind === 'new' ? 'new' : f.kind === 'same' ? 'no change' : 'changed'}</span>
+      <span class="proposal-kind is-${f.kind}">${f.kind === 'new' ? 'new' : f.kind === 'same' ? 'no change' : f.kind === 'saved' ? 'saved' : 'changed'}</span>
       <span>${escapeHtml(f.path)}</span>
-      <span class="proposal-delta">${f.picture
+      <span class="proposal-delta">${f.kind === "saved" ? "" : f.picture
         ? `${f.kb} KB picture`
         : f.kind === 'new'
           ? `${f.nowLines} lines`
@@ -194,11 +199,11 @@ function proposalHtml(files, index, applied, checked) {
         : '';
 
   return `<div class="proposal ${applied ? 'is-applied' : ''}">
-    <h4>${applied ? 'These files were saved' : `${files.length} file${files.length === 1 ? '' : 's'} to save`}</h4>
+    <h4>${applied ? changed ? 'These files were saved' : 'No file changes returned' : `${files.length} file${files.length === 1 ? '' : 's'} to save`}</h4>
     ${rows}
     <div class="proposal-actions">
       ${applied
-        ? '<span class="proposal-done">Saved into your build.</span>'
+        ? `<span class="proposal-done">${changed ? 'Saved automatically on this device.' : 'These files already match your build. No new version was created.'}</span>`
         : `<button class="proposal-apply" type="button" data-apply="${index}">Save these files</button>
            <button class="proposal-look" type="button" data-peek="${index}">Look at them first</button>`}
     </div>
@@ -278,7 +283,8 @@ function renderPreview() {
   if (look.why || look.warn) el.previewNote.textContent = look.why || look.warn;
   // srcdoc rather than a URL: the frame has no origin of its own, cannot reach
   // this page, and nothing is served anywhere to make it work.
-  el.previewFrame.srcdoc = look.can ? previewDocument(p.files) : '';
+  const entry=p.files.some(f=>f.path===state.previewPath) ? state.previewPath : '';
+  el.previewFrame.srcdoc = look.can ? previewDocument(p.files,entry) : '';
 }
 
 function ensureView(view) {
@@ -312,116 +318,103 @@ async function send(text) {
   const said = String(text || '').trim();
   const p = project();
   if (!said || !p || isBusy()) return;
+  if (!p.files.length && !p.messages.length) { await buildTheWholeThing(said); return; }
 
-  // The first thing said to an empty build is a description of a whole
-  // website, not a request for one file. Treating it as the latter is what
-  // made "make me a website for my shop" hand back one page and stop.
-  if (!p.files.length && !p.messages.length) {
-    buildTheWholeThing(said);
-    return;
-  }
-
-  p.messages.push({ role: 'user', content: said });
-  if (!p.named && p.messages.length === 1) {
-    p.name = said.slice(0, 40) + (said.length > 40 ? '…' : '');
-    p.named = true;
-  }
-  const answer = { role: 'assistant', content: '' };
+  p.messages.push({role:'user',content:said});
+  const answer={role:'assistant',content:''};
   p.messages.push(answer);
-  touch();
+  const before=p.files.map(f=>({...f}));
+  if(p.team){p.team.status='interrupted';p.team.latestRequest=said;p.team.message='Updating files; a fresh supervisor review is required.';}
+  const controller=new AbortController();
+  state.streaming=controller;el.editorInput.readOnly=true;
+  const mine=mark('Writing and saving your changes…');
+  document.dispatchEvent(new CustomEvent('ritual:busy',{detail:true}));
   renderThread();
-  el.nameText.textContent = p.name;
-
-  const controller = new AbortController();
-  state.streaming = controller;
-  // Set before the request goes out, not when the first word comes back. The
-  // wait that looks like a broken screen is the one before anything arrives.
-  let mine = mark('Thinking about what to build…');
-  renderThread();
-  document.dispatchEvent(new CustomEvent('ritual:busy', { detail: true }));
-
+  const received=new Map();
+  let saved=true;
   try {
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...deps.headers() },
-      signal: controller.signal,
-      body: JSON.stringify({
-        mode: 'build',
-        messages: conversationWindow(p.messages.filter(m => m.content)).list,
-        files: forSending(p.files),
-      }),
-    });
-
-    if (!response.ok || !response.body) {
-      const body = await response.json().catch(() => ({}));
-      throw new Error(body.error || 'Grandpa could not be reached.');
+    await generateFiles(said,p.files,{signal:controller.signal,
+      messages:conversationWindow(p.messages.filter(m=>m.content)).list,
+      onProse:prose=>{answer.content=prose;renderThread();},
+      onFile:async file=>{
+        received.set(file.path,file);
+        applyChanges(p,[file],'Before automatic file saving');
+        saved=await persist();
+        if(!saved) throw new Error('Automatic saving failed. Download your files before leaving.');
+        renderTree();
+      }});
+    answer.content ||= received.size ? 'Your changes are saved.' : 'No files were changed.';
+  } catch(error) {
+    answer.content += `\n\n${error.name==='AbortError' ? 'Stopped. Completed files are kept.' : error.message || 'The request could not finish.'}`;
+  } finally {
+    if(received.size){
+      answer.proposal=[...received.values()];
+      answer.changeReceipt=describeChanges(before,answer.proposal);
+      answer.applied=true;
+      answer.checked=saved ? 'checking' : ['Automatic saving failed. Download this project.'];
     }
+    unmark(mine);state.live=null;state.streaming=null;el.editorInput.readOnly=false;
+    await persist();render();
+    if(received.size && saved){
+      await checkAfterSaving(answer);
+      if(p.team)await buildTheWholeThing(p.team.asked,true);
+    }
+    document.dispatchEvent(new CustomEvent('ritual:busy',{detail:false}));
+  }
+}
 
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    let whole = '';
-
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const frames = buffer.split('\n\n');
-      buffer = frames.pop() || '';
-
-      for (const frame of frames) {
-        let event = 'message';
-        let data = '';
-        for (const line of frame.split('\n')) {
-          if (line.startsWith('event:')) event = line.slice(6).trim();
-          else if (line.startsWith('data:')) data += line.slice(5).trim();
+/** Complete file fences become checkpoints immediately, before the stream ends. */
+async function generateFiles(instruction, files, {signal,onFile=async()=>{},onProse=()=>{},messages,faults=[],research='auto',allowPictures=true}={}) {
+  const response=await fetch('/api/chat',{
+    method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},signal,
+    body:JSON.stringify({mode:'build',research,messages:messages || [{role:'user',content:instruction}],
+      files:forSending(files),...(faults.length ? {faults} : {})}),
+  });
+  if(!response.ok || !response.body){
+    const body=await response.json().catch(()=>({}));
+    throw new Error(body.error || 'The coding agent could not be reached.');
+  }
+  const reader=response.body.getReader(),decoder=new TextDecoder(),completed=new Map();
+  let buffer='',whole='',finished=false;
+  try {
+    for(;;){
+      const {done,value}=await reader.read();
+      if(done)break;
+      buffer+=decoder.decode(value,{stream:true});
+      const frames=buffer.split(/\r?\n\r?\n/);buffer=frames.pop() || '';
+      for(const frame of frames){
+        let event='',data='';
+        for(const line of frame.split(/\r?\n/)){
+          if(line.startsWith('event:'))event=line.slice(6).trim();
+          if(line.startsWith('data:'))data+=line.slice(5).trim();
         }
-        if (!data) continue;
-        let payload;
-        try { payload = JSON.parse(data); } catch { continue; }
-
-        if (event === 'delta') {
-          whole += payload.text || '';
-          // Only the prose is shown while it streams. Half a file scrolling
-          // past is not information, it is noise with a scrollbar. But the
-          // reader still needs to see that something is happening, and how
-          // much of it is done — so the count of finished files is the
-          // progress, and it moves.
-          const sofar = filesFrom(whole);
-          answer.content = sofar.prose;
-          mine = mark(writingWhat(sofar.files.length, whole));
-          renderThread();
-        } else if (event === 'error') {
-          throw new Error(payload.message || 'That did not go through.');
+        if(!data)continue;
+        let payload;try{payload=JSON.parse(data);}catch{continue;}
+        if(event==='error')throw new Error(payload.message || 'The coding agent could not finish.');
+        if(event==='done')finished=true;
+        if(event!=='delta')continue;
+        whole+=payload.text || '';
+        const parsed=filesFrom(whole);
+        onProse(parsed.prose);
+        for(const file of parsed.files){
+          if(completed.get(file.path)?.body===file.body)continue;
+          if(signal?.aborted)throw new DOMException('Build stopped','AbortError');
+          await onFile({...file});completed.set(file.path,{...file});
         }
       }
     }
-
-    const { files, pictures, prose, unfinished } = filesFrom(whole);
-    answer.content = prose || (files.length ? 'Here are the files.' : whole);
-
-    // Pictures are drawn before the files are offered, so that what somebody
-    // is asked to approve is the whole of the change — a page and the picture
-    // it shows, together, rather than a page that will look broken until
-    // something else finishes.
-    const drawn = pictures.length ? await drawPictures(pictures) : [];
-    if (files.length || drawn.length) answer.proposal = [...files, ...drawn];
-    if (unfinished) {
-      answer.content += '\n\n*One file was cut off before it finished, so it is not offered here. '
-        + 'Ask for that file again on its own.*';
-    }
-  } catch (error) {
-    if (error?.name !== 'AbortError') {
-      answer.content = error?.message || 'That did not go through. Try again.';
-      deps.toast(answer.content);
-    }
-  } finally {
-    unmark(mine);
-    state.streaming = null;
-    document.dispatchEvent(new CustomEvent('ritual:busy', { detail: false }));
-    touch();
-    render();
+  } finally {await reader.cancel().catch(()=>{});reader.releaseLock();}
+  const parsed=filesFrom(whole);
+  if(parsed.unfinished)throw new Error('A file was cut off. Completed files were saved; resume to finish the missing file.');
+  if(!finished)throw new Error('The connection ended before the agent finished. Completed files were saved.');
+  // Team designs use local SVG files, avoiding additional unattended image charges.
+  if(parsed.pictures.length){
+    if(!allowPictures)throw new Error('The specialist requested an image instead of returning its assigned SVG asset.');
+    const drawn=await drawPictures(parsed.pictures,{signal});
+    for(const file of drawn){await onFile(file);completed.set(file.path,file);}
+    if(drawn.length!==parsed.pictures.length)throw new Error('Some pictures could not be created. Completed files are kept; ask to finish the missing images.');
   }
+  return [...completed.values()];
 }
 
 /* ==========================================================================
@@ -433,10 +426,9 @@ async function send(text) {
    whether it works. This does all three, and the third is the one that makes
    it finished rather than generated.
 
-   It stays honest about cost. The plan is capped at four steps because every
-   step is a slow paid request on a phone, and there is exactly ONE fixing
-   pass: a loop that keeps paying to re-fix its own work until something
-   passes is a loop that can empty somebody's account while they watch.
+   Four specialists work from one supervisor's shared contract. Completed files
+   are saved as they arrive. Review and repair are bounded to three rounds;
+   unresolved requirements are retained for the next explicitly resumed run.
    ========================================================================== */
 
 // How long to let a built page run before deciding it is quiet. The page says
@@ -460,7 +452,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * Failures are quiet on purpose. A page whose picture did not arrive is worth
  * having; a build that stops because a picture did not arrive is not.
  */
-async function drawPictures(wanted) {
+async function drawPictures(wanted, {signal}={}) {
   const drawn = [];
   for (const [at, want] of wanted.entries()) {
     if (!state.canDraw) break;
@@ -473,17 +465,19 @@ async function drawPictures(wanted) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...deps.headers() },
         body: JSON.stringify({ about: want.about }),
+        signal,
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error || 'The picture could not be drawn.');
 
-      const asBlob = await (await fetch(body.picture)).blob();
+      const asBlob = await (await fetch(body.picture,{signal})).blob();
       // 720px on the long edge and under 90KB: bigger than a page on a phone
       // shows, small enough that a project with two of them still fits beside
       // somebody's conversations.
       const small = await shrink(asBlob, { longEdge: 720, want: 90_000 });
       drawn.push({ path: want.path, body: small.url });
     } catch (error) {
+      if(error.name==='AbortError')throw error;
       deps.toast(error?.message || 'One picture could not be drawn.');
     }
   }
@@ -500,38 +494,29 @@ const unmark = (id) => { if (state.live?.id === id) state.live = null; };
 
 let ritualRun = null;   // the run in progress, so it can be called off
 
-/** Draw the checklist, which IS the progress: no spinner, no percentage. */
+/** Five roles, saved file counts, and the current review round. */
 function renderPlan(run) {
-  if (!run) { el.plan.hidden = true; return; }
-  el.plan.hidden = false;
-
-  // The panel goes up before the plan comes back, so that the wait for it is
-  // visible rather than a dead screen. Until then there is a heading and a
-  // line, and no list to draw.
-  if (!run.plan) {
-    el.plan.innerHTML = `<h4>Working it out</h4>
-      <p>${escapeHtml(run.note || 'One moment.')}</p>
-      ${run.running ? '<button class="proposal-look" type="button" id="plan-stop">Stop</button>' : ''}`;
-    return;
-  }
-
-  el.plan.innerHTML = `
-    <h4>${escapeHtml(run.plan.name)}</h4>
-    ${run.plan.summary ? `<p>${escapeHtml(run.plan.summary)}</p>` : ''}
-    <ol class="plan-steps">
-      ${run.marks.map((mark, i) => `
-        <li class="plan-step is-${mark.state}">
-          <span class="plan-tick" aria-hidden="true">${
-            mark.state === 'done' ? '✓' : mark.state === 'doing' ? '…' : mark.state === 'failed' ? '!' : ''
-          }</span>
-          <span>${escapeHtml(run.plan.steps[i]?.title || mark.title)}</span>
-        </li>`).join('')}
-    </ol>
-    ${run.note ? `<p class="plan-note">${escapeHtml(run.note)}</p>` : ''}
-    ${run.running
-      ? '<button class="proposal-look" type="button" id="plan-stop">Stop</button>'
-      : ''}`;
-  el.plan.scrollIntoView({ block: 'nearest' });
+  if(!run){el.plan.hidden=true;return;}
+  el.plan.hidden=false;
+  const cp=run.checkpoint || {},plan=cp.plan;
+  const status=cp.status || 'planning';
+  const names={supervisor:'Supervisor',design:'Design & assets',pages:'Pages & layout',interactions:'Interactions',content:'Content & materials'};
+  const roles=['supervisor','design','pages','interactions','content'];
+  const done=status==='approved';
+  el.plan.innerHTML=`<h4>${escapeHtml(plan?.title || 'Five-agent website team')}</h4>
+    <p>${escapeHtml(plan?.summary || 'The supervisor is turning your request into a shared project plan.')}</p>
+    <ol class="plan-steps team-steps">${roles.map(agent=>{
+      const task=plan?.tasks.find(t=>t.agent===agent);
+      const agentState=cp.agents?.[agent];
+      const count=task ? task.files.filter(path=>cp.savedPaths?.includes(path)).length : 0;
+      const busy=run.running && (agent==='supervisor' ? !plan || cp.status==='reviewing' : agentState?.status==='working' || agentState?.status==='repairing');
+      const complete=done || agent!=='supervisor' && task && count===task.files.length;
+      return `<li class="plan-step is-${busy?'doing':complete?'done':status==='needs_attention'?'failed':'waiting'}"><span class="plan-tick" aria-hidden="true">${busy?'…':complete?'✓':''}</span><span><strong>${names[agent]}</strong>${task?`<small>${count} / ${task.files.length} files saved</small>`:agent==='supervisor'?'<small>Plans, assigns tasks, reviews and approves</small>':''}</span></li>`;
+    }).join('')}</ol>
+    <p class="plan-note">${escapeHtml(run.note || cp.message || (done?'Saved and approved after source and preview review.':run.running?'Agents are working. Completed files save automatically on this device.':'Work is saved. Resume to finish the remaining requirements.'))}</p>
+    ${cp.reviewRound ? `<p class="team-round">Review round ${cp.reviewRound} of 3</p>`:''}
+    ${!run.running && cp.faults?.length ? `<details class="team-issues"><summary>${cp.faults.length} items need attention</summary><ul>${cp.faults.map(issue=>`<li>${escapeHtml(issue)}</li>`).join('')}</ul></details>`:''}
+    ${run.running?'<button class="proposal-look" type="button" id="plan-stop">Stop team</button>':cp.asked && !done?'<button class="proposal-apply" type="button" id="plan-resume">Resume project & review</button>':''}`;
 }
 
 /** Run the built project in the sandbox and collect what comes back. */
@@ -570,7 +555,7 @@ async function faultsIn(files, expectedPaths = [], cancelled = () => false) {
   try {
     const faults = [...danglingLinks(files), ...looksEmpty(files), ...projectIssues(files, expectedPaths)];
     if (previewState(files).can) {
-      const pages = files.filter(file => /\.html?$/i.test(file.path)).slice(0, 6);
+      const pages = files.filter(file => /\.html?$/i.test(file.path));
       for (const page of pages) {
         for (const width of [390, 1280]) faults.push(...await runAndWatch(files, page.path, width, cancelled));
       }
@@ -588,179 +573,60 @@ async function faultsIn(files, expectedPaths = [], cancelled = () => false) {
  * Save four times. Every apply still keeps the version before it, so the
  * whole run can be undone step by step afterwards.
  */
-async function buildTheWholeThing(asked) {
-  const p = project();
-  if (!p || state.streaming || ritualRun?.running) return;
-
-  p.messages.push({ role: 'user', content: asked });
-  renderThread();
-
-  const run = { plan: null, marks: [], running: true, note: 'Working out what to build…', asked };
-  ritualRun = run;
-  renderPlan(run);
-  document.dispatchEvent(new CustomEvent('ritual:busy', { detail: true }));
-
-  const stop = () => !run.running;
-
-  try {
-    // ---- 1. the plan ------------------------------------------------------
-    const planned = await fetch('/api/plan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...deps.headers() },
-      body: JSON.stringify({ asked }),
-      signal: (run.controller = new AbortController()).signal,
-    });
-    const planBody = await planned.json();
-    if (!planned.ok) throw new Error(planBody.error || 'The plan could not be made.');
-
-    if (stop()) return;
-    run.plan = planBody.plan;
-    run.marks = run.plan.steps.map((s) => ({ title: s.title, state: 'waiting' }));
-    run.note = '';
-    if (!p.named) { p.name = run.plan.name; p.named = true; el.nameText.textContent = p.name; }
-    renderPlan(run);
-
-    // ---- 2. each step -----------------------------------------------------
-    for (let i = 0; i < run.plan.steps.length; i += 1) {
-      if (stop()) break;
-      run.marks[i].state = 'doing';
-      renderPlan(run);
-
-      const files = await oneBuildTurn(planBody.steps[i], p);
-      if (stop()) break;
-
-      if (files.length) {
-        applyChanges(p, files, `Before step ${i + 1}: ${run.plan.steps[i].title}`);
-        run.marks[i].state = 'done';
-      } else {
-        // A step that produced nothing is not a reason to stop: what came
-        // before it still stands, and saying so beats a silent gap.
-        run.marks[i].state = 'failed';
-      }
-      persist();
-      renderPlan(run);
-      renderTree();
-    }
-
-    // ---- 3. open it and see ----------------------------------------------
-    if (!stop() && p.files.length) {
-      run.note = 'Opening it to see whether it works…';
-      renderPlan(run);
-      const expectedPaths = run.plan.steps.flatMap(step => step.files);
-      const faults = await faultsIn(p.files, expectedPaths, stop);
-
-      if (faults.length && !stop()) {
-        // Exactly one. Two would be a loop that can spend somebody's money
-        // while they watch it fail.
-        run.note = `Found ${faults.length} problem${faults.length === 1 ? '' : 's'}. Fixing…`;
-        renderPlan(run);
-        const fixed = await oneBuildTurn(
-          'Fix what is wrong, as described.', p, faults,
-        );
-        if (fixed.length) applyChanges(p, fixed, 'Before the fixing pass');
-        persist();
-
-        const left = await faultsIn(p.files, expectedPaths);
-        run.note = left.length
-          ? `Built and checked. ${left.length === 1 ? 'One thing still needs' : `${left.length} things still need`}`
-            + ` a look — ask about ${left[0].split(' ')[0]} and Grandpa will explain.`
-          : 'Created and repaired the files. Phone and desktop preview checks passed for up to six pages. Test the interactions before publishing.';
-      } else if (!stop()) {
-        run.note = 'Files created. Phone and desktop preview checks passed. Test the interactions before publishing.';
-      }
-
-      // A step with a cross beside it and "nothing wrong" underneath is the
-      // screen contradicting itself, and the reader believes the sentence
-      // over the mark. What ran is not the same as what was asked for.
-      const missed = run.marks.filter((m) => m.state === 'failed');
-      if (missed.length && !stop()) {
-        run.note = `${run.note} But ${missed.length === 1 ? 'one part' : `${missed.length} parts`} `
-          + `of the plan did not get made — ${missed.map((m) => `"${m.title}"`).join(', ')}. `
-          + 'Ask for that on its own and Grandpa will add it.';
-      }
-    }
-
-    if (stop()) run.note = 'Stopped. Everything finished so far is kept.';
-  } catch (error) {
-    run.note = stop() ? 'Stopped. Everything finished so far is kept.' : error?.message || 'That did not go through.';
-    deps.toast(run.note);
-  } finally {
-    state.live = null;   // the whole run is over; nothing else is waiting
-    run.running = false;
-    renderPlan(run);
-    document.dispatchEvent(new CustomEvent('ritual:busy', { detail: false }));
-    persist();
-    render();
-    ensureView(project()?.files.length ? 'preview' : 'chat');
-  }
+async function teamRequest(path, body, signal) {
+  const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},signal,body:JSON.stringify(body)});
+  const result=await response.json();
+  if(!response.ok)throw new Error(result.error || 'The team could not complete this request.');
+  return result;
 }
 
-/** One turn of the build stream, returning the files it proposed. */
-async function oneBuildTurn(instruction, p, faults = []) {
-  const controller = new AbortController();
-  state.streaming = controller;
-  let mine = mark(faults.length ? 'Working out the fix…' : 'Thinking about what to build…');
-  renderThread();
-  let whole = '';
-
-  try {
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...deps.headers() },
-      signal: controller.signal,
-      body: JSON.stringify({
-        mode: 'build',
-        messages: [{ role: 'user', content: instruction }],
-        files: forSending(p.files),
-        ...(faults.length ? { faults } : {}),
-      }),
-    });
-    if (!response.ok || !response.body) {
-      const body = await response.json().catch(() => ({}));
-      throw new Error(body.error || 'Grandpa could not be reached.');
-    }
-
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const frames = buffer.split('\n\n');
-      buffer = frames.pop() || '';
-      for (const frame of frames) {
-        let event = 'message';
-        let data = '';
-        for (const line of frame.split('\n')) {
-          if (line.startsWith('event:')) event = line.slice(6).trim();
-          else if (line.startsWith('data:')) data += line.slice(5).trim();
-        }
-        if (!data) continue;
-        let payload;
-        try { payload = JSON.parse(data); } catch { continue; }
-        if (event === 'delta') {
-          whole += payload.text || '';
-          // A step of a plan, or a fix asked for by hand, used to show nothing
-          // at all while it streamed — the checklist moved once per step and
-          // was still in between. On a slow line that is a long time to look
-          // at a screen that is not moving.
-          mine = mark(writingWhat(filesFrom(whole).files.length, whole));
-          renderThread();
-        }
-        if (event === 'error') throw new Error(payload.message || 'That did not go through.');
-      }
-    }
-  } finally {
-    unmark(mine);
-    state.streaming = null;
+async function buildTheWholeThing(asked, resume=false) {
+  const p=project();
+  if(!p || isBusy())return;
+  if(!resume)p.messages.push({role:'user',content:asked});
+  const controller=new AbortController();
+  const run={running:true,controller,checkpoint:resume?p.team:{asked,status:'planning'},note:''};
+  let saved=true;
+  el.editorInput.readOnly=true;
+  ritualRun=run;
+  renderPlan(run);renderThread();
+  document.dispatchEvent(new CustomEvent('ritual:busy',{detail:true}));
+  try{
+    const result=await runTeam({asked,files:p.files,checkpoint:resume?p.team:undefined,signal:controller.signal,
+      hooks:{
+        requestPlan:async(brief,{signal})=>(await teamRequest('/api/build/team-plan',{asked:brief},signal)).plan,
+        generate:async(agent,batch,instruction,{onFile,signal,files})=>generateFiles(instruction,files,{signal,onFile,research:'off',allowPictures:false}),
+        review:async(body,{signal})=>(await teamRequest('/api/build/team-review',{...body,faults:body.issues,updates:p.team?.latestRequest || ''},signal)).review,
+        check:(files,expected,signal)=>faultsIn(files,expected,()=>signal.aborted),
+        save:async(checkpoint,files)=>{
+          applyChanges(p,files,'Before team checkpoint');
+          p.team=structuredClone(checkpoint);
+          if(checkpoint.plan && !p.named){p.name=checkpoint.plan.title;p.named=true;}
+          saved=await persist();
+          renderTree();
+          return saved;
+        },
+        progress:checkpoint=>{run.checkpoint=checkpoint;renderPlan(run);},
+      }});
+    run.checkpoint=result.checkpoint;
+    p.team=structuredClone(result.checkpoint);
+    run.note=!saved ? 'Device storage could not save this build. Download your files before leaving; approval is paused.' : result.status==='approved'
+      ? `All ${p.files.length} files are saved. The supervisor approved the source review and every page passed phone and desktop startup checks. Test real services and user flows before publishing.`
+      : result.status==='stopped' ? 'Stopped. Completed files and the project plan are saved. Resume whenever you are ready.'
+      : 'The project is saved, with unfinished items listed below. Resume to continue building and reviewing.';
+    p.team.message=run.note;
+    p.messages.push({role:'assistant',content:run.note});
+  }catch(error){
+    run.note=error.name==='AbortError'?'Stopped. Completed files are saved.':error.message || 'The team could not finish.';
+    if(!p.team)p.team={asked,status:'interrupted',faults:[run.note]};
+    p.team.message=run.note;
+    deps.toast(run.note);
+  }finally{
+    state.live=null;run.running=false;el.editorInput.readOnly=false;
+    await persist();render();
+    document.dispatchEvent(new CustomEvent('ritual:busy',{detail:false}));
+    ensureView('chat');
   }
-
-  const { files, pictures, prose } = filesFrom(whole);
-  if (prose) p.messages.push({ role: 'assistant', content: prose });
-  renderThread();
-  const drawn = pictures.length ? await drawPictures(pictures) : [];
-  return [...files, ...drawn];
 }
 
 /**
@@ -797,35 +663,17 @@ async function checkAfterSaving(turn) {
   if (state.view === 'preview') renderPreview();
 }
 
-/** Ask for the fix, as an ordinary turn that still waits to be saved. */
+/** Repairs use the same immediate autosave path as typed changes. */
 async function mendIt(faults) {
-  const p = project();
-  if (!p || state.streaming || ritualRun?.running) return;
-
-  p.messages.push({ role: 'user', content: 'Fix what is wrong.' });
-  renderThread();
-  document.dispatchEvent(new CustomEvent('ritual:busy', { detail: true }));
-  try {
-    const files = await oneBuildTurn('Fix what is wrong, as described.', p, faults);
-    if (files.length) {
-      const answer = p.messages[p.messages.length - 1];
-      if (answer?.role === 'assistant') answer.proposal = files;
-      else p.messages.push({ role: 'assistant', content: 'Here are the files.', proposal: files });
-    }
-  } catch (error) {
-    deps.toast(error?.message || 'That did not go through.');
-  } finally {
-    document.dispatchEvent(new CustomEvent('ritual:busy', { detail: false }));
-    persist();
-    renderThread();
-  }
+  await send(`Fix these reported website problems, preserving working features. Return every changed file completely.\n\n${faults.map(f=>`- ${f}`).join('\n')}`);
 }
 
-export const isStreaming = () => Boolean(state.streaming);
+export const isStreaming = () => Boolean(state.streaming || ritualRun?.running);
 export const stop = () => {
   if (ritualRun?.running) {
-    ritualRun.running = false;
+    ritualRun.note='Stopping the team and saving completed work…';
     ritualRun.controller?.abort();
+    renderPlan(ritualRun);
   }
   state.streaming?.abort();
 };
@@ -854,7 +702,7 @@ async function checkWebsite() {
   const snapshot=JSON.stringify(p.files);
   const files=JSON.parse(snapshot);
   const pages=files.filter(file=>/\.html?$/i.test(file.path)).length;
-  openSheet('Checking your website',`<p class="sheet-note">Checking up to six pages at phone and desktop widths, including form labels, images, section links, and startup errors.</p><button class="setting-btn" data-check-stop type="button">Stop checks</button>`);
+  openSheet('Checking your website',`<p class="sheet-note">Checking every page at phone and desktop widths, including form labels, images, section links, and startup errors.</p><button class="setting-btn" data-check-stop type="button">Stop checks</button>`);
   const version=sheetVersion;
   try {
     const faults=await faultsIn(files,[],()=>controller.signal.aborted);
@@ -863,7 +711,7 @@ async function checkWebsite() {
     if(version!==sheetVersion || p!==project()) return;
     openSheet('Website check results',faults.length
       ? `<p class="sheet-note">Fix these issues, then check again:</p><ul>${faults.map(fault=>`<li>${escapeHtml(fault)}</li>`).join('')}</ul><button class="setting-btn" data-check-fix type="button">Ask AI to fix these issues</button>`
-      : `<p class="sheet-note">Checks passed for ${Math.min(pages,6)} pages at 390 px and 1280 px. Test buttons, forms, external services, and payments yourself before publishing${pages>6 ? '; additional pages were not opened' : ''}.</p>`);
+      : `<p class="sheet-note">Checks passed for ${pages} pages at 390 px and 1280 px. Test buttons, forms, external services, and payments yourself before publishing.</p>`);
     if(faults.length) el.sheetBody.querySelector('[data-check-fix]').addEventListener('click',()=>{closeSheet();mendIt(faults);});
   } catch(error) {
     if(version===sheetVersion) openSheet('Website checks',`<p class="sheet-note">${error.name==='AbortError' ? 'Checks stopped. No completed result was recorded.' : 'Checks could not finish. Try again.'}</p>`);
@@ -1219,6 +1067,8 @@ export function restoreProjects(projects) {
 
 /** Open one, from wherever the person was. */
 export function openBuild(id) {
+  if(isBusy()){deps.toast('Stop or finish the current build before opening another.');return false;}
+  state.previewPath='';
   if (!state.projects.some((p) => p.id === id)) return false;
   ritualRun = null;
   renderPlan(null);
@@ -1250,6 +1100,7 @@ export function renameBuild(id, name) {
  * is how a delete comes to feel like a crash.
  */
 export function deleteBuild(id) {
+  if(isBusy()){deps.toast('Stop or finish the current work before deleting a build.');return false;}
   const had = state.projects.length;
   state.projects = state.projects.filter((p) => p.id !== id);
   if (state.projects.length === had) return false;
@@ -1269,6 +1120,8 @@ export function deleteBuild(id) {
 
 /** A fresh one, from the sidebar's own New button. */
 export function newBuild() {
+  if(isBusy()){deps.toast('Stop or finish the current work before starting another build.');return;}
+  state.previewPath='';
   ritualRun = null;
   renderPlan(null);
   startProject();
@@ -1290,10 +1143,12 @@ function takePage() {
     deps.toast('This build has no index.html, so there is no single page to make.');
     return;
   }
-  deps.toast('Saved as one page. You can send that file to anybody.');
+  deps.toast(project().files.filter(f=>/\.html?$/i.test(f.path)).length>1
+    ? 'The home page was downloaded. Choose All files for the complete multi-page website.'
+    : 'Saved as one page. You can send that file to anybody.');
 }
 
-export function mount(options = {}) {
+export async function mount(options = {}) {
   deps = { ...deps, ...options };
   state.canDraw = Boolean(options.canDraw);
 
@@ -1320,7 +1175,13 @@ export function mount(options = {}) {
     sheetBody: $('sheet-body'),
   };
 
-  state.projects = loadProjects();
+  state.projects = await loadProjectsDurable();
+  for(const p of state.projects){
+    if(p.team && ["planning","building","working","reviewing","repairing","checking"].includes(p.team.status)){
+      p.team.status="interrupted";
+      p.team.message="This build was interrupted. Saved files are kept; resume the team to finish.";
+    }
+  }
 
   // Builds saved while the fence parser was misreading filenames have files
   // called "=style.css" sitting in them, and a page linking to "style.css"
@@ -1334,7 +1195,7 @@ export function mount(options = {}) {
     mended += fixed.renamed.length + fixed.dropped.length;
   }
   if (mended) {
-    saveProjects(state.projects);
+    await saveProjectsDurable(state.projects);
     // Said out loud rather than done silently: files changed name, and
     // somebody who knew their build was broken deserves to know it was mended.
     setTimeout(() => deps.toast(
@@ -1350,7 +1211,7 @@ export function mount(options = {}) {
     if (button) setMode(button.dataset.mode);
   });
 
-  el.build.addEventListener('click', (event) => {
+  el.build.addEventListener('click', async (event) => {
     const view = event.target.closest('[data-view]');
     if (view) { ensureView(view.dataset.view); return; }
 
@@ -1373,14 +1234,16 @@ export function mount(options = {}) {
 
     const apply = event.target.closest('[data-apply]');
     if (apply) {
+      if(isBusy()){deps.toast('Finish the current work before applying earlier files.');return;}
       const turn = project().messages[Number(apply.dataset.apply)];
       if (turn?.proposal) {
+        turn.changeReceipt=describeChanges(project().files,turn.proposal);
         applyChanges(project(), turn.proposal, 'Before saving files');
         turn.applied = true;
         state.openPath = turn.proposal[0]?.path || state.openPath;
-        persist();
+        const saved=await persist();
         render();
-        deps.toast('Saved. You can go back to the version before this.');
+        deps.toast(saved ? 'Saved. You can go back to the version before this.' : 'Saving failed. Download your project.');
         checkAfterSaving(turn);
       }
       return;
@@ -1407,6 +1270,7 @@ export function mount(options = {}) {
     }
 
     if (event.target.closest('#plan-stop')) { stop(); return; }
+    if (event.target.closest('#plan-resume')) {const p=project();if(p?.team)await buildTheWholeThing(p.team.asked,true);return;}
 
     const starter = event.target.closest('.build-starter');
     if (starter) { send(starter.textContent.trim()); return; }
@@ -1451,11 +1315,14 @@ export function mount(options = {}) {
     const file = project()?.files.find((f) => f.path === state.openPath);
     if (!file) return;
     file.body = el.editorInput.value;
+    if(project().team){project().team.status='interrupted';project().team.latestRequest=`Review the manually edited file ${file.path}, preserving current user changes.`;project().team.message='Files edited. Resume the supervisor review before approval.';renderPlan({checkpoint:project().team,running:false});}
     paint();
     touch();
-    el.editorSaved.hidden = false;
+    el.editorSaved.hidden=false;el.editorSaved.textContent='Saving…';
     clearTimeout(el.editorSaved.timer);
-    el.editorSaved.timer = setTimeout(() => { el.editorSaved.hidden = true; }, 1200);
+    el.editorSaved.timer=setTimeout(async()=>{
+      const ok=await persist();el.editorSaved.textContent=ok?'Saved':'Save failed';
+    },450);
   });
   el.editorInput.addEventListener('scroll', () => {
     el.editorPaint.scrollTop = el.editorInput.scrollTop;
@@ -1483,7 +1350,9 @@ export function mount(options = {}) {
 
     const version = event.target.closest('[data-version]');
     if (version) {
+      if(isBusy()){deps.toast('Finish the current work before restoring a version.');return;}
       restoreVersion(project(), Number(version.dataset.version));
+      if(project().team){project().team.status='interrupted';project().team.latestRequest='Review this restored version without assuming the newer files are still present.';project().team.message='Version restored. Resume to review the current files.';}
       persist();
       closeSheet();
       render();
@@ -1524,6 +1393,24 @@ export function mount(options = {}) {
     else if (!el.menu.hidden) el.menu.hidden = true;
   });
 
+  window.addEventListener('message',event=>{
+    if(event.source!==el.previewFrame.contentWindow || event.data?.checkId) return;
+    const data=event.data,p=project();
+    const file=p?.files.find(f=>f.path===data?.path);
+    if(data?.grandpa==='navigate' && file && /\.html?$/i.test(file.path)){
+      state.previewPath=file.path;
+      renderPreview();
+      if(data.hash){
+        el.previewFrame.addEventListener('load',()=>{
+          el.previewFrame.contentWindow.postMessage({grandpa:'scroll-to',hash:String(data.hash).slice(0,500)},'*');
+        },{once:true});
+      }
+    }else if(data?.grandpa==='download-file' && file){downloadFile(file);}
+    else if(data?.grandpa==='fault' && typeof data.what==='string'){deps.toast(data.what.slice(0,400));}
+  });
+
+  window.addEventListener('pagehide' ,()=>{saveProjects(state.projects);persist();});
+
   // Coming back from GitHub's own page.
   const from = new URLSearchParams(location.search).get('github');
   if (from) {
@@ -1534,4 +1421,5 @@ export function mount(options = {}) {
     else deps.toast('That GitHub connection did not finish. Try again.');
   }
 }
+
 

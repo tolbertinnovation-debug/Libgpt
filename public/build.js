@@ -5,15 +5,10 @@
 // A project is files, a conversation, and a history of what the files used to
 // be. All three live in the phone's own storage, next to the conversations,
 // because somebody building a shop page on a borrowed handset should not lose
-// it to a closed tab, and because this app has no database and is not getting
-// one.
-//
-// Nothing the model writes is applied on its own. A turn that contains files
-// arrives as a PROPOSAL — this many files, this many lines longer, this one is
-// new — and sits there until somebody presses Apply. That is not caution for
-// its own sake: the reader cannot read the code, so the only thing they can
-// judge is the shape of the change, and they cannot judge even that if it has
-// already happened.
+// it to a closed tab. IndexedDB stores the complete project, including large
+// pictures and every version; localStorage remains a compatibility fallback.
+// Generated files are saved as the build progresses, with a receipt showing
+// what actually changed. Saving a file does not mean its checks passed.
 //
 // Every apply saves what was there first. Undo is therefore always available
 // and always exact, which matters more here than anywhere else in the app: a
@@ -30,6 +25,7 @@
 import { highlightFile, languageOf } from './highlight.js';
 import { zip } from './zip.js';
 import { checkWebsiteDocument } from './site-checks.js';
+import { previewNavigation, previewAssetUrl } from './build-preview.js';
 
 const KEY = 'grandpa-ai:builds:v1';
 
@@ -61,6 +57,109 @@ export const loadProjects = () => read([]);
 
 export function saveProjects(projects) {
   return write([...projects].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
+}
+
+const PROJECT_DB = 'grandpa-ai-builds';
+const PROJECT_STORE = 'snapshots';
+const PROJECT_SNAPSHOT = 'projects';
+let durableQueue = Promise.resolve();
+let latestSnapshot;
+
+function snapshotProjects(projects) {
+  // Capture now: the caller can continue streaming files while this write is
+  // waiting for an earlier transaction. Nothing is truncated or evicted.
+  return JSON.parse(JSON.stringify([...projects].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))));
+}
+
+function openProjectDatabase() {
+  return new Promise((resolve, reject) => {
+    if (!globalThis.indexedDB) { reject(new Error('Device database unavailable')); return; }
+    let settled = false;
+    const request = globalThis.indexedDB.open(PROJECT_DB, 1);
+    const fail = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(request.error || new Error('Device database unavailable'));
+    };
+    const timer = setTimeout(fail, 5000);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(PROJECT_STORE)) request.result.createObjectStore(PROJECT_STORE);
+    };
+    request.onerror = fail;
+    request.onblocked = fail;
+    request.onsuccess = () => {
+      clearTimeout(timer);
+      if (settled) { request.result.close(); return; }
+      settled = true;
+      resolve(request.result);
+    };
+  });
+}
+
+async function databaseSnapshot(value, writing = false) {
+  const db = await openProjectDatabase();
+  try {
+    return await new Promise((resolve, reject) => {
+      const transaction = db.transaction(PROJECT_STORE, writing ? 'readwrite' : 'readonly');
+      const store = transaction.objectStore(PROJECT_STORE);
+      const request = writing ? store.put({ projects: value, savedAt: Date.now() }, PROJECT_SNAPSHOT) : store.get(PROJECT_SNAPSHOT);
+      let result;
+      request.onsuccess = () => { result = request.result; };
+      transaction.oncomplete = () => resolve(result);
+      transaction.onerror = transaction.onabort = () => reject(transaction.error || request.error || new Error('Saving the build failed'));
+    });
+  } finally { db.close(); }
+}
+
+function mirrorSnapshot(value) {
+  if (write(value)) return true;
+  // A quota failure must not leave an older cache masquerading as the latest
+  // project after a deletion or a later database failure.
+  try { localStorage.removeItem(KEY); } catch { /* Storage may be disabled. */ }
+  return false;
+}
+
+/** Save every file, message, checkpoint and version; true means storage committed. */
+export function saveProjectsDurable(projects) {
+  let snapshot;
+  try { snapshot = snapshotProjects(projects); } catch { return Promise.resolve(false); }
+  const save = durableQueue.then(async () => {
+    try {
+      await databaseSnapshot(snapshot, true);
+      latestSnapshot = snapshot;
+      mirrorSnapshot(snapshot);
+      return true;
+    } catch {
+      // No database commit happened, so keep the last saved fallback intact
+      // if this write also fails. It may be the only remaining copy.
+      const saved = write(snapshot);
+      if (saved) latestSnapshot = snapshot;
+      return saved;
+    }
+  });
+  // Failed writes cannot prevent a later retry from reaching storage.
+  durableQueue = save.then(() => undefined, () => undefined);
+  return save;
+}
+
+/** Prefer the complete database snapshot, migrating legacy builds on first load. */
+export async function loadProjectsDurable() {
+  await durableQueue;
+  try {
+    const stored = await databaseSnapshot();
+    if (Array.isArray(stored?.projects)) {
+      latestSnapshot = snapshotProjects(stored.projects);
+      mirrorSnapshot(latestSnapshot);
+      return snapshotProjects(latestSnapshot);
+    }
+  } catch {
+    return snapshotProjects(latestSnapshot ?? loadProjects());
+  }
+  const legacy = latestSnapshot ?? loadProjects();
+  // An empty snapshot is authoritative too: removed projects stay removed.
+  if (await saveProjectsDurable(legacy)) return snapshotProjects(latestSnapshot);
+  return snapshotProjects(legacy);
 }
 
 export function makeProject(name = 'Untitled build') {
@@ -150,7 +249,7 @@ export function tidyPath(raw) {
 
   if (!path) return '';
   // Nothing may climb out of the project, and nothing may pretend to be a
-  // drive or a host. These files are only ever written into localStorage and
+// drive or a host. These files are only ever written into device storage and
   // a zip, and both take a path apart on the way out.
   if (path.includes('..') || /^[a-zA-Z]:/.test(path) || path.startsWith('//')) return '';
   // A filename does not begin with punctuation. This is the shape a misread
@@ -290,7 +389,7 @@ export function repairPaths(files = []) {
  */
 export function describeChanges(current = [], proposed = []) {
   const byPath = new Map(current.map((f) => [f.path, f.body]));
-  return proposed.map((file) => {
+  return [...new Map(proposed.map((file) => [file.path, file])).values()].map((file) => {
     const before = byPath.get(file.path);
     const wasLines = before === undefined ? 0 : before.split('\n').length;
     const nowLines = file.body.split('\n').length;
@@ -312,13 +411,12 @@ export function describeChanges(current = [], proposed = []) {
 /** Apply a proposal, keeping what was there so it can be put back. */
 export function applyChanges(project, proposed, note = '') {
   const before = project.files.map((f) => ({ ...f }));
-  const byPath = new Map(project.files.map((f) => [f.path, f]));
-
-  for (const file of proposed) {
-    const existing = byPath.get(file.path);
-    if (existing) existing.body = file.body;
-    else project.files.push({ path: file.path, body: file.body });
-  }
+  const incoming = [...new Map(proposed.map((file) => [file.path, file])).values()];
+  if (!describeChanges(before, incoming).some((file) => file.kind !== 'same')) return project;
+  const byPath = new Map(project.files.map((f) => [f.path, { ...f }]));
+  for (const file of incoming) byPath.set(file.path, { ...byPath.get(file.path), ...file });
+  // Do not mutate the objects a caller may still use to describe the change.
+  project.files = [...byPath.values()];
 
   project.versions = [
     ...(project.versions || []),
@@ -396,7 +494,7 @@ export function resolveProjectPath(fromPath, reference) {
   return tidyPath(parts.join('/'));
 }
 
-export function previewDocument(files = [], entryPath = '', { checkId = '' } = {}) {
+export function previewDocument(files = [], entryPath = '', { checkId = '', navigation = true } = {}) {
   const look = previewState(files);
   const page = entryPath ? files.find(file => file.path === entryPath && /\.html?$/i.test(file.path)) : look.page;
   const can = look.can && Boolean(page);
@@ -421,7 +519,8 @@ export function previewDocument(files = [], entryPath = '', { checkId = '' } = {
   // generated picture shows as a broken image.
   html = html.replace(/(<img\b[^>]*\bsrc\s*=\s*)["']([^"']+)["']/gi, (tag, before, src) => {
     const file = find(src);
-    return file && /^data:/.test(file.body) ? `${before}"${file.body}"` : tag;
+    const url=file && previewAssetUrl(file);
+    return url ? `${before}"${url}"` : tag;
   });
 
   html = html.replace(/<script\b([^>]*)\bsrc\s*=\s*["']([^"']+)["']([^>]*)><\/script>/gi,
@@ -463,8 +562,11 @@ export function previewDocument(files = [], entryPath = '', { checkId = '' } = {
     catch (e) { /* nothing out there listening */ }
   };
   window.addEventListener('error', function (e) {
-    tell('Line ' + (e.lineno || '?') + ': ' + (e.message || 'Something went wrong'));
-  });
+    var resource = e.target && e.target.getAttribute && (e.target.getAttribute('src') || e.target.getAttribute('href'));
+    tell(resource && !e.message
+      ? 'A page resource did not load: ' + resource
+      : 'Line ' + (e.lineno || '?') + ': ' + (e.message || 'Something went wrong'));
+  }, true);
   window.addEventListener('unhandledrejection', function (e) {
     tell('Something did not finish: ' + ((e.reason && e.reason.message) || e.reason));
   });
@@ -482,15 +584,16 @@ export function previewDocument(files = [], entryPath = '', { checkId = '' } = {
   });
 }());
 </script>`;
+  const helpers = reporter + (navigation ? previewNavigation(files, page.path, { checkId }) : '');
 
   // FIRST, not last. A project's own script runs as the parser reaches it, so
   // a reporter added at the end of the body is installed after the very
   // errors it exists to catch have already been thrown — which is exactly
   // what happened: a page with a broken line in its body reported nothing at
   // all, and the build loop concluded it ran cleanly.
-  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (tag) => `${tag}\n${reporter}`);
-  if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (tag) => `${tag}\n${reporter}`);
-  return reporter + html;
+  if (/<head[^>]*>/i.test(html)) return html.replace(/<head[^>]*>/i, (tag) => `${tag}\n${helpers}`);
+  if (/<html[^>]*>/i.test(html)) return html.replace(/<html[^>]*>/i, (tag) => `${tag}\n${helpers}`);
+  return helpers + html;
 }
 
 /* ==========================================================================
@@ -654,7 +757,7 @@ export function looksEmpty(files = []) {
  * developer's idea of sharing; one file that opens is everybody else's.
  */
 export function singleFile(project) {
-  const html = previewDocument(project.files || []);
+  const html = previewDocument(project.files || [], '', { navigation: false });
   if (!html) return '';
   const title = String(project.name || 'My website').replace(/[<>]/g, '');
   // The error box belongs to the preview, not to the thing being shared.
@@ -759,4 +862,5 @@ export function projectIssues(files = [], expectedPaths = []) {
   }
   return faults;
 }
+
 

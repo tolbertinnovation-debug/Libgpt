@@ -1,5 +1,7 @@
 import { readDocumentSpec } from './documents.js';
 import { readTaskBrief } from './document-tasks.js';
+import { saveProjectsDurable } from './build.js';
+import { TEAM_ROLES, teamPath, validateTeamPlan } from './build-team.js';
 // Portable, local-only backups. Credentials and preferences are never included.
 export const BACKUP_LIMIT = 8_000_000;
 const CHAT_KEY = 'grandpa-ai:chats:v1';
@@ -82,6 +84,48 @@ function messages(value, building = false) {
     return clean;
   });
 }
+
+function cleanTeam(value, projectFiles) {
+  if (value == null) return undefined;
+  if (value.version !== 1) fail('Unsupported build team checkpoint in this backup.');
+  const asked = text(value.asked, 20_000, 'website request');
+  if (!asked.trim()) fail('A build team checkpoint needs its original website request.');
+  let plan = null;
+  if (value.plan) {
+    plan = {
+      title: text(value.plan.title, 300, 'project plan title'),
+      summary: text(value.plan.summary || '', 2_000, 'project plan summary'),
+      contract: text(value.plan.contract, 20_000, 'project contract'),
+      requirements: list(value.plan.requirements || [], 40, 'project requirements').map(item => text(item, 1_000, 'project requirement')),
+      pages: list(value.plan.pages, 48, 'planned pages').map(page => ({ path: text(page.path, 180, 'planned page path'), title: text(page.title || '', 300, 'planned page title') })),
+      tasks: list(value.plan.tasks, 4, 'specialist tasks').map(task => ({
+        agent: text(task.agent, 40, 'specialist role'),
+        instruction: text(task.instruction, 10_000, 'specialist instruction'),
+        files: list(task.files, 12, 'specialist files').map(path => text(path, 180, 'planned filename')),
+      })),
+    };
+    validateTeamPlan(plan);
+  }
+  const present = new Set(projectFiles.map(file => file.path));
+  const safePaths = paths => list(paths || [], 48, 'checkpoint paths').map(path => {
+    text(path, 180, 'checkpoint path');
+    if (!teamPath(path)) fail('Unsafe path in this build team checkpoint.');
+    return path;
+  }).filter(path => present.has(path));
+  const agents = Object.fromEntries(TEAM_ROLES.map(role => {
+    const assigned = new Set(plan?.tasks.find(task => task.agent === role.id)?.files || []);
+    const completed = safePaths(value.agents?.[role.id]?.completed).filter(path => assigned.has(path));
+    return [role.id, { status: 'waiting', completed, faults: [] }];
+  }));
+  // A different device must run its own checks and supervisor review. Keep
+  // completed files, never import an approval or any provider credentials.
+  return {
+    version: 1, asked, status: 'interrupted', plan, agents,
+    latestRequest: typeof value.latestRequest === 'string' ? text(value.latestRequest,6000,'latest build request') : '',
+    reviewRound: 0, faults: [], savedPaths: safePaths(value.savedPaths), review: null,
+    updatedAt: stamp(value.updatedAt), message: 'Restored build. Resume the team to check and finish the website.',
+  };
+}
 function cleanBackup(value) {
   if (value?.format !== 'grandpa-ai-backup' || value.version !== 1) fail('Choose a Grandpa AI JSON backup made with Create backup.');
   const chats = list(value.chats,Infinity,'conversations').map(chat => ({
@@ -96,6 +140,10 @@ function cleanBackup(value) {
       at:stamp(version?.at),note:text(version.note || '',300,'version note'),files:files(version.files),
     })),createdAt:stamp(project.createdAt),updatedAt:stamp(project.updatedAt),repo:null,
   }));
+  projects.forEach((project, index) => {
+    const team = cleanTeam(value.projects[index].team, project.files);
+    if (team) project.team = team;
+  });
   const journal=list(value.journal || [],Infinity,'journal entries').map(item=>{
     const kind=text(item?.kind,40,'journal kind');
     if (!['story','names','recipe','album','history','wisdom','learn'].includes(kind)) fail('Unknown journal entry kind.');
@@ -143,6 +191,23 @@ export function commitRestore(prepared, storage = localStorage) {
     keys.forEach((key,index)=>storage.setItem(key,contents[index]));
   } catch {
     try { keys.forEach((key,index)=>previous[index] === null ? storage.removeItem(key) : storage.setItem(key,previous[index])); }
+    catch { fail('Storage failed while restoring. Keep both backups and reload to check your saved work.'); }
+    fail('Device storage is full or blocked. Existing saved work was kept.');
+  }
+}
+
+/** Keep project restoration aligned with the primary device database. */
+export async function commitRestoreDurable(prepared, { storage = localStorage, saveBuilds = saveProjectsDurable } = {}) {
+  const keys = [CHAT_KEY, JOURNAL_KEY];
+  const previous = keys.map(key => storage.getItem(key));
+  try {
+    storage.setItem(CHAT_KEY, JSON.stringify(prepared.chats));
+    storage.setItem(JOURNAL_KEY, JSON.stringify(prepared.journal || []));
+    // Commit projects last. A rejected/false autosave has not replaced the
+    // previous database snapshot, so only the two local archives roll back.
+    if (await saveBuilds(prepared.projects) === false) throw new Error('Build storage failed');
+  } catch {
+    try { keys.forEach((key, index) => previous[index] === null ? storage.removeItem(key) : storage.setItem(key, previous[index])); }
     catch { fail('Storage failed while restoring. Keep both backups and reload to check your saved work.'); }
     fail('Device storage is full or blocked. Existing saved work was kept.');
   }

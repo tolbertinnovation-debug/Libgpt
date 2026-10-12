@@ -29,6 +29,10 @@ import {
   BUILD_CONTINUE_PROMPT, PLAN_PROMPT, buildPrompt, fitProject, fixPrompt,
   projectContext, readPlan, stepPrompt,
 } from './build.js';
+import {
+  TEAM_PLAN_PROMPT, TEAM_REVIEW_PROMPT, normalizeTeamPlan, normalizeTeamReview,
+  teamProjectFaults, workerInstruction,
+} from './build-team.js';
 import * as github from './github.js';
 import { createPublisher } from './publish.js';
 import { needsLookingUp, searchModelFrom, SEARCH_PROMPT } from './search.js';
@@ -1060,6 +1064,68 @@ app.post('/api/plan', rateLimit, requireAccess, async (req, res) => {
     if (controller.signal.aborted) return;
     console.error('[plan]', error?.message || error);
     res.status(502).json({ error: 'The plan could not be made. Try saying it another way.' });
+  }
+});
+
+// Five-agent builds keep planning and review as distinct supervisor calls.
+// Workers continue to use the existing cancellable /api/chat file stream.
+app.post('/api/build/team-plan', rateLimit, requireAccess, async (req, res) => {
+  if (!config.building) { res.status(503).json({error:'Building is switched off here.'}); return; }
+  const asked = req.body?.asked;
+  if (typeof asked !== 'string' || !asked.trim() || asked.length > 6000) {
+    res.status(400).json({error:'Describe the website in 1–6,000 characters.'}); return;
+  }
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+  try {
+    const raw = await complete({
+      model:await pickModel(req.body?.model, 'story'),
+      messages:[{role:'system',content:TEAM_PLAN_PROMPT},{role:'user',content:asked}],
+      maxTokens:8500, temperature:0.3, json:true, signal:controller.signal,
+    });
+    const plan = normalizeTeamPlan(JSON.parse(raw));
+    res.json({plan, workers:plan.tasks.map(task => ({
+      agent:task.agent, files:task.files, instruction:workerInstruction(plan,task.agent,asked),
+    }))});
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    console.error('[team-plan]', error?.message || error);
+    res.status(502).json({error:'The supervisor could not produce a complete, valid plan. No files were replaced. Try again.'});
+  }
+});
+
+app.post('/api/build/team-review', rateLimit, requireAccess, async (req, res) => {
+  if (!config.building) { res.status(503).json({error:'Building is switched off here.'}); return; }
+  let plan; let faults; let project;
+  const updates=req.body?.updates || '';
+  const asked = req.body?.asked;
+  try {
+    if (typeof asked !== 'string' || !asked.trim() || asked.length > 6000) throw new TypeError('The original website request is required.');
+    if(typeof updates !== 'string' || updates.length>6000)throw new TypeError('The latest change must be no more than 6,000 characters.');
+    plan = normalizeTeamPlan(req.body?.plan);
+    faults = teamProjectFaults(plan, req.body?.files, req.body?.faults || []);
+    project = fitProject(req.body.files, 180_000);
+    if (project.dropped.length) faults.push(`Source could not be completely reviewed: ${project.dropped.join(', ')}. Keep this build unapproved until all source can be inspected.`);
+  } catch (error) {
+    res.status(400).json({error:error.message}); return;
+  }
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+  try {
+    const raw = await complete({
+      model:await pickModel(req.body?.model, 'story'),
+      messages:[{role:'system',content:TEAM_REVIEW_PROMPT},{role:'user',content:[
+        `Original brief:\n${asked}`, updates ? `Most recent user change (takes precedence over conflicting earlier choices):\n${updates}` : '', `Shared plan:\n${JSON.stringify(plan)}`,
+        `Observed faults:\n${JSON.stringify(faults)}`, projectContext(project.kept),
+      ].join('\n\n')}],
+      maxTokens:6000, temperature:0.2, json:true, signal:controller.signal,
+    });
+    const review = normalizeTeamReview(JSON.parse(raw), plan, faults);
+    res.json({review});
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    console.error('[team-review]', error?.message || error);
+    res.status(502).json({error:'The supervisor could not finish its review. Your files remain saved; resume the review before calling this build complete.'});
   }
 });
 
