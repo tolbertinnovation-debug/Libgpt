@@ -131,7 +131,7 @@ test('chat streams complete input, research sources, continuations and honest fa
     requests=[];
     await post({...question('Build a site using the current API documentation'),mode:'build'});
     assert.ok(requests[0].url.endsWith('/chat/completions'));
-    assert.equal(requests[0].body.max_tokens,12_000);
+    assert.equal(requests[0].body.max_tokens,24_000);
     assert.match(requests[0].body.messages[0].content,/WHAT TO BUILD WITH/);
   });
   await t.test('research off bypasses search; factual research mode searches ordinary lessons',async()=>{

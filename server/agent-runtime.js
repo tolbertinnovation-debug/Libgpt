@@ -13,12 +13,12 @@ export function assertAgentData(body={}) {
   if(securityFaults(files).some(f=>/exposed credential|private key|embedded access credentials/.test(f)))throw deny('Remove credentials and private keys before sending project files to an agent.');
   if(/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|\b(?:sk-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AKIA[A-Z0-9]{16})\b/.test(JSON.stringify(body)))throw deny('Sensitive credentials cannot be sent to the engineering team.');
 }
-export function createAgentRuntime({governance,complete,streamChat,allowedModels=[]}) {
-  const modelCheck=options=>{if(!allowedModels.includes(options.model))throw deny('This model is outside the operator-approved agent cost policy.');};
+export function createAgentRuntime({governance,complete,streamChat,allowedModels=[],modelPrices}) {
+  const modelCheck=options=>{if(!allowedModels.includes(options.model) || (modelPrices && !modelPrices[options.model]))throw deny('This model is outside the operator-approved agent cost policy.');};
   const combine=(a,b)=>a?AbortSignal.any([a,b]):b;
   async function ticket(role,operation,options,actor) {
     modelCheck(options);
-    return governance.begin({role,operation,actor,inputChars:Buffer.byteLength(JSON.stringify(options.messages || [])),maxTokens:options.maxTokens || 0});
+    return governance.begin({role,operation,actor,inputChars:Buffer.byteLength(JSON.stringify(options.messages || [])),maxTokens:options.maxTokens || 0,...(modelPrices?{inputRate:modelPrices[options.model].input,outputRate:modelPrices[options.model].output}:{})});
   }
   async function callAs(role,operation,options) {
     const current=scope.getStore();

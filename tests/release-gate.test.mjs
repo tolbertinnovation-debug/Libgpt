@@ -89,3 +89,9 @@ test('opaque validated bitmap bytes remain signed but do not consume text review
  assert.equal(gate.verify(result.approvalToken,[...files,{...image,body:image.body.replace('AAAA','BBBB')}]),false);
  assert.ok(qaFaults(plan,[...files,{...image,body:'data:image/png;base64,YWJj'}]).some(f=>f.includes('bitmap')));
 });
+test('QA follows nested .js module imports and re-exports instead of parsing them as classic scripts',()=>{
+ const moduleFiles=[{path:'index.html',body:'<html><head><script type="module" src="scripts/shop.js"></script></head><body></body></html>'},{path:'scripts/shop.js',body:'import {x} from "./bridge.js"; window.price=x;'},{path:'scripts/bridge.js',body:'export {x} from "./util.js";'},{path:'scripts/util.js',body:'export const x=42;'}];
+ const faults=qaFaults({...plan,tasks:[{agent:'pages',files:moduleFiles.map(f=>f.path)}]},moduleFiles);
+ assert.ok(!faults.some(f=>f.includes('JavaScript syntax')),JSON.stringify(faults));
+ moduleFiles.at(-1).body='export const x=;';assert.ok(qaFaults(plan,moduleFiles).some(f=>f.includes('util.js: JavaScript syntax')));
+});

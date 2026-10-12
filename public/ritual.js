@@ -378,10 +378,10 @@ async function send(text) {
 }
 
 /** Complete file fences become checkpoints immediately, before the stream ends. */
-async function generateFiles(instruction, files, {signal,onFile=async()=>{},onProse=()=>{},messages,faults=[],research='auto',allowPictures=false,runtime='static',agent='builder'}={}) {
+async function generateFiles(instruction, files, {signal,onFile=async()=>{},onProse=()=>{},messages,faults=[],research='auto',allowPictures=false,runtime='static',agent='builder',paths=[]}={}) {
   const response=await fetch('/api/chat',{
     method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},signal,
-    body:JSON.stringify({mode:'build',buildAgent:agent,buildRuntime:runtime,research:'off',messages:messages || [{role:'user',content:instruction}],
+    body:JSON.stringify({mode:'build',buildAgent:agent,buildPaths:paths,buildRuntime:runtime,research:'off',messages:messages || [{role:'user',content:instruction}],
       files:forSending(files),...(faults.length ? {faults} : {})}),
   });
   if(!response.ok || !response.body){
@@ -526,6 +526,7 @@ function renderPlan(run) {
     <div class="team-status" role="status">${running?'<span class="team-spinner" aria-hidden="true"></span>':''}<span>${escapeHtml(message)}</span></div>
     ${running?'<p class="team-elapsed" id="team-elapsed"></p>':''}
     ${!running && cp.faults?.length?`<div class="team-error" role="alert"><strong>${escapeHtml(cp.faults[0])}</strong>${cp.faults.length>1?`<details><summary>${cp.faults.length-1} more ${cp.faults.length===2?'issue':'issues'}</summary><ul>${cp.faults.slice(1).map(f=>`<li>${escapeHtml(f)}</li>`).join('')}</ul></details>`:''}</div>`:''}
+    ${!running && cp.faults?.some(f=>/governance|persistent agent|Redis store/i.test(f))?'<p>Your request and completed files are kept. Agent storage must be connected before building can continue.</p><button class="proposal-look" type="button" data-agent-storage>Check agent storage</button>':''}
     <div class="team-controls">${running?'<button class="proposal-look" type="button" id="plan-stop">Stop</button>':cp.asked && !done?`<button class="proposal-apply" type="button" id="plan-resume">${plan?'Resume project & review':'Retry planning'}</button>`:''}</div>
     ${plan?.summary?`<p>${escapeHtml(plan.summary)}</p>`:''}
     <ol class="plan-steps team-steps">${roles.map(agent=>{
@@ -623,7 +624,7 @@ async function buildTheWholeThing(asked, resume=false, {automaticRelease=true}={
       hooks:{
         requestPlan:async(brief,{signal})=>(await teamRequest('/api/build/team-plan',{asked:brief},signal)).plan,
         architecture:async(body,{signal})=>(await teamRequest('/api/build/architecture',body,signal)).architecture,
-        generate:async(agent,batch,instruction,{onFile,signal,files,plan})=>generateFiles(instruction,files,{signal,onFile,research:'off',allowPictures:false,agent,runtime:plan.runtime || 'static'}),
+        generate:async(agent,batch,instruction,{onFile,signal,files,plan})=>generateFiles(instruction,files,{signal,onFile,research:'off',allowPictures:false,agent,paths:batch,runtime:plan.runtime || 'static'}),
         releaseGate:async(body,{signal})=>teamRequest('/api/build/release',{...body,updates:p.team?.latestRequest || ''},signal),
         review:async(body,{signal})=>(await teamRequest('/api/build/team-review',{...body,faults:body.issues,updates:p.team?.latestRequest || ''},signal)).review,
         check:async(files,expected,signal)=>{const faults=await faultsIn(files,expected,()=>signal.aborted);await auditAgentEvent('page_checked',files);return faults;},
@@ -815,7 +816,7 @@ async function showGuardrails(){
   try {
     const response=await fetch('/api/build/governance',{headers:deps.headers()}),g=await response.json();
     openSheet('Agent guardrails',`<p class="sheet-note"><strong>${g.paused?'Agents paused':'Agents enabled'}</strong></p>
-      ${g.error?`<p class="sheet-note">${escapeHtml(g.error)}</p>`:''}
+      ${g.error?`<p class="sheet-note">${escapeHtml(g.error)}</p><p class="sheet-note">The site operator needs to connect an Upstash Redis store to libgpt in Vercel Storage and redeploy.</p>`:''}
       ${g.limits?`<p class="sheet-note">Daily reserved budget: $${Number(g.reservedUsd).toFixed(2)} / $${g.limits.dailyUsd}. ${g.limits.callsPerMinute} calls per minute; ${g.limits.concurrency} concurrent calls.</p>`:''}
       <p class="sheet-note">Separate review, security veto, and approval are required. Production releases require staging and healthy rollout at 5%, 25%, 50%, then 100%. ${g.rolloutConfigured?'A deployment adapter is configured.':'A staging and traffic-routing adapter must be configured before production release.'}</p>
       <p class="sheet-note">Operator command: <code>npm run agents -- pause</code>. This pauses all engineering agents using the shared governance store.</p>
@@ -1280,6 +1281,7 @@ export async function mount(options = {}) {
       return;
     }
 
+    if (event.target.closest('[data-agent-storage]')) {showGuardrails();return;}
     if (event.target.closest('#take-all')) { takeAll(); return; }
     if (event.target.closest('#take-page')) { takePage(); return; }
 

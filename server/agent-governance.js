@@ -35,8 +35,7 @@ function normalizeLimits(input = {}, previous = DEFAULTS) {
  * is suitable for one server/volume; it is not a distributed/cloud database.
  * Caller authenticates administrative pause/resume/configure operations.
  */
-export function createAgentGovernance({directory, serverless = false, limits = {}, now = Date.now} = {}) {
-  const configured = Boolean(directory);
+export function createAgentGovernance({directory, serverless = false, limits = {}, now = Date.now, storage} = {}) {
   const root = path.resolve(directory || path.join(process.cwd(), '..', 'ritual-agent-data'));
   const ledgerPath = path.join(root, 'ledger.json');
   const auditPath = path.join(root, 'audit.ndjson');
@@ -46,7 +45,8 @@ export function createAgentGovernance({directory, serverless = false, limits = {
   const actorHash = actor => digest(String(actor || 'anonymous'));
   const day = () => new Date(now()).toISOString().slice(0, 10);
   async function locked(action) {
-    if (serverless) throw failure('Persistent agent governance storage is required on this deployment.');
+    if(storage){try{return await storage.withLock(action);}catch(error){if(error.status)throw error;throw failure('Cloud agent governance storage is unavailable.');}}
+    if (serverless) throw failure('Connect an Upstash Redis store to libgpt to enable persistent agent governance, then redeploy.');
     let owned = false;
     try {
       await fs.mkdir(root, {recursive: true, mode: 0o700});
@@ -64,7 +64,10 @@ export function createAgentGovernance({directory, serverless = false, limits = {
       throw failure('Agent governance storage is unavailable; work is paused.');
     } finally {if (owned) await fs.rmdir(lockPath).catch(() => {});}
   }
+  const initialState=()=>({version:1,paused:false,limits:initialLimits,day:day(),reservedMicroUsd:0,calls:[],active:{},sequence:0,auditHash:ZERO});
+  async function reading(action){if(!storage)return locked(action);try{return await action();}catch(error){if(error.status)throw error;throw failure('Cloud agent governance storage is unavailable.');}}
   async function read() {
+    if(storage){const result=await storage.read();const state=result.state || initialState();if(state.version!==1 || !Number.isSafeInteger(state.reservedMicroUsd) || state.reservedMicroUsd<0 || !Array.isArray(state.calls) || !state.active || typeof state.paused!=='boolean')throw failure('Cloud governance ledger integrity check failed.');state.limits=normalizeLimits(state.limits);return {...result,state};}
     let state, raw = '';
     try {state = JSON.parse(await fs.readFile(ledgerPath, 'utf8'));}
     catch (error) {if (error.code !== 'ENOENT') throw error;}
@@ -91,6 +94,7 @@ export function createAgentGovernance({directory, serverless = false, limits = {
     return {state, records};
   }
   async function save(state, event, metadata = {}) {
+    if(storage){const record={sequence:state.sequence+1,timestamp:now(),event,...metadata,previousHash:state.auditHash};record.hash=digest(JSON.stringify(record));state.sequence=record.sequence;state.auditHash=record.hash;await storage.commit(state,record);return;}
     const size=await fs.stat(auditPath).then(s=>s.size).catch(e=>{if(e.code==='ENOENT')return 0;throw e;});
     if(size>50_000_000)throw failure('Audit storage is full; agents are paused until the operator archives it.');
     const record = {sequence: state.sequence + 1, timestamp: now(), event,
@@ -115,14 +119,14 @@ export function createAgentGovernance({directory, serverless = false, limits = {
     if (state.day !== day()) {state.day = day(); state.reservedMicroUsd = 0;}
   }
   async function check(id) {
-    return locked(async () => {
+    return reading(async () => {
       const {state} = await read();
       if (state.paused || !state.active[id] || state.active[id].expiresAt <= now())
         throw failure('Agent work is paused or its lease expired.', 'GOVERNANCE_PAUSED', 423);
       return true;
     });
   }
-  async function begin({role, operation, inputChars = 0, maxTokens = 0, actor} = {}) {
+  async function begin({role, operation, inputChars = 0, maxTokens = 0, actor, inputRate, outputRate} = {}) {
     const id = crypto.randomUUID();
     await locked(async () => {
       const {state} = await read(); prune(state);
@@ -135,7 +139,9 @@ export function createAgentGovernance({directory, serverless = false, limits = {
       if (!denial && (!Number.isSafeInteger(inputChars) || inputChars < 0 || inputChars > state.limits.maxInputChars ||
         !Number.isSafeInteger(maxTokens) || maxTokens < 0 || maxTokens > state.limits.maxOutputTokens))
         denial = failure('Agent request exceeds its hard size limits.', 'GOVERNANCE_SIZE', 413);
-      const reserved = Math.ceil((inputChars + maxTokens) * state.limits.maxCostPerMillionTokens);
+      const rates={input:inputRate ?? state.limits.maxCostPerMillionTokens,output:outputRate ?? state.limits.maxCostPerMillionTokens};
+      if(!denial && Object.values(rates).some(r=>!Number.isFinite(r)||r<=0||r>state.limits.maxCostPerMillionTokens))denial=failure('The model exceeds the operator-approved price ceiling.','GOVERNANCE_PERMISSION',403);
+      const reserved=Math.ceil(inputChars*rates.input + maxTokens*rates.output);
       if (!denial && (!Number.isSafeInteger(reserved) || state.reservedMicroUsd + reserved > Math.floor(state.limits.dailyUsd * 1000000)))
         denial = failure('The daily agent spending cap has been reached.', 'GOVERNANCE_BUDGET', 429);
       if (!denial && state.calls.length >= state.limits.callsPerMinute)
@@ -145,7 +151,7 @@ export function createAgentGovernance({directory, serverless = false, limits = {
       if (denial) {await save(state, 'denied', {...meta, reason: denial.code}); throw denial;}
       state.reservedMicroUsd += reserved; state.calls.push(now());
       state.active[id] = {role, operation, expiresAt: now() + state.limits.leaseMs};
-      await save(state, 'started', {...meta, ticket: id, reservedMicroUsd: reserved});
+      await save(state, 'started', {...meta, ticket: id, reservedMicroUsd: reserved, inputRate:rates.input,outputRate:rates.output});
     });
     const controller = new AbortController(); controllers.set(id, controller);
     const timer = setInterval(() => {
@@ -176,9 +182,9 @@ export function createAgentGovernance({directory, serverless = false, limits = {
     return status();
   }
   async function status() {
-    return locked(async () => {
+    return reading(async () => {
       const {state} = await read(); prune(state);
-      return {paused: state.paused, limits: {...state.limits}, day: state.day,
+      return {storage:storage?'redis':'filesystem',paused: state.paused, limits: {...state.limits}, day: state.day,
         reservedUsd: state.reservedMicroUsd / 1000000, activeCount: Object.keys(state.active).length,
         callsThisMinute: state.calls.length, auditSequence: state.sequence};
     });
@@ -197,7 +203,7 @@ export function createAgentGovernance({directory, serverless = false, limits = {
       if(Object.hasOwn(state.releases,stagingId))throw failure('This staging deployment was already used. Create a fresh staging deployment.','GOVERNANCE_PERMISSION',409);
       state.releases[stagingId]={artifactHash,at:now()};
       await save(state,'release-claimed',{stagingId,artifactHash,actorHash:actorHash(actor)});
-    }), assertActive: async () => locked(async () => {
+    }), assertActive: async () => reading(async () => {
       const {state} = await read();
       if (state.paused) throw failure('All agents are paused.', 'GOVERNANCE_PAUSED', 423);
       return true;
@@ -216,6 +222,8 @@ export function createAgentGovernance({directory, serverless = false, limits = {
       return status();
     }, audit: async (options = {}) => locked(async () => {
       const limit = typeof options === 'number' ? options : options.limit;
-      const {records} = await read(); return records.slice(-Math.min(1000, Math.max(1, Number(limit) || 100))); 
+      const bounded=Math.min(1000,Math.max(1,Math.floor(Number(limit)||100))),before=typeof options==='object'?options.before:0;
+      if(before!==undefined && (!Number.isSafeInteger(before)||before<0))throw failure('Invalid audit cursor.','GOVERNANCE_PERMISSION',400);
+      if(storage)return storage.audit(bounded,before||0);const {records}=await read();return (before?records.filter(r=>r.sequence<before):records).slice(-bounded); 
     })};
 }

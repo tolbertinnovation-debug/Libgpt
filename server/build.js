@@ -161,17 +161,17 @@ export function projectContext(files = []) {
  * files that matter and say which were left out — not to send half a file and
  * let the model write the other half from imagination.
  */
-export function fitProject(files = [], room = 60_000) {
+export function fitProject(files = [], room = 60_000, focus = []) {
   const kept = [];
   const dropped = [];
   let used = 0;
 
-  // Smallest first: a project is mostly small files and one big one, and
-  // keeping ten small files beats keeping the single large one nobody asked
-  // about.
+  // Keep the actual file being repaired before unrelated small files. Then
+  // preserve as much neighbouring context as the explicit budget permits.
+  const priorities=new Set(Array.isArray(focus)?focus.filter(path=>typeof path==='string'):[]);
   const ordered = [...(files || [])]
     .filter((f) => f && typeof f.path === 'string')
-    .sort((a, b) => String(a.body || '').length - String(b.body || '').length);
+    .sort((a,b)=>Number(priorities.has(b.path))-Number(priorities.has(a.path)) || String(a.body || '').length-String(b.body || '').length);
 
   for (const file of ordered) {
     const size = String(file.body || '').length + file.path.length + 40;

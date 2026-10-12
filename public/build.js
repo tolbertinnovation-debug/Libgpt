@@ -444,33 +444,54 @@ export function restoreVersion(project, index) {
    The preview
    ========================================================================== */
 
-// What a browser can run by being handed the file, and what it cannot. This is
-// the line the preview is honest about: a React app or an Express server is
-// not "broken", it simply needs a machine to build or serve it, and there is
-// no such machine here.
-const NEEDS_MORE = /^(?:import|export)\s|require\s*\(|process\.env|from\s+['"](?:react|vue|svelte|express)/m;
+// Only browser entry points determine preview support. A server.js beside a
+// static storefront is never executed by that storefront.
+const NEEDS_MORE = /\brequire\s*\(|\bprocess\.env|\b(?:module\.exports|__dirname)\b/;
+const MODULE_REFERENCE = /\b(?:import\s*(?:[^;'"]*?\s+from\s*)?|export\s+[^;'"]*?\s+from\s*|import\s*\(\s*)(['"])([^'"\n]+)\1/g;
 
-/** Can this project be shown as it stands, and if not, why not? */
-export function previewState(files = []) {
-  const page = files.find((f) => /(^|\/)index\.html?$/i.test(f.path))
-    || files.find((f) => /\.html?$/i.test(f.path));
-  if (!page) {
-    return { can: false, why: 'A preview needs an index.html. There is none in this project yet.' };
+function moduleReferences(body, visit) {
+  // Skip comments, strings and templates outside an actual import expression.
+  // This also leaves import-looking text in customer copy untouched.
+  const tokens = /\/\*[\s\S]*?\*\/|\/\/[^\n]*|`(?:\\[\s\S]|[^`])*`|'(?:\\.|[^'\\])*'|"(?:\\.|[^"\\])*"|\b(?:import\s*(?:[^;'"]*?\s+from\s*)?|export\s+[^;'"]*?\s+from\s*|import\s*\(\s*)(['"])([^'"\n]+)\1/g;
+  return String(body || '').replace(tokens, (token) => {
+    MODULE_REFERENCE.lastIndex = 0;
+    const match = MODULE_REFERENCE.exec(token);
+    return match && match.index === 0 ? visit(token, match[2]) : token;
+  });
+}
+
+function browserScripts(files, page) {
+  const scripts = [];
+  for (const tag of String(page.body).matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)) {
+    const src = tag[1].match(/\bsrc\s*=\s*["']([^"']+)["']/i)?.[1];
+    const file = src ? files.find(file => file.path === resolveProjectPath(page.path, src)) : null;
+    if (src && !file) continue;
+    scripts.push({path: file?.path || page.path, body: file ? file.body : tag[2], module: /\btype\s*=\s*["']module["']/i.test(tag[1])});
   }
-  // Server source is not part of the browser runtime. Inspect page script references only.
-  const scripts = files.filter(f => /\.html?$/i.test(f.path)).flatMap(page =>
-    [...page.body.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi)]
-      .map(match => files.find(file => file.path === resolveProjectPath(page.path, match[1])))
-      .filter(Boolean));
-  if (scripts.some((f) => NEEDS_MORE.test(f.body))) {
-    return {
-      can: true,
-      page,
-      warn: 'This project uses imports or a framework, so parts of it may not run here. '
-        + 'A preview opens the files as a browser would, with nothing installed and nothing built.',
-    };
+  return scripts;
+}
+
+/** Can this project's selected browser page run without a build or server? */
+export function previewState(files = [], entryPath = '') {
+  const page = entryPath ? files.find(file => file.path === entryPath && /\.html?$/i.test(file.path))
+    : files.find((f) => /(^|\/)index\.html?$/i.test(f.path)) || files.find((f) => /\.html?$/i.test(f.path));
+  if (!page) return { can: false, why: 'A preview needs an index.html. There is none in this project yet.' };
+  const queue = browserScripts(files, page);
+  const seen = new Set();
+  let needsMore = false;
+  for (const script of queue) {
+    if (NEEDS_MORE.test(script.body)) needsMore = true;
+    moduleReferences(script.body, (token, reference) => {
+      if (!script.module) { needsMore = true; return token; }
+      if (/^(?:https?:|data:|blob:|\/\/)/i.test(reference)) return token;
+      if (!/^(?:\.?\.?\/)/.test(reference)) { needsMore = true; return token; }
+      const path = resolveProjectPath(script.path, reference);
+      const file = files.find(file => file.path === path);
+      if (file && !seen.has(path)) { seen.add(path); queue.push({...file, module: true}); }
+      return token;
+    });
   }
-  return { can: true, page };
+  return needsMore ? {can: true, page, warn: 'This page uses imports or a framework that needs packages or server APIs, or requires a module script tag. The browser preview cannot install packages or run backend code.'} : {can: true, page};
 }
 
 /**
@@ -499,8 +520,8 @@ export function resolveProjectPath(fromPath, reference) {
 }
 
 export function previewDocument(files = [], entryPath = '', { checkId = '', navigation = true } = {}) {
-  const look = previewState(files);
-  const page = entryPath ? files.find(file => file.path === entryPath && /\.html?$/i.test(file.path)) : look.page;
+  const look = previewState(files, entryPath);
+  const page = look.page;
   const can = look.can && Boolean(page);
   if (!can) return '';
 
@@ -510,6 +531,22 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
   };
 
   let html = page.body;
+  const imports = {};
+  const moduleKey = path => '__grandpa_project__/' + encodeURIComponent(path);
+  const scriptName = path => 'grandpa-project/' + encodeURIComponent(path).replace(/%2F/gi, '/');
+  const rewriteModule = (body, fromPath) => moduleReferences(body, (token, reference) => {
+    if (!/^(?:\.?\.?\/)/.test(reference)) return token;
+    const path = resolveProjectPath(fromPath, reference);
+    const file = files.find(file => file.path === path);
+    if (!file) return token; // Keep missing dependencies visible as runtime faults.
+    const key = moduleKey(path);
+    if (!(key in imports)) {
+      imports[key] = ''; // Reserve before recursion, including circular imports.
+      imports[key] = 'data:text/javascript;charset=utf-8,' + encodeURIComponent(rewriteModule(file.body, path) + '\n//# sourceURL=' + scriptName(path));
+    }
+    return token.replace(reference, key);
+  });
+
 
   html = html.replace(/<link\b[^>]*href\s*=\s*["']([^"']+)["'][^>]*>/gi, (tag, href) => {
     if (!/stylesheet/i.test(tag)) return tag;
@@ -527,6 +564,11 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
     return url ? `${before}"${url}"` : tag;
   });
 
+  html = html.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (tag, attributes, body) => {
+    if (!/\btype\s*=\s*["']module["']/i.test(attributes) || /\bsrc\s*=/i.test(attributes)) return tag;
+    return `<script${attributes}>${rewriteModule(body, page.path).replace(/<\/script/gi, '<\\/script')}</script>`;
+  });
+
   const deferredScripts = [];
   html = html.replace(/<script\b([^>]*)\bsrc\s*=\s*["']([^"']+)["']([^>]*)><\/script>/gi,
     (tag, before, src, after) => {
@@ -534,8 +576,10 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
       if (!file) return tag;
       const isModule = /type\s*=\s*["']module["']/i.test(before + after);
       // A closing tag inside the code would end the script element early.
-      const body = file.body.replace(/<\/script/gi, '<\\/script');
-      const inline = `<script${isModule ? ' type="module"' : ''}>\n${body}\n</script>`;
+      const source = isModule ? rewriteModule(file.body, file.path) : file.body;
+      const body = source.replace(/<\/script/gi, '<\\/script');
+      const sourceName = scriptName(file.path);
+      const inline = `<script${isModule ? ' type="module"' : ''}>\n${body}\n//# sourceURL=${sourceName}\n</script>`;
       // defer is ignored on inline classic scripts. Place these after the parsed
       // page, retaining order and global scope, before DOMContentLoaded fires.
       if (!isModule && /\bdefer(?:\s|=|$)/i.test(before + after) && !/\basync(?:\s|=|$)/i.test(before + after)) {
@@ -548,6 +592,9 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
     const deferred = deferredScripts.join('\n');
     html = /<\/body\s*>/i.test(html) ? html.replace(/<\/body\s*>/i, () => deferred + '\n</body>') : html + deferred;
   }
+
+  const importMap = Object.keys(imports).length
+    ? '<script type="importmap">' + JSON.stringify({imports}).replace(/</g, '\\u003c') + '</script>\n' : '';
 
   // Errors inside the frame are invisible from out here — the sandbox is doing
   // its job — so the page is asked to draw its own.
@@ -579,9 +626,10 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
   };
   window.addEventListener('error', function (e) {
     var resource = e.target && e.target.getAttribute && (e.target.getAttribute('src') || e.target.getAttribute('href'));
+    var source = e.filename && String(e.filename).match(/grandpa-project\\/([^?#]+)/);
     tell(resource && !e.message
       ? 'A page resource did not load: ' + resource
-      : 'Line ' + (e.lineno || '?') + ': ' + (e.message || 'Something went wrong'));
+      : (source ? source[1] + ': ' : '') + 'Line ' + (e.lineno || '?') + ': ' + (e.message || 'Something went wrong'));
   }, true);
   window.addEventListener('unhandledrejection', function (e) {
     tell('Something did not finish: ' + ((e.reason && e.reason.message) || e.reason));
@@ -600,7 +648,7 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
   });
 }());
 </script>`;
-  const helpers = reporter + (navigation ? previewNavigation(files, page.path, { checkId }) : '');
+  const helpers = importMap + reporter + (navigation ? previewNavigation(files, page.path, { checkId }) : '');
 
   // FIRST, not last. A project's own script runs as the parser reaches it, so
   // a reporter added at the end of the body is installed after the very
