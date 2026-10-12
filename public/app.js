@@ -802,6 +802,7 @@ function setBusy(busy) {
   el.stop.hidden = !busy;
   el.input.disabled = false; // let the user type their next question while waiting
   showTheRightCircle();
+  syncSidebarTools();
 }
 
 /**
@@ -1208,6 +1209,7 @@ function setLookItUp(on) {
   el.look.title = state.lookItUp
     ? 'This one will be looked up on the web'
     : 'Look it up on the web';
+  syncSidebarTools();
 }
 
 /* ---- what this can do ----------------------------------------------------
@@ -1531,6 +1533,7 @@ function refreshMore() {
 function setThinkHarder(on) {
   state.thinkHarder = Boolean(on);
   el.think.setAttribute('aria-pressed', String(state.thinkHarder));
+  syncSidebarTools();
 }
 
 el.think.addEventListener('click', () => {
@@ -2192,6 +2195,7 @@ function closeTalk() {
   renderThread();
   renderSidebar();
   talkReturnFocus?.focus?.();
+  syncSidebarTools();
 }
 
 el.talkBtn.addEventListener('click', openTalk);
@@ -2848,6 +2852,7 @@ el.chipRow.addEventListener('click', event => {
 /* ---- The Library ---- */
 
 let library = null;
+let libraryReturnFocus = null;
 
 /** One request to the structured endpoint, with the errors already read. */
 async function askLibrary(kind, input, path = '/api/structured', options = {}) {
@@ -2883,6 +2888,7 @@ async function askLibrary(kind, input, path = '/api/structured', options = {}) {
 }
 
 function openLibrary(tab = 'story') {
+  libraryReturnFocus = document.activeElement;
   if (!library) {
     library = createLibrary({
       root: el.libraryBody,
@@ -2906,6 +2912,9 @@ function openLibrary(tab = 'story') {
   }
   el.library.hidden = false;
   library.show(tab);
+  requestAnimationFrame(() => {
+    if (!el.library.hidden) el.libraryTabs.querySelector(`[data-tab="${tab}"]`)?.scrollIntoView({block:'nearest',inline:'center'});
+  });
   sounds.open();
   el.libraryClose.focus();
 }
@@ -2915,7 +2924,9 @@ function closeLibrary() {
   el.library.hidden = true;
   speaker.stop();
   sounds.close();
-  el.browseLibrary.focus();
+  const target=libraryReturnFocus?.isConnected && libraryReturnFocus.getClientRects().length
+    && getComputedStyle(libraryReturnFocus).visibility!=='hidden' ? libraryReturnFocus : el.input;
+  target.focus();
 }
 
 el.browseLibrary.addEventListener('click', () => openLibrary('story'));
@@ -2928,6 +2939,48 @@ el.libraryTabs.addEventListener('click', (event) => {
   if (!tab) return;
   sounds.tap();
   library?.show(tab.dataset.tab);
+});
+
+/* Existing tools, reachable without leaving the current conversation. */
+function syncSidebarTools() {
+  const root=$('sidebar-tools');
+  if (!root) return;
+  root.hidden=!state.catalogue.personas?.length;
+  const busy=Boolean(state.streaming) || ritual.isBusy() || conversation.active;
+  const capabilities={talk:canTalk,photo:state.catalogue.vision,camera:state.catalogue.vision,
+    paper:true,web:state.catalogue.liveNews,think:true,build:state.catalogue.building};
+  root.querySelectorAll('[data-sidebar-action]').forEach(button => {
+    const action=button.dataset.sidebarAction;
+    button.hidden=!capabilities[action]; button.disabled=busy;
+    if(action==='web' || action==='think')button.setAttribute('aria-pressed',String(action==='web' ? Boolean(state.lookItUp) : Boolean(state.thinkHarder)));
+  });
+  root.querySelectorAll('[data-sidebar-create]').forEach(button => {
+    button.hidden=button.dataset.sidebarCreate==='image' && !state.catalogue.chatImages;
+    button.disabled=busy;
+  });
+  const album=root.querySelector('[data-sidebar-library="album"]');
+  if(album)album.hidden=!state.catalogue.imagesEnabled;
+}
+
+$('sidebar-tools')?.addEventListener('click', event => {
+  const button=event.target.closest('.sidebar-shortcut');
+  if(!button || button.disabled || button.hidden)return;
+  const tab=button.dataset.sidebarLibrary,create=button.dataset.sidebarCreate,action=button.dataset.sidebarAction;
+  if(!tab && (state.streaming || ritual.isBusy() || conversation.active)){toast('Finish the current task first.');return;}
+  closeNav();
+  if(onPhone())el.menuBtn.focus();
+  if(tab){openLibrary(tab);return;}
+  if(action==='build'){$('mode-build')?.click();el.input.focus();return;}
+  if(ritual.currentMode()==='build')$('mode-ask')?.click();
+  if(create==='document' || create==='design'){
+    if(documentKind)documentKind.value=create==='design' ? 'graphic_design' : '';
+    if(documentTemplate)documentTemplate.value='';
+    $('create-document-btn')?.click();
+  }else{
+    const target=create==='image' ? el.draw : {talk:el.startTalking,photo:el.photo,camera:el.camera,paper:el.paper,web:el.look,think:el.think}[action];
+    target?.click();
+  }
+  syncSidebarTools();
 });
 
 // Liberia Focus is on and stays on: this platform is Liberian by design, and a
@@ -3244,6 +3297,7 @@ el.gateForm.addEventListener('submit', async (event) => {
 const onPhone = () => window.matchMedia('(max-width: 820px)').matches;
 
 function openNav() {
+  syncSidebarTools();
   el.app.classList.add('nav-open');
   el.scrim.hidden = false;
   el.menuBtn.setAttribute('aria-expanded', 'true');
@@ -3503,6 +3557,7 @@ async function boot() {
     if (config.building) {
       ritual.onChange(() => {
         if (ritual.currentMode() === 'build') renderSidebar();
+        syncSidebarTools();
       });
       ritual.mount({
         headers: apiHeaders,
@@ -3519,7 +3574,7 @@ async function boot() {
           el.newChatLabel.textContent = building ? 'New build' : 'New conversation';
           el.search.placeholder = building ? 'Search builds' : 'Search conversations';
           el.search.setAttribute('aria-label', el.search.placeholder);
-          el.sidebar.setAttribute('aria-label', building ? 'Builds' : 'Conversations');
+          el.sidebar.setAttribute('aria-label', building ? 'Builds and features' : 'Conversations and features');
           el.chatList.setAttribute('aria-label', building ? 'Your builds' : 'Conversation history');
           el.search.value = '';
           renderSidebar();
@@ -3532,6 +3587,7 @@ async function boot() {
     const albumTab = el.libraryTabs.querySelector('[data-tab="album"]');
     if (albumTab) albumTab.hidden = !config.imagesEnabled;
     renderSettings();
+    syncSidebarTools();
   } catch {
     el.banner.hidden = false;
     el.banner.innerHTML = '<strong>Cannot reach the server.</strong> <span>Is it still running?</span>';
