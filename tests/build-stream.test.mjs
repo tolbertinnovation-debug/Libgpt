@@ -6,8 +6,8 @@ const source=await readFile(new URL('../public/ritual.js',import.meta.url),'utf8
 const from=source.indexOf('async function generateFiles('),to=source.indexOf('/* ===',from);
 const frame=(event,value)=>`event: ${event}\ndata: ${JSON.stringify(value)}\n\n`;
 function generator(response,request=()=>{}){
- return new Function('fetch','deps','forSending','filesFrom','drawPictures',source.slice(from,to)+';return generateFiles;')(
-  async(_url,options)=>{request(JSON.parse(options.body));return response;},{headers:()=>({})},files=>files,filesFrom,async()=>[]);
+ return new Function('fetch','deps','forSending','filesFrom','drawPictures','auditAgentEvent',source.slice(from,to)+';return generateFiles;')(
+  async(_url,options)=>{request(JSON.parse(options.body));return response;},{headers:()=>({})},files=>files,filesFrom,async()=>[],async()=>{});
 }
 test('a closed file is saved before the later completion event arrives',async()=>{
  let stream;const response=new Response(new ReadableStream({start(c){stream=c;}}));

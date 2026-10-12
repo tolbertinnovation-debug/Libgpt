@@ -378,10 +378,10 @@ async function send(text) {
 }
 
 /** Complete file fences become checkpoints immediately, before the stream ends. */
-async function generateFiles(instruction, files, {signal,onFile=async()=>{},onProse=()=>{},messages,faults=[],research='auto',allowPictures=true,runtime='static'}={}) {
+async function generateFiles(instruction, files, {signal,onFile=async()=>{},onProse=()=>{},messages,faults=[],research='auto',allowPictures=false,runtime='static',agent='builder'}={}) {
   const response=await fetch('/api/chat',{
     method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},signal,
-    body:JSON.stringify({mode:'build',buildRuntime:runtime,research,messages:messages || [{role:'user',content:instruction}],
+    body:JSON.stringify({mode:'build',buildAgent:agent,buildRuntime:runtime,research:'off',messages:messages || [{role:'user',content:instruction}],
       files:forSending(files),...(faults.length ? {faults} : {})}),
   });
   if(!response.ok || !response.body){
@@ -413,7 +413,7 @@ async function generateFiles(instruction, files, {signal,onFile=async()=>{},onPr
         for(const file of parsed.files){
           if(completed.get(file.path)?.body===file.body)continue;
           if(signal?.aborted)throw new DOMException('Build stopped','AbortError');
-          await onFile({...file});completed.set(file.path,{...file});
+          await onFile({...file});await auditAgentEvent('file_saved',[file]);completed.set(file.path,{...file});
         }
       }
     }
@@ -623,10 +623,10 @@ async function buildTheWholeThing(asked, resume=false, {automaticRelease=true}={
       hooks:{
         requestPlan:async(brief,{signal})=>(await teamRequest('/api/build/team-plan',{asked:brief},signal)).plan,
         architecture:async(body,{signal})=>(await teamRequest('/api/build/architecture',body,signal)).architecture,
-        generate:async(agent,batch,instruction,{onFile,signal,files,plan})=>generateFiles(instruction,files,{signal,onFile,research:'off',allowPictures:false,runtime:plan.runtime || 'static'}),
+        generate:async(agent,batch,instruction,{onFile,signal,files,plan})=>generateFiles(instruction,files,{signal,onFile,research:'off',allowPictures:false,agent,runtime:plan.runtime || 'static'}),
         releaseGate:async(body,{signal})=>teamRequest('/api/build/release',{...body,updates:p.team?.latestRequest || ''},signal),
         review:async(body,{signal})=>(await teamRequest('/api/build/team-review',{...body,faults:body.issues,updates:p.team?.latestRequest || ''},signal)).review,
-        check:(files,expected,signal)=>faultsIn(files,expected,()=>signal.aborted),
+        check:async(files,expected,signal)=>{const faults=await faultsIn(files,expected,()=>signal.aborted);await auditAgentEvent('page_checked',files);return faults;},
         save:async(checkpoint,files)=>{
           applyChanges(p,files,'Before team checkpoint');
           p.team=structuredClone(checkpoint);
@@ -804,30 +804,48 @@ async function ensureRelease(p) {
   await buildTheWholeThing(p.team.asked,true,{automaticRelease:false});
   return p===project() && p.team?.status==='approved' && Boolean(p.team.release?.approvalToken);
 }
+async function auditAgentEvent(event,files) {
+  let artifactHash;
+  if(files?.length){const ordered=files.map(f=>[f.path,f.body]).sort((a,b)=>a[0]<b[0]?-1:a[0]>b[0]?1:0);const hash=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(ordered)));artifactHash=[...new Uint8Array(hash)].map(b=>b.toString(16).padStart(2,'0')).join('');}
+  const response=await fetch('/api/build/audit',{method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},body:JSON.stringify({event,artifactHash})});
+  if(!response.ok)throw new Error('Audit recording failed. Files are saved; agent work is paused until recording is restored.');
+}
+async function showGuardrails(){
+  openSheet('Agent guardrails','<p class="sheet-note">Checking team limits and pause state…</p>',{busy:true});
+  try {
+    const response=await fetch('/api/build/governance',{headers:deps.headers()}),g=await response.json();
+    openSheet('Agent guardrails',`<p class="sheet-note"><strong>${g.paused?'Agents paused':'Agents enabled'}</strong></p>
+      ${g.error?`<p class="sheet-note">${escapeHtml(g.error)}</p>`:''}
+      ${g.limits?`<p class="sheet-note">Daily reserved budget: $${Number(g.reservedUsd).toFixed(2)} / $${g.limits.dailyUsd}. ${g.limits.callsPerMinute} calls per minute; ${g.limits.concurrency} concurrent calls.</p>`:''}
+      <p class="sheet-note">Separate review, security veto, and approval are required. Production releases require staging and healthy rollout at 5%, 25%, 50%, then 100%. ${g.rolloutConfigured?'A deployment adapter is configured.':'A staging and traffic-routing adapter must be configured before production release.'}</p>
+      <p class="sheet-note">Operator command: <code>npm run agents -- pause</code>. This pauses all engineering agents using the shared governance store.</p>
+      <label class="setting-row">Operator credential<input type="password" id="agent-admin" autocomplete="off"></label>
+      <button class="sheet-row" data-agent-control="pause">Pause all agents</button><button class="sheet-row" data-agent-control="resume">Resume agents</button><button class="sheet-row" data-agent-audit>View audit log</button><pre id="agent-control-result"></pre>`);
+    for(const button of el.sheetBody.querySelectorAll('[data-agent-control],[data-agent-audit]'))button.addEventListener('click',async()=>{
+      const controls=[...el.sheetBody.querySelectorAll('[data-agent-control],[data-agent-audit]')];controls.forEach(b=>b.disabled=true);button.setAttribute('aria-busy','true');const old=button.textContent;button.textContent='Working…';
+      try {const audit=button.hasAttribute('data-agent-audit'),token=$('agent-admin').value;$('agent-admin').value='';
+        const r=await fetch(audit?'/api/build/audit':'/api/build/control',{method:audit?'GET':'POST',headers:{'Content-Type':'application/json','x-ritual-admin':token,...deps.headers()},...(audit?{}:{body:JSON.stringify({action:button.dataset.agentControl})})});const body=await r.json();if(!r.ok)throw Error(body.error);
+        if(button.dataset.agentControl==='pause')stop();$('agent-control-result').textContent=JSON.stringify(body,null,2);
+      }catch(error){$('agent-control-result').textContent=error.message;}finally{button.textContent=old;button.removeAttribute('aria-busy');controls.forEach(b=>b.disabled=false);}
+    });
+  }catch(error){openSheet('Agent guardrails',`<p class="sheet-note">${escapeHtml(error.message)}</p>`);}
+}
 async function showPublish() {
-  const p=project();
-  if(!p?.files.length){deps.toast('Build a website before releasing it.');return;}
+  const p=project();if(!p?.files.length){deps.toast('Build a website before releasing it.');return;}
   if(isBusy()){deps.toast('Finish or stop the current work first.');return;}
-  if(!await ensureRelease(p))return;
-  const status=await githubStatus();
-  if(!status.ready){showGitHub();return;}
-  if(!status.connected || !status.pagesScope || !status.workflowScope){
-    openSheet('Connect automatic releases',`<p class="sheet-note">The release approver has cleared this exact version. Automatic publishing and scheduled monitoring require GitHub repository and workflow permissions. Repository access may include private repositories.</p><a class="sheet-go" href="/api/github/start?publish=1&automation=1">Connect GitHub publishing & monitoring</a>`);return;
-  }
-  if(p.automation && p.deployment?.receipt){await publishProject({automatic:true});return;}
-  const name=(p.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,45)||'my-website')+'-'+p.id.replace(/[^a-z0-9]/gi,'').slice(0,6);
-  openSheet('Configure project releases',`
-    <p class="sheet-note">Review, security, QA and the release approver have passed. Choose this project's publishing target once. Future approved changes can release automatically.</p>
-    ${p.deployment?`<p class="sheet-note">Target: <strong>${escapeHtml(p.deployment.repo)}</strong></p>`:`<label class="setting-row" for="publish-name"><span>Repository name</span><input id="publish-name" maxlength="70" value="${escapeHtml(name)}" pattern="[A-Za-z0-9-]+"></label>`}
-    <label class="sheet-note"><input id="publish-automation" type="checkbox" checked> Automatically release approved updates and monitor availability</label>
-    <p class="sheet-note">This website and its source files will be public. The monitor checks deployment status and availability every 15 minutes. Failed updates can restore a previously approved, healthy version. Backend/cloud releases require a configured and verified environment.</p>
-    <button class="sheet-go" type="button" data-publish-confirm>Use this target and release the approved version</button>`);
+  openSheet('Release readiness','<p class="sheet-note">Checking staging and rollout controls…</p>',{busy:true});
+  try {
+    const r=await fetch('/api/build/governance',{headers:deps.headers()}),g=await r.json();
+    if(!r.ok || g.paused || !g.rolloutConfigured){openSheet('Release blocked',`<p class="sheet-note">${escapeHtml(g.error || (g.paused?'All agents are paused.':'Verified staging and gradual traffic routing must be configured on the host. Direct GitHub Pages publication is disabled because it cannot perform a gradual rollout.'))}</p>`);return;}
+    if(!await ensureRelease(p))return;
+    openSheet('Configure staged releases','<p class="sheet-note">This approved version will be uploaded to the configured deployment adapter, tested in staging, then rolled out at 5%, 25%, 50%, and 100%. Each stage must pass health checks. Failed promotion attempts restore the verified healthy baseline.</p><label class="sheet-note"><input id="publish-automation" type="checkbox"> Automatically stage and release future approved updates</label><button class="sheet-go" data-publish-confirm>Stage and release approved version</button>');
+  }catch(error){openSheet('Release blocked',`<p class="sheet-note">${escapeHtml(error.message)}</p>`);}
 }
 function showPublication(p) {
   if (p !== project()) return;
   const d = p.deployment;
   const url = safePublishUrl(d?.url);
-  const status = d?.status === 'rolled-back' ? 'Restored previous approved version' : d?.status === 'rollback-queued' ? 'Restoring previous approved version' : d?.status === 'built' ? 'Live' : d?.status === 'errored' ? 'Deployment failed' :
+  const status = d?.status === 'rolled-back' ? 'Restored previous approved version' : d?.status === 'rollback-queued' ? 'Restoring previous approved version' : ['built','live'].includes(d?.status) ? 'Live' : d?.status === 'errored' ? 'Deployment failed' :
     d?.status === 'needs-attention' ? 'Needs attention' : 'Deployment in progress';
   openSheet('Website deployment', `
     <p class="sheet-note"><strong>${status}</strong></p>
@@ -836,7 +854,7 @@ function showPublication(p) {
     ${url ? `<a class="sheet-go" href="${escapeHtml(url)}" target="_blank" rel="noopener">Open website${d.status === 'built' ? '' : ' (may still be building)'}</a>` : ''}
     ${d?.automation?'<p class="sheet-note">Scheduled availability monitoring is enabled for this approved snapshot.</p>':''}
     ${p.automation?'<button class="sheet-row" type="button" data-auto-release-off>Pause automatic releases</button>':''}
-    <button class="sheet-row" type="button" data-publication-check><span>Check deployment status</span></button>
+    ${d?.receipt?'<button class="sheet-row" type="button" data-publication-check><span>Check deployment status</span></button>':''}
     <button class="sheet-row" type="button" data-publish-open><span>Publish updates or retry</span></button>`);
 }
 async function checkPublication(p, remaining = 0) {
@@ -872,22 +890,14 @@ async function publishProject({automatic=false}={}) {
   const stopButton=$('stop-btn'),stopLabel=stopButton?.getAttribute('aria-label');
   if(stopButton){stopButton.disabled=true;stopButton.classList.add('publish-loading');stopButton.setAttribute('aria-label','Publishing the approved website');stopButton.setAttribute('aria-busy','true');}
   document.dispatchEvent(new CustomEvent('ritual:busy',{detail:true}));
-  openSheet('Publishing website', '<p class="sheet-note">Uploading the project and starting GitHub Pages…</p>', {busy:true});
+  openSheet('Publishing website', '<p class="sheet-note">Testing the exact approved files in staging, then checking each gradual rollout…</p>', {busy:true});
   try {
-    if(receipt){
-      const status=await teamRequest('/api/github/publication',{receipt,sha:p.deployment.sha});
-      p.deployment={...p.deployment,...status};receipt=status.receipt || receipt;
-      if(['rolled-back','rollback-queued','needs-attention'].includes(status.status)){p.automation=false;await persist();showPublication(p);return;}
-    }
     if(snapshot!==JSON.stringify(p.files))throw new Error('Files changed during release preparation. Run independent checks again.');
-    const response = await fetch('/api/github/publish', {method:'POST',
-      headers:{'Content-Type':'application/json',...deps.headers()},
-      body:JSON.stringify({name,files,receipt,confirm:true,approvalToken:p.team.release.approvalToken,automation:Boolean(p.automation)})});
-    const body = await response.json();
-    if (body.deployment) { p.deployment=body.deployment; persist(); }
-    if (!response.ok) throw new Error(body.error);
-    p.deployment=body; persist(); showPublication(p);
-    publicationTimer=setTimeout(()=>checkPublication(p,18),5_000);
+    const stage=await teamRequest('/api/build/stage',{files,approvalToken:p.team.release.approvalToken});
+    const body=await teamRequest('/api/build/rollout',{files,approvalToken:p.team.release.approvalToken,stage});
+    p.deployment={...body,error:body.summary || '',repo:'Verified deployment adapter'};
+    if(body.status!=='live')p.automation=false;
+    await persist();showPublication(p);
   } catch(error) {
     if (p.deployment) { p.deployment.error=error.message; persist(); showPublication(p); }
     else openSheet('Publication could not finish', `<p class="sheet-note">${escapeHtml(error.message)}</p><button class="sheet-go" type="button" data-publish-open>Try again</button>`);
@@ -1358,6 +1368,7 @@ export async function mount(options = {}) {
     if (item.id === 'build-github') showGitHub();
     if (item.id === 'build-publish') showPublish();
     if (item.id === 'build-ai-test') testBuildAI();
+    if (item.id === 'build-guardrails') showGuardrails();
   });
 
   // Typing in a file saves it, quietly and immediately — a Save button is one

@@ -1,0 +1,43 @@
+# Ritual Coding guardrails
+
+## Separation of duties and permissions
+
+The Orchestrator can plan; the Architect can define architecture; six builders can generate their assigned source. The independent Reviewer reviews, Security can veto, QA checks, and the Approver can approve only after the independent gates pass. Role permissions are enforced by server-owned operations, not instructions supplied in project files. A builder calling the approval or deployment operation is denied. Separate calls and capability boundaries do not imply separately trained models.
+
+Builders receive explicit project source and the brief. They have no filesystem, shell, GitHub write, database connection, or production/cloud credential tools. Production credential files, private keys and recognized embedded secrets are rejected before engineering provider calls. References to environment variable placeholders in prepared backend source remain supported. Users must supply only data they are authorized to use; these checks do not classify every possible form of personal data.
+
+A server-signed approval binds the full artifact and expires after fifteen minutes. File changes, forged tokens, failed independent decisions and storage failures cannot authorize release. Stage results are separately signed, artifact-bound and expire after thirty minutes. Each staging ID is consumed once in the durable governance ledger before rollout.
+
+## Persistent limits and audit
+
+An ordinary Node host requires a shared persistent volume for RITUAL_GOVERNANCE_DIR. All serving processes and the operator CLI must use the same directory. A filesystem lock serializes reservations, permissions are restrictive, and atomic ledger writes accompany append-only hash-chained audit metadata. Storage failures or audit/ledger inconsistency fail closed. A crash between audit and ledger writes requires operator reconciliation; deleting the ledger is not a safe reset.
+
+This filesystem implementation intentionally refuses serverless operation, even if an ephemeral directory is configured. Vercel temporary storage cannot enforce a deployment-wide budget or kill switch. A durable database/service adapter is still required before enabling these agents on Vercel. Ordinary Grandpa AI chat remains separate; these controls govern Ritual Coding.
+
+Defaults: $5 reserved daily budget, 20 provider/action calls per minute, four active leases, 180,000 input bytes and 32,000 output tokens per call. Daily reservations reset at UTC midnight. Maximum input/output token cost is conservatively reserved before a provider call and is not refunded after failure. Agent parameter-adaptation retries are disabled, so each permitted call makes at most one upstream generation attempt. Each continuation obtains a fresh reservation.
+
+The operator must maintain an approved model allowlist and a cost ceiling covering those models. Default model IDs are gpt-4.1, gpt-4.1-mini, gpt-4o and gpt-4o-mini; the default ceiling is $100 per million tokens. This is a hard reservation budget under the configured cost ceiling, not a live reconciliation with provider invoices. Unsupported or unpriced models and unbudgeted live research/image tools are blocked for agent generation. General chat settings do not remove engineering limits.
+
+Initial configuration: RITUAL_DAILY_USD, RITUAL_CALLS_PER_MINUTE, RITUAL_CONCURRENCY, RITUAL_MAX_USD_PER_MILLION_TOKENS and RITUAL_AGENT_MODELS. Persisted limits take precedence after initialization. Change limits deliberately with `npm run agents -- limits '{"dailyUsd":5,"callsPerMinute":20,"concurrency":4}'` on the same volume.
+
+Audit records include ticket, role, operation, reservation, timestamps, outcome, artifact hashes and hashed actor identifiers. Source, prompts, credential values and raw provider error bodies are excluded. Server gate decisions and each deployment-adapter action are recorded. Browser file saves/page checks are explicitly labeled client reports; they cannot prove readiness or confer approval. The log stops work at 50 MB until the operator safely archives it and reconciles the anchored ledger. This is not a WORM store or an external SIEM.
+
+## Kill switch
+
+Run `npm run agents -- pause` on the host using the shared governance volume. Pause persists across restarts, refuses new operations, and aborts active local provider requests. Other processes observe the persisted pause at most about one second later. Resume uses `npm run agents -- resume`; canceled work does not restart automatically. `npm run agents -- status` and `npm run agents -- audit` inspect metadata.
+
+The Build menu's Agent guardrails panel exposes status, limits, pause/resume and audit. Administrative API actions require a separate RITUAL_ADMIN_TOKEN of at least 32 characters. The shared visitor access code does not confer operator rights. The UI clears the operator credential after each request and never stores it. API commands are POST /api/build/control with action pause/resume and the x-ritual-admin header; audit inspection requires the same operator credential. Emergency restoration of traffic after an interrupted promotion remains allowed, while further promotions are stopped.
+
+## Staging and gradual release
+
+Direct GitHub Pages publishing is disabled: Pages does not provide the required traffic splitting. Generation, source downloads and sandbox previews remain available when governance storage is available. Production release requires a real server-configured hosting adapter, specified by RITUAL_DEPLOYMENT_ADAPTER_URL (HTTPS origin) and RITUAL_DEPLOYMENT_ADAPTER_SECRET (at least 32 characters). Builders never receive this secret or choose arbitrary deployment URLs.
+
+The adapter owns isolated staging, real runtime tests, routing, health observation and an already verified healthy fallback. Grandpa AI verifies its HTTPS responses and exact artifact identity before proceeding. The adapter must enforce idempotency, project isolation, monotonic percentages and compare-and-swap production lineage; it must never restore an unrelated project's release. First releases need a tested safe baseline, such as a maintenance deployment. No adapter is bundled or provisioned by this change.
+
+POST /stage receives artifactHash, complete files and steps [5,25,50,100]. It must return the same artifactHash, status passed, stagingId, previousGood, testsPassed true and rollbackReady true. These are trusted hosting-adapter observations, not client assertions.
+
+POST /rollout receives artifactHash, stagingId, previousGood, percentage and minimumObservationSeconds 30. At each step it must return matching identities/percentage, status passed, healthy true, healthChecksPassed true, rollbackReady true and observationSeconds at least 30. A promotion response has a 55-second timeout; each observation must actually occur on the hosting platform. All four responses must pass before Live can be shown.
+
+A failed or ambiguous promotion, including cancellation during a request that may have changed traffic, invokes POST /rollback with the signed previousGood identity. Only a matching rolled-back response with healthy true confirms restoration. Otherwise release stops with Needs attention. If primary audit storage fails after traffic may have changed, emergency rollback remains reachable; metadata-only recovery events go to the host error log and the operator must reconcile the audit gap. Cancellation before the next promotion performs no additional promotion. The adapter should continue independent monitoring and recovery when the app process crashes; this request-driven implementation cannot monitor indefinitely after process termination.
+
+Unconfigured staging, unavailable persistent governance, expired approval, unsupported fullstack infrastructure and failed rollback verification remain explicit blockers. Model statements do not replace actual hosting, test, security or health evidence.
