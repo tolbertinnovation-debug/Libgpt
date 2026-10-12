@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { runTeam, TEAM_ROLES, validateTeamPlan } from '../public/build-team.js';
+import { runTeam, TEAM_ROLES, TEAM_CAPACITY, validateTeamPlan } from '../public/build-team.js';
 
 const html = title => `<!doctype html><html lang="en"><head><title>${title}</title></head><body><h1>${title}</h1></body></html>`;
 const body = path => path.endsWith('.html') ? html(path) : path.endsWith('.json') ? '{"name":"Monrovia shop"}' : `/* ${path} */`;
@@ -139,10 +139,10 @@ test('an unchanged repair cannot produce a false success and the loop is bounded
   });
   const result = await runTeam({ asked: 'Create website', hooks: f.hooks, maxRepairRounds: 999 });
   assert.equal(result.status, 'needs_attention');
-  assert.equal(reviews, 4);
-  assert.equal(result.checkpoint.reviewRound, 3);
+  assert.equal(reviews, TEAM_CAPACITY.maxRepairRounds + 1);
+  assert.equal(result.checkpoint.reviewRound, TEAM_CAPACITY.maxRepairRounds);
   assert.ok(result.issues.some(issue => issue.includes('repair made no change')));
-  assert.equal(f.calls.filter(call => call.agent === 'interactions').length, 4);
+  assert.equal(f.calls.filter(call => call.agent === 'interactions').length, TEAM_CAPACITY.maxRepairRounds + 1);
 });
 
 test('Stop saves partial work, cancels peers, and resume generates only remaining files', async () => {
@@ -267,4 +267,58 @@ test('an interrupted supervisor saves completed work for a later review', async 
   const finished = await runTeam({ checkpoint: result.checkpoint, files: result.files, hooks: resume.hooks });
   assert.equal(finished.status, 'approved');
   assert.equal(resume.calls.length, 0);
+});
+
+
+
+test('a truncated batch retries only its missing file before independent review', async () => {
+  const f = fixture(); const original = f.hooks.generate; const pageCalls = [];
+  f.hooks.generate = async (agent, paths, instruction, options) => {
+    if (agent !== 'pages') return original(agent, paths, instruction, options);
+    pageCalls.push([...paths]);
+    if (pageCalls.length === 1) {
+      await options.onFile({path: 'index.html', body: html('Already saved')});
+      throw new Error('A file was cut off.');
+    }
+    return original(agent, paths, instruction, options);
+  };
+  const result = await runTeam({asked: 'Build shop', hooks: f.hooks, maxRepairRounds: 0});
+  assert.equal(result.status, 'approved');
+  assert.deepEqual(pageCalls, [['index.html', 'contact.html'], ['contact.html']]);
+  assert.equal(result.files.find(f => f.path === 'index.html').body, html('Already saved'));
+  assert.equal(result.checkpoint.reviewRound, 0);
+});
+
+test('six active builders queue within four simultaneous provider calls', async () => {
+  let active = 0, peak = 0;
+  const f = fixture(); const full = plan();
+  full.tasks.push({agent: 'backend', files: ['backend/server.js'], instruction: 'Server'},
+    {agent: 'cloud', files: ['schema.sql'], instruction: 'Schema'});
+  f.hooks.requestPlan = async () => full;
+  const original = f.hooks.generate;
+  f.hooks.generate = async (...args) => {
+    peak = Math.max(peak, ++active);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    try {return await original(...args);} finally {active--;}
+  };
+  const result = await runTeam({asked: 'Build full project', hooks: f.hooks});
+  assert.equal(result.status, 'approved');
+  assert.equal(peak, TEAM_CAPACITY.concurrency);
+  assert.ok(result.files.some(file => file.path === 'backend/server.js'));
+});
+
+test('access and budget denials never receive an immediate file retry', async () => {
+  for (const error of [Object.assign(new Error('Too many requests'), {status: 429}), new Error('Daily spending budget exhausted')]) {
+    const f = fixture(); const original = f.hooks.generate; let denied = 0, reviews = 0;
+    f.hooks.review = async () => {reviews++; return approved;};
+    f.hooks.generate = async (agent, ...args) => {
+      if (agent === 'interactions') {denied++; throw error;}
+      return original(agent, ...args);
+    };
+    const result = await runTeam({asked: 'Build project', hooks: f.hooks});
+    assert.equal(result.status, 'needs_attention');
+    assert.equal(denied, 1);
+    assert.equal(reviews, 0);
+    assert.ok(result.issues.some(issue => issue.includes(error.message)));
+  }
 });

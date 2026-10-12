@@ -17,7 +17,7 @@ import {
   previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
   loadProjectsDurable, saveProjectsDurable,
 } from './build.js';
-import { runTeam, TEAM_ROLES } from './build-team.js';
+import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js';
 import { shrink } from './photo.js';
 import { renderMarkdown } from './markdown.js';
 
@@ -386,7 +386,7 @@ async function generateFiles(instruction, files, {signal,onFile=async()=>{},onPr
   });
   if(!response.ok || !response.body){
     const body=await response.json().catch(()=>({}));
-    throw new Error(body.error || 'The coding agent could not be reached.');
+    throw Object.assign(new Error(body.error || 'The coding agent could not be reached.'), {status: response.status});
   }
   const reader=response.body.getReader(),decoder=new TextDecoder(),completed=new Map();
   let buffer='',whole='',finished=false;
@@ -441,7 +441,7 @@ async function generateFiles(instruction, files, {signal,onFile=async()=>{},onPr
    it finished rather than generated.
 
    Four specialists work from one supervisor's shared contract. Completed files
-   are saved as they arrive. Review and repair are bounded to three rounds;
+   are saved as they arrive. Review and repair are bounded to six rounds;
    unresolved requirements are retained for the next explicitly resumed run.
    ========================================================================== */
 
@@ -538,7 +538,7 @@ function renderPlan(run) {
     }).join('')}</ol>
     ${cp.architecture?'<button class="proposal-look" type="button" data-team-architecture>Architecture decisions</button>':''}
     ${cp.release?.gates?`<details class="team-issues"><summary>Independent release checks</summary><ul>${Object.entries(cp.release.gates).map(([id,gate])=>`<li><strong>${escapeHtml(id)}: ${gate.passed?'passed':'blocked'}</strong> — ${escapeHtml(gate.summary)}</li>`).join('')}</ul></details>`:''}
-    ${cp.reviewRound?`<p class="team-round">Repair round ${cp.reviewRound} of 3</p>`:''}`;
+    ${cp.reviewRound?`<p class="team-round">Repair round ${cp.reviewRound} of ${cp.repairLimit || TEAM_CAPACITY.repairRounds}</p>`:''}`;
   if(running){
     const started=run.startedAt || state.loadingStartedAt || Date.now();
     const update=()=>{const node=$('team-elapsed');if(node){const seconds=Math.max(0,Math.floor((Date.now()-started)/1000));node.textContent=`Working · ${seconds}s elapsed${seconds>=45?' · You can stop and resume without losing completed files.':''}`;}};
@@ -603,7 +603,7 @@ async function faultsIn(files, expectedPaths = [], cancelled = () => false) {
 async function teamRequest(path, body, signal) {
   const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},signal,body:JSON.stringify(body)});
   const result=await response.json().catch(()=>({error:response.status===504?'The server took too long. Your saved files are kept; retry the team.':'The server returned an unreadable response. Retry the team.'}));
-  if(!response.ok)throw new Error(result.error || 'The team could not complete this request.');
+  if(!response.ok)throw Object.assign(new Error(result.error || 'The team could not complete this request.'), {status: response.status});
   return result;
 }
 
@@ -1486,5 +1486,6 @@ export async function mount(options = {}) {
     else deps.toast('That GitHub connection did not finish. Try again.');
   }
 }
+
 
 

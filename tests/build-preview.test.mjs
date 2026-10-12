@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {previewDocument, previewState} from '../public/build.js';
 import assert from 'node:assert/strict';
 import {installPreviewNavigation, previewNavigation, previewAssetUrl} from '../public/build-preview.js';
 
@@ -101,4 +102,26 @@ test('saved SVG and data-URL images become embedded assets without hosting-app r
   assert.equal(url.split(',')[0],'data:image/svg+xml;charset=utf-8');assert.equal(decodeURIComponent(url.slice(url.indexOf(',')+1)),svg);
   assert.equal(previewAssetUrl({path:'photo.png',body:'data:image/png;base64,AA=='}),'data:image/png;base64,AA==');
   assert.equal(previewAssetUrl({path:'photo.png',body:'unsupported binary'}),'');
+});
+
+
+
+test('deferred classic scripts run after DOM elements in source order', () => {
+  const html = previewDocument([
+    {path: 'index.html', body: '<html><head><script defer src="data.js"></script><script src="app.js" defer></script></head><body><main id="shop" data-page="home"></main></body></html>'},
+    {path: 'data.js', body: 'var catalog = [1];'},
+    {path: 'app.js', body: 'window.result = document.getElementById("shop").dataset.page + catalog[0];'},
+  ], '', {navigation: false});
+  assert.ok(html.indexOf('id="shop"') < html.indexOf('var catalog ='));
+  assert.ok(html.indexOf('var catalog =') < html.indexOf('window.result ='));
+  assert.ok(html.indexOf('window.result =') < html.indexOf('</body>'));
+});
+
+test('a separate backend does not trigger a frontend framework warning', () => {
+  const files = [{path: 'index.html', body: '<html><body><script src="app.js" defer></script></body></html>'},
+    {path: 'app.js', body: 'console.log("shop");'},
+    {path: 'backend/server.js', body: 'import express from "express";'}];
+  assert.equal(previewState(files).warn, undefined);
+  files[1].body = 'import React from "react";';
+  assert.match(previewState(files).warn, /imports or a framework/);
 });
