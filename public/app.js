@@ -24,7 +24,7 @@ import { ACCENTS, DEFAULT_ACCENT, isAccent } from './pronounce.js';
 import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
-import { createLibrary, loadJournal } from './library.js';
+import { createLibrary, loadJournal } from './library.js?v=modern-workspace-1';
 import { Dictation, canRecord } from './dictate.js';
 import { RecordedEar, canListenByRecording } from './hearing.js';
 import * as ritual from './ritual.js';
@@ -385,7 +385,7 @@ function applyTheme(theme) {
       + '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>';
   el.themeLabel.textContent = resolved === 'dark' ? 'Light mode' : 'Dark mode';
   document.querySelector('meta[name="theme-color"]')
-    ?.setAttribute('content', resolved === 'dark' ? '#140c0b' : '#faf3e0');
+    ?.setAttribute('content', resolved === 'dark' ? '#111923' : '#f7f8fa');
 }
 
 /* ========================================================================
@@ -1614,10 +1614,22 @@ function setDocumentMode(on) {
   if (documentModeBar) documentModeBar.hidden = !on;
   updateDesignControls();
 }
-$('create-document-btn')?.addEventListener('click', () => {
+function openDocumentWorkspace(kind = '') {
   if (documentDesignStyle) documentDesignStyle.value = ''; if (documentDesignSize) documentDesignSize.value = '';
+  if (documentKind) documentKind.value = kind;
+  if (documentTemplate) documentTemplate.value = '';
   showMore(false); setDocumentMode(true); if (documentLength) documentLength.value = ''; documentTarget = { chatId: currentChat()?.id, index: -1, mode: 'new' }; el.input.focus();
-});
+}
+$('create-document-btn')?.addEventListener('click', () => openDocumentWorkspace());
+function openWorkspaceAction(event) {
+  const action = event.target.closest('[data-workspace-action]')?.dataset.workspaceAction;
+  if (!action) return;
+  closeNav();
+  if (action === 'document' || action === 'design') openDocumentWorkspace(action === 'design' ? 'graphic_design' : '');
+  else if (action === 'recipe' || action === 'story') openLibrary(action);
+}
+$('workspace-actions')?.addEventListener('click', openWorkspaceAction);
+$('workspace-nav')?.addEventListener('click', openWorkspaceAction);
 $('document-mode-cancel')?.addEventListener('click', () => { setDocumentMode(false); documentTarget = null; });
 
 async function createChatDocument(chat) {
@@ -2848,6 +2860,7 @@ el.chipRow.addEventListener('click', event => {
 /* ---- The Library ---- */
 
 let library = null;
+let libraryReturnFocus = null;
 
 /** One request to the structured endpoint, with the errors already read. */
 async function askLibrary(kind, input, path = '/api/structured', options = {}) {
@@ -2883,6 +2896,7 @@ async function askLibrary(kind, input, path = '/api/structured', options = {}) {
 }
 
 function openLibrary(tab = 'story') {
+  libraryReturnFocus = document.activeElement;
   if (!library) {
     library = createLibrary({
       root: el.libraryBody,
@@ -2915,7 +2929,9 @@ function closeLibrary() {
   el.library.hidden = true;
   speaker.stop();
   sounds.close();
-  el.browseLibrary.focus();
+  const returnTo = libraryReturnFocus?.isConnected && libraryReturnFocus.getClientRects().length
+    ? libraryReturnFocus : el.input;
+  returnTo.focus();
 }
 
 el.browseLibrary.addEventListener('click', () => openLibrary('story'));
