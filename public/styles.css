@@ -179,6 +179,24 @@ body {
   padding: .875rem .875rem .5rem;
 }
 
+/* Feature shortcuts share the conversation drawer's existing colors. */
+.sidebar-body { flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; scrollbar-width:thin; }
+.sidebar-body .chat-list { overflow:visible; }
+.sidebar-head,.sidebar > .new-chat,.sidebar-foot { flex-shrink:0; }
+.sidebar-tools { margin:.65rem .75rem .9rem; }
+.sidebar-tools details { margin-bottom:.45rem; border:1px solid rgba(255,255,255,.13); border-radius:var(--radius-sm); }
+.sidebar-tools summary { display:flex; align-items:center; gap:.55rem; padding:.55rem .65rem; min-height:44px; list-style:none; color:#f3f0e6; font-size:.85rem; font-weight:600; cursor:pointer; }
+.sidebar-tools summary::-webkit-details-marker { display:none; }
+.sidebar-tools svg { width:17px; height:17px; flex-shrink:0; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.sidebar-tools .sidebar-chevron { width:15px; height:15px; margin-left:auto; }
+.sidebar-tools details[open] .sidebar-chevron { transform:rotate(180deg); }
+.sidebar-shortcuts { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.2rem; padding:0 .35rem .4rem; }
+.sidebar-shortcut { display:flex; align-items:center; gap:.45rem; min-width:0; min-height:44px; padding:.45rem .4rem; border:0; border-radius:var(--radius-sm); background:transparent; color:#d6c2a8; font:inherit; font-size:.76rem; line-height:1.35; text-align:left; cursor:pointer; }
+.sidebar-shortcut:hover { background:rgba(255,255,255,.08); color:#fffaf0; }
+.sidebar-shortcut[aria-pressed="true"] { background:rgba(255,143,0,.16); color:#fffaf0; }
+.sidebar-shortcut:disabled { opacity:.45; cursor:not-allowed; }
+.sidebar-shortcut span { min-width:0; overflow-wrap:anywhere; }
+
 .brand { display: flex; align-items: center; gap: .6rem; min-width: 0; }
 .brand-seal { display: flex; flex: 0 0 auto; }
 /* The badge carries its own white ring, so it needs no border of ours. */
