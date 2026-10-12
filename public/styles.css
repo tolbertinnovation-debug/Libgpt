@@ -3493,8 +3493,16 @@ body {
 .cooking-stage-button[aria-busy="true"] { opacity:1; cursor:wait; }
 .cooking-stage-spinner { width:16px; height:16px; flex-shrink:0; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; animation:cooking-stage-spin .8s linear infinite; }
 .cooking-stage-loading { padding:8px 0; font-size:.85rem; line-height:1.5; }
+/* Loading feedback inherits the current palette and stays beside the clicked label. */
+button[aria-busy="true"]:not(.cooking-stage-button)::before, a[aria-busy="true"]::before {
+  content:""; display:inline-block; width:.9rem; height:.9rem; flex-shrink:0;
+  margin-right:.5rem; border:2px solid currentColor; border-right-color:transparent;
+  border-radius:50%; vertical-align:-.1em; animation:cooking-stage-spin .8s linear infinite;
+}
+button[aria-busy="true"], a[aria-busy="true"] { cursor:progress; }
+a[aria-disabled="true"] { pointer-events:none; }
 @keyframes cooking-stage-spin { to { transform:rotate(360deg); } }
-@media(prefers-reduced-motion:reduce) { .cooking-stage-spinner { animation:none; } }
+@media(prefers-reduced-motion:reduce) { .cooking-stage-spinner,button[aria-busy="true"]:not(.cooking-stage-button)::before,a[aria-busy="true"]::before { animation:none; } }
 .talk-input-mode { display:flex; flex-basis:100%; justify-content:center; align-items:center; gap:8px; font-size:.85rem; }
 .talk-input-mode select { padding:8px 10px; border-radius:10px; border:1px solid #bda789; background:#fffdf7; color:#34261f; font:inherit; }
 .artwork-gallery { margin-top:20px; padding-top:16px; border-top:1px solid #d9dfe7; }

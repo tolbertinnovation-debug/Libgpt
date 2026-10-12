@@ -9,9 +9,11 @@ Liberia, Africa and World areas. Stories also offer those areas while retaining
 the existing theme and subject choices. Stories now arrive complete from beginning to end, with no mandatory branching. These areas are perspectives,
 not a fixed list of possible content.
 
-New History accounts require five chronological phases: origins, growth and major events, later developments, outcome/decline/current position, and legacy. The server validates every phase and a developed narrative before delivery, retrying an incomplete account once. These structural checks do not guarantee historical accuracy. Ongoing history ends at the latest established position rather than an invented future outcome.
+New History accounts require five chronological phases: origins, growth and major events, later developments, outcome/decline/current position, and legacy. The server validates every phase and a developed narrative before delivery. Complete accounts with fewer, longer paragraphs are accepted; brief placeholder phases and missing outcomes are rejected. A single bounded repair receives the failed draft and validation issue, rather than starting over without the draft. Optional summary metadata can be derived from the account itself. Explicitly requested topics may keep their established title and facts; random discovery still guards recent repeats. These structural checks do not guarantee historical accuracy. Ongoing history ends at the latest established position rather than an invented future outcome.
 
 The full account displays section headings and a scope statement. Listening, downloads and journal saving include every phase. Older saved overviews are labelled and offer **Generate full account of this topic**, which preserves the displayed topic instead of selecting another subject.
+
+Asynchronous Library actions show a spinner and loading label on their buttons and prevent duplicate requests. Controls recover after errors or cancellation, and prior results remain available if a new account fails. Document download links show preparation progress; reading controls show voice preparation while retaining the ability to stop. The existing palette and layout are preserved.
 
 Use **Explore another history**, **Give me another wisdom**, or **Teach me
 something else** repeatedly. The latest result, chosen topic and region are saved on the device; each panel
