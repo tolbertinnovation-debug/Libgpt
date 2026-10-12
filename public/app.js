@@ -24,7 +24,7 @@ import { ACCENTS, DEFAULT_ACCENT, isAccent } from './pronounce.js';
 import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
-import { createLibrary, loadJournal } from './library.js?v=modern-workspace-1';
+import { createLibrary, loadJournal } from './library.js?v=original-palette-1';
 import { Dictation, canRecord } from './dictate.js';
 import { RecordedEar, canListenByRecording } from './hearing.js';
 import * as ritual from './ritual.js';
@@ -385,7 +385,7 @@ function applyTheme(theme) {
       + '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5Z"/></svg>';
   el.themeLabel.textContent = resolved === 'dark' ? 'Light mode' : 'Dark mode';
   document.querySelector('meta[name="theme-color"]')
-    ?.setAttribute('content', resolved === 'dark' ? '#111923' : '#f7f8fa');
+    ?.setAttribute('content', resolved === 'dark' ? '#140c0b' : '#faf3e0');
 }
 
 /* ========================================================================
