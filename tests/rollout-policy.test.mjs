@@ -95,3 +95,25 @@ test('redirects and upstream secrets never become staging approvals or error tex
     await assert.rejects(()=>policy.stage(files,hash),error=>error.status===503&&!error.message.includes(config.secret)&&!error.message.includes('source contents'));
   }
 });
+test('pause during completion audit restores traffic instead of leaving a partial rollout',async()=>{
+ const active=new AbortController();
+ // Use the fixture's provider through a dedicated adapter to expose completion timing.
+ const calls=[];
+ const guarded=createRolloutPolicy({config,observe:async e=>{if(e.action==='rollout'&&e.outcome==='completed')active.abort(new Error('paused'));},fetch:async(url,o)=>{
+  const action=new URL(url).pathname.slice(1),data=JSON.parse(o.body);calls.push(action);
+  return Response.json(action==='stage'?{...data,status:'passed',stagingId:'stage-pause',previousGood:'healthy',testsPassed:true,rollbackReady:true}:action==='rollback'?{...data,status:'rolled-back',healthy:true}:{...data,status:'passed',healthy:true,healthChecksPassed:true,rollbackReady:true,observationSeconds:30});
+ }});
+ const result=await guarded.rollout(await guarded.stage(files,hash),active.signal);
+ assert.equal(result.status,'rolled-back');assert.deepEqual(calls,['stage','rollout','rollback']);
+});
+test('audit failure after a promotion cannot prevent emergency rollback',async()=>{
+ let promoted=false;const calls=[],errors=[],old=console.error;console.error=(...args)=>errors.push(args.join(' '));
+ try{
+ const guarded=createRolloutPolicy({config,observe:async e=>{if(promoted)throw Error('audit volume full');},fetch:async(url,o)=>{
+  const action=new URL(url).pathname.slice(1),data=JSON.parse(o.body);calls.push(action);if(action==='rollout')promoted=true;
+  return Response.json(action==='stage'?{...data,status:'passed',stagingId:'stage-audit',previousGood:'healthy',testsPassed:true,rollbackReady:true}:action==='rollback'?{...data,status:'rolled-back',healthy:true}:{...data,status:'passed',healthy:true,healthChecksPassed:true,rollbackReady:true,observationSeconds:30});
+ }});
+ const result=await guarded.rollout(await guarded.stage(files,hash));
+ assert.equal(result.status,'rolled-back');assert.deepEqual(calls,['stage','rollout','rollback']);assert.ok(errors.every(e=>!e.includes(config.secret)));
+ }finally{console.error=old;}
+});

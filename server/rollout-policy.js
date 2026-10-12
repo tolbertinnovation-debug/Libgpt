@@ -22,9 +22,16 @@ export function createRolloutPolicy({config, fetch: request = globalThis.fetch, 
     return {origin: url.origin, secret: raw.secret};
   }
   const sign = (payload, secret) => createHmac('sha256', secret).update('ritual-staging-v1\n').update(payload).digest('base64url');
+  async function auditRecord(event,recovery=false){
+    try{await observe(event);}catch(error){
+      if(!recovery)throw error;
+      // Emergency recovery must remain reachable when the primary audit volume fails.
+      console.error('[ritual-emergency-audit]',JSON.stringify(event));
+    }
+  }
   async function call(action, body, cfg, signal) {
     aborted(signal);
-    await observe({action,percentage:body.percentage,artifactHash:body.artifactHash,outcome:'started'});
+    await auditRecord({action,percentage:body.percentage,artifactHash:body.artifactHash,outcome:'started'},action==='rollback');
     try {
       const response = await request(`${cfg.origin}/${action}`, {
         method: 'POST', redirect: 'error', headers: {'content-type': 'application/json', authorization: `Bearer ${cfg.secret}`},
@@ -36,10 +43,11 @@ export function createRolloutPolicy({config, fetch: request = globalThis.fetch, 
       if (Buffer.byteLength(text) > 16_000) throw bad('Invalid deployment attestation.');
       const result = JSON.parse(text);
       aborted(signal);
-      await observe({action,percentage:body.percentage,artifactHash:body.artifactHash,outcome:'completed'});
+      await auditRecord({action,percentage:body.percentage,artifactHash:body.artifactHash,outcome:'completed'},action==='rollback');
+      aborted(signal);
       return result;
     } catch (error) {
-      await observe({action,percentage:body.percentage,artifactHash:body.artifactHash,outcome:'failed'});
+      await auditRecord({action,percentage:body.percentage,artifactHash:body.artifactHash,outcome:'failed'},action==='rollback');
       if (signal?.aborted) throw signal.reason || bad('Deployment paused.', 409);
       // Never expose adapter errors, credentials, source files, or upstream bodies.
       throw bad('Deployment adapter did not confirm the requested action.');
@@ -80,9 +88,10 @@ export function createRolloutPolicy({config, fetch: request = globalThis.fetch, 
     const cfg = settings(), record = decode(stage, cfg);
     if (!record) throw bad('A valid server-verified staging result is required.', 409);
     const completed = [];
+    aborted(signal); // No promotion has started, so there is nothing to restore yet.
     for (const percentage of ROLLOUT_STEPS) {
-      aborted(signal); // A paused run cannot initiate the next promotion.
       try {
+        aborted(signal); // A paused partial rollout restores its healthy baseline.
         const result = await call('rollout', {artifactHash: record.artifactHash, stagingId: record.stagingId,
           previousGood: record.previousGood, percentage, minimumObservationSeconds: 30}, cfg, signal);
         if (result?.artifactHash !== record.artifactHash || result.stagingId !== record.stagingId || result.percentage !== percentage ||
@@ -92,7 +101,7 @@ export function createRolloutPolicy({config, fetch: request = globalThis.fetch, 
         }
         completed.push(percentage);
       } catch {
-        await observe({action:'rollout',percentage,artifactHash:record.artifactHash,outcome:'failed'});
+        await auditRecord({action:'rollout',percentage,artifactHash:record.artifactHash,outcome:'failed'},true);
         // A timed-out or cancelled promotion may already have touched traffic. Restore
         // the signed known-good baseline using a separate bounded recovery request.
         let restored = false;

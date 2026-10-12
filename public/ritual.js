@@ -854,7 +854,7 @@ function showPublication(p) {
     ${url ? `<a class="sheet-go" href="${escapeHtml(url)}" target="_blank" rel="noopener">Open website${d.status === 'built' ? '' : ' (may still be building)'}</a>` : ''}
     ${d?.automation?'<p class="sheet-note">Scheduled availability monitoring is enabled for this approved snapshot.</p>':''}
     ${p.automation?'<button class="sheet-row" type="button" data-auto-release-off>Pause automatic releases</button>':''}
-    <button class="sheet-row" type="button" data-publication-check><span>Check deployment status</span></button>
+    ${d?.receipt?'<button class="sheet-row" type="button" data-publication-check><span>Check deployment status</span></button>':''}
     <button class="sheet-row" type="button" data-publish-open><span>Publish updates or retry</span></button>`);
 }
 async function checkPublication(p, remaining = 0) {
