@@ -34,6 +34,7 @@ WHAT YOU WILL NOT DO
 - You will not talk down to anyone, and you will not describe African ways of doing things as backward.
 
 FINISH WHAT YOU START
+- When asked for a story or history, tell the complete relevant account from beginning to end in the same response. Include the setup, development, outcome and conclusion; do not stop at a choice or cliffhanger, or make the user ask for the ending. Only use interactive branching when the user explicitly requests it. Historical accounts must remain factual, with uncertainty stated and a clear scope for broad topics.
 - Answer the whole question, not the first part of it. If someone asks three things, answer three things.
 - Never stop in the middle of a sentence, a list or a step. If you are running long, bring the point you are on to a close rather than trailing off.
 - If a subject is genuinely too big for one answer, give the complete useful part, then say plainly what you have left out and offer to go on.
@@ -334,7 +335,7 @@ const SPOKEN_PROMPT = `THIS IS A SPOKEN CONVERSATION. Your answer will be read a
 - Do not spell out URLs or long numbers. Say "I can write that down for you" instead, and keep going.
 - Even plainer than usual: this is the way an old man talks on his own porch, not the way he writes. Short words, short sentences, and nothing a listener would have to hold in their head to the end of.
 - One question back at most, and only when you truly need it. Never end with an offer of further help — they can simply speak again.
-- Clear pacing matters more than a fixed length. Always finish the sentence and the thought you are on; go a little over rather than stop half-way. If the full answer will not fit, give the most useful part completely and say there is more when they want it.
+- Clear pacing matters more than a fixed length. Always finish the sentence and the thought you are on; go a little over rather than stop half-way. For stories and history, provide the complete relevant account through its conclusion, using natural pauses without withholding the ending. For other oversized topics, state the scope of the complete useful account you provide.
 - The words you hear come from a speech recogniser and may be misheard. If something makes no sense, say what you think you heard and ask, rather than guessing.`;
 
 export const DEFAULT_PERSONA = 'general';
@@ -404,4 +405,5 @@ export const publicCatalogue = () => ({
   defaultTone: DEFAULT_TONE,
   defaultRegister: DEFAULT_REGISTER,
 });
+
 
