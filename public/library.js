@@ -5,6 +5,7 @@
 // choices from fixed lists.
 
 import { escapeHtml } from './markdown.js';
+import {historyBodyParts} from './history-account.js';
 import {CookingPictures,cookingPicture,cookingCaption,cookingLessonHTML,cookingStageButton} from './cooking.js';
 import {JOURNAL_TYPES,journalPage,journalText,journalFilename} from './journal.js';
 import {loadStoryMemory,saveStoryMemory,recentStories,storyRecord} from './story-memory.js';
@@ -98,7 +99,7 @@ export function createLibrary({
   function spokenText(key) {
     if (explorers[key]?.entry) {
       const d=explorers[key].entry;
-      return [d.title,...d.opening,d.takeaway,d.note].filter(Boolean).join('\n\n');
+      return [d.title,...historyBodyParts(d),d.takeaway,d.note].filter(Boolean).join('\n\n');
     }
     if (key === 'story' && story) {
       const parts = [story.title, ...story.parts];
@@ -284,11 +285,13 @@ export function createLibrary({
     </form>
     ${s.error ? failure(s.error) : ''}
     ${s.busy ? loading('Grandpa is exploring something new…') : ''}
-    ${d ? `<div class="lib-result"><h3 class="lib-title">${escapeHtml(d.title)}</h3>${paragraphs(d.opening)}
+    ${d ? `<div class="lib-result"><h3 class="lib-title">${escapeHtml(d.title)}</h3>${kind==='history' && d.historyComplete ? `<p class="settings-note">Scope: ${escapeHtml(d.scope)}</p>${d.sections.map(s=>`<section><h4>${escapeHtml(s.title)}</h4>${paragraphs(s.paragraphs)}</section>`).join('')}` : paragraphs(d.opening)}
+      ${kind==='history' && !d.historyComplete ? '<p class="settings-note">This saved result is an earlier short overview. Generate the full account to include the later developments and outcome.</p>' : ''}
       <div class="lib-moral">${escapeHtml(d.takeaway)}</div>${d.note ? `<p class="settings-note">${escapeHtml(d.note)}</p>` : ''}
       ${kind==='history' ? '<p class="settings-note">AI-generated historical explanation. Use Check sources for live verification of important details.</p>' : ''}
       <div class="lib-actions"><button class="setting-btn" data-save-explore type="button">Keep this in my journal</button>${readButton(kind)}
       <button class="setting-btn" data-download-explore type="button">Download</button>
+      ${kind==='history' ? `<button class="setting-btn" data-complete-history type="button" ${s.busy ? 'disabled' : ''}>Generate full account of this topic</button>` : ''}
       <button class="setting-btn" data-more-explore type="button" ${s.busy ? 'disabled' : ''}>${escapeHtml(spec.action)}</button>
       ${onExplore ? '<button class="setting-btn" data-check-explore type="button">Check sources in chat</button>' : ''}</div></div>` : ''}`;
   }
@@ -738,17 +741,18 @@ export function createLibrary({
     }
     if (event.target.closest('[data-download-explore]') && explorers[tab]?.entry) {
       const d=explorers[tab].entry;
-      const url=URL.createObjectURL(new Blob([[d.title,...d.opening,d.takeaway,d.note].filter(Boolean).join('\n\n')],{type:'text/plain;charset=utf-8'}));
+      const url=URL.createObjectURL(new Blob([[d.title,...historyBodyParts(d),d.takeaway,d.note].filter(Boolean).join('\n\n')],{type:'text/plain;charset=utf-8'}));
       const link=document.createElement('a');link.href=url;link.download=`grandpa-${tab}.txt`;
       document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
       return;
     }
+    if(event.target.closest('[data-complete-history]') && explorers.history.entry){const input=root.querySelector('#explore-subject');if(input)input.value=explorers.history.entry.title;return beginExploration();}
     if (event.target.closest('[data-more-explore]')) return beginExploration();
     if (event.target.closest('[data-check-explore]') && explorers[tab]?.entry && onExplore) return onExplore(tab,explorers[tab].entry.title);
     if (event.target.closest('[data-save-explore]') && explorers[tab]?.entry) {
       const d=explorers[tab].entry;
       keep({kind:tab,kindLabel:EXPLORERS[tab].title,title:d.title,summary:d.summary,
-        body:[...d.opening,d.takeaway,d.note].filter(Boolean).join('\n\n')});
+        body:[...historyBodyParts(d),d.takeaway,d.note].filter(Boolean).join('\n\n')});
       return;
     }
     // Anything that replaces what is on screen also stops the reading of it —
