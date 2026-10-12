@@ -24,7 +24,7 @@ import { ACCENTS, DEFAULT_ACCENT, isAccent } from './pronounce.js';
 import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
-import { createLibrary, loadJournal } from './library.js?v=original-palette-1';
+import { createLibrary, loadJournal } from './library.js';
 import { Dictation, canRecord } from './dictate.js';
 import { RecordedEar, canListenByRecording } from './hearing.js';
 import * as ritual from './ritual.js';
@@ -1614,22 +1614,10 @@ function setDocumentMode(on) {
   if (documentModeBar) documentModeBar.hidden = !on;
   updateDesignControls();
 }
-function openDocumentWorkspace(kind = '') {
+$('create-document-btn')?.addEventListener('click', () => {
   if (documentDesignStyle) documentDesignStyle.value = ''; if (documentDesignSize) documentDesignSize.value = '';
-  if (documentKind) documentKind.value = kind;
-  if (documentTemplate) documentTemplate.value = '';
   showMore(false); setDocumentMode(true); if (documentLength) documentLength.value = ''; documentTarget = { chatId: currentChat()?.id, index: -1, mode: 'new' }; el.input.focus();
-}
-$('create-document-btn')?.addEventListener('click', () => openDocumentWorkspace());
-function openWorkspaceAction(event) {
-  const action = event.target.closest('[data-workspace-action]')?.dataset.workspaceAction;
-  if (!action) return;
-  closeNav();
-  if (action === 'document' || action === 'design') openDocumentWorkspace(action === 'design' ? 'graphic_design' : '');
-  else if (action === 'recipe' || action === 'story') openLibrary(action);
-}
-$('workspace-actions')?.addEventListener('click', openWorkspaceAction);
-$('workspace-nav')?.addEventListener('click', openWorkspaceAction);
+});
 $('document-mode-cancel')?.addEventListener('click', () => { setDocumentMode(false); documentTarget = null; });
 
 async function createChatDocument(chat) {
@@ -2860,7 +2848,6 @@ el.chipRow.addEventListener('click', event => {
 /* ---- The Library ---- */
 
 let library = null;
-let libraryReturnFocus = null;
 
 /** One request to the structured endpoint, with the errors already read. */
 async function askLibrary(kind, input, path = '/api/structured', options = {}) {
@@ -2896,7 +2883,6 @@ async function askLibrary(kind, input, path = '/api/structured', options = {}) {
 }
 
 function openLibrary(tab = 'story') {
-  libraryReturnFocus = document.activeElement;
   if (!library) {
     library = createLibrary({
       root: el.libraryBody,
@@ -2929,9 +2915,7 @@ function closeLibrary() {
   el.library.hidden = true;
   speaker.stop();
   sounds.close();
-  const returnTo = libraryReturnFocus?.isConnected && libraryReturnFocus.getClientRects().length
-    ? libraryReturnFocus : el.input;
-  returnTo.focus();
+  el.browseLibrary.focus();
 }
 
 el.browseLibrary.addEventListener('click', () => openLibrary('story'));

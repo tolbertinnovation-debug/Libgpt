@@ -679,7 +679,6 @@ export function createLibrary({
     tab = next;
     document.querySelectorAll('#library-tabs [data-tab]').forEach((b) => {
       b.setAttribute('aria-selected', String(b.dataset.tab === next));
-      if (b.dataset.tab === next) b.scrollIntoView?.({ block: 'nearest', inline: 'center' });
     });
     render();
   }
