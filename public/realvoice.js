@@ -136,6 +136,7 @@ export class VoiceOut {
 
     this.mode = 'device';     // which voice is talking right now
     this.state = 'idle';
+    this.loading = false;
     this.token = 0;
 
     this.pending = [];        // text waiting to be fetched
@@ -160,9 +161,16 @@ export class VoiceOut {
   }
 
   #report(state) {
+    if (state === 'idle') this.#loading(false);
     if (this.state === state) return;
     this.state = state;
     this.onStateChange(state);
+  }
+
+  #loading(value) {
+    if (this.loading === value) return;
+    this.loading = value;
+    this.onLoadingChange?.(value);
   }
 
   /**
@@ -250,6 +258,7 @@ export class VoiceOut {
     }
     this.pending.push(...tail);
 
+    if (!this.audio) this.#loading(true);
     if (this.state !== 'paused') this.#report('speaking');
     this.#pump();
     return true;
@@ -349,6 +358,7 @@ export class VoiceOut {
    * would otherwise simply never hear.
    */
   #toDevice(firstPiece) {
+    this.#loading(false);
     const rest = [
       firstPiece,
       ...this.ready.map((item) => item.text),
@@ -417,7 +427,7 @@ export class VoiceOut {
 
     // As soon as this one is under way, get the one after it ready.
     audio.onplaying = () => {
-      if (token === this.token && this.audio === audio) this.#preload();
+      if (token === this.token && this.audio === audio) { this.#loading(false); this.#preload(); }
     };
 
     // Audio that will not decode is not a piece to skip over — it is words the
@@ -498,6 +508,7 @@ export class VoiceOut {
   }
 
   stop() {
+    this.#loading(false);
     this.token += 1;
     for (const request of this.requests) request.abort();
     this.requests.clear();
@@ -509,4 +520,5 @@ export class VoiceOut {
     this.#report('idle');
   }
 }
+
 
