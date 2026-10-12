@@ -457,7 +457,11 @@ export function previewState(files = []) {
   if (!page) {
     return { can: false, why: 'A preview needs an index.html. There is none in this project yet.' };
   }
-  const scripts = files.filter((f) => /\.m?js$/i.test(f.path));
+  // Server source is not part of the browser runtime. Inspect page script references only.
+  const scripts = files.filter(f => /\.html?$/i.test(f.path)).flatMap(page =>
+    [...page.body.matchAll(/<script\b[^>]*\bsrc\s*=\s*["']([^"']+)["'][^>]*>/gi)]
+      .map(match => files.find(file => file.path === resolveProjectPath(page.path, match[1])))
+      .filter(Boolean));
   if (scripts.some((f) => NEEDS_MORE.test(f.body))) {
     return {
       can: true,
@@ -523,6 +527,7 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
     return url ? `${before}"${url}"` : tag;
   });
 
+  const deferredScripts = [];
   html = html.replace(/<script\b([^>]*)\bsrc\s*=\s*["']([^"']+)["']([^>]*)><\/script>/gi,
     (tag, before, src, after) => {
       const file = find(src);
@@ -530,8 +535,19 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
       const isModule = /type\s*=\s*["']module["']/i.test(before + after);
       // A closing tag inside the code would end the script element early.
       const body = file.body.replace(/<\/script/gi, '<\\/script');
-      return `<script${isModule ? ' type="module"' : ''}>\n${body}\n</script>`;
+      const inline = `<script${isModule ? ' type="module"' : ''}>\n${body}\n</script>`;
+      // defer is ignored on inline classic scripts. Place these after the parsed
+      // page, retaining order and global scope, before DOMContentLoaded fires.
+      if (!isModule && /\bdefer(?:\s|=|$)/i.test(before + after) && !/\basync(?:\s|=|$)/i.test(before + after)) {
+        deferredScripts.push(inline);
+        return '';
+      }
+      return inline;
     });
+  if (deferredScripts.length) {
+    const deferred = deferredScripts.join('\n');
+    html = /<\/body\s*>/i.test(html) ? html.replace(/<\/body\s*>/i, () => deferred + '\n</body>') : html + deferred;
+  }
 
   // Errors inside the frame are invisible from out here — the sandbox is doing
   // its job — so the page is asked to draw its own.
@@ -862,5 +878,6 @@ export function projectIssues(files = [], expectedPaths = []) {
   }
   return faults;
 }
+
 
 

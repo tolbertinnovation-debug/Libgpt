@@ -134,7 +134,7 @@ Then the fix, as whole files.`;
  * file that stops in the middle of a tag is not a partial answer — it is a
  * broken file, and the person cannot tell which.
  */
-export const BUILD_BUDGET = 12_000;
+export const BUILD_BUDGET = 16_000;
 
 /** What the model needs to know about the project it is working on. */
 export function projectContext(files = []) {
@@ -308,4 +308,5 @@ export const BUILD_CONTINUE_PROMPT = `Your answer above was cut off because it r
   their paths, exactly as before.
 - No preamble and no apology: the two halves are joined end to end, and the
   reader will never know there was a break.`;
+
 

@@ -17,6 +17,15 @@ export const TEAM_ROLES = Object.freeze([
 ]);
 export const WORKER_IDS = Object.freeze(['design', 'pages', 'interactions', 'content', 'backend', 'cloud']);
 const WORKERS = WORKER_IDS;
+export const TEAM_CAPACITY = Object.freeze({repairRounds: 6, maxRepairRounds: 8, concurrency: 4, fileRetries: 1});
+
+// Queue specialists so six builders do not exceed the four-call governance limit.
+async function runWorkers(items, action) {
+  let next = 0;
+  return Promise.allSettled(Array.from({length: Math.min(TEAM_CAPACITY.concurrency, items.length)}, async () => {
+    while (next < items.length) await action(items[next++]);
+  }));
+}
 const GATES = ['review', 'security', 'qa', 'approver'];
 const copy = value => JSON.parse(JSON.stringify(value));
 const message = error => String(error?.message || error || 'The task did not finish.');
@@ -97,7 +106,7 @@ function bodyProblem(file) {
  * Files are saved at each closed fence. Checkpoints contain metadata, not a
  * second copy of the file bodies. Resume with the project's saved files.
  */
-export async function runTeam({ asked, checkpoint, files = [], hooks, signal, maxRepairRounds = 3 }) {
+export async function runTeam({ asked, checkpoint, files = [], hooks, signal, maxRepairRounds = TEAM_CAPACITY.repairRounds }) {
   if (!hooks?.requestPlan || !hooks.generate || !hooks.review || !hooks.architecture || !hooks.releaseGate || !hooks.check || !hooks.save) {
     throw new Error('The build team needs planning, architecture, generation, independent review, release gating, checking, and saving hooks.');
   }
@@ -115,10 +124,12 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
   state.savedPaths ||= [];
   state.faults ||= [];
   state.reviewRound ||= 0;
+  state.capacity = {...TEAM_CAPACITY};
   // Approval evidence is never reused across a new run.
   state.release = null;
   let durablePaths = [...state.savedPaths];
   let storageFailure = '';
+  let policyFailure = null;
   let saves = Promise.resolve();
   const list = () => [...current.values()].map(file => ({ ...file }));
   const emit = event => {
@@ -146,6 +157,7 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
   };
   const ensureActive = () => {
     if (storageFailure) throw new Error(storageFailure);
+    if (policyFailure) throw policyFailure;
     if (controller.signal.aborted) throw aborted();
   };
   const agentFor = id => state.agents[id] ||= { status: 'waiting', completed: [], faults: [] };
@@ -175,9 +187,14 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
     agent.faults = [];
     emit({ type: 'agent', agent: task.agent });
     await save();
-    for (let start = 0; start < paths.length; start += 2) {
+    const batches = [];
+    const size = ['backend', 'interactions'].includes(task.agent) ? 1 : 2;
+    for (let start = 0; start < paths.length; start += size) batches.push({paths: paths.slice(start, start + size), attempt: 0});
+    for (let start = 0; start < batches.length; start++) {
       ensureActive();
-      const batch = paths.slice(start, start + 2);
+      const {paths: batch, attempt} = batches[start];
+      const recoverable = [];
+      let retryAllowed = true;
       const received = new Set();
       const acceptedBodies = new Map();
       const pendingFiles = [];
@@ -190,7 +207,7 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
           return Promise.resolve();
         }
         const problem = bodyProblem(file);
-        if (problem) { agent.faults.push(`${path} ${problem}.`); return Promise.resolve(); }
+        if (problem) { recoverable.push(`${path} ${problem}.`); return Promise.resolve(); }
         if (acceptedBodies.get(path) === file.body) return Promise.resolve();
         acceptedBodies.set(path, file.body);
         received.add(path);
@@ -216,6 +233,8 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
           `Your role: ${task.agent}. ${task.instruction}`,
           `Write only these complete files in this batch: ${batch.join(', ')}.`,
           'Return each whole file inside a closed fenced block such as ```html path=index.html. Do not send diffs, snippets, unfinished fences, or image-generation requests.',
+          'Shared browser scripts run on multiple pages: initialize after the DOM is ready and guard page-specific selectors before reading dataset, values, or attaching events. Do not hide unexpected errors in blanket catch blocks.',
+          attempt ? 'The previous response did not complete this file. Return this one entire file in a closed fence; keep the implementation focused and complete.' : '',
           'HTML must include the complete document through </html>. Every page must share working navigation to all planned pages and reference the agreed local styles, scripts, and assets.',
           'Create graphics as complete SVG source files with accessible labels. Implement responsive layouts and accessible controls. Do not put API keys or server credentials in browser files.',
           'Describe the actual work briefly; do not claim files were saved, tests passed, or the project was approved. The host saves files and the supervisor reviews the result.',
@@ -228,14 +247,27 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
         for (const file of (Array.isArray(output) ? output : output?.files || [])) await accept(file);
         await Promise.all(pendingFiles);
         ensureActive();
-        if (output?.unfinished) agent.faults.push(`The ${task.agent} response was cut off before a file finished.`);
+        if (output?.unfinished) recoverable.push(`The ${task.agent} response was cut off before a file finished.`);
       } catch (error) {
         await Promise.allSettled(pendingFiles);
         if (controller.signal.aborted || storageFailure) throw error;
-        agent.faults.push(`${task.agent}: ${message(error)}`);
+        // Budget, access and policy denials must pause, never trigger extra paid retries.
+        retryAllowed = ![401,403,413,423,429,503].includes(error?.status)
+          && !/budget|spend|rate limit|concurren|credential|governance|permission|switched off|unavailable on this host|cost policy/i.test(message(error));
+        if (!retryAllowed) {
+          policyFailure = error;
+          controller.abort(error);
+          throw error;
+        }
+        recoverable.push(`${task.agent}: ${message(error)}`);
       }
-      for (const path of batch) {
-        if (!received.has(path)) agent.faults.push(`The ${task.agent} specialist did not finish ${path}.`);
+      const missing = batch.filter(path => !received.has(path));
+      if (missing.length && retryAllowed && attempt < TEAM_CAPACITY.fileRetries) {
+        // Retry only unfinished files. Successfully saved neighbours stay untouched.
+        batches.splice(start + 1, 0, ...missing.map(path => ({paths: [path], attempt: attempt + 1})));
+        emit({type: 'retrying', agent: task.agent, paths: missing});
+      } else {
+        agent.faults.push(...recoverable, ...missing.map(path => `The ${task.agent} specialist did not finish ${path}.`));
       }
       await save();
     }
@@ -260,7 +292,7 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
     // A missing file has an unambiguous owner even if the supervisor omitted
     // it from its repairs. Other issues remain for supervisor interpretation.
     for (const task of state.plan.tasks) {
-      const missing = task.files.filter(path => !current.has(path));
+      const missing = task.files.filter(path => !current.has(path) || bodyProblem(current.get(path)));
       if (!missing.length) continue;
       const prior = assignments.get(task.agent);
       assignments.set(task.agent, {
@@ -307,17 +339,18 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
     await save();
     }
     state.status = 'building';
-    const results = await Promise.allSettled(state.plan.tasks.map(task => {
+    const results = await runWorkers(state.plan.tasks, task => {
       const agent = agentFor(task.agent);
       const remaining = task.files.filter(path => !agent.completed.includes(path) || !current.has(path) || bodyProblem(current.get(path)));
       if (remaining.length) return work(task, remaining);
       agent.status = agent.faults.length ? 'needs_attention' : 'complete';
       return Promise.resolve();
-    }));
+    });
     ensureActive();
     const unexpected = results.find(result => result.status === 'rejected');
     if (unexpected) throw unexpected.reason;
-    const limit = Math.min(3, Math.max(0, Number(maxRepairRounds) || 0));
+    const limit = Math.min(TEAM_CAPACITY.maxRepairRounds, Math.max(0, Math.floor(Number(maxRepairRounds) || 0)));
+    state.repairLimit = state.reviewRound + limit;
     for (let repairPass = 0; ; repairPass++) {
       state.status = 'reviewing';
       agentFor('reviewer').status = 'working';
@@ -387,13 +420,13 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
       state.status = 'repairing';
       emit({ type: 'repairing', round: state.reviewRound });
       await save();
-      const repaired = await Promise.allSettled(repairs.map(item => work(item.task, item.paths, item.instruction)));
+      const repaired = await runWorkers(repairs, item => work(item.task, item.paths, item.instruction));
       ensureActive();
       const failure = repaired.find(result => result.status === 'rejected');
       if (failure) throw failure.reason;
     }
   } catch (error) {
-    state.status = storageFailure ? 'needs_attention' : signal?.aborted ? 'stopped'
+    state.status = storageFailure || policyFailure ? 'needs_attention' : signal?.aborted ? 'stopped'
       : error?.name === 'AbortError' ? 'interrupted' : 'needs_attention';
     state.faults = [...new Set([...state.faults, storageFailure || message(error)])];
     if (storageFailure) state.savedPaths = durablePaths;
@@ -408,3 +441,4 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
   }
   return { status: state.status, checkpoint: copy(state), files: list(), review: state.review, issues: [...state.faults] };
 }
+
