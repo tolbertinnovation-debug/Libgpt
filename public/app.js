@@ -15,7 +15,7 @@ import {
 import {
   DEFAULT_PATIENCE, PATIENCE, SpeechRecognitionAPI, VoiceConversation, patienceMs,
 } from './converse.js';
-import { VoiceOut } from './realvoice.js?v=loading-history-1';
+import { VoiceOut } from './realvoice.js';
 import {
   DEFAULT_LOUDNESS, DEFAULT_ROOM, LOUDNESS, ROOMS, Room, isLoudness, isRoom,
 } from './room.js';
@@ -24,7 +24,7 @@ import { ACCENTS, DEFAULT_ACCENT, isAccent } from './pronounce.js';
 import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
-import { createLibrary, loadJournal } from './library.js?v=loading-history-1';
+import { createLibrary, loadJournal } from './library.js';
 import { Dictation, canRecord } from './dictate.js';
 import { RecordedEar, canListenByRecording } from './hearing.js';
 import * as ritual from './ritual.js';
@@ -32,7 +32,6 @@ import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 import { mountSupport } from './support.js';
 import {imageCard,mountImageComposer,safeChatImage,imagePrompt,imageLoadingMarkup} from './image-chat.js';
-import {buttonLoading} from './loading.js';
 
 /* ========================================================================
    State
@@ -1282,7 +1281,6 @@ function startCanDo() {
    ======================================================================== */
 
 let availableVoices = [];
-let finishReadingLoading = null;
 
 /**
  * Grandpa's real voice, with the phone's own underneath it.
@@ -1309,16 +1307,12 @@ const speaker = new VoiceOut({
   voice: () => state.prefs.openaiVoice || 'cedar',
   accent: () => state.prefs.accent,
   headers: apiHeaders,
-  onLoadingChange: loading => {
-    if (!loading) { finishReadingLoading?.(); finishReadingLoading = null; }
-    el.speakingText.textContent = loading ? 'Preparing voice…' : 'Reading aloud…';
-  },
   onNotice: (message) => { toast(message); if (!el.talk.hidden) el.talkHint.textContent = message; },
 }, (speechState) => {
   const speaking = speechState !== 'idle';
   el.speakingBar.hidden = !speaking;
   el.speakingBar.classList.toggle('is-paused', speechState === 'paused');
-  el.speakingText.textContent = speechState === 'paused' ? 'Paused' : speaker.loading ? 'Preparing voice…' : 'Reading aloud…';
+  el.speakingText.textContent = speechState === 'paused' ? 'Paused' : 'Reading aloud…';
   el.speakToggle.textContent = speechState === 'paused' ? 'Continue' : 'Pause';
 
   // Keep every Listen button — in the thread and in the Library — in step
@@ -1335,10 +1329,8 @@ function chosenVoice() {
 
 /** Every control that shows itself as the one currently reading. */
 const READING = '.msg-action.is-on, .lib-read.is-on';
-const clearSpeakingMarks = () => {
-  finishReadingLoading?.(); finishReadingLoading = null;
+const clearSpeakingMarks = () =>
   document.querySelectorAll(READING).forEach((b) => b.classList.remove('is-on'));
-};
 
 function speak(text, button) {
   speaker.unlock();
@@ -1359,10 +1351,7 @@ function speak(text, button) {
     pitch: state.prefs.voicePitch,
   });
 
-  if (started) {
-    button?.classList.add('is-on');
-    if (speaker.loading && button) finishReadingLoading=buttonLoading(button,'Preparing voice…',{disable:false});
-  }
+  if (started) button?.classList.add('is-on');
   else toast('There is nothing to read out.');
 }
 
@@ -1761,7 +1750,6 @@ el.thread.addEventListener('click', async event => {
   const card = link.closest('.document-card'), status = card.querySelector('.document-download-status');
   if (card.dataset.downloading) return;
   card.dataset.downloading = 'true'; status.textContent = 'Preparing your download…';
-  const finishLoading=buttonLoading(link,'Preparing download…');
   try {
     const result = await downloadDocument(spec, link.dataset.documentFormat, apiHeaders, fetch, { figureIndex: link.dataset.documentFigure == null ? undefined : Number(link.dataset.documentFigure) });
     const url = URL.createObjectURL(result.blob), download = document.createElement('a');
@@ -1769,7 +1757,7 @@ el.thread.addEventListener('click', async event => {
     setTimeout(() => URL.revokeObjectURL(url), 60_000);
     status.textContent = 'Download ready: ' + result.filename;
   } catch (error) { status.textContent = error.message; if (error.status === 401) showGate(error.message); }
-  finally { finishLoading(); delete card.dataset.downloading; }
+  finally { delete card.dataset.downloading; }
 });
 
 const imageComposer=mountImageComposer({
@@ -2712,10 +2700,9 @@ async function checkTheMicrophone() {
 }
 
 el.setMicCheck.addEventListener('click', () => {
-  const finishLoading=buttonLoading(el.setMicCheck,'Checking microphone…');
   checkTheMicrophone().catch((error) => {
     el.setMicReport.textContent += `\nThe check itself failed: ${error.message}`;
-  }).finally(finishLoading);
+  });
 });
 
 el.setMicCopy.addEventListener('click', async () => {
@@ -3220,7 +3207,8 @@ el.gateForm.addEventListener('submit', async (event) => {
   const code = el.gateInput.value.trim();
   if (!code) return;
 
-  const finishLoading=buttonLoading(el.gateSubmit,'Checking…');
+  el.gateSubmit.disabled = true;
+  el.gateSubmit.textContent = 'Checking…';
   try {
     const response = await fetch('/api/verify', {
       method: 'POST',
@@ -3239,7 +3227,8 @@ el.gateForm.addEventListener('submit', async (event) => {
   } catch {
     showGate('Could not reach the server. Check your connection.');
   } finally {
-    finishLoading();
+    el.gateSubmit.disabled = false;
+    el.gateSubmit.textContent = 'Enter';
   }
 });
 

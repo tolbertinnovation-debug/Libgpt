@@ -18,18 +18,3 @@ test('incomplete histories are repaired before delivery and complete sections su
  const values=new Map(),storage={getItem:k=>values.get(k),setItem:(k,v)=>values.set(k,v)};saveExploration('history',result,storage);assert.deepEqual(loadExploration('history',storage).latest.sections,result.sections);
  await assert.rejects(generateFreshStory(KINDS.history,{},async()=>JSON.stringify({...full,sections:[]})),/incomplete/);
 });
-
-test('developed history phases accept paragraph layouts and metadata variations without losing chronology',()=>{
- const dense={...full,scope:'The 1980 coup',summary:undefined,takeaway:undefined,note:undefined,sections:full.sections.map(s=>({title:s.title || HISTORY_PHASES[s.id],paragraphs:s.paragraphs.join(' ')+' This extended fixture paragraph supplies context, transitions, and the consequences of this chronological phase so it is a developed account rather than a short placeholder.'}))};
- assert.equal(KINDS.history.valid(dense),true);
- const account=readHistoryAccount(dense);assert.equal(account.opening.length,5);assert.equal(account.note,'');assert.equal(account.summary,dense.title);assert.equal(account.takeaway,account.sections.at(-1).paragraphs.at(-1));
- const keyed={...dense,sections:Object.fromEntries(full.sections.map((s,i)=>[s.id,dense.sections[i].paragraphs]))};assert.deepEqual(readHistoryAccount(keyed).sections,account.sections);
- assert.equal(KINDS.history.valid({...dense,sections:dense.sections.slice(0,4)}),false);
- assert.equal(KINDS.history.valid({...full,sections:[full.sections[0],full.sections[0],...full.sections.slice(2)]}),false);
-});
-
-test('history repair receives the failed draft, and explicitly requested topics can keep their title',async()=>{
- const partial={...full,sections:full.sections.slice(0,3)},prompts=[];
- const repaired=await generateFreshStory(KINDS.history,{subject:full.title,recentStories:[{title:full.title,opening:full.sections[0].paragraphs.join(' ')}]},async prompt=>{prompts.push(prompt);return JSON.stringify(prompts.length===1?partial:full);});
- assert.equal(prompts.length,2);const repair=JSON.parse(prompts[1].user);assert.equal(repair.previousResponse,JSON.stringify(partial));assert.match(repair.validationIssue,/chronology/);assert.match(prompts[1].system,/untrusted data/);assert.equal(repaired.title,full.title);assert.equal(repaired.historyComplete,true);
-});

@@ -10,7 +10,6 @@ import {CookingPictures,cookingPicture,cookingCaption,cookingLessonHTML,cookingS
 import {JOURNAL_TYPES,journalPage,journalText,journalFilename} from './journal.js';
 import {loadStoryMemory,saveStoryMemory,recentStories,storyRecord} from './story-memory.js';
 import {EXPLORERS,loadExploration,saveExploration} from './explore.js';
-import {buttonLoading,buttonIsLoading,busyButtonAttributes} from './loading.js';
 
 const JOURNAL_KEY = 'grandpa-ai:journal:v1';
 const QUIZ_KEY = 'grandpa-ai:quiz:v1';
@@ -74,7 +73,6 @@ export function createLibrary({
   let tab = 'story';
   let story = null;   // { title, parts[], choicePrompt, choices[], finished }
   let storyBusy = false;
-  let namesBusy=false,quizBusy=false,albumBusy=false;
   let storySettings = {storyKind:'folktale',theme:'wisdom',subject:'',region:'Africa'};
   let previousStories = loadStoryMemory();
   let storyError = '';
@@ -157,14 +155,6 @@ export function createLibrary({
   const option = (value, label, selected) =>
     `<option value="${escapeHtml(value)}"${value === selected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
 
-  function finishLibraryLoading(finish, button, selector, label, out, outSelector) {
-    finish();
-    const current=root.querySelector(selector);
-    if(current && current!==button){current.disabled=false;current.removeAttribute?.('aria-busy');current.removeAttribute?.('aria-disabled');current.textContent=label;}
-    const currentOut=outSelector && root.querySelector(outSelector);
-    if(out && currentOut && currentOut!==out)currentOut.innerHTML=out.innerHTML;
-  }
-
   /* ---- Story ---- */
   function storyForm() {
     const kinds = catalogue.storyKinds || [];
@@ -189,7 +179,7 @@ export function createLibrary({
           <input type="text" id="story-subject" maxlength="120"
                  placeholder="the spider, the cotton tree, a clever child…" value="${escapeHtml(storySettings.subject)}">
         </div>
-        <button class="lib-go" type="submit" ${busyButtonAttributes(storyBusy)}>${storyBusy ? 'Creating stori…' : 'Generate a new stori'}</button>
+        <button class="lib-go" type="submit" ${storyBusy ? 'disabled' : ''}>Generate a new stori</button>
         <p class="settings-note">Each request creates a new story and checks it against recent stories on this device. Folktales are original fiction inspired by West African storytelling.</p>
       </form>
       <div id="story-out"></div>`;
@@ -211,7 +201,7 @@ export function createLibrary({
           <div class="lib-actions">
             <button class="setting-btn" type="button" data-save-story>Keep this in my journal</button>
             ${readButton('story')}
-            <button class="setting-btn" type="button" data-new-story ${busyButtonAttributes(storyBusy)}>${storyBusy ? 'Creating stori…' : 'Generate another stori'}</button>
+            <button class="setting-btn" type="button" data-new-story ${storyBusy ? 'disabled' : ''}>Generate another stori</button>
           </div>` : `
           <p><strong>${escapeHtml(story.choicePrompt)}</strong></p>
           <div class="lib-choices">
@@ -223,7 +213,7 @@ export function createLibrary({
           </div>
           <div class="lib-actions">
             ${readButton('story', 'Read this to me')}
-            <button class="setting-btn" type="button" data-new-story ${busyButtonAttributes(storyBusy)}>${storyBusy ? 'Creating stori…' : 'Generate another stori'}</button>
+            <button class="setting-btn" type="button" data-new-story ${storyBusy ? 'disabled' : ''}>Generate another stori</button>
           </div>`}
       </div>`;
     out.innerHTML = body + (storyError ? failure(storyError) : '');
@@ -237,9 +227,9 @@ export function createLibrary({
     storySettings={storyKind:root.querySelector('#story-kind').value,
       theme:root.querySelector('#story-theme').value,subject:root.querySelector('#story-subject').value.trim(),
       region:root.querySelector('#story-region')?.value || storySettings.region};
-    const finishLoading=buttonLoading(root.querySelector('#story-form button'),'Creating stori…');
+    root.querySelector('#story-form button').disabled=true;
     const out = root.querySelector('#story-out');
-    if(story)renderStory();else out.innerHTML = loading('Grandpa is gathering the story…');
+    out.innerHTML = loading('Grandpa is gathering the story…');
     try {
       previousStories=recentStories([...previousStories,...loadStoryMemory()]);
       const result=await ask('story',{...storySettings,recentStories:previousStories});
@@ -249,7 +239,7 @@ export function createLibrary({
       previousStories=recentStories([...previousStories,...loadStoryMemory(),storyRecord(d)]);
       saveStoryMemory(previousStories);
     } catch(error) {storyError=error.message || 'Could not generate a new stori. Try again.';}
-    finally {finishLoading();storyBusy=false;if(tab==='story') render();}
+    finally {storyBusy=false;if(tab==='story') render();}
   }
 
   async function chooseBranch(index) {
@@ -291,10 +281,9 @@ export function createLibrary({
       <p class="settings-note">${escapeHtml(spec.description)} Generate more whenever you want; there is no fixed list of results.</p>
       ${kind!=='learn' ? `<div class="lib-field"><label for="explore-region">Explore where</label><select id="explore-region">${['Liberia','Africa','World'].map(r=>option(r,r,s.region)).join('')}</select></div>` : ''}
       <div class="lib-field"><label for="explore-subject">A topic (optional)</label><input id="explore-subject" type="text" maxlength="500" value="${escapeHtml(s.subject)}" placeholder="${kind==='history' ? 'an event, a person, an era…' : kind==='wisdom' ? 'patience, courage, family, work…' : 'anything you want to understand…'}"></div>
-      <button class="lib-go" type="submit" ${busyButtonAttributes(s.busy)}>${s.busy ? 'Generating…' : d ? escapeHtml(spec.action) : `Generate ${kind==='learn' ? 'a lesson' : escapeHtml(spec.title.toLowerCase())}`}</button>
+      <button class="lib-go" type="submit" ${s.busy ? 'disabled' : ''}>${s.busy ? 'Generating…' : d ? escapeHtml(spec.action) : `Generate ${kind==='learn' ? 'a lesson' : escapeHtml(spec.title.toLowerCase())}`}</button>
     </form>
     ${s.error ? failure(s.error) : ''}
-    ${s.error && d ? '<p class="settings-note">The new request could not finish. Your previous account is kept below.</p>' : ''}
     ${s.busy ? loading('Grandpa is exploring something new…') : ''}
     ${d ? `<div class="lib-result"><h3 class="lib-title">${escapeHtml(d.title)}</h3>${kind==='history' && d.historyComplete ? `<p class="settings-note">Scope: ${escapeHtml(d.scope)}</p>${d.sections.map(s=>`<section><h4>${escapeHtml(s.title)}</h4>${paragraphs(s.paragraphs)}</section>`).join('')}` : paragraphs(d.opening)}
       ${kind==='history' && !d.historyComplete ? '<p class="settings-note">This saved result is an earlier short overview. Generate the full account to include the later developments and outcome.</p>' : ''}
@@ -302,21 +291,18 @@ export function createLibrary({
       ${kind==='history' ? '<p class="settings-note">AI-generated historical explanation. Use Check sources for live verification of important details.</p>' : ''}
       <div class="lib-actions"><button class="setting-btn" data-save-explore type="button">Keep this in my journal</button>${readButton(kind)}
       <button class="setting-btn" data-download-explore type="button">Download</button>
-      ${kind==='history' ? `<button class="setting-btn" data-complete-history type="button" ${busyButtonAttributes(s.busy)}>${s.busy ? 'Creating full account…' : 'Generate full account of this topic'}</button>` : ''}
-      <button class="setting-btn" data-more-explore type="button" ${busyButtonAttributes(s.busy)}>${s.busy ? 'Generating…' : escapeHtml(spec.action)}</button>
+      ${kind==='history' ? `<button class="setting-btn" data-complete-history type="button" ${s.busy ? 'disabled' : ''}>Generate full account of this topic</button>` : ''}
+      <button class="setting-btn" data-more-explore type="button" ${s.busy ? 'disabled' : ''}>${escapeHtml(spec.action)}</button>
       ${onExplore ? '<button class="setting-btn" data-check-explore type="button">Check sources in chat</button>' : ''}</div></div>` : ''}`;
   }
-  async function beginExploration(event, anchorSelector='#explore-form button') {
-    event?.preventDefault?.();
+  async function beginExploration(event) {
+    event?.preventDefault();
     const kind=tab,s=explorers[kind];
     if (!s || s.busy) return;
     s.region=root.querySelector('#explore-region')?.value || s.region;
     s.subject=root.querySelector('#explore-subject')?.value.trim() || '';
     const choices={region:s.region,subject:s.subject};
-    const anchorTop=root.querySelector(anchorSelector)?.getBoundingClientRect?.().top;
-    s.loadingHeight=root.getBoundingClientRect?.().height || 0;
     s.busy=true;s.error='';onSpeakStop();render();
-    if(anchorTop!==undefined){const replacement=root.querySelector(anchorSelector),scroller=root.closest?.('.library-panel') || root;if(replacement?.getBoundingClientRect)scroller.scrollTop+=replacement.getBoundingClientRect().top-anchorTop;}
     try {
       const result=await ask(kind,{...choices,recentStories:loadExploration(kind).recent});
       if (!result.ok) throw new Error(result.error || 'That could not finish. Try again.');
@@ -357,7 +343,7 @@ export function createLibrary({
             <option value="boy">Boy</option>
           </select>
         </div>
-        <button class="lib-go" type="submit" ${busyButtonAttributes(namesBusy)}>${namesBusy ? 'Suggesting names…' : 'Suggest names'}</button>
+        <button class="lib-go" type="submit">Suggest names</button>
       </form>
       <div id="names-out"></div>`;
   }
@@ -365,10 +351,6 @@ export function createLibrary({
   async function generateNames(event) {
     event.preventDefault();
     const out = root.querySelector('#names-out');
-    const button=root.querySelector('#names-form button');
-    if(namesBusy)return;namesBusy=true;
-    const finishLoading=buttonLoading(button,'Suggesting names…');
-    try {
     out.innerHTML = loading('Grandpa is thinking on it…');
 
     const result = await ask('names', {
@@ -399,8 +381,6 @@ export function createLibrary({
         </div>
       </div>`;
     root.__lastNames = d;
-    } catch(error) {out.innerHTML=failure(error.message || 'That request could not finish. Try again.');}
-    finally {namesBusy=false;finishLibraryLoading(finishLoading,button,'#names-form button','Suggest names',out,'#names-out');}
   }
 
   /* ---- Recipes ---- */
@@ -429,7 +409,7 @@ export function createLibrary({
         <div class="lib-row"><div class="lib-field"><label for="recipe-servings">Servings</label><select id="recipe-servings">${['2','4','6'].map(n=>option(n,n,recipeOptions.servings)).join('')}</select></div><div class="lib-field"><label for="recipe-level">Experience</label><select id="recipe-level">${option('beginner','Beginner',recipeOptions.level)}${option('regular','Regular cook',recipeOptions.level)}</select></div></div>
         <div class="lib-field"><label for="recipe-preferences">Diet, allergies or equipment (optional)</label><input type="text" id="recipe-preferences" value="${escapeHtml(recipeOptions.preferences)}" maxlength="300" placeholder="Vegetarian, peanut allergy, one pot…"></div>
         <label class="recipe-images-choice"><input id="recipe-images" type="checkbox" ${imagesEnabled() && onRecipeImage ? recipeOptions.pictures ? 'checked' : '' : 'disabled'}> Create teaching pictures with the recipe</label><p class="settings-note">${imagesEnabled() && onRecipeImage ? 'Creates up to three illustrations using the app’s image credits. You can stop pictures or read the lesson without them.' : 'Pictures are unavailable on this deployment. The written cooking lesson still works.'}</p>
-        <button class="lib-go" type="submit" ${busyButtonAttributes(recipeBusy)}>${recipeBusy ? 'Preparing lesson…' : 'Show me how'}</button>
+        <button class="lib-go" type="submit" ${recipeBusy ? 'disabled' : ''}>Show me how</button>
       </form>
       <div id="recipe-out"></div>`;
   }
@@ -448,7 +428,7 @@ export function createLibrary({
       ${cooking.error ? failure(cooking.error) : ''}<h4>You will need</h4><ul>${d.ingredients.map(i=>`<li>${escapeHtml(i)}</li>`).join('')}</ul>${cookingPicture(cooking,'ingredients')}${pictureButton('ingredients')}
       <h4>How to cook it</h4><ol class="cooking-steps">${d.steps.map((step,i)=>`<li><p>${escapeHtml(step)}</p>${d.stepCues[i]?`<p class="cooking-cue"><strong>Look for:</strong> ${escapeHtml(d.stepCues[i])}</p>`:''}${cookingPicture(cooking,`step-${i}`)}${pictureButton(`step-${i}`)}</li>`).join('')}</ol>
       <h4>Serving suggestion</h4>${cookingPicture(cooking,'finished')}${pictureButton('finished')}${d.tip ? `<div class="lib-moral"><em>Grandpa says</em>${escapeHtml(d.tip)}</div>` : ''}${d.safety ? `<p class="cooking-safety"><strong>Food preparation:</strong> ${escapeHtml(d.safety)}</p>` : ''}<p class="settings-note">AI-generated pictures may contain mistakes. Follow the written recipe; pictures cannot establish safe doneness.</p>
-      <div class="lib-actions"><button class="setting-btn" type="button" data-save-recipe>Keep this recipe</button>${readButton('recipe','Read it to me')}<button class="setting-btn" type="button" data-cooking-download>Download illustrated lesson</button>${imagesEnabled() && onRecipeImage ? `<button class="setting-btn" type="button" data-cooking-all ${busyButtonAttributes(cooking.busy)}>${cooking.busy ? 'Creating lesson pictures…' : 'Create missing lesson pictures'}</button>` : ''}</div></div>`;
+      <div class="lib-actions"><button class="setting-btn" type="button" data-save-recipe>Keep this recipe</button>${readButton('recipe','Read it to me')}<button class="setting-btn" type="button" data-cooking-download>Download illustrated lesson</button>${imagesEnabled() && onRecipeImage ? `<button class="setting-btn" type="button" data-cooking-all ${cooking.busy ? 'disabled' : ''}>Create missing lesson pictures</button>` : ''}</div></div>`;
     if(anchorTop!==null){const replacement=out.querySelector(`[data-cooking-picture="${activeStage}"]`);if(replacement)scroller.scrollTop+=replacement.getBoundingClientRect().top-anchorTop;}
   }
   async function generateRecipe(event) {
@@ -457,13 +437,13 @@ export function createLibrary({
     const wantsPictures=root.querySelector('#recipe-images')?.checked;
     const input={dish,servings:root.querySelector('#recipe-servings').value,level:root.querySelector('#recipe-level').value,preferences:root.querySelector('#recipe-preferences').value.trim()};
     recipeOptions={...input,pictures:wantsPictures};
-    cancelCooking();cooking=null;root.__lastRecipe=null;recipeBusy=true;const controller=new AbortController();recipeController=controller;const recipeButton=root.querySelector('#recipe-form button'),finishLoading=buttonLoading(recipeButton,'Preparing lesson…');root.querySelector('#recipe-out').innerHTML=loading('Grandpa is preparing your cooking lesson…');
+    cancelCooking();cooking=null;root.__lastRecipe=null;recipeBusy=true;const controller=new AbortController();recipeController=controller;root.querySelector('#recipe-form button').disabled=true;root.querySelector('#recipe-out').innerHTML=loading('Grandpa is preparing your cooking lesson…');
     try {
       const result=await ask('recipe',input,'/api/structured',{signal:controller.signal});if(controller.signal.aborted)return;if(!result.ok)throw Error(result.error || 'The recipe could not be created.');
       const lesson=new CookingPictures(result.data,onRecipeImage || (()=>{throw Error('Cooking pictures are unavailable.');}),()=>{if(cooking===lesson)renderRecipe();});cooking=lesson;root.__lastRecipe=lesson.recipe;renderRecipe();
       if(wantsPictures && imagesEnabled() && onRecipeImage)await lesson.generate();
     } catch(error){if(!controller.signal.aborted && tab==='recipe')root.querySelector('#recipe-out').innerHTML=failure(error.message);}
-    finally{finishLoading();if(recipeController===controller){recipeBusy=false;recipeController=null;finishLibraryLoading(finishLoading,recipeButton,'#recipe-form button','Show me how');}}
+    finally{if(recipeController===controller){recipeBusy=false;recipeController=null;if(tab==='recipe'){const button=root.querySelector('#recipe-form button');if(button)button.disabled=false;}}}
   }
 
   /* ---- Quiz ---- */
@@ -474,17 +454,13 @@ export function createLibrary({
     return `
       <div class="lib-form">
         <p class="quiz-streak">🔥 Streak ${s.streak} · Best ${s.best}</p>
-        <button class="lib-go" type="button" id="quiz-go" ${busyButtonAttributes(quizBusy)}>${quizBusy ? 'Preparing question…' : 'Ask me a question'}</button>
+        <button class="lib-go" type="button" id="quiz-go">Ask me a question</button>
       </div>
       <div id="quiz-out"></div>`;
   }
 
   async function newQuestion() {
     const out = root.querySelector('#quiz-out');
-    const button=root.querySelector('#quiz-go');
-    if(quizBusy)return;quizBusy=true;
-    const finishLoading=buttonLoading(button,'Preparing question…');
-    try {
     out.innerHTML = loading('Grandpa is setting a question…');
     const s = loadQuizState();
 
@@ -503,8 +479,6 @@ export function createLibrary({
           ${readButton('quiz', 'Read the question')}
         </div>
       </div>`;
-    } catch(error) {out.innerHTML=failure(error.message || 'That request could not finish. Try again.');}
-    finally {quizBusy=false;finishLibraryLoading(finishLoading,button,'#quiz-go','Ask me a question',out,'#quiz-out');}
   }
 
   function answerQuestion(index) {
@@ -557,7 +531,7 @@ export function createLibrary({
           <input type="text" id="album-detail" maxlength="160"
                  placeholder="women selling greens, the morning light…">
         </div>
-        <button class="lib-go" type="submit" ${busyButtonAttributes(albumBusy)}>${albumBusy ? 'Creating picture…' : 'Paint it'}</button>
+        <button class="lib-go" type="submit">Paint it</button>
         <p class="album-cost">
           A picture costs real money on your OpenAI account — cents each, where an
           answer costs a fraction of a penny. Grandpa draws; he does not photograph.
@@ -569,10 +543,6 @@ export function createLibrary({
   async function paintScene(event) {
     event.preventDefault();
     const out = root.querySelector('#album-out');
-    const button=root.querySelector('#album-form button');
-    if(albumBusy)return;albumBusy=true;
-    const finishLoading=buttonLoading(button,'Creating picture…');
-    try {
     out.innerHTML = loading('Grandpa is painting it — this takes a moment…');
 
     const result = await ask('album', {
@@ -601,8 +571,6 @@ export function createLibrary({
       ${typeof d.remaining === 'number'
         ? `<p class="album-cost">${d.remaining} picture${d.remaining === 1 ? '' : 's'} left this hour.</p>`
         : ''}`;
-    } catch(error) {out.innerHTML=failure(error.message || 'That request could not finish. Try again.');}
-    finally {albumBusy=false;finishLibraryLoading(finishLoading,button,'#album-form button','Paint it',out,'#album-out');}
   }
 
   /**
@@ -699,11 +667,10 @@ export function createLibrary({
   };
 
   function render() {
-    if(root.style)root.style.minHeight=explorers[tab]?.busy && explorers[tab].loadingHeight ? `${explorers[tab].loadingHeight}px` : '';
     root.innerHTML = (PANELS[tab] || storyForm)();
     if (tab === 'recipe' && cooking) renderRecipe();
     if (tab === 'story' && story) renderStory();
-    if(tab==='story' && storyBusy && !story) root.querySelector('#story-out').innerHTML=loading('Grandpa is gathering the story…');
+    if(tab==='story' && storyBusy) root.querySelector('#story-out').innerHTML=loading('Grandpa is gathering the story…');
     else if(tab==='story' && !story && storyError) root.querySelector('#story-out').innerHTML=failure(storyError);
   }
 
@@ -779,8 +746,8 @@ export function createLibrary({
       document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
       return;
     }
-    if(event.target.closest('[data-complete-history]') && explorers.history.entry){const input=root.querySelector('#explore-subject');if(input)input.value=explorers.history.entry.title;return beginExploration(event,'[data-complete-history]');}
-    if (event.target.closest('[data-more-explore]')) return beginExploration(event,'[data-more-explore]');
+    if(event.target.closest('[data-complete-history]') && explorers.history.entry){const input=root.querySelector('#explore-subject');if(input)input.value=explorers.history.entry.title;return beginExploration();}
+    if (event.target.closest('[data-more-explore]')) return beginExploration();
     if (event.target.closest('[data-check-explore]') && explorers[tab]?.entry && onExplore) return onExplore(tab,explorers[tab].entry.title);
     if (event.target.closest('[data-save-explore]') && explorers[tab]?.entry) {
       const d=explorers[tab].entry;
@@ -827,12 +794,11 @@ export function createLibrary({
       return;
     }
 
-    const saveRecipe=event.target.closest('[data-save-recipe]');
-    if (saveRecipe && root.__lastRecipe && !buttonIsLoading(saveRecipe)) {
+    if (event.target.closest('[data-save-recipe]') && root.__lastRecipe) {
       const d=root.__lastRecipe;
       const entry={kind:'recipe',kindLabel:'Recipe',title:d.dish,summary:d.backstory,body:`${d.backstory}\n\nYou will need:\n${d.ingredients.join('\n')}\n\nHow to cook it:\n${d.steps.map((s,i)=>`${i+1}. ${s}${d.stepCues[i] ? '\nLook for: '+d.stepCues[i] : ''}`).join('\n\n')}\n\n${d.tip}\n${d.safety}`};
       const picture=cooking?.images.finished?.url || cooking?.images.ingredients?.url;
-      if(picture){const finishLoading=buttonLoading(saveRecipe,'Saving recipe…');thumbnail(picture).then(thumb=>keep({...entry,thumb})).catch(error=>onError(error.message || 'The recipe picture could not be saved.')).finally(finishLoading);}else keep(entry);
+      if(picture)thumbnail(picture).then(thumb=>keep({...entry,thumb}));else keep(entry);
       return;
     }
 
@@ -846,16 +812,14 @@ export function createLibrary({
       return;
     }
 
-    const savePicture=event.target.closest('[data-save-picture]');
-    if (savePicture && album && !buttonIsLoading(savePicture)) {
+    if (event.target.closest('[data-save-picture]') && album) {
       const picture = album;
-      const finishLoading=buttonLoading(savePicture,'Saving picture…');
       thumbnail(picture.image).then((thumb) => {
         keep({
           kind: 'album', kindLabel: 'Picture', title: picture.caption,
           summary: picture.note, body: picture.note, thumb,
         });
-      }).catch(error=>onError(error.message || 'The picture could not be saved.')).finally(finishLoading);
+      });
       return;
     }
 

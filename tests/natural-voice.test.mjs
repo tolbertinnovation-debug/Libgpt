@@ -100,19 +100,6 @@ test('cloud failure gives a notice and retains words in the phone fallback', asy
   assert.match(f.notices[0],/phone's voice/);
 });
 
-test('voice preparation clears on cancellation and provider fallback',async t=>{
- const f=playback(t),loading=[];f.voice.onLoadingChange=value=>loading.push(value);
- f.voice.speak('Prepare this complete spoken answer.');assert.equal(f.voice.loading,true);f.voice.stop();assert.equal(f.voice.loading,false);assert.deepEqual(loading,[true,false]);
- globalThis.fetch=async()=>({ok:false,json:async()=>({error:'Voice unavailable'})});f.voice.speak('Use the phone voice for this answer.');await tick();assert.equal(f.voice.mode,'device');assert.equal(f.voice.loading,false);assert.deepEqual(loading,[true,false,true,false]);
-});
-
-test('voice preparation clears when audio begins playing',async t=>{
- const f=playback(t),loading=[];f.voice.onLoadingChange=value=>loading.push(value);
- globalThis.Audio=class{constructor(url=''){this.src=url;}load(){}pause(){}play(){this.onplaying?.();return Promise.resolve();}};
- globalThis.fetch=async()=>({ok:true,blob:async()=>new Blob(['audio fixture'],{type:'audio/mpeg'})});
- f.voice.speak('Read this complete fixture sentence.');assert.equal(f.voice.loading,true);await tick();assert.ok(f.voice.audio);assert.equal(f.voice.loading,false);assert.deepEqual(loading,[true,false]);
-});
-
 test('offline phone fallback still speaks and long speech keeps whole sentences', t => {
   const f=playback(t,false);f.voice.speak('The weather is better.');assert.equal(f.requests.length,0);assert.ok(f.device.text);
   const sentence='A person explains the problem carefully '.repeat(14).trim()+'.';
@@ -120,4 +107,3 @@ test('offline phone fallback still speaks and long speech keeps whole sentences'
   assert.equal(pieces[0],sentence);assert.equal(pieces.join(' '),sentence+' A short ending.');
   assert.ok(pieces.every(p=>p.length<=1000));
 });
-
