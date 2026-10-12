@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="description" content="Grandpa AI — African-centred conversational AI by Tolbert Innovation Hub. Ask in Liberian English, by voice or text.">
-<meta name="theme-color" content="#faf3e0">
+<meta name="theme-color" content="#f7f8fa">
 <title>Grandpa AI · Tolbert Innovation Hub</title>
 <link rel="icon" href="favicon.png" type="image/png" sizes="32x32">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
@@ -13,6 +13,7 @@
 <meta property="og:image" content="logo.png">
 <meta property="og:type" content="website">
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="modern.css">
 </head>
 <body>
 
@@ -41,6 +42,14 @@
       <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
       <span id="new-chat-label">New conversation</span>
     </button>
+
+    <nav class="workspace-nav" id="workspace-nav" aria-label="Workspace tools">
+      <p class="sidebar-section-label">Workspace</p>
+      <button type="button" data-workspace-action="document"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14 3H6v18h14V9ZM14 3v6h6M8 13h8M8 17h5"/></svg>Documents</button>
+      <button type="button" data-workspace-action="design"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 9v12"/></svg>Design studio</button>
+      <button type="button" data-workspace-action="recipe"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14v5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4ZM3 12h18M8 8V4M12 8V3M16 8V4"/></svg>Cooking</button>
+      <button type="button" data-workspace-action="story"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v16M12 5C8 2 4 3 3 4v15c3-2 6-2 9 2 3-4 6-4 9-2V4c-1-1-5-2-9 1Z"/></svg>Library</button>
+    </nav>
 
     <div class="search-wrap">
       <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" class="search-icon">
@@ -133,7 +142,7 @@
     <!-- Empty state -->
     <section class="welcome" id="welcome">
       <div class="welcome-inner">
-        <p class="welcome-kicker"><span></span> A thoughtful place to begin</p>
+        <p class="welcome-kicker"><span></span> Your everyday creative companion</p>
 
         <div class="brand-logo">
           <img src="logo.png" width="320" height="305"
@@ -141,9 +150,10 @@
         </div>
 
         <h2 class="welcome-title">
-          Welcome home, <button type="button" class="welcome-name" id="welcome-name"
-                                title="Tap to set your name">friend</button>.
+          Welcome home, <span class="welcome-personal"><button type="button" class="welcome-name" id="welcome-name"
+                                title="Tap to set your name">friend</button>.</span>
         </h2>
+        <p class="welcome-description">Ask, create, and learn with Grandpa.</p>
         <p class="welcome-proverb" id="welcome-proverb"></p>
 
         <div class="hearth-actions">
@@ -162,8 +172,32 @@
           </button>
         </div>
 
-        <div class="persona-grid" id="persona-grid" role="group" aria-label="Choose what you came for"></div>
+        <div class="workspace-heading"><h3>What would you like to do?</h3><span>Start something good</span></div>
+        <div class="workspace-grid" id="workspace-actions" role="group" aria-label="Create and explore">
+          <button class="workspace-card" type="button" data-workspace-action="document">
+            <span class="workspace-icon is-document" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9Z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg></span>
+            <span class="workspace-copy"><strong>Create a document</strong><small>Plans, proposals, and letters</small></span><span class="workspace-arrow" aria-hidden="true">↗</span>
+          </button>
+          <button class="workspace-card" type="button" data-workspace-action="design">
+            <span class="workspace-icon is-design" aria-hidden="true"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 9h18M9 9v12M13 14h4M13 17h4"/></svg></span>
+            <span class="workspace-copy"><strong>Design something</strong><small>Flyers, posters, and graphics</small></span><span class="workspace-arrow" aria-hidden="true">↗</span>
+          </button>
+          <button class="workspace-card" type="button" data-workspace-action="recipe">
+            <span class="workspace-icon is-cooking" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12h14v5a4 4 0 0 1-4 4H9a4 4 0 0 1-4-4ZM3 12h18M8 8V4M12 8V3M16 8V4"/></svg></span>
+            <span class="workspace-copy"><strong>Cook with Grandpa</strong><small>Recipes with illustrated steps</small></span><span class="workspace-arrow" aria-hidden="true">↗</span>
+          </button>
+          <button class="workspace-card" type="button" data-workspace-action="story">
+            <span class="workspace-icon is-story" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 5v16M12 5C8 2 4 3 3 4v15c3-2 6-2 9 2 3-4 6-4 9-2V4c-1-1-5-2-9 1Z"/></svg></span>
+            <span class="workspace-copy"><strong>Stories &amp; discovery</strong><small>History, wisdom, and learning</small></span><span class="workspace-arrow" aria-hidden="true">↗</span>
+          </button>
+        </div>
 
+        <details class="guide-picker">
+          <summary><span>Choose your conversation style</span><span class="guide-chevron" aria-hidden="true">⌄</span></summary>
+          <div class="persona-grid" id="persona-grid" role="group" aria-label="Choose what you came for"></div>
+        </details>
+
+        <p class="starters-label">Or try a question</p>
         <div class="starters" id="starters"></div>
       </div>
     </section>
@@ -636,6 +670,7 @@
   <div class="settings-backdrop" data-library-close></div>
   <section class="settings-panel library-panel" role="dialog" aria-modal="true"
            aria-labelledby="library-title">
+    <div class="library-chrome">
     <div class="settings-head">
       <div>
         <p class="settings-kicker">Grandpa AI</p>
@@ -656,6 +691,7 @@
       <button role="tab" type="button" data-tab="quiz" aria-selected="false">🎓 Quiz</button>
       <button role="tab" type="button" data-tab="album" aria-selected="false" hidden>🖼️ Album</button>
       <button role="tab" type="button" data-tab="journal" aria-selected="false">🔖 Journal</button>
+    </div>
     </div>
 
     <div class="library-body" id="library-body"></div>
@@ -768,7 +804,7 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<script type="module" src="app.js"></script>
+<script type="module" src="app.js?v=modern-workspace-1"></script>
 </body>
 </html>
 
