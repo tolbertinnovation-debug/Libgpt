@@ -2737,9 +2737,9 @@ const support = mountSupport({
   snapshot:()=>({chats:state.chats,projects:ritual.backupProjects(),journal:loadJournal()}),
   busy:()=>Boolean(state.streaming || ritual.isBusy() || conversation.active || listening || dictation.recording || transcribing),
   area:()=>ritual.currentMode(),
-  restored:prepared=>{
+  restored:async prepared=>{
     state.chats=prepared.chats;
-    ritual.restoreProjects(prepared.projects);
+    await ritual.restoreProjects(prepared.projects);
     renderThread();renderSidebar();
   },
 });
@@ -3559,7 +3559,7 @@ async function boot() {
         if (ritual.currentMode() === 'build') renderSidebar();
         syncSidebarTools();
       });
-      ritual.mount({
+      await ritual.mount({
         headers: apiHeaders,
         toast,
         canDraw: Boolean(config.buildPictures),

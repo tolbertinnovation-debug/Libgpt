@@ -9,7 +9,7 @@ function element(tag,attrs={},extra={}) {
     closest:()=>extra.hidden ? {} : null,getClientRects:()=>extra.noLayout ? [] : [{}],
     querySelectorAll:()=>[],matches:()=>['button','a'].includes(tag) || attrs.role==='button',...extra};
 }
-function document(nodes) {
+function document(nodes, extra={}) {
   return {defaultView:{getComputedStyle:node=>({display:node.display || 'block',visibility:'visible'})},
     getElementById:id=>nodes.find(node=>node.id===id),
     querySelectorAll(selector) {
@@ -17,8 +17,11 @@ function document(nodes) {
       if(selector==='[name]') return nodes.filter(node=>node.hasAttribute('name'));
       if(selector==='a[href^="#"]') return nodes.filter(node=>node.tagName==='A' && node.getAttribute('href')?.startsWith('#'));
       if(selector==='img') return nodes.filter(node=>node.tagName==='IMG');
+      if(selector==='meta[name]') return nodes.filter(node=>node.tagName==='META' && node.hasAttribute('name'));
+      if(selector==='link[rel~="stylesheet"]') return nodes.filter(node=>node.tagName==='LINK' && (node.getAttribute('rel') || '').split(/\s+/).includes('stylesheet'));
+      if(selector.startsWith('[aria-controls]')) return nodes.filter(node=>['aria-controls','aria-labelledby','aria-describedby','aria-expanded'].some(attr=>node.hasAttribute(attr)));
       return nodes.filter(node=>['INPUT','SELECT','TEXTAREA','BUTTON','A'].includes(node.tagName) || node.getAttribute('role')==='button');
-    }};
+    }, ...extra};
 }
 test('finds duplicate ids, unlabeled controls and missing section links',()=>{
   const faults=checkWebsiteDocument(document([
@@ -58,6 +61,31 @@ test('inspection has no click, submission, or network side effects',()=>{
   const node=element('button',{}, {textContent:'Buy now',click(){triggered++;},submit(){triggered++;}});
   assert.deepEqual(checkWebsiteDocument(document([node])),[]);assert.equal(triggered,0);
 });
+test('missing page metadata is a reported quality failure, not an approved phone layout',()=>{
+  const faults=checkWebsiteDocument(document([], {documentElement:element('html'),title:''}));
+  assert.equal(faults.length,3);
+  assert.ok(faults.some(item=>item.includes('no title')));
+  assert.ok(faults.some(item=>item.includes('no language')));
+  assert.ok(faults.some(item=>item.includes('viewport')));
+  assert.deepEqual(checkWebsiteDocument(document([element('meta',{name:'viewport',content:'width=device-width, initial-scale=1'})], {documentElement:element('html',{lang:'en'}),title:'Monrovia shop'})),[]);
+});
+test('menu controls and field descriptions must reference existing element ids',()=>{
+  const faults=checkWebsiteDocument(document([
+    element('button',{'aria-label':'Menu','aria-controls':'absent','aria-expanded':'maybe'}),
+    element('input',{'aria-label':'Email','aria-describedby':'error'}, {labels:[]}),
+  ]));
+  assert.equal(faults.length,3);
+  assert.ok(faults.some(item=>item.includes('aria-controls')));
+  assert.ok(faults.some(item=>item.includes('aria-describedby')));
+  assert.ok(faults.some(item=>item.includes('aria-expanded')));
+  assert.deepEqual(checkWebsiteDocument(document([
+    element('nav',{id:'menu'}),element('button',{'aria-label':'Menu','aria-controls':'menu','aria-expanded':'false'}),
+  ])),[]);
+});
+test('failed stylesheets are reported while disabled stylesheets are respected',()=>{
+  assert.equal(checkWebsiteDocument(document([element('link',{rel:'stylesheet',href:'missing.css'},{sheet:null})])).length,1);
+  assert.deepEqual(checkWebsiteDocument(document([element('link',{rel:'stylesheet',href:'alternate.css'},{sheet:null,disabled:true})])),[]);
+});
 test('generated reporter has valid syntax and escapes a supplied check id',()=>{
   const html=previewDocument([{path:'index.html',body:'<html><head></head><body>Hello</body></html>'}],'index.html',{checkId:'test</script><script>alert(1)'});
   const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
@@ -65,3 +93,4 @@ test('generated reporter has valid syntax and escapes a supplied check id',()=>{
   assert.match(script,/checkId/);assert.match(script,/checkWebsiteDocument/);
   assert.doesNotMatch(script,/test<\/script>/);
 });
+

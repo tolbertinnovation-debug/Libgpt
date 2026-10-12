@@ -97,3 +97,4 @@ test('restoring builds leaves imported source out of the live preview',async()=>
   restore([project]);
   assert.equal(frame.srcdoc,'');assert.equal(renders,1);assert.equal(state.currentId,project.id);
 });
+
