@@ -6,12 +6,13 @@ import {saveJournal,loadJournal,createLibrary} from '../public/library.js';
 import {saveProjects,loadProjects,applyChanges,restoreVersion} from '../public/build.js';
 import {createBackup,parseBackup,prepareRestore,commitRestore} from '../public/backup.js';
 import {loadExploration,saveExploration} from '../public/explore.js';
+import {HISTORY_PHASES} from '../public/history-account.js';
 import {KINDS,isKind} from '../server/structured.js';
 import {generateFreshStory,StoryGenerationError} from '../server/stories.js';
 import {storyRecord} from '../public/story-memory.js';
 
 const memory=()=>{const values=new Map();return {values,getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};};
-const entry=(title='The First Lesson')=>({title,opening:['A thoughtful example explains how people can learn from a shared experience.','The explanation connects this example to everyday decisions and asks the reader to consider the evidence.'],summary:'A lesson to remember.',takeaway:'Think carefully and act with care.',note:'An original reflection.'});
+const entry=(title='The First Lesson')=>({title,opening:['A thoughtful example explains how people can learn from a shared experience.','The explanation connects this example to everyday decisions and asks the reader to consider the evidence.'],summary:'A lesson to remember.',takeaway:'Think carefully and act with care.',note:'An original reflection.',scope:'A complete historical test account covering the stated topic.',sections:Object.keys(HISTORY_PHASES).map((id,i)=>({id,paragraphs:Array.from({length:i<3?2:1},(_,n)=>'Detailed test paragraph for '+id+' '+n+' explaining this phase and its role in the complete account.')}))});
 const tick=()=>new Promise(resolve=>setImmediate(resolve));
 
 test('saved conversations, journal, projects and versions have no former count caps',t=>{
@@ -121,3 +122,4 @@ test('actual structured endpoint applies the freshness guard to all new explorer
   }
   assert.equal(calls,6);
 });
+

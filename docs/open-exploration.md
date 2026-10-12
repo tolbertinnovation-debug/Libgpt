@@ -9,6 +9,10 @@ Liberia, Africa and World areas. Stories also offer those areas while retaining
 the existing theme and subject choices. Stories now arrive complete from beginning to end, with no mandatory branching. These areas are perspectives,
 not a fixed list of possible content.
 
+New History accounts require five chronological phases: origins, growth and major events, later developments, outcome/decline/current position, and legacy. The server validates every phase and a developed narrative before delivery, retrying an incomplete account once. These structural checks do not guarantee historical accuracy. Ongoing history ends at the latest established position rather than an invented future outcome.
+
+The full account displays section headings and a scope statement. Listening, downloads and journal saving include every phase. Older saved overviews are labelled and offer **Generate full account of this topic**, which preserves the displayed topic instead of selecting another subject.
+
 Use **Explore another history**, **Give me another wisdom**, or **Teach me
 something else** repeatedly. The latest result, chosen topic and region are saved on the device; each panel
 keeps a bounded set of recent excerpts to detect repeats. The server retries a

@@ -19,7 +19,7 @@ export async function generateFreshStory(spec,input,generate) {
   let failure='',repair=false;
   for(let attempt=0;attempt<2;attempt++) {
     const prompt=spec.build({...input,recentStories:previous});
-    if (repair) prompt.system+='\nThe previous response did not match the required JSON. Return all required fields with the specified types, including every paragraph, summary, takeaway and note. Do not add text outside the JSON.';
+    if (repair) prompt.system+='\nThe previous response did not match the required JSON. Return all required fields with the specified types, including every required chronological section and its substantive paragraphs, scope, summary, takeaway and note. If phases or the outcome were missing, complete them in this response without inventing facts. Do not add text outside the JSON.';
     const raw=await generate(prompt);
     let story;
     try {story=JSON.parse(raw);} catch {
@@ -32,6 +32,7 @@ export async function generateFreshStory(spec,input,generate) {
       if (!spec.fresh) throw new StoryGenerationError(failure);
       repair=true;continue;
     }
+    if(spec.normalize)story=spec.normalize(story);
     repair=false;
     failure=`Grandpa repeated a recent ${label}. Try generating again, or choose a different subject.`;
     if(!repeatsStory(story,previous) && !repeatsStory(story,baseline)) return story;
