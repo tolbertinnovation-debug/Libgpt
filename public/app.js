@@ -1095,7 +1095,7 @@ function send(rawText) {
   // person is looking at — a second box under the first would be one more
   // thing to explain, and on a phone there is no room for it.
   if (ritual.currentMode() === 'build') {
-    if (!typed || ritual.isStreaming()) return;
+    if (!typed || ritual.isBusy()) return;
     el.input.value = '';
     autoGrow();
     updateSendState();

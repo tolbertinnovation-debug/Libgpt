@@ -17,7 +17,7 @@ import {
   previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
   loadProjectsDurable, saveProjectsDurable,
 } from './build.js';
-import { runTeam } from './build-team.js';
+import { runTeam, TEAM_ROLES } from './build-team.js';
 import { shrink } from './photo.js';
 import { renderMarkdown } from './markdown.js';
 
@@ -314,6 +314,12 @@ function ensureView(view) {
    Asking Grandpa to build
    ========================================================================== */
 
+function invalidateRelease(p,message='Files changed. Fresh independent release checks are required.') {
+  if(!p?.team)return;
+  p.team.release=null;p.team.review=null;p.team.status='interrupted';p.team.message=message;
+  for(const id of ['reviewer','security','qa','approver'])if(p.team.agents?.[id])p.team.agents[id].status='waiting';
+}
+
 async function send(text) {
   const said = String(text || '').trim();
   const p = project();
@@ -328,7 +334,7 @@ async function send(text) {
   const answer={role:'assistant',content:''};
   p.messages.push(answer);
   const before=p.files.map(f=>({...f}));
-  if(p.team){p.team.status='interrupted';p.team.latestRequest=said;p.team.message='Updating files; a fresh supervisor review is required.';}
+  if(p.team){invalidateRelease(p);p.team.latestRequest=said;p.team.message='Updating files; a fresh supervisor review is required.';}
   const controller=new AbortController();
   state.streaming=controller;state.loadingStartedAt=Date.now();el.editorInput.readOnly=true;
   const mine=mark('Writing and saving your changes…');
@@ -339,7 +345,7 @@ async function send(text) {
   let saved=true,failed=false;
   try {
     await generateFiles(said,p.files,{signal:controller.signal,
-      messages:conversationWindow(p.messages.filter(m=>m.content)).list,
+      messages:conversationWindow(p.messages.filter(m=>m.content)).list,runtime:p.team?.plan?.runtime || 'static',
       onProse:prose=>{answer.content=prose;renderThread();},
       onFile:async file=>{
         received.set(file.path,file);
@@ -372,10 +378,10 @@ async function send(text) {
 }
 
 /** Complete file fences become checkpoints immediately, before the stream ends. */
-async function generateFiles(instruction, files, {signal,onFile=async()=>{},onProse=()=>{},messages,faults=[],research='auto',allowPictures=true}={}) {
+async function generateFiles(instruction, files, {signal,onFile=async()=>{},onProse=()=>{},messages,faults=[],research='auto',allowPictures=true,runtime='static'}={}) {
   const response=await fetch('/api/chat',{
     method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},signal,
-    body:JSON.stringify({mode:'build',research,messages:messages || [{role:'user',content:instruction}],
+    body:JSON.stringify({mode:'build',buildRuntime:runtime,research,messages:messages || [{role:'user',content:instruction}],
       files:forSending(files),...(faults.length ? {faults} : {})}),
   });
   if(!response.ok || !response.body){
@@ -511,11 +517,11 @@ function renderPlan(run) {
   const cp=run.checkpoint || {},plan=cp.plan,editing=Boolean(state.streaming);
   const running=Boolean(run.running || editing),status=editing?'editing':cp.status || 'planning';
   el.plan.setAttribute('aria-busy',String(running));
-  const names={supervisor:'Supervisor',design:'Design & assets',pages:'Pages & layout',interactions:'Interactions',content:'Content & materials'};
-  const roles=['supervisor','design','pages','interactions','content'],done=status==='approved';
-  const messages={planning:'The supervisor is creating the project plan…',building:'The specialists are building and saving your files…',reviewing:'Checking the pages and reviewing the source…',repairing:'The specialists are repairing the reported issues…',editing:'Writing and saving your latest changes…'};
+  const names=Object.fromEntries(TEAM_ROLES.map(role=>[role.id,role.name]));
+  const roles=TEAM_ROLES.map(role=>role.id),done=status==='approved';
+  const messages={architecting:'The Architect is recording design decisions…',security:'Independent review, security, QA and approval checks are running…',planning:'The supervisor is creating the project plan…',building:'The specialists are building and saving your files…',reviewing:'Checking the pages and reviewing the source…',repairing:'The specialists are repairing the reported issues…',editing:'Writing and saving your latest changes…'};
   const message=running ? messages[status] || 'Working on your project…' : run.note || cp.message || (done?'Files saved and reviewed.':plan?'Completed files are kept. Resume to finish.':'Planning did not finish. Your request is kept.');
-  const title=plan?.title || (running?'Five-agent website team':'Planning paused');
+  const title=plan?.title || (running?'Ritual Coding engineering team':'Planning paused');
   el.plan.innerHTML=`<h4>${escapeHtml(title)}</h4>
     <div class="team-status" role="status">${running?'<span class="team-spinner" aria-hidden="true"></span>':''}<span>${escapeHtml(message)}</span></div>
     ${running?'<p class="team-elapsed" id="team-elapsed"></p>':''}
@@ -525,11 +531,13 @@ function renderPlan(run) {
     <ol class="plan-steps team-steps">${roles.map(agent=>{
       const task=plan?.tasks.find(t=>t.agent===agent),agentState=cp.agents?.[agent];
       const count=task?task.files.filter(path=>cp.savedPaths?.includes(path)).length:0;
-      const busy=running && (agent==='supervisor'?!plan || status==='reviewing' || editing:agentState?.status==='working');
-      const complete=done || agent!=='supervisor' && task && count===task.files.length;
+      const busy=running && (agent==='supervisor'?running:agentState?.status==='working');
+      const complete=done || agentState?.status==='complete';
       const failed=!running && agentState?.status==='needs_attention';
-      return `<li class="plan-step is-${busy?'doing':complete?'done':failed?'failed':'waiting'}"><span class="plan-tick" aria-hidden="true">${busy?'':complete?'✓':''}</span><span><strong>${names[agent]}</strong><small>${task?`${count} / ${task.files.length} files saved`:agent==='supervisor'?'Plans, assigns tasks and reviews':plan?'Waiting for assigned work':'Waiting for the supervisor’s plan'}</small></span></li>`;
+      return `<li class="plan-step is-${busy?'doing':complete?'done':failed?'failed':'waiting'}"><span class="plan-tick" aria-hidden="true">${busy?'':complete?'✓':''}</span><span><strong>${names[agent]}</strong><small>${task?task.files.length?`${count} / ${task.files.length} files saved`:'Not required for this project':TEAM_ROLES.find(role=>role.id===agent)?.job || ''}</small></span></li>`;
     }).join('')}</ol>
+    ${cp.architecture?'<button class="proposal-look" type="button" data-team-architecture>Architecture decisions</button>':''}
+    ${cp.release?.gates?`<details class="team-issues"><summary>Independent release checks</summary><ul>${Object.entries(cp.release.gates).map(([id,gate])=>`<li><strong>${escapeHtml(id)}: ${gate.passed?'passed':'blocked'}</strong> — ${escapeHtml(gate.summary)}</li>`).join('')}</ul></details>`:''}
     ${cp.reviewRound?`<p class="team-round">Repair round ${cp.reviewRound} of 3</p>`:''}`;
   if(running){
     const started=run.startedAt || state.loadingStartedAt || Date.now();
@@ -599,7 +607,7 @@ async function teamRequest(path, body, signal) {
   return result;
 }
 
-async function buildTheWholeThing(asked, resume=false) {
+async function buildTheWholeThing(asked, resume=false, {automaticRelease=true}={}) {
   const p=project();
   if(!p || isBusy())return;
   if(!resume)p.messages.push({role:'user',content:asked});
@@ -614,7 +622,9 @@ async function buildTheWholeThing(asked, resume=false) {
     const result=await runTeam({asked,files:p.files,checkpoint:resume?p.team:undefined,signal:controller.signal,
       hooks:{
         requestPlan:async(brief,{signal})=>(await teamRequest('/api/build/team-plan',{asked:brief},signal)).plan,
-        generate:async(agent,batch,instruction,{onFile,signal,files})=>generateFiles(instruction,files,{signal,onFile,research:'off',allowPictures:false}),
+        architecture:async(body,{signal})=>(await teamRequest('/api/build/architecture',body,signal)).architecture,
+        generate:async(agent,batch,instruction,{onFile,signal,files,plan})=>generateFiles(instruction,files,{signal,onFile,research:'off',allowPictures:false,runtime:plan.runtime || 'static'}),
+        releaseGate:async(body,{signal})=>teamRequest('/api/build/release',{...body,updates:p.team?.latestRequest || ''},signal),
         review:async(body,{signal})=>(await teamRequest('/api/build/team-review',{...body,faults:body.issues,updates:p.team?.latestRequest || ''},signal)).review,
         check:(files,expected,signal)=>faultsIn(files,expected,()=>signal.aborted),
         save:async(checkpoint,files)=>{
@@ -630,7 +640,7 @@ async function buildTheWholeThing(asked, resume=false) {
     run.checkpoint=result.checkpoint;
     p.team=structuredClone(result.checkpoint);
     run.note=!saved ? 'Device storage could not save this build. Download your files before leaving; approval is paused.' : result.status==='approved'
-      ? `All ${p.files.length} files are saved. The supervisor approved the source review and every page passed phone and desktop startup checks. Test real services and user flows before publishing.`
+      ? `All ${p.files.length} files are saved. Independent review, security, QA and the release approver passed. Every page also passed phone and desktop startup checks. Deployment status is tracked separately.`
       : result.status==='stopped' ? 'Stopped. Completed files and the project plan are saved. Resume whenever you are ready.'
       : !result.checkpoint.plan ? 'Your request is saved, but planning did not finish. No website files were created. Retry planning below.'
       : 'Completed files are saved. Resolve the items below or resume to continue building and reviewing.';
@@ -647,6 +657,7 @@ async function buildTheWholeThing(asked, resume=false) {
     document.dispatchEvent(new CustomEvent('ritual:busy',{detail:false}));
     ensureView('chat');
   }
+  if(automaticRelease && p.automation && p.team?.status==='approved' && p===project())await publishProject({automatic:true});
 }
 
 /**
@@ -762,6 +773,14 @@ function showHistory() {
 }
 
 
+function architectureMarkdown(p) {
+  const a=p?.team?.architecture;
+  if(!a)return '';
+  return `# ${p.name} — Architecture\n\n`+a.decisions.map(d=>`## ${d.topic}\n${d.choice}\n\nReason: ${d.reason}`).join('\n\n')+`\n\n## Constraints\n${a.constraints.map(s=>'- '+s).join('\n')}\n\n## Test plan\n${a.testPlan.map(s=>'- '+s).join('\n')}\n\n## Deployment\n${a.deployment.type}\n${a.deployment.requirements.map(s=>'- '+s).join('\n')}`;
+}
+function showArchitecture(){const p=project(),a=p?.team?.architecture;if(!a)return;openSheet('Architecture decisions',a.decisions.map(d=>`<h4>${escapeHtml(d.topic)}</h4><p class="sheet-note">${escapeHtml(d.choice)}</p><p class="sheet-note">${escapeHtml(d.reason)}</p>`).join('')+'<button class="sheet-go" type="button" data-architecture-download>Download architecture notes</button>');}
+function downloadArchitecture(){const body=architectureMarkdown(project());if(body)downloadFile({path:'ARCHITECTURE.md',body});}
+
 let publicationTimer = null;
 function safePublishUrl(value) {
   try { const url = new URL(value); return url.protocol === 'https:' && /(^|\.)github\.io$/.test(url.hostname) ? url.href : ''; } catch { return ''; }
@@ -778,41 +797,45 @@ async function testBuildAI() {
   } catch(error) { openSheet('Live AI generation', `<p class="sheet-note">${escapeHtml(error.message)}</p>`); }
 }
 
+async function ensureRelease(p) {
+  if(!p?.team?.plan){
+    openSheet('Engineering review required','<p class="sheet-note">The engineering team must review this project before release. Review, security, QA and the approver must all pass.</p><button class="sheet-go" type="button" data-team-start>Run the engineering team</button>');return false;
+  }
+  await buildTheWholeThing(p.team.asked,true,{automaticRelease:false});
+  return p===project() && p.team?.status==='approved' && Boolean(p.team.release?.approvalToken);
+}
 async function showPublish() {
-  const p = project();
-  if (!p?.files.length) { deps.toast('Build a website before publishing it.'); return; }
-  if (isBusy()) { deps.toast('Wait for the current work to finish.'); return; }
-  const faults = [...danglingLinks(p.files),...looksEmpty(p.files),...projectIssues(p.files)];
-  if (!p.files.some(file=>file.path === 'index.html')) faults.unshift('Publishing needs index.html at the top of the project.');
-  if (faults.length) {
-    openSheet('Before publishing', `<p class="sheet-note">Fix these project problems first:</p><ul>${faults.slice(0,10).map(f=>`<li>${escapeHtml(f)}</li>`).join('')}</ul>`);
-    return;
+  const p=project();
+  if(!p?.files.length){deps.toast('Build a website before releasing it.');return;}
+  if(isBusy()){deps.toast('Finish or stop the current work first.');return;}
+  if(!await ensureRelease(p))return;
+  const status=await githubStatus();
+  if(!status.ready){showGitHub();return;}
+  if(!status.connected || !status.pagesScope || !status.workflowScope){
+    openSheet('Connect automatic releases',`<p class="sheet-note">The release approver has cleared this exact version. Automatic publishing and scheduled monitoring require GitHub repository and workflow permissions. Repository access may include private repositories.</p><a class="sheet-go" href="/api/github/start?publish=1&automation=1">Connect GitHub publishing & monitoring</a>`);return;
   }
-  const status = await githubStatus();
-  if (!status.ready) { showGitHub(); return; }
-  if (!status.connected || !status.pagesScope) {
-    openSheet('Connect for publishing', `<p class="sheet-note">Publishing creates a public GitHub repository and a public website. GitHub requires its repository permission for Pages; this permission can also include private repositories.</p><a class="sheet-go" href="/api/github/start?publish=1">Authorize GitHub publishing</a>`);
-    return;
-  }
-  const name = (p.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,45) || 'my-website') + '-' + p.id.replace(/[^a-z0-9]/gi,'').slice(0,6);
-  openSheet(p.deployment ? 'Update published website' : 'Publish website', `
-    <p class="sheet-note">${escapeHtml(p.name)} · ${p.files.length} files. Review your preview and test its buttons and forms first.</p>
-    ${p.deployment ? `<p class="sheet-note">Updates go to <strong>${escapeHtml(p.deployment.repo)}</strong>.</p>` :
-      `<label class="setting-row" for="publish-name"><span>Repository name</span><input id="publish-name" maxlength="70" value="${escapeHtml(name)}" pattern="[A-Za-z0-9-]+"></label>`}
-    <p class="sheet-note">Your website and source files will be public. Only static website files are published. Server features and payments need separate hosting.</p>
-    <button class="sheet-go" type="button" data-publish-confirm>${p.deployment ? 'Publish these updates' : 'Publish publicly'}</button>`);
+  if(p.automation && p.deployment?.receipt){await publishProject({automatic:true});return;}
+  const name=(p.name.toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,45)||'my-website')+'-'+p.id.replace(/[^a-z0-9]/gi,'').slice(0,6);
+  openSheet('Configure project releases',`
+    <p class="sheet-note">Review, security, QA and the release approver have passed. Choose this project's publishing target once. Future approved changes can release automatically.</p>
+    ${p.deployment?`<p class="sheet-note">Target: <strong>${escapeHtml(p.deployment.repo)}</strong></p>`:`<label class="setting-row" for="publish-name"><span>Repository name</span><input id="publish-name" maxlength="70" value="${escapeHtml(name)}" pattern="[A-Za-z0-9-]+"></label>`}
+    <label class="sheet-note"><input id="publish-automation" type="checkbox" checked> Automatically release approved updates and monitor availability</label>
+    <p class="sheet-note">This website and its source files will be public. The monitor checks deployment status and availability every 15 minutes. Failed updates can restore a previously approved, healthy version. Backend/cloud releases require a configured and verified environment.</p>
+    <button class="sheet-go" type="button" data-publish-confirm>Use this target and release the approved version</button>`);
 }
 function showPublication(p) {
   if (p !== project()) return;
   const d = p.deployment;
   const url = safePublishUrl(d?.url);
-  const status = d?.status === 'built' ? 'Live' : d?.status === 'errored' ? 'Deployment failed' :
+  const status = d?.status === 'rolled-back' ? 'Restored previous approved version' : d?.status === 'rollback-queued' ? 'Restoring previous approved version' : d?.status === 'built' ? 'Live' : d?.status === 'errored' ? 'Deployment failed' :
     d?.status === 'needs-attention' ? 'Needs attention' : 'Deployment in progress';
   openSheet('Website deployment', `
     <p class="sheet-note"><strong>${status}</strong></p>
     <p class="sheet-note">${escapeHtml(d?.repo || '')}</p>
     ${d?.error ? `<p class="sheet-note">${escapeHtml(d.error)}</p>` : ''}
     ${url ? `<a class="sheet-go" href="${escapeHtml(url)}" target="_blank" rel="noopener">Open website${d.status === 'built' ? '' : ' (may still be building)'}</a>` : ''}
+    ${d?.automation?'<p class="sheet-note">Scheduled availability monitoring is enabled for this approved snapshot.</p>':''}
+    ${p.automation?'<button class="sheet-row" type="button" data-auto-release-off>Pause automatic releases</button>':''}
     <button class="sheet-row" type="button" data-publication-check><span>Check deployment status</span></button>
     <button class="sheet-row" type="button" data-publish-open><span>Publish updates or retry</span></button>`);
 }
@@ -826,28 +849,40 @@ async function checkPublication(p, remaining = 0) {
       body:JSON.stringify({receipt:p.deployment.receipt,sha:p.deployment.sha})});
     const body = await response.json();
     if (!response.ok) throw new Error(body.error);
-    p.deployment.status = body.status;
-    p.deployment.error = body.error || '';
+    p.deployment={...p.deployment,...body,error:body.error || ''};
+    if(['rollback-queued','rolled-back','needs-attention'].includes(body.status))p.automation=false;
     persist();
     if (version !== sheetVersion) return;
     if (!el.sheet.hidden) showPublication(p);
-    if (remaining > 0 && !el.sheet.hidden && p === project() && !['built','errored','needs-attention'].includes(body.status)) {
+    if (remaining > 0 && p === project() && !['built','rolled-back','errored','needs-attention'].includes(body.status)) {
       publicationTimer = setTimeout(()=>checkPublication(p,remaining-1),5_000);
     }
   } catch(error) { deps.toast(error.message || 'Deployment status could not be read.'); }
 }
-async function publishProject() {
+async function publishProject({automatic=false}={}) {
   const p = project();
   if (!p || state.publishing || state.streaming || ritualRun?.running) return;
-  const name = $('publish-name')?.value.trim();
+  const name = automatic?p.autoTargetName:$('publish-name')?.value.trim();
+  if(name)p.autoTargetName=name;
+  if(!p.team?.release?.approved || !p.team.release.approvalToken){deps.toast('Release is blocked. Independent engineering gates must pass first.');return;}
+  const snapshot=JSON.stringify(p.files);
   const files = p.files.map(file=>({path:file.path,body:file.body}));
-  const receipt = p.deployment?.receipt;
-  state.publishing = true;
+  let receipt = p.deployment?.receipt;
+  state.publishing = true;el.editorInput.readOnly=true;
+  const stopButton=$('stop-btn'),stopLabel=stopButton?.getAttribute('aria-label');
+  if(stopButton){stopButton.disabled=true;stopButton.classList.add('publish-loading');stopButton.setAttribute('aria-label','Publishing the approved website');stopButton.setAttribute('aria-busy','true');}
+  document.dispatchEvent(new CustomEvent('ritual:busy',{detail:true}));
   openSheet('Publishing website', '<p class="sheet-note">Uploading the project and starting GitHub Pages…</p>', {busy:true});
   try {
+    if(receipt){
+      const status=await teamRequest('/api/github/publication',{receipt,sha:p.deployment.sha});
+      p.deployment={...p.deployment,...status};receipt=status.receipt || receipt;
+      if(['rolled-back','rollback-queued','needs-attention'].includes(status.status)){p.automation=false;await persist();showPublication(p);return;}
+    }
+    if(snapshot!==JSON.stringify(p.files))throw new Error('Files changed during release preparation. Run independent checks again.');
     const response = await fetch('/api/github/publish', {method:'POST',
       headers:{'Content-Type':'application/json',...deps.headers()},
-      body:JSON.stringify({name,files,receipt,confirm:true})});
+      body:JSON.stringify({name,files,receipt,confirm:true,approvalToken:p.team.release.approvalToken,automation:Boolean(p.automation)})});
     const body = await response.json();
     if (body.deployment) { p.deployment=body.deployment; persist(); }
     if (!response.ok) throw new Error(body.error);
@@ -856,7 +891,7 @@ async function publishProject() {
   } catch(error) {
     if (p.deployment) { p.deployment.error=error.message; persist(); showPublication(p); }
     else openSheet('Publication could not finish', `<p class="sheet-note">${escapeHtml(error.message)}</p><button class="sheet-go" type="button" data-publish-open>Try again</button>`);
-  } finally { state.publishing=false; }
+  } finally {state.publishing=false;el.editorInput.readOnly=false;if(stopButton){stopButton.disabled=false;stopButton.classList.remove('publish-loading');stopButton.removeAttribute('aria-busy');if(stopLabel)stopButton.setAttribute('aria-label',stopLabel);else stopButton.removeAttribute('aria-label');}document.dispatchEvent(new CustomEvent('ritual:busy',{detail:false}));}
 }
 
 /* ---- GitHub -------------------------------------------------------------- */
@@ -1012,14 +1047,7 @@ async function pushFile(path) {
 }
 
 function showPushable() {
-  const p = project();
-  const rows = p.files.map((f) => `
-    <button class="sheet-row" type="button" data-push="${escapeHtml(f.path)}">
-      <span><strong>${escapeHtml(f.path)}</strong>
-        <small>${p.fromGitHub?.[f.path] ? 'came from this repository' : 'new to the repository'}</small></span>
-    </button>`).join('');
-  openSheet('Commit a file', `<p class="sheet-note">One file at a time, and each one asks you first.
-    Nothing is merged or deployed.</p>${rows}`);
+  openSheet('Use an approved project release','<p class="sheet-note">Single-file pushes are disabled so they cannot bypass independent review, security, QA and the release approver. Release a complete approved snapshot to the configured project target.</p><button class="sheet-go" type="button" data-publish-open>Prepare an approved release</button>');
 }
 
 /* ==========================================================================
@@ -1198,7 +1226,7 @@ export async function mount(options = {}) {
 
   state.projects = await loadProjectsDurable();
   for(const p of state.projects){
-    if(p.team && ["planning","building","working","reviewing","repairing","checking"].includes(p.team.status)){
+    if(p.team && ["planning","architecting","security","building","working","reviewing","repairing","checking"].includes(p.team.status)){
       p.team.status="interrupted";
       p.team.message="This build was interrupted. Saved files are kept; resume the team to finish.";
     }
@@ -1258,6 +1286,7 @@ export async function mount(options = {}) {
       if(isBusy()){deps.toast('Finish the current work before applying earlier files.');return;}
       const turn = project().messages[Number(apply.dataset.apply)];
       if (turn?.proposal) {
+        invalidateRelease(project());
         turn.changeReceipt=describeChanges(project().files,turn.proposal);
         applyChanges(project(), turn.proposal, 'Before saving files');
         turn.applied = true;
@@ -1290,6 +1319,7 @@ export async function mount(options = {}) {
       return;
     }
 
+    if(event.target.closest('[data-team-architecture]')){showArchitecture();return;}
     if (event.target.closest('#plan-stop')) { stop(); return; }
     if (event.target.closest('#plan-resume')) {const p=project();if(p?.team)await buildTheWholeThing(p.team.asked,true);return;}
 
@@ -1336,7 +1366,7 @@ export async function mount(options = {}) {
     const file = project()?.files.find((f) => f.path === state.openPath);
     if (!file) return;
     file.body = el.editorInput.value;
-    if(project().team){project().team.status='interrupted';project().team.latestRequest=`Review the manually edited file ${file.path}, preserving current user changes.`;project().team.message='Files edited. Resume the supervisor review before approval.';renderPlan({checkpoint:project().team,running:false});}
+    if(project().team){invalidateRelease(project());project().team.latestRequest=`Review the manually edited file ${file.path}, preserving current user changes.`;project().team.message='Files edited. Resume the supervisor review before approval.';renderPlan({checkpoint:project().team,running:false});}
     paint();
     touch();
     el.editorSaved.hidden=false;el.editorSaved.textContent='Saving…';
@@ -1361,7 +1391,10 @@ export async function mount(options = {}) {
 
   el.sheet.addEventListener('click', async (event) => {
     if (event.target.closest('[data-check-stop]')) {manualCheck?.abort();return;}
-    if (event.target.closest('[data-publish-confirm]')) { publishProject(); return; }
+    if(event.target.closest('[data-team-start]')){closeSheet();const p=project();await buildTheWholeThing(`Complete and independently review the existing ${p.name} project for release. Preserve its current content and working features.`,false,{automaticRelease:false});return;}
+    if(event.target.closest('[data-architecture-download]')){downloadArchitecture();return;}
+    if(event.target.closest('[data-auto-release-off]')){project().automation=false;await persist();deps.toast('Automatic releases paused.');return;}
+    if (event.target.closest('[data-publish-confirm]')) { project().automation=Boolean($('publish-automation')?.checked);await persist();publishProject(); return; }
     if (event.target.closest('[data-publication-check]')) { checkPublication(project(),18); return; }
     if (event.target.closest('[data-publish-open]')) { showPublish(); return; }
     if (event.target.closest('[data-sheet-close]') || event.target.closest('#sheet-close')) {
@@ -1373,7 +1406,7 @@ export async function mount(options = {}) {
     if (version) {
       if(isBusy()){deps.toast('Finish the current work before restoring a version.');return;}
       restoreVersion(project(), Number(version.dataset.version));
-      if(project().team){project().team.status='interrupted';project().team.latestRequest='Review this restored version without assuming the newer files are still present.';project().team.message='Version restored. Resume to review the current files.';}
+      if(project().team){invalidateRelease(project());project().team.latestRequest='Review this restored version without assuming the newer files are still present.';project().team.message='Version restored. Resume to review the current files.';}
       persist();
       closeSheet();
       render();

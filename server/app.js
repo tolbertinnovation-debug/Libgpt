@@ -31,10 +31,11 @@ import {
 } from './build.js';
 import {
   TEAM_REVIEW_PROMPT, normalizeTeamPlan, normalizeTeamReview, parseTeamJson,
-  teamProjectFaults, workerInstruction, generateTeamPlan,
+  teamProjectFaults, workerInstruction, generateTeamPlan, generateArchitecture, normalizeArchitecture,
 } from './build-team.js';
 import * as github from './github.js';
 import { createPublisher } from './publish.js';
+import { createReleaseGate, artifactHash } from './release-gate.js';
 import { needsLookingUp, searchModelFrom, SEARCH_PROMPT } from './search.js';
 import { conversationWindow, QUESTION_CHARS, answerDepth, researchMode, generationBudget } from '../public/knowledge.js';
 import { KINDS, isKind, libraryCatalogue } from './structured.js';
@@ -363,7 +364,7 @@ app.get('/api/github/start', rateLimit, (req, res) => {
     res.status(503).send('GitHub is not set up on this deployment.');
     return;
   }
-  const { url, state } = github.authorizeUrl(callbackUrl(req), req.query.publish === '1' ? 'repo' : config.githubScope);
+  const { url, state } = github.authorizeUrl(callbackUrl(req), req.query.publish === '1' ? req.query.automation==='1'?'repo,workflow':'repo' : config.githubScope);
   const bits = [`${STATE_COOKIE}=${encodeURIComponent(state)}`, 'Path=/', 'HttpOnly', 'SameSite=Lax', 'Max-Age=600'];
   if (config.secureCookies) bits.push('Secure');
   res.append('Set-Cookie', bits.join('; '));
@@ -399,8 +400,12 @@ app.post('/api/github/disconnect', (req, res) => {
 });
 
 
+const releaseGate=createReleaseGate({complete,chooseModel:()=>pickModel(undefined,'story'),
+  secret:()=>config.apiKey?crypto.createHmac('sha256',config.apiKey).update('ritual-release-approval-v1').digest('hex'):''});
 const publisher = createPublisher({
   request:github.githubRequest, identify:github.whoami, seal:github.seal, unseal:github.unseal,
+  verifyApproval:(token,files)=>releaseGate.verify(token,files)?{artifactHash:artifactHash(files)}:false,
+  fetchPage:(url,options)=>fetch(url,{...options,redirect:'manual'}),
 });
 
 app.post('/api/build/connection', rateLimit, requireAccess, async (_req, res) => {
@@ -427,7 +432,7 @@ app.post('/api/github/publish', rateLimit, requireAccess, withToken(async (req,r
   } finally { clearTimeout(timeout); }
 }));
 app.post('/api/github/publication', rateLimit, requireAccess, withToken(async (req,res,token) => {
-  res.json(await publisher.status(token,req.body || {},AbortSignal.timeout(15_000)));
+  res.json(await publisher.status(token,req.body || {},AbortSignal.timeout(45_000)));
 }));
 
 app.get('/api/github/repos', rateLimit, withToken(async (_req, res, token) => {
@@ -469,31 +474,8 @@ app.get('/api/github/file', rateLimit, withToken(async (req, res, token) => {
  * working from, so it takes a separate, explicit yes for that one commit, and
  * the page asks for it in as many words.
  */
-app.post('/api/github/commit', rateLimit, requireAccess, withToken(async (req, res, token) => {
-  const { repo, branch, path: file, body, message, sha, confirm } = req.body || {};
-  if (confirm !== true) {
-    res.status(400).json({ error: 'A commit has to be confirmed before it is made.' });
-    return;
-  }
-  if (!/^[\w.-]+\/[\w.-]+$/.test(String(repo || '')) || !branch || !file) {
-    res.status(400).json({ error: 'Which repository, branch and file?' });
-    return;
-  }
-  if (typeof body !== 'string') { res.status(400).json({ error: 'There is nothing to commit.' }); return; }
-
-  const written = await github.commitFile(token, {
-    repo: String(repo),
-    branch: String(branch),
-    path: String(file),
-    body,
-    message: String(message || '').trim() || `Update ${file} from Grandpa AI`,
-    sha: sha ? String(sha) : '',
-  });
-  res.json({
-    ok: true,
-    sha: written?.content?.sha,
-    url: written?.commit?.html_url,
-  });
+app.post('/api/github/commit',rateLimit,requireAccess,withToken(async(_req,res,_token)=>{
+  res.status(403).json({error:'Direct file pushes cannot override the release approver. Publish the complete project through independent review, security and QA gates.'});
 }));
 
 // ---- validation ---------------------------------------------------------
@@ -736,6 +718,7 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
     QUALITY_PROMPT,
     buildPrompt({
       pictures: config.imagesEnabled && !(config.serverless && !config.accessCode),
+      runtime:req.body?.buildRuntime==='fullstack'?'fullstack':'static',
     }),
     '',
     projectContext(project.kept),
@@ -1122,6 +1105,31 @@ app.post('/api/build/team-review', rateLimit, requireAccess, async (req, res) =>
     console.error('[team-review]', error?.message || error);
     res.status([401,403,429,503].includes(error?.status)?error.status:502).json({error:`Review paused: ${error?.message || 'The supervisor could not finish its review.'} Your completed files are kept; resume to retry.`});
   }
+});
+
+// Architecture and release authority are separate server-owned decisions.
+app.post('/api/build/architecture',rateLimit,requireAccess,async(req,res)=>{
+  if(!config.building || !config.apiKey)return res.status(503).json({error:'The engineering team is unavailable on this host.'});
+  const controller=new AbortController();res.on('close',()=>controller.abort());
+  try{
+    const asked=req.body?.asked;
+    if(typeof asked!=='string' || !asked.trim() || asked.length>6000)return res.status(400).json({error:'The original project request is required.'});
+    const plan=normalizeTeamPlan(req.body?.plan);
+    const architecture=await generateArchitecture({asked,plan,model:await pickModel(undefined,'story'),complete,signal:controller.signal});
+    res.json({architecture});
+  }catch(error){if(!controller.signal.aborted)res.status(error.status || 502).json({error:error.message || 'Architecture decisions could not finish.'});}
+});
+app.post('/api/build/release',rateLimit,requireAccess,async(req,res)=>{
+  if(!config.building || !config.apiKey)return res.status(503).json({error:'The engineering team is unavailable on this host.'});
+  const controller=new AbortController();res.on('close',()=>controller.abort());
+  try{
+    const asked=req.body?.asked,updates=req.body?.updates || '';
+    if(typeof asked!=='string' || !asked.trim() || asked.length>6000 || typeof updates!=='string' || updates.length>6000)return res.status(400).json({error:'A valid project request and latest change are required.'});
+    const plan=normalizeTeamPlan(req.body?.plan),architecture=normalizeArchitecture(req.body?.architecture,plan);
+    teamProjectFaults(plan,req.body?.files,req.body?.faults || req.body?.issues || []);
+    const release=await releaseGate.evaluate({asked,plan,architecture,files:req.body.files,faults:req.body.faults || req.body.issues || [],updates},controller.signal);
+    res.json(release);
+  }catch(error){if(!controller.signal.aborted)res.status(error.status || 502).json({error:error.message || 'Independent release checks could not finish.'});}
 });
 
 // ---- the Library: stories, names, recipes, quizzes ----------------------

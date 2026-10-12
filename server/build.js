@@ -26,9 +26,14 @@
  * pointing at images that never arrive — the exact shape of failure this
  * whole area has already been bitten by once.
  */
-export const buildPrompt = ({ pictures = false } = {}) => (pictures
-  ? BUILD_PROMPT
-  : BUILD_PROMPT.replace(/\nPICTURES\n[\s\S]*?\nWHAT TO BUILD WITH/, '\nWHAT TO BUILD WITH'));
+export const buildPrompt = ({pictures=false,runtime='static'}={}) => {
+  let prompt=pictures?BUILD_PROMPT:BUILD_PROMPT.replace(/\nPICTURES\n[\s\S]*?\nWHAT TO BUILD WITH/,'\nWHAT TO BUILD WITH');
+  if(runtime==='fullstack')prompt=prompt.replace(/WHAT TO BUILD WITH\n[\s\S]*?\nQUALITY REQUIREMENTS/,`WHAT TO BUILD WITH
+The engineering team may prepare backend API/server code, database schemas, tests and cloud configuration when assigned. Write complete files and environment-variable placeholders, never real secrets. Use plain HTML/CSS/JavaScript for browser pages. Document installation, test commands, required services and separate hosting. The app does not run backend code or provision cloud resources; never claim those tests or services are operational. Deployment must remain blocked until independently verified infrastructure and tests exist.
+
+QUALITY REQUIREMENTS`);
+  return prompt;
+};
 
 export const BUILD_PROMPT = `You are Grandpa AI in Ritual Coding — the same elder, at the workbench.
 
@@ -303,3 +308,4 @@ export const BUILD_CONTINUE_PROMPT = `Your answer above was cut off because it r
   their paths, exactly as before.
 - No preamble and no apology: the two halves are joined end to end, and the
   reader will never know there was a break.`;
+

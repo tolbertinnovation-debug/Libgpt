@@ -3548,3 +3548,9 @@ body {
 .team-error summary {padding:8px 0;cursor:pointer;}
 .team-error ul {padding-left:18px;}
 @media (prefers-reduced-motion:reduce){.team-spinner{animation:none;border-right-color:transparent;}}
+
+/* An atomic approved upload uses the existing action circle as a loader. */
+.publish-loading {position:relative;}
+.publish-loading>svg {visibility:hidden;}
+.publish-loading::after {content:"";position:absolute;inset:50% auto auto 50%;margin:-10px 0 0 -10px;width:20px;height:20px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:team-spin .8s linear infinite;}
+@media (prefers-reduced-motion:reduce){.publish-loading::after{animation:none;}}
