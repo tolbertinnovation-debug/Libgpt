@@ -1,5 +1,7 @@
 # Grandpa AI
 
+**Complete stories and history:** Story requests now include the beginning, development and ending in one response. The story panel shows the resolution immediately, without mandatory choices. Historical accounts cover their stated scope chronologically through outcomes and significance; interactive branching is used in chat only when explicitly requested.
+
 **Document creation:** Ask chat to write and revise complete documents, choose one of eight professional templates, and download PDF, DOCX, Word-compatible DOC, RTF, PNG, SVG, HTML, text or Markdown. See [document creation](docs/document-creation.md).
 
 **Guided tasks:** Business plans, project proposals, letters, graphic designs and other documents start with a saved brief. Chat asks up to three unanswered questions at a time, preserves your answers and creates the draft when the required details are clear. Review or correct the brief, explicitly create with labelled placeholders, or cancel. Graphic designs include standalone PNG/SVG artwork downloads with square, portrait, landscape or custom canvas sizes.
@@ -36,7 +38,7 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 
 | Feature | How it works here |
 | --- | --- |
-| **Interactive Storyteller** | A folktale or a true historical anecdote, on a theme you pick — Wisdom, Bravery, Community, Cleverness, Tradition. It stops at a decision, you choose what happens next, and the ending carries a moral and a proverb. |
+| **Interactive Storyteller** | A complete folktale or factual historical account, on a theme you pick — Wisdom, Bravery, Community, Cleverness, Tradition. The beginning, development and ending arrive together, followed by the lesson or historical significance. |
 | **Ancestral names** | Suggestions by people, day of birth, birth order and child, each with its meaning — and a standing instruction to give two names it is sure of rather than five it is not, plus advice to ask an elder of the family before settling. |
 | **Recipes** | Palava sauce, dumboy, pepper soup and the rest: ingredients from a Liberian market, steps you can follow, the story behind the dish, and a grandmother's tip. |
 | **Proverb quiz** | One question at a time on proverbs, history and culture, with a streak that survives a reload. |

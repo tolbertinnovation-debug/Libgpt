@@ -194,7 +194,7 @@ export function createLibrary({
         ${paragraphs(story.parts)}
         ${story.finished ? `
           <div class="lib-moral">
-            <em>"${escapeHtml(story.proverb)}"</em>
+            ${story.proverb ? `<em>"${escapeHtml(story.proverb)}"</em>` : ''}
             ${escapeHtml(story.moral)}
           </div>
           <div class="lib-actions">
@@ -234,7 +234,7 @@ export function createLibrary({
       const result=await ask('story',{...storySettings,recentStories:previousStories});
       if(!result.ok) throw new Error(result.error || 'The new stori could not finish. Try again.');
       const d=result.data;
-      story={title:d.title,parts:d.opening,choicePrompt:d.choicePrompt,choices:d.choices,storyKind:storySettings.storyKind,finished:false};
+      story={title:d.title,parts:[...d.opening,d.ending],moral:d.moral,proverb:d.proverb || '',summary:d.summary,storyKind:storySettings.storyKind,finished:true};
       previousStories=recentStories([...previousStories,...loadStoryMemory(),storyRecord(d)]);
       saveStoryMemory(previousStories);
     } catch(error) {storyError=error.message || 'Could not generate a new stori. Try again.';}

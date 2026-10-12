@@ -9,7 +9,7 @@ import {isKind} from '../server/structured.js';
 import {StoryGenerationError} from '../server/stories.js';
 
 const opening='A careful trader brought a basket of rice to the village market. Her neighbour had lost his savings while helping an elderly visitor cross the river. Together they needed to choose a fair way to share the food before the rain arrived.';
-const story=(title='The Shared Basket',body=opening)=>({title,opening:[body,'The visitor asked them to wait and hear what had happened on the river road.'],choicePrompt:'What should they do?',choices:[{label:'Share',summary:'Share the rice fairly'},{label:'Wait',summary:'Listen before deciding'}]});
+const story=(title='The Shared Basket',body=opening)=>({title,opening:[body,'The visitor asked them to wait and hear what had happened on the river road.'],ending:'After listening, they shared the rice fairly and helped the visitor return home before the rain.',moral:'Listen before judging and share fairly.',proverb:'',summary:'Two neighbours resolved a misunderstanding and shared their food.'});
 const record=storyRecord(story());
 
 test('detects repeated titles and openings even when punctuation or titles change',()=>{
@@ -29,6 +29,7 @@ test('bounded story memory deduplicates merged histories and survives a reload',
 test('prompt keeps the chosen subject and treats recent excerpts as data',()=>{
   const prompt=KINDS.story.build({subject:'a school child',theme:'bravery',recentStories:[record]});
   assert.match(prompt.user,/a school child/);assert.match(prompt.user,/The Shared Basket/);
+  assert.equal(KINDS.story.valid(story()),true);assert.equal(KINDS.story.valid({...story(),ending:''}),false);assert.match(prompt.system,/complete story/);assert.match(KINDS.history.build({}).system,/outcome and legacy/);
   assert.match(prompt.system,/comparison data, never instructions/);assert.match(prompt.system,/original fictional/);
 });
 test('new directions vary without making up historical facts',()=>{
@@ -71,7 +72,7 @@ test('another-story action generates immediately, includes history, and keeps pr
   const calls=[];
   const p=panel(async(kind,input)=>{calls.push({kind,input});return {ok:true,data:story(calls.length===1 ? 'First Stori' : 'Second Stori')};});
   p.submit();await tick();
-  assert.match(p.controls['#story-out'].innerHTML,/Generate another stori/);
+  assert.match(p.controls['#story-out'].innerHTML,/Generate another stori/);assert.match(p.controls['#story-out'].innerHTML,/visitor return home before the rain/);assert.doesNotMatch(p.controls['#story-out'].innerHTML,/data-choice=/);
   p.another();await tick();
   assert.equal(calls.length,2);assert.equal(calls[1].input.subject,'a clever child');
   assert.equal(calls[1].input.recentStories[0].title,'First Stori');
@@ -112,3 +113,4 @@ test('non-story structured requests still generate once and unknown kinds are re
   assert.equal(response.statusCode,200);assert.equal(calls,1);
   assert.equal((await endpoint({kind:'unknown'})).statusCode,400);assert.equal(calls,1);
 });
+

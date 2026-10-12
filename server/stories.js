@@ -6,7 +6,7 @@ const PLACES=['beside a river','at a busy market','near a forest path','in a coa
 const TROUBLES=['an unexpected promise','a difficult act of kindness','a misunderstanding that needs patience','a lost object with an unexpected owner','a choice between pride and cooperation','a small mistake that grows','a resource that must be shared fairly','a clever plan that needs honesty','a visitor who asks for help','a task that takes more than one person'];
 
 export function storyDirection(kind,choose=randomInt) {
-  if(kind==='history') return 'Choose a different well-supported historical episode from the recent ones. Novelty must never come from inventing events, dates, quotations, or outcomes. Let choices select which factual part to hear next.';
+  if(kind==='history') return 'Choose a different well-supported historical episode from the recent ones. Novelty must never come from inventing events, dates, quotations, or outcomes. Tell the episode chronologically through its recorded outcome and significance; do not turn history into a choice of invented endings.';
   return `For variety, consider ${PEOPLE[choose(PEOPLE.length)]}, ${PLACES[choose(PLACES.length)]}, facing ${TROUBLES[choose(TROUBLES.length)]}. Adapt this inspiration to the listener’s chosen subject and theme; their preferences come first.`;
 }
 export class StoryGenerationError extends Error {
@@ -39,3 +39,4 @@ export async function generateFreshStory(spec,input,generate) {
   }
   throw new StoryGenerationError(failure);
 }
+

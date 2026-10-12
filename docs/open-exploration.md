@@ -6,7 +6,7 @@ respective panels directly.
 
 Choose a topic or leave it blank to let Grandpa choose. History and Wisdom offer
 Liberia, Africa and World areas. Stories also offer those areas while retaining
-the existing theme, subject and branching choices. These areas are perspectives,
+the existing theme and subject choices. Stories now arrive complete from beginning to end, with no mandatory branching. These areas are perspectives,
 not a fixed list of possible content.
 
 Use **Explore another history**, **Give me another wisdom**, or **Teach me
@@ -40,3 +40,4 @@ There is no fixed catalogue or count of permitted text generations. API credits,
 provider limits, rate limits, finite model context and available device storage
 still apply. This feature is ongoing exploration, not literally infinite storage,
 guaranteed knowledge or free API usage.
+
