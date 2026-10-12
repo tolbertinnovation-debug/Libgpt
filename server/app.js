@@ -30,8 +30,8 @@ import {
   projectContext, readPlan, stepPrompt,
 } from './build.js';
 import {
-  TEAM_PLAN_PROMPT, TEAM_REVIEW_PROMPT, normalizeTeamPlan, normalizeTeamReview,
-  teamProjectFaults, workerInstruction,
+  TEAM_REVIEW_PROMPT, normalizeTeamPlan, normalizeTeamReview, parseTeamJson,
+  teamProjectFaults, workerInstruction, generateTeamPlan,
 } from './build-team.js';
 import * as github from './github.js';
 import { createPublisher } from './publish.js';
@@ -1078,19 +1078,14 @@ app.post('/api/build/team-plan', rateLimit, requireAccess, async (req, res) => {
   const controller = new AbortController();
   res.on('close', () => controller.abort());
   try {
-    const raw = await complete({
-      model:await pickModel(req.body?.model, 'story'),
-      messages:[{role:'system',content:TEAM_PLAN_PROMPT},{role:'user',content:asked}],
-      maxTokens:8500, temperature:0.3, json:true, signal:controller.signal,
-    });
-    const plan = normalizeTeamPlan(JSON.parse(raw));
+    const plan=await generateTeamPlan({asked,model:await pickModel(req.body?.model,'story'),complete,signal:controller.signal});
     res.json({plan, workers:plan.tasks.map(task => ({
       agent:task.agent, files:task.files, instruction:workerInstruction(plan,task.agent,asked),
     }))});
   } catch (error) {
     if (controller.signal.aborted) return;
     console.error('[team-plan]', error?.message || error);
-    res.status(502).json({error:'The supervisor could not produce a complete, valid plan. No files were replaced. Try again.'});
+    res.status([401,403,429,503].includes(error?.status)?error.status:502).json({error:error?.message || 'Planning could not finish. Your request is saved; retry planning.'});
   }
 });
 
@@ -1120,12 +1115,12 @@ app.post('/api/build/team-review', rateLimit, requireAccess, async (req, res) =>
       ].join('\n\n')}],
       maxTokens:6000, temperature:0.2, json:true, signal:controller.signal,
     });
-    const review = normalizeTeamReview(JSON.parse(raw), plan, faults);
+    const review = normalizeTeamReview(parseTeamJson(raw), plan, faults);
     res.json({review});
   } catch (error) {
     if (controller.signal.aborted) return;
     console.error('[team-review]', error?.message || error);
-    res.status(502).json({error:'The supervisor could not finish its review. Your files remain saved; resume the review before calling this build complete.'});
+    res.status([401,403,429,503].includes(error?.status)?error.status:502).json({error:`Review paused: ${error?.message || 'The supervisor could not finish its review.'} Your completed files are kept; resume to retry.`});
   }
 });
 

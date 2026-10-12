@@ -3535,3 +3535,16 @@ body {
 .team-steps .is-doing .plan-tick { border-right-color:transparent; animation:team-spin 1s linear infinite; }
 @keyframes team-spin {to {transform:rotate(360deg);}}
 @media (prefers-reduced-motion:reduce) {.team-steps .is-doing .plan-tick {animation:none;}}
+
+/* Keep team errors, controls and the conversation reachable on short phones. */
+#pane-chat {overflow-y:auto;overscroll-behavior:contain;}
+#pane-chat .build-thread {flex:none;overflow:visible;}
+.team-status {display:flex;gap:10px;align-items:flex-start;color:var(--text-soft);line-height:1.5;margin:10px 0;overflow-wrap:anywhere;}
+.team-spinner {flex:none;width:19px;height:19px;border:2px solid var(--border-strong);border-top-color:var(--gold-deep);border-radius:50%;animation:team-spin .8s linear infinite;margin-top:3px;}
+.team-elapsed {font-size:.8rem;color:var(--text-faint);margin:6px 0 12px;}
+.team-controls {display:flex;gap:8px;margin:12px 0;}
+.team-controls button {min-height:44px;}
+.team-error {padding:12px;border-left:3px solid var(--red);background:color-mix(in srgb,var(--red) 6%,var(--bg-raised));border-radius:var(--radius-sm);color:var(--text);font-size:.85rem;line-height:1.5;overflow-wrap:anywhere;}
+.team-error summary {padding:8px 0;cursor:pointer;}
+.team-error ul {padding-left:18px;}
+@media (prefers-reduced-motion:reduce){.team-spinner{animation:none;border-right-color:transparent;}}

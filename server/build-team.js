@@ -106,3 +106,24 @@ export function teamProjectFaults(plan, files, runtimeFaults = []) {
   for (const fault of runtimeFaults) faults.push(string(fault, 'runtime fault', 1500));
   return [...new Set(faults)];
 }
+
+/** Accept JSON fences, then give an invalid plan one bounded corrective turn. */
+export function parseTeamJson(raw) {
+  if(typeof raw !== 'string' || !raw.trim()) throw new TypeError('The supervisor returned an empty response.');
+  const clean=raw.trim().replace(/^```(?:json)?\s*\n?/i,'').replace(/\n?```\s*$/,'');
+  try{return JSON.parse(clean);}catch{throw new TypeError('The supervisor response was incomplete or was not valid JSON.');}
+}
+export async function generateTeamPlan({asked,model,complete,signal}) {
+  const messages=[{role:'system',content:TEAM_PLAN_PROMPT},{role:'user',content:asked}];
+  let invalid='';
+  for(let attempt=0;attempt<2;attempt++){
+    if(signal?.aborted)throw new DOMException('Planning stopped','AbortError');
+    const raw=await complete({model,messages,maxTokens:16000,temperature:0.3,json:true,signal});
+    try{return normalizeTeamPlan(parseTeamJson(raw));}catch(error){
+      invalid=error.message;
+      if(attempt===0)messages.push({role:'assistant',content:String(raw || '').slice(0,64000)},
+        {role:'user',content:`Repair your plan. Validation failed: ${invalid}. Return only the complete JSON object in the required schema. Include all four distinct tasks with unique file ownership and index.html in the pages list. Keep the user's original request and real details. Do not return code files yet.`});
+    }
+  }
+  throw new TypeError(`Planning paused: ${invalid} Retry planning; your request is kept.`);
+}

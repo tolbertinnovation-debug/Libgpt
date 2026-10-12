@@ -319,6 +319,10 @@ async function send(text) {
   const p = project();
   if (!said || !p || isBusy()) return;
   if (!p.files.length && !p.messages.length) { await buildTheWholeThing(said); return; }
+  if(p.team && !p.team.plan){
+    const retry=/^(?:please\s+)?(?:continue|retry|try again|resume|go|yes)[.!]?$/i.test(said);
+    await buildTheWholeThing(retry?p.team.asked:`${p.team.asked}\n\nAdditional instructions: ${said}`);return;
+  }
 
   p.messages.push({role:'user',content:said});
   const answer={role:'assistant',content:''};
@@ -326,12 +330,13 @@ async function send(text) {
   const before=p.files.map(f=>({...f}));
   if(p.team){p.team.status='interrupted';p.team.latestRequest=said;p.team.message='Updating files; a fresh supervisor review is required.';}
   const controller=new AbortController();
-  state.streaming=controller;el.editorInput.readOnly=true;
+  state.streaming=controller;state.loadingStartedAt=Date.now();el.editorInput.readOnly=true;
   const mine=mark('Writing and saving your changes…');
   document.dispatchEvent(new CustomEvent('ritual:busy',{detail:true}));
+  renderPlan(p.team?{checkpoint:p.team,running:false}:null);
   renderThread();
   const received=new Map();
-  let saved=true;
+  let saved=true,failed=false;
   try {
     await generateFiles(said,p.files,{signal:controller.signal,
       messages:conversationWindow(p.messages.filter(m=>m.content)).list,
@@ -344,7 +349,10 @@ async function send(text) {
         renderTree();
       }});
     answer.content ||= received.size ? 'Your changes are saved.' : 'No files were changed.';
+    if(!received.size && p.team){p.team.status='needs_attention';p.team.message='The agent returned no completed files. Your current files are kept; resume the team to finish the requested change.';p.team.faults=[p.team.message];}
   } catch(error) {
+    failed=true;
+    if(p.team){p.team.status=error.name==='AbortError'?'stopped':'needs_attention';p.team.message=error.name==='AbortError'?'Stopped. Completed files are kept.':error.message || 'The update could not finish. Resume to retry.';p.team.faults=[p.team.message];}
     answer.content += `\n\n${error.name==='AbortError' ? 'Stopped. Completed files are kept.' : error.message || 'The request could not finish.'}`;
   } finally {
     if(received.size){
@@ -357,7 +365,7 @@ async function send(text) {
     await persist();render();
     if(received.size && saved){
       await checkAfterSaving(answer);
-      if(p.team)await buildTheWholeThing(p.team.asked,true);
+      if(p.team && !failed)await buildTheWholeThing(p.team.asked,true);
     }
     document.dispatchEvent(new CustomEvent('ritual:busy',{detail:false}));
   }
@@ -495,28 +503,39 @@ const unmark = (id) => { if (state.live?.id === id) state.live = null; };
 let ritualRun = null;   // the run in progress, so it can be called off
 
 /** Five roles, saved file counts, and the current review round. */
+let loadingTimer=null;
 function renderPlan(run) {
-  if(!run){el.plan.hidden=true;return;}
+  clearInterval(loadingTimer);loadingTimer=null;
+  if(!run){el.plan.hidden=true;el.plan.removeAttribute('aria-busy');return;}
   el.plan.hidden=false;
-  const cp=run.checkpoint || {},plan=cp.plan;
-  const status=cp.status || 'planning';
+  const cp=run.checkpoint || {},plan=cp.plan,editing=Boolean(state.streaming);
+  const running=Boolean(run.running || editing),status=editing?'editing':cp.status || 'planning';
+  el.plan.setAttribute('aria-busy',String(running));
   const names={supervisor:'Supervisor',design:'Design & assets',pages:'Pages & layout',interactions:'Interactions',content:'Content & materials'};
-  const roles=['supervisor','design','pages','interactions','content'];
-  const done=status==='approved';
-  el.plan.innerHTML=`<h4>${escapeHtml(plan?.title || 'Five-agent website team')}</h4>
-    <p>${escapeHtml(plan?.summary || 'The supervisor is turning your request into a shared project plan.')}</p>
+  const roles=['supervisor','design','pages','interactions','content'],done=status==='approved';
+  const messages={planning:'The supervisor is creating the project plan…',building:'The specialists are building and saving your files…',reviewing:'Checking the pages and reviewing the source…',repairing:'The specialists are repairing the reported issues…',editing:'Writing and saving your latest changes…'};
+  const message=running ? messages[status] || 'Working on your project…' : run.note || cp.message || (done?'Files saved and reviewed.':plan?'Completed files are kept. Resume to finish.':'Planning did not finish. Your request is kept.');
+  const title=plan?.title || (running?'Five-agent website team':'Planning paused');
+  el.plan.innerHTML=`<h4>${escapeHtml(title)}</h4>
+    <div class="team-status" role="status">${running?'<span class="team-spinner" aria-hidden="true"></span>':''}<span>${escapeHtml(message)}</span></div>
+    ${running?'<p class="team-elapsed" id="team-elapsed"></p>':''}
+    ${!running && cp.faults?.length?`<div class="team-error" role="alert"><strong>${escapeHtml(cp.faults[0])}</strong>${cp.faults.length>1?`<details><summary>${cp.faults.length-1} more ${cp.faults.length===2?'issue':'issues'}</summary><ul>${cp.faults.slice(1).map(f=>`<li>${escapeHtml(f)}</li>`).join('')}</ul></details>`:''}</div>`:''}
+    <div class="team-controls">${running?'<button class="proposal-look" type="button" id="plan-stop">Stop</button>':cp.asked && !done?`<button class="proposal-apply" type="button" id="plan-resume">${plan?'Resume project & review':'Retry planning'}</button>`:''}</div>
+    ${plan?.summary?`<p>${escapeHtml(plan.summary)}</p>`:''}
     <ol class="plan-steps team-steps">${roles.map(agent=>{
-      const task=plan?.tasks.find(t=>t.agent===agent);
-      const agentState=cp.agents?.[agent];
-      const count=task ? task.files.filter(path=>cp.savedPaths?.includes(path)).length : 0;
-      const busy=run.running && (agent==='supervisor' ? !plan || cp.status==='reviewing' : agentState?.status==='working' || agentState?.status==='repairing');
+      const task=plan?.tasks.find(t=>t.agent===agent),agentState=cp.agents?.[agent];
+      const count=task?task.files.filter(path=>cp.savedPaths?.includes(path)).length:0;
+      const busy=running && (agent==='supervisor'?!plan || status==='reviewing' || editing:agentState?.status==='working');
       const complete=done || agent!=='supervisor' && task && count===task.files.length;
-      return `<li class="plan-step is-${busy?'doing':complete?'done':status==='needs_attention'?'failed':'waiting'}"><span class="plan-tick" aria-hidden="true">${busy?'…':complete?'✓':''}</span><span><strong>${names[agent]}</strong>${task?`<small>${count} / ${task.files.length} files saved</small>`:agent==='supervisor'?'<small>Plans, assigns tasks, reviews and approves</small>':''}</span></li>`;
+      const failed=!running && agentState?.status==='needs_attention';
+      return `<li class="plan-step is-${busy?'doing':complete?'done':failed?'failed':'waiting'}"><span class="plan-tick" aria-hidden="true">${busy?'':complete?'✓':''}</span><span><strong>${names[agent]}</strong><small>${task?`${count} / ${task.files.length} files saved`:agent==='supervisor'?'Plans, assigns tasks and reviews':plan?'Waiting for assigned work':'Waiting for the supervisor’s plan'}</small></span></li>`;
     }).join('')}</ol>
-    <p class="plan-note">${escapeHtml(run.note || cp.message || (done?'Saved and approved after source and preview review.':run.running?'Agents are working. Completed files save automatically on this device.':'Work is saved. Resume to finish the remaining requirements.'))}</p>
-    ${cp.reviewRound ? `<p class="team-round">Review round ${cp.reviewRound} of 3</p>`:''}
-    ${!run.running && cp.faults?.length ? `<details class="team-issues"><summary>${cp.faults.length} items need attention</summary><ul>${cp.faults.map(issue=>`<li>${escapeHtml(issue)}</li>`).join('')}</ul></details>`:''}
-    ${run.running?'<button class="proposal-look" type="button" id="plan-stop">Stop team</button>':cp.asked && !done?'<button class="proposal-apply" type="button" id="plan-resume">Resume project & review</button>':''}`;
+    ${cp.reviewRound?`<p class="team-round">Repair round ${cp.reviewRound} of 3</p>`:''}`;
+  if(running){
+    const started=run.startedAt || state.loadingStartedAt || Date.now();
+    const update=()=>{const node=$('team-elapsed');if(node){const seconds=Math.max(0,Math.floor((Date.now()-started)/1000));node.textContent=`Working · ${seconds}s elapsed${seconds>=45?' · You can stop and resume without losing completed files.':''}`;}};
+    update();loadingTimer=setInterval(update,1000);
+  }
 }
 
 /** Run the built project in the sandbox and collect what comes back. */
@@ -575,7 +594,7 @@ async function faultsIn(files, expectedPaths = [], cancelled = () => false) {
  */
 async function teamRequest(path, body, signal) {
   const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},signal,body:JSON.stringify(body)});
-  const result=await response.json();
+  const result=await response.json().catch(()=>({error:response.status===504?'The server took too long. Your saved files are kept; retry the team.':'The server returned an unreadable response. Retry the team.'}));
   if(!response.ok)throw new Error(result.error || 'The team could not complete this request.');
   return result;
 }
@@ -585,7 +604,7 @@ async function buildTheWholeThing(asked, resume=false) {
   if(!p || isBusy())return;
   if(!resume)p.messages.push({role:'user',content:asked});
   const controller=new AbortController();
-  const run={running:true,controller,checkpoint:resume?p.team:{asked,status:'planning'},note:''};
+  const run={running:true,controller,startedAt:Date.now(),checkpoint:resume?p.team:{asked,status:'planning'},note:''};
   let saved=true;
   el.editorInput.readOnly=true;
   ritualRun=run;
@@ -613,7 +632,8 @@ async function buildTheWholeThing(asked, resume=false) {
     run.note=!saved ? 'Device storage could not save this build. Download your files before leaving; approval is paused.' : result.status==='approved'
       ? `All ${p.files.length} files are saved. The supervisor approved the source review and every page passed phone and desktop startup checks. Test real services and user flows before publishing.`
       : result.status==='stopped' ? 'Stopped. Completed files and the project plan are saved. Resume whenever you are ready.'
-      : 'The project is saved, with unfinished items listed below. Resume to continue building and reviewing.';
+      : !result.checkpoint.plan ? 'Your request is saved, but planning did not finish. No website files were created. Retry planning below.'
+      : 'Completed files are saved. Resolve the items below or resume to continue building and reviewing.';
     p.team.message=run.note;
     p.messages.push({role:'assistant',content:run.note});
   }catch(error){
@@ -683,15 +703,16 @@ export const ask = (text) => send(text);
    The sheet: builds, history, GitHub
    ========================================================================== */
 
-function openSheet(title, html) {
+function openSheet(title, html, {busy=false}={}) {
   clearTimeout(publicationTimer);
   sheetVersion += 1;
   $('sheet-title').textContent = title;
-  el.sheetBody.innerHTML = html;
+  el.sheet.setAttribute('aria-busy',String(busy));
+  el.sheetBody.innerHTML = (busy?'<div class="team-status" role="status"><span class="team-spinner" aria-hidden="true"></span><span>Loading…</span></div>':'')+html;
   el.sheet.hidden = false;
 }
 
-const closeSheet = () => { el.sheet.hidden = true; sheetVersion += 1; clearTimeout(publicationTimer); };
+const closeSheet = () => { el.sheet.removeAttribute('aria-busy');el.sheet.hidden = true; sheetVersion += 1; clearTimeout(publicationTimer); };
 
 async function checkWebsite() {
   const p=project();
@@ -702,7 +723,7 @@ async function checkWebsite() {
   const snapshot=JSON.stringify(p.files);
   const files=JSON.parse(snapshot);
   const pages=files.filter(file=>/\.html?$/i.test(file.path)).length;
-  openSheet('Checking your website',`<p class="sheet-note">Checking every page at phone and desktop widths, including form labels, images, section links, and startup errors.</p><button class="setting-btn" data-check-stop type="button">Stop checks</button>`);
+  openSheet('Checking your website',`<p class="sheet-note">Checking every page at phone and desktop widths, including form labels, images, section links, and startup errors.</p><button class="setting-btn" data-check-stop type="button">Stop checks</button>`, {busy:true});
   const version=sheetVersion;
   try {
     const faults=await faultsIn(files,[],()=>controller.signal.aborted);
@@ -746,7 +767,7 @@ function safePublishUrl(value) {
   try { const url = new URL(value); return url.protocol === 'https:' && /(^|\.)github\.io$/.test(url.hostname) ? url.href : ''; } catch { return ''; }
 }
 async function testBuildAI() {
-  openSheet('Live AI generation', '<p class="sheet-note">Testing your host’s OpenAI connection…</p>');
+  openSheet('Live AI generation', '<p class="sheet-note">Testing your host’s OpenAI connection…</p>', {busy:true});
   try {
     const response = await fetch('/api/build/connection', {
       method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},body:'{}',
@@ -822,7 +843,7 @@ async function publishProject() {
   const files = p.files.map(file=>({path:file.path,body:file.body}));
   const receipt = p.deployment?.receipt;
   state.publishing = true;
-  openSheet('Publishing website', '<p class="sheet-note">Uploading the project and starting GitHub Pages…</p>');
+  openSheet('Publishing website', '<p class="sheet-note">Uploading the project and starting GitHub Pages…</p>', {busy:true});
   try {
     const response = await fetch('/api/github/publish', {method:'POST',
       headers:{'Content-Type':'application/json',...deps.headers()},
@@ -851,7 +872,7 @@ async function githubStatus() {
 }
 
 async function showGitHub() {
-  openSheet('GitHub', '<p class="sheet-note">Checking…</p>');
+  openSheet('GitHub', '<p class="sheet-note">Checking…</p>', {busy:true});
   const status = await githubStatus();
 
   if (!status.ready) {
@@ -889,7 +910,7 @@ async function showGitHub() {
 }
 
 async function showRepos() {
-  openSheet('Repositories', '<p class="sheet-note">Reading your repositories…</p>');
+  openSheet('Repositories', '<p class="sheet-note">Reading your repositories…</p>', {busy:true});
   try {
     const response = await fetch('/api/github/repos', { headers: deps.headers() });
     const body = await response.json();
@@ -908,7 +929,7 @@ async function showRepos() {
 
 async function showRepoFiles(full, branch) {
   state.repo = { full, branch };
-  openSheet(full, '<p class="sheet-note">Reading the files…</p>');
+  openSheet(full, '<p class="sheet-note">Reading the files…</p>', {busy:true});
   try {
     const response = await fetch(`/api/github/tree?repo=${encodeURIComponent(full)}&branch=${encodeURIComponent(branch)}`,
       { headers: deps.headers() });
