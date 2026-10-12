@@ -82,7 +82,7 @@ export function qaFaults(plan, files, runtimeFaults = [], architecture = {}) {
   return [...new Set(faults)];
 }
 
-export function createReleaseGate({complete, chooseModel, secret}) {
+export function createReleaseGate({complete, chooseModel, secret, runQa=async fn=>fn()}) {
   const getKey = () => { const value = typeof secret === 'function' ? secret() : secret; return typeof value === 'string' && value.length >= 32 ? value : null; };
   const clean = value => String(value || '').replace(/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]*?(?:-----END (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|$)/g, '[redacted private key]').replace(secretPattern, '[redacted credential]').replaceAll(getKey() || '\0', '[redacted]').slice(0, 1500);
   const blocked = (summary, faults = []) => ({passed:false, summary:clean(summary), faults:faults.map(clean)});
@@ -115,7 +115,7 @@ export function createReleaseGate({complete, chooseModel, secret}) {
       gates.qa = blocked('The entire artifact exceeds the independent review budget.', ['Full source review is required; no truncated review can approve release.']);
       return finish();
     }
-    const qa = qaFaults(plan,files,faults,architecture);
+    const qa = await runQa(()=>qaFaults(plan,files,faults,architecture));
     gates.qa = {passed:!qa.length,summary:qa.length ? 'Trusted source checks found unresolved issues.' : 'Trusted structural, reference, JSON and JavaScript syntax checks passed; no generated code was executed.',faults:qa.map(clean)};
     const knownSecurity = securityFaults(files);
     const data = {asked,plan,architecture,files:reviewFiles,updates,qa:gates.qa};

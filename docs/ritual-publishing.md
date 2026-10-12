@@ -1,31 +1,15 @@
-# Approved website publishing and recovery
+# Staged website releases
 
-## Host configuration
+Every Ritual Coding release must pass independent review, security, QA and approval, then staging and gradual rollout. See [Ritual Coding guardrails](ritual-guardrails.md) for the precise role permissions, operator configuration, API contract, audit behavior, budgets and pause commands.
 
-Configure OPENAI_API_KEY, ENABLE_BUILDING=true, GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET and a stable GITHUB_SEAL_KEY on the Grandpa AI host. Register the OAuth callback for the actual host at /api/github/callback. Follow README for secret formats and cookie settings. Never place these credentials in generated websites.
+Direct GitHub Pages publication is disabled because it cannot split production traffic into gradual rollout steps. GitHub repository reading and source downloads remain available. Old deployment status records can be checked for recovery, but cannot authorize a new direct release.
 
-Publishing requests GitHub repo scope. Automatic release monitoring also requests workflow scope. Tokens stay sealed in HttpOnly cookies and server-side GitHub requests. GitHub Actions must be available and enabled for unattended scheduled monitoring.
+The operator must provide shared persistent governance storage on an ordinary Node host, an approved model/cost policy, a separate administrator credential and a trusted HTTPS deployment adapter. The current filesystem governance implementation refuses serverless execution; Vercel requires an additional durable service/database implementation before engineering agents can run there.
 
-## Configure a project once
+In Build, open Agent guardrails to inspect status, budget, rate/concurrency limits and audit metadata, or pause/resume as an authorized operator. Publish website first checks whether the required release infrastructure is configured. Unavailable infrastructure is a blocker, never a model-generated claim of successful deployment.
 
-Build a website and resolve the team's reported issues. Choose Publish website to configure the public repository target, authorize GitHub and optionally enable automatic approved updates. The configuration explains that all published files become public. Existing unrelated repositories cannot be selected through this flow.
+Configured releases upload the exact approved artifact to isolated staging. The adapter must verify tests and a healthy rollback baseline, then observe each rollout at 5%, 25%, 50% and 100% for at least thirty seconds. Every step must confirm the same artifact and baseline. Failed or uncertain promotion attempts stop further promotion and request restoration of the verified baseline. An unverified restoration requires operator attention.
 
-Once configured, approved updates automatically publish to that project target without repeated human engineering sign-off. The server independently verifies the signed approval against every submitted file before any GitHub write. Expired approval or changed files require fresh gates. Direct file pushes are disabled so they cannot bypass the approver.
+Automatic approved updates remain opt-in per project. They use the same staging and rollout gates; they cannot reuse approval after file changes or consume a staging result twice. Backend/database/cloud releases remain blocked until their actual execution and hosting environments are verified.
 
-All files are uploaded in one atomic commit. The app retains a sealed receipt identifying the repository, exact deployment commit and last verified healthy approved version. Keep browser project storage and the seal key stable. Pause automatic releases from the publication controls if desired.
-
-## Deployment and rollback
-
-Live status requires GitHub Pages to build the exact requested commit and the fixed website URL to return HTTP 200. If the initial polling window ends, Check deployment status continues the same deployment check. A failed initial release has no prior healthy version to restore.
-
-For approved updates, a definite Pages build failure or two failed bounded health probes can restore the signed prior healthy approved tree using a new commit. Cancellation and a single transient failed probe do not trigger rollback. The app refuses to overwrite an unrelated newer branch change and never force-pushes history.
-
-Automatic mode adds a trusted server-authored GitHub workflow, scheduled about every fifteen minutes and available through workflow_dispatch. It checks the expected artifact manifest and exact current deployment. It runs no generated scripts, performs no checkout and installs no generated dependencies. A failed release can restore only its fixed previous healthy approved commit. The restoration message and artifact binding prevent cascading rollbacks. GitHub scheduling and build availability remain external dependencies.
-
-## Supported deployment types
-
-GitHub Pages supports public static HTML, CSS, JavaScript, JSON, text, SVG and supported images. A root index.html is required. Use relative asset links under the repository path. Limits are seventy-two input files and 1.5 MB decoded contents. A .nojekyll file and, when enabled, the trusted monitoring workflow are added by the server; generated hidden files remain rejected.
-
-Backend, authentication, payment and database code can be generated and saved, but cannot pass the static production gate without a verified runtime and test environment. The app does not execute generated backend code or share its provider credentials with generated websites.
-
-Automated source checks, mock provider tests and browser startup checks have practical limits. They do not certify every interaction or external service. Release results show what passed and what remains blocked.
+The supplied adapter interface is an integration contract, not a bundled hosting service. It must enforce project isolation, monotonic steps, idempotency and deployment lineage, and continue independent monitoring when the app request ends or crashes. App source checks do not certify every visitor interaction or third-party service.

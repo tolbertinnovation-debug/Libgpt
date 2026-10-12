@@ -16,7 +16,7 @@ import { FALLBACK_MODELS, config, isChatModel, sortModels } from './config.js';
 import { OPENAI_VOICES, DEFAULT_OPENAI_VOICE, speechOptions } from './voice.js';
 import { canSee, resolveTiers, tierFor } from './models.js';
 import {
-  OpenAIError, complete, generateImage, listModels, speakAloud, streamChat, streamSearch,
+  OpenAIError, complete as providerComplete, generateImage, listModels, speakAloud, streamChat as providerStreamChat, streamSearch,
   transcribe,
 } from './openai.js';
 import {
@@ -35,6 +35,9 @@ import {
 } from './build-team.js';
 import * as github from './github.js';
 import { createPublisher } from './publish.js';
+import {createAgentGovernance} from './agent-governance.js';
+import {createAgentRuntime} from './agent-runtime.js';
+import {createRolloutPolicy} from './rollout-policy.js';
 import { createReleaseGate, artifactHash } from './release-gate.js';
 import { needsLookingUp, searchModelFrom, SEARCH_PROMPT } from './search.js';
 import { conversationWindow, QUESTION_CHARS, answerDepth, researchMode, generationBudget } from '../public/knowledge.js';
@@ -44,6 +47,12 @@ import {imageRequest} from './image-options.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
+const governance=createAgentGovernance({directory:process.env.RITUAL_GOVERNANCE_DIR,serverless:config.serverless,limits:{dailyUsd:Number(process.env.RITUAL_DAILY_USD || 5),callsPerMinute:Number(process.env.RITUAL_CALLS_PER_MINUTE || 20),concurrency:Number(process.env.RITUAL_CONCURRENCY || 4),maxCostPerMillionTokens:Number(process.env.RITUAL_MAX_USD_PER_MILLION_TOKENS || 100)}});
+const runtime=createAgentRuntime({governance,complete:providerComplete,streamChat:providerStreamChat,
+  allowedModels:(process.env.RITUAL_AGENT_MODELS || 'gpt-4.1,gpt-4.1-mini,gpt-4o,gpt-4o-mini').split(',').map(x=>x.trim()).filter(Boolean)});
+const complete=runtime.complete,streamChat=runtime.streamChat;
+const rolloutPolicy=createRolloutPolicy({observe:event=>governance.recordDeployment(event),config:()=>({url:process.env.RITUAL_DEPLOYMENT_ADAPTER_URL,secret:process.env.RITUAL_DEPLOYMENT_ADAPTER_SECRET})});
+
 
 app.disable('x-powered-by');
 // A megabyte was the whole budget when every request was words. A photograph
@@ -400,7 +409,7 @@ app.post('/api/github/disconnect', (req, res) => {
 });
 
 
-const releaseGate=createReleaseGate({complete,chooseModel:()=>pickModel(undefined,'story'),
+const releaseGate=createReleaseGate({runQa:fn=>runtime.action('qa','checks',async()=>fn()),complete:options=>{const prompt=options.messages?.[0]?.content || '';const role=prompt.includes('independent Security agent')?'security':prompt.includes('independent Approver agent')?'approver':'reviewer';return runtime.callAs(role,role==='security'?'security':role==='approver'?'approval':'review',options);},chooseModel:()=>pickModel(undefined,'story'),
   secret:()=>config.apiKey?crypto.createHmac('sha256',config.apiKey).update('ritual-release-approval-v1').digest('hex'):''});
 const publisher = createPublisher({
   request:github.githubRequest, identify:github.whoami, seal:github.seal, unseal:github.unseal,
@@ -408,7 +417,7 @@ const publisher = createPublisher({
   fetchPage:(url,options)=>fetch(url,{...options,redirect:'manual'}),
 });
 
-app.post('/api/build/connection', rateLimit, requireAccess, async (_req, res) => {
+app.post('/api/build/connection', rateLimit, requireAccess, runtime.middleware('orchestrator','plan'), async (_req, res) => {
   if (!config.building || !config.apiKey) return res.status(503).json({error:'Live generation needs OPENAI_API_KEY configured on this host.'});
   const controller = new AbortController();
   const timeout = setTimeout(()=>controller.abort(),20_000);
@@ -422,17 +431,11 @@ app.post('/api/build/connection', rateLimit, requireAccess, async (_req, res) =>
   } finally { clearTimeout(timeout); }
 });
 
-app.post('/api/github/publish', rateLimit, requireAccess, withToken(async (req,res,token) => {
-  const controller = new AbortController();
-  const timeout = setTimeout(()=>controller.abort(),45_000);
-  try {
-    res.json(await publisher.publish(token,req.body || {},controller.signal));
-  } catch(error) {
-    res.status(error.status || 502).json({error:error.message || 'Publication could not finish.',deployment:error.deployment});
-  } finally { clearTimeout(timeout); }
-}));
-app.post('/api/github/publication', rateLimit, requireAccess, withToken(async (req,res,token) => {
-  res.json(await publisher.status(token,req.body || {},AbortSignal.timeout(45_000)));
+app.post('/api/github/publish',rateLimit,requireAccess,(_req,res)=>{
+  res.status(409).json({error:'Direct production publication is disabled. Every release requires verified staging and gradual rollout through the configured deployment adapter.'});
+});
+app.post('/api/github/publication', rateLimit, requireAccess, runtime.middleware('devops','monitor'), withToken(async (req,res,token) => {
+  res.json(await runtime.action('devops','monitor',signal=>publisher.status(token,req.body || {},AbortSignal.any([signal,AbortSignal.timeout(45_000)]))));
 }));
 
 app.get('/api/github/repos', rateLimit, withToken(async (_req, res, token) => {
@@ -637,7 +640,7 @@ function photoFrom(body) {
   return { photo, why: '' };
 }
 
-app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
+app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','generate',{buildOnly:true}), async (req, res) => {
   let messages;
   let dropped = 0;
   let document;
@@ -710,14 +713,14 @@ app.post('/api/chat', rateLimit, requireAccess, async (req, res) => {
   // below, and then every one of these has to change with it.
   //
   // Research can accompany a photo or a build when the question needs it.
-  let searched = Boolean(reader)
+  let searched = !building && Boolean(reader)
     && !carryingOn
     && (req.body?.search === true || (research !== 'off' && needsLookingUp(routedQuestion, new Date(), research === 'always')));
   const buildingPrompt = () => [
     // Only told it can draw where it really can.
     QUALITY_PROMPT,
     buildPrompt({
-      pictures: config.imagesEnabled && !(config.serverless && !config.accessCode),
+      pictures: false,
       runtime:req.body?.buildRuntime==='fullstack'?'fullstack':'static',
     }),
     '',
@@ -1016,7 +1019,7 @@ app.post('/api/title', rateLimit, requireAccess, async (req, res) => {
 // Asked once, before any file is written. The answer is a plan the browser
 // then works through step by step, so that "make me a website for my shop"
 // ends with a website rather than with the first page of one.
-app.post('/api/plan', rateLimit, requireAccess, async (req, res) => {
+app.post('/api/plan', rateLimit, requireAccess, runtime.middleware('orchestrator','plan'), async (req, res) => {
   if (!config.building) { res.status(503).json({ error: 'Building is switched off here.' }); return; }
 
   const asked = String(req.body?.asked || '').trim().slice(0, 2_000);
@@ -1052,7 +1055,7 @@ app.post('/api/plan', rateLimit, requireAccess, async (req, res) => {
 
 // Five-agent builds keep planning and review as distinct supervisor calls.
 // Workers continue to use the existing cancellable /api/chat file stream.
-app.post('/api/build/team-plan', rateLimit, requireAccess, async (req, res) => {
+app.post('/api/build/team-plan', rateLimit, requireAccess, runtime.middleware('orchestrator','plan'), async (req, res) => {
   if (!config.building) { res.status(503).json({error:'Building is switched off here.'}); return; }
   const asked = req.body?.asked;
   if (typeof asked !== 'string' || !asked.trim() || asked.length > 6000) {
@@ -1072,7 +1075,7 @@ app.post('/api/build/team-plan', rateLimit, requireAccess, async (req, res) => {
   }
 });
 
-app.post('/api/build/team-review', rateLimit, requireAccess, async (req, res) => {
+app.post('/api/build/team-review', rateLimit, requireAccess, runtime.middleware('reviewer','review'), async (req, res) => {
   if (!config.building) { res.status(503).json({error:'Building is switched off here.'}); return; }
   let plan; let faults; let project;
   const updates=req.body?.updates || '';
@@ -1108,7 +1111,7 @@ app.post('/api/build/team-review', rateLimit, requireAccess, async (req, res) =>
 });
 
 // Architecture and release authority are separate server-owned decisions.
-app.post('/api/build/architecture',rateLimit,requireAccess,async(req,res)=>{
+app.post('/api/build/architecture',rateLimit,requireAccess,runtime.middleware('architect','architecture'),async(req,res)=>{
   if(!config.building || !config.apiKey)return res.status(503).json({error:'The engineering team is unavailable on this host.'});
   const controller=new AbortController();res.on('close',()=>controller.abort());
   try{
@@ -1119,7 +1122,7 @@ app.post('/api/build/architecture',rateLimit,requireAccess,async(req,res)=>{
     res.json({architecture});
   }catch(error){if(!controller.signal.aborted)res.status(error.status || 502).json({error:error.message || 'Architecture decisions could not finish.'});}
 });
-app.post('/api/build/release',rateLimit,requireAccess,async(req,res)=>{
+app.post('/api/build/release',rateLimit,requireAccess,runtime.middleware('reviewer','review'),async(req,res)=>{
   if(!config.building || !config.apiKey)return res.status(503).json({error:'The engineering team is unavailable on this host.'});
   const controller=new AbortController();res.on('close',()=>controller.abort());
   try{
@@ -1128,8 +1131,52 @@ app.post('/api/build/release',rateLimit,requireAccess,async(req,res)=>{
     const plan=normalizeTeamPlan(req.body?.plan),architecture=normalizeArchitecture(req.body?.architecture,plan);
     teamProjectFaults(plan,req.body?.files,req.body?.faults || req.body?.issues || []);
     const release=await releaseGate.evaluate({asked,plan,architecture,files:req.body.files,faults:req.body.faults || req.body.issues || [],updates},controller.signal);
+    for(const [id,gate]of Object.entries(release.gates))await governance.recordDecision({role:id==='review'?'reviewer':id,passed:gate.passed,artifactHash:release.artifactHash});
+    await governance.assertActive();
     res.json(release);
   }catch(error){if(!controller.signal.aborted)res.status(error.status || 502).json({error:error.message || 'Independent release checks could not finish.'});}
+});
+
+// Operator controls use a dedicated credential, never the shared visitor access code.
+function requireAgentAdmin(req,res,next){
+  const expected=process.env.RITUAL_ADMIN_TOKEN || '',supplied=req.get('x-ritual-admin') || '';
+  const a=Buffer.from(expected),b=Buffer.from(supplied);
+  if(a.length<32 || a.length!==b.length || !crypto.timingSafeEqual(a,b))return res.status(403).json({error:'Operator authorization is required.'});
+  next();
+}
+app.get('/api/build/governance',rateLimit,requireAccess,async(_req,res)=>{
+  try {const s=await governance.status();res.json({...s,available:true,rolloutConfigured:Boolean(process.env.RITUAL_DEPLOYMENT_ADAPTER_URL && process.env.RITUAL_DEPLOYMENT_ADAPTER_SECRET),steps:[5,25,50,100]});}
+  catch {res.status(503).json({available:false,paused:true,error:'Persistent agent governance is unavailable. Agent work and releases are blocked.'});}
+});
+app.get('/api/build/audit',rateLimit,requireAgentAdmin,async(_req,res)=>{
+  try {res.json({events:await governance.audit({limit:100})});}catch(error){res.status(503).json({error:error.message});}
+});
+app.post('/api/build/control',rateLimit,requireAgentAdmin,async(req,res)=>{
+  try {
+    const action=req.body?.action;
+    if(!['pause','resume'].includes(action))return res.status(400).json({error:'Choose pause or resume.'});
+    res.json(await governance[action]({actor:req.ip}));
+  }catch(error){res.status(error.status || 503).json({error:error.message});}
+});
+app.post('/api/build/audit',rateLimit,requireAccess,async(req,res)=>{
+  try{await governance.recordEvent({event:req.body?.event,actor:req.ip,artifactHash:req.body?.artifactHash});res.json({recorded:true});}
+  catch(error){res.status(error.status || 503).json({error:error.message});}
+});
+app.post('/api/build/stage',rateLimit,requireAccess,runtime.middleware('devops','stage'),async(req,res)=>{
+  try{
+    if(!releaseGate.verify(req.body?.approvalToken,req.body?.files))return res.status(403).json({error:'Independent release approval is required for these exact files.'});
+    const hash=artifactHash(req.body.files);
+    const stage=await runtime.action('devops','stage',signal=>rolloutPolicy.stage(req.body.files,hash,signal));
+    res.json(stage);
+  }catch(error){res.status(error.status || 503).json({error:error.message});}
+});
+app.post('/api/build/rollout',rateLimit,requireAccess,runtime.middleware('devops','deploy'),async(req,res)=>{
+  try{
+    if(!releaseGate.verify(req.body?.approvalToken,req.body?.files) || !rolloutPolicy.verify(req.body?.stage,req.body?.files))return res.status(403).json({error:'Fresh independent approval and verified staging are required for these exact files.'});
+    await governance.claimRelease({stagingId:req.body.stage.stagingId,artifactHash:artifactHash(req.body.files),actor:req.ip});
+    const result=await runtime.action('devops','deploy',signal=>rolloutPolicy.rollout(req.body.stage,signal));
+    res.json(result);
+  }catch(error){res.status(error.status || 503).json({error:error.message});}
 });
 
 // ---- the Library: stories, names, recipes, quizzes ----------------------

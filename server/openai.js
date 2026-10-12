@@ -131,7 +131,7 @@ function adapt(body, detail, model) {
   return next;
 }
 
-async function post(path, body, signal) {
+async function post(path, body, signal, maxAttempts = 3) {
   // body.model is what every one of these calls names.
   const asked = typeof body?.model === 'string' ? body.model : '';
 
@@ -161,7 +161,7 @@ async function post(path, body, signal) {
     if (response.ok) return response;
 
     const error = await toError(response, asked, path);
-    const adapted = response.status === 400 && tries < 2
+    const adapted = response.status === 400 && tries < Math.min(3,maxAttempts)-1
       ? adapt(attempt, error.detail || '', asked)
       : null;
     if (!adapted) throw error;
@@ -177,7 +177,7 @@ async function post(path, body, signal) {
  * its thought, "length" when it hit the token ceiling part-way through.
  */
 export async function* streamChat({
-  model, messages, maxTokens, temperature, signal, onFinish,
+  model, messages, maxTokens, temperature, signal, onFinish, maxAttempts,
 }) {
   const response = await post('/chat/completions', {
     model: model || config.model,
@@ -185,7 +185,7 @@ export async function* streamChat({
     stream: true,
     temperature: temperature ?? 0.7,
     max_tokens: maxTokens ?? 1400,
-  }, signal);
+  }, signal, maxAttempts);
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -546,7 +546,7 @@ export async function transcribe({ audio, type = 'audio/webm', prompt = '', sign
  * validate what comes back.
  */
 export async function complete({
-  model, messages, maxTokens = 30, temperature = 0.3, json = false, signal,
+  model, messages, maxTokens = 30, temperature = 0.3, json = false, signal, maxAttempts,
 }) {
   const body = {
     model: model || config.titleModel,
@@ -556,7 +556,7 @@ export async function complete({
   };
   if (json) body.response_format = { type: 'json_object' };
 
-  const response = await post('/chat/completions', body, signal);
+  const response = await post('/chat/completions', body, signal, maxAttempts);
   const parsed = await response.json();
   return parsed.choices?.[0]?.message?.content?.trim() || '';
 }

@@ -1,3 +1,6 @@
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -89,6 +92,8 @@ test('real Express team routes use access protection, provider calls and reject 
     });
     return Response.json({choices:[{message:{content:typeof answer==='string'?answer:JSON.stringify(answer)}}]});
   };
+  const governanceDir=await mkdtemp(path.join(tmpdir(),'ritual-tests-'));
+  Object.assign(process.env,{RITUAL_GOVERNANCE_DIR:governanceDir,RITUAL_DAILY_USD:'1000',RITUAL_CALLS_PER_MINUTE:'1000'});
   const {default:app}=await import('../server/app.js');
   const server=app.listen(0,'127.0.0.1');
   await new Promise(resolve=>server.once('listening',resolve));

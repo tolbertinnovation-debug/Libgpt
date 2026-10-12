@@ -1,0 +1,23 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+test('real API protects kill switch and audit, blocks paused work and direct publication',async t=>{
+ const directory=await mkdtemp(path.join(tmpdir(),'agent-control-api-'));t.after(()=>rm(directory,{recursive:true,force:true}));
+ Object.assign(process.env,{RITUAL_GOVERNANCE_DIR:directory,RITUAL_ADMIN_TOKEN:'test-operator-token-'.repeat(3),RITUAL_DAILY_USD:'1000',RITUAL_CALLS_PER_MINUTE:'1000',OPENAI_API_KEY:'fixture',RATE_LIMIT_PER_MINUTE:'0',ENABLE_LIVE_NEWS:'false'});
+ const {default:app}=await import('../server/app.js');const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(()=>{server.closeAllConnections();server.close();});const base=`http://127.0.0.1:${server.address().port}`;
+ const post=(route,body,admin=false)=>fetch(base+route,{method:'POST',headers:{'Content-Type':'application/json',...(admin?{'x-ritual-admin':process.env.RITUAL_ADMIN_TOKEN}:{})},body:JSON.stringify(body)});
+ assert.equal((await post('/api/build/control',{action:'pause'})).status,403);
+ assert.equal((await fetch(base+'/api/build/audit')).status,403);
+ assert.equal((await post('/api/build/control',{action:'pause'},true)).status,200);
+ assert.equal((await post('/api/build/team-plan',{asked:'Build my school.'})).status,423);
+ assert.equal((await post('/api/chat',{mode:'build',messages:[{role:'user',content:'Build'}]})).status,423);
+ const status=await fetch(base+'/api/build/governance').then(r=>r.json());assert.equal(status.paused,true);
+ assert.equal((await post('/api/github/publish',{files:[],approvalToken:'forged'})).status,409);
+ assert.equal((await post('/api/build/control',{action:'resume'},true)).status,200);
+ assert.equal((await post('/api/build/stage',{files:[{path:'index.html',body:'<html></html>'}],approvalToken:'forged'})).status,403);
+ assert.equal((await post('/api/build/audit',{event:'approve-my-work'})).status,403);
+ assert.equal((await post('/api/build/audit',{event:'file_saved',content:'do not record this'})).status,200);
+ const events=await fetch(base+'/api/build/audit',{headers:{'x-ritual-admin':process.env.RITUAL_ADMIN_TOKEN}}).then(r=>r.json());assert.ok(events.events.some(e=>e.event==='paused'));assert.ok(!JSON.stringify(events).includes('do not record this'));assert.ok(!JSON.stringify(events).includes(process.env.RITUAL_ADMIN_TOKEN));
+});

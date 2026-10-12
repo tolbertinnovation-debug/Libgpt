@@ -1,3 +1,6 @@
+import {mkdtemp,rm} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {conversationWindow, generationBudget, depthInstructions, QUESTION_CHARS} from '../public/knowledge.js';
@@ -63,6 +66,8 @@ test('chat streams complete input, research sources, continuations and honest fa
     }
     return frames([{choices:[{delta:{content:' Finished answer.'},finish_reason:scenario==='length'?'length':'stop'}]}]);
   };
+  const governanceDir=await mkdtemp(path.join(tmpdir(),'ritual-tests-'));
+  Object.assign(process.env,{RITUAL_GOVERNANCE_DIR:governanceDir,RITUAL_DAILY_USD:'1000',RITUAL_CALLS_PER_MINUTE:'1000'});
   const {default:app}=await import('../server/app.js');
   const server=app.listen(0,'127.0.0.1');
   await new Promise(resolve=>server.once('listening',resolve));
@@ -122,12 +127,12 @@ test('chat streams complete input, research sources, continuations and honest fa
     assert.equal(r.events.find(e=>e.type==='sources').data.items.length,8);
     assert.equal(r.events.find(e=>e.type==='done').data.searched,true);
   });
-  await t.test('builds can research while retaining file-format instructions',async()=>{
+  await t.test('agent builds use metered generation and cannot invoke unbudgeted research',async()=>{
     requests=[];
     await post({...question('Build a site using the current API documentation'),mode:'build'});
-    assert.ok(requests[0].url.endsWith('/responses'));
-    assert.equal(requests[0].body.max_output_tokens,12_000);
-    assert.match(requests[0].body.input[0].content,/Keep the build file format/);
+    assert.ok(requests[0].url.endsWith('/chat/completions'));
+    assert.equal(requests[0].body.max_tokens,12_000);
+    assert.match(requests[0].body.messages[0].content,/WHAT TO BUILD WITH/);
   });
   await t.test('research off bypasses search; factual research mode searches ordinary lessons',async()=>{
     requests=[];await post({...question('Latest news'),research:'off'});
@@ -187,4 +192,5 @@ test('long conversations recall earlier user details and relevant exchanges whil
   assert.ok(result.list.length<=160);assert.ok(result.list.reduce((n,m)=>n+m.content.length,0)<=120000);
   assert.deepEqual(conversationWindow(result.list).list,result.list);
 });
+
 
