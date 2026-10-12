@@ -30,6 +30,8 @@ const GATES = ['review', 'security', 'qa', 'approver'];
 const copy = value => JSON.parse(JSON.stringify(value));
 const message = error => String(error?.message || error || 'The task did not finish.');
 const aborted = () => Object.assign(new Error('Build stopped.'), { name: 'AbortError' });
+const policyDenied = error => [401, 403, 413, 423, 429, 503].includes(error?.status)
+  || /budget|spend|rate limit|concurren|credential|governance|permission|switched off|unavailable on this host|cost policy/i.test(message(error));
 
 /** Strict project-relative paths. Never normalize an unsafe path into a safe one. */
 export function teamPath(raw) {
@@ -121,7 +123,9 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
   };
   state.asked ||= String(asked || '');
   state.agents ||= {};
-  state.savedPaths ||= [];
+  // Reconcile legacy checkpoint metadata with the source actually loaded.
+  // Missing or invalid files must never continue to appear durably complete.
+  state.savedPaths = [...current.values()].filter(file => !bodyProblem(file)).map(file => file.path);
   state.faults ||= [];
   state.reviewRound ||= 0;
   state.capacity = {...TEAM_CAPACITY};
@@ -252,8 +256,7 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
         await Promise.allSettled(pendingFiles);
         if (controller.signal.aborted || storageFailure) throw error;
         // Budget, access and policy denials must pause, never trigger extra paid retries.
-        retryAllowed = ![401,403,413,423,429,503].includes(error?.status)
-          && !/budget|spend|rate limit|concurren|credential|governance|permission|switched off|unavailable on this host|cost policy/i.test(message(error));
+        retryAllowed = !policyDenied(error);
         if (!retryAllowed) {
           policyFailure = error;
           controller.abort(error);
@@ -341,8 +344,17 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
     state.status = 'building';
     const results = await runWorkers(state.plan.tasks, task => {
       const agent = agentFor(task.agent);
-      const remaining = task.files.filter(path => !agent.completed.includes(path) || !current.has(path) || bodyProblem(current.get(path)));
+      const remaining = task.files.filter(path => !current.has(path) || bodyProblem(current.get(path)));
+      // Source loaded from the saved project remains authoritative when an
+      // older checkpoint omitted completion metadata. Review checks it again.
+      agent.completed = task.files.filter(path => current.has(path) && !bodyProblem(current.get(path)));
+      state.savedPaths = [...new Set([...state.savedPaths, ...agent.completed])];
       if (remaining.length) return work(task, remaining);
+      // Previous attempts may have reported missing or cut-off source that a
+      // later saved/manual repair completed. Only discard historical worker
+      // findings here, before this run generates anything for this owner.
+      // Fresh source checks, review and release gates still examine all files.
+      if (checkpoint) agent.faults = [];
       agent.status = agent.faults.length ? 'needs_attention' : 'complete';
       return Promise.resolve();
     });
@@ -359,13 +371,25 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
       const issues = await deterministicCheck();
       state.faults = issues;
       emit({ type: 'reviewing', issues });
-      const reviewed = await hooks.review({
-        asked: state.asked, plan: copy(state.plan), files: list(), issues, round: state.reviewRound,
-      }, { signal: controller.signal });
-      ensureActive();
-      const review = reviewed?.review || reviewed;
-      if (!review || typeof review.approved !== 'boolean' || !Array.isArray(review.repairs || [])
-        || !Array.isArray(review.faults || [])) throw new Error('The supervisor review did not finish.');
+      let review;
+      try {
+        const reviewed = await hooks.review({
+          asked: state.asked, plan: copy(state.plan), files: list(), issues, round: state.reviewRound,
+        }, { signal: controller.signal });
+        ensureActive();
+        review = reviewed?.review || reviewed;
+        if (!review || typeof review.approved !== 'boolean' || !Array.isArray(review.repairs || [])
+          || !Array.isArray(review.faults || [])) throw new Error('The supervisor review did not finish.');
+      } catch (error) {
+        ensureActive();
+        // Missing source has a deterministic owner even when review fails to
+        // return usable findings. Complete only that source; fresh independent
+        // review and all release gates remain mandatory after it is saved.
+        if (error?.name === 'AbortError' || policyDenied(error)
+          || !repairAssignments({ repairs: [] }, issues).length) throw error;
+        review = { approved: false, summary: message(error),
+          faults: [`Independent review did not finish: ${message(error)}`], repairs: [] };
+      }
       state.review = copy(review);
       agentFor('reviewer').status = review.approved && !issues.length && !(review.faults || []).length && !(review.repairs || []).length ? 'complete' : 'needs_attention';
       state.faults = [...new Set([...issues, ...(review.faults || []).map(String)])];

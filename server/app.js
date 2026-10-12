@@ -36,6 +36,9 @@ import {
 import * as github from './github.js';
 import { createPublisher } from './publish.js';
 import {createAgentGovernance} from './agent-governance.js';
+import {createRedisGovernanceStorage} from './governance-redis.js';
+import {agentModelPolicy} from './agent-model-policy.js';
+import {reviewArtifact} from './review-chunks.js';
 import {createAgentRuntime} from './agent-runtime.js';
 import {createRolloutPolicy} from './rollout-policy.js';
 import { createReleaseGate, artifactHash } from './release-gate.js';
@@ -47,9 +50,11 @@ import {imageRequest} from './image-options.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const governance=createAgentGovernance({directory:process.env.RITUAL_GOVERNANCE_DIR,serverless:config.serverless,limits:{dailyUsd:Number(process.env.RITUAL_DAILY_USD || 5),callsPerMinute:Number(process.env.RITUAL_CALLS_PER_MINUTE || 20),concurrency:Number(process.env.RITUAL_CONCURRENCY || 4),maxCostPerMillionTokens:Number(process.env.RITUAL_MAX_USD_PER_MILLION_TOKENS || 100)}});
+const governanceStorage=createRedisGovernanceStorage({url:process.env.UPSTASH_REDIS_REST_URL || process.env.KV_REST_API_URL,token:process.env.UPSTASH_REDIS_REST_TOKEN || process.env.KV_REST_API_TOKEN,namespace:process.env.RITUAL_GOVERNANCE_NAMESPACE || `ritual:libgpt:${process.env.VERCEL_ENV || 'production'}:v1`});
+const governance=createAgentGovernance({storage:governanceStorage,directory:process.env.RITUAL_GOVERNANCE_DIR,serverless:config.serverless,limits:{dailyUsd:Number(process.env.RITUAL_DAILY_USD || 5),callsPerMinute:Number(process.env.RITUAL_CALLS_PER_MINUTE || 20),concurrency:Number(process.env.RITUAL_CONCURRENCY || 4),maxCostPerMillionTokens:Number(process.env.RITUAL_MAX_USD_PER_MILLION_TOKENS || 100)}});
+const engineeringModelPolicy=agentModelPolicy();
 const runtime=createAgentRuntime({governance,complete:providerComplete,streamChat:providerStreamChat,
-  allowedModels:(process.env.RITUAL_AGENT_MODELS || 'gpt-4.1,gpt-4.1-mini,gpt-4o,gpt-4o-mini').split(',').map(x=>x.trim()).filter(Boolean)});
+  ...engineeringModelPolicy});
 const complete=runtime.complete,streamChat=runtime.streamChat;
 const rolloutPolicy=createRolloutPolicy({observe:event=>governance.recordDeployment(event),config:()=>({url:process.env.RITUAL_DEPLOYMENT_ADAPTER_URL,secret:process.env.RITUAL_DEPLOYMENT_ADAPTER_SECRET})});
 
@@ -193,6 +198,17 @@ async function pickModel(requested, task, context = {}) {
 
   const tiers = known.length ? modelCache.tiers : resolveTiers(ids, config.modelPins);
   return tiers[tierFor(task, context)] || tiers.balanced || config.model;
+}
+
+async function pickAgentModel(requested,task='story'){
+  const known=await accountModels(),ids=(known.length?known:FALLBACK_MODELS).map(m=>m.id).filter(id=>engineeringModelPolicy.allowedModels.includes(id)&&engineeringModelPolicy.modelPrices[id]);
+  if(requested && requested!=='auto'){
+    if(!ids.includes(requested))throw Object.assign(new Error('Choose Automatic or an operator-approved engineering model with a verified price policy.'),{status:403});
+    return requested;
+  }
+  const tiers=resolveTiers(ids,config.modelPins),model=tiers[tierFor(task,{})]||tiers.deep||tiers.balanced;
+  if(!model)throw Object.assign(new Error('No priced engineering model is available on this account.'),{status:503});
+  return model;
 }
 
 /** Can the model this turn landed on actually look at a picture? */
@@ -409,7 +425,7 @@ app.post('/api/github/disconnect', (req, res) => {
 });
 
 
-const releaseGate=createReleaseGate({runQa:fn=>runtime.action('qa','checks',async()=>fn()),complete:options=>{const prompt=options.messages?.[0]?.content || '';const role=prompt.includes('independent Security agent')?'security':prompt.includes('independent Approver agent')?'approver':'reviewer';return runtime.callAs(role,role==='security'?'security':role==='approver'?'approval':'review',options);},chooseModel:()=>pickModel(undefined,'story'),
+const releaseGate=createReleaseGate({runQa:fn=>runtime.action('qa','checks',async()=>fn()),complete:options=>{const prompt=options.messages?.[0]?.content || '';const role=prompt.includes('independent Security agent')?'security':prompt.includes('independent Approver agent')?'approver':'reviewer';return runtime.callAs(role,role==='security'?'security':role==='approver'?'approval':'review',options);},chooseModel:()=>pickAgentModel(undefined,'story'),
   secret:()=>config.apiKey?crypto.createHmac('sha256',config.apiKey).update('ritual-release-approval-v1').digest('hex'):''});
 const publisher = createPublisher({
   request:github.githubRequest, identify:github.whoami, seal:github.seal, unseal:github.unseal,
@@ -422,7 +438,7 @@ app.post('/api/build/connection', rateLimit, requireAccess, runtime.middleware('
   const controller = new AbortController();
   const timeout = setTimeout(()=>controller.abort(),20_000);
   try {
-    const model = await pickModel(undefined, 'story');
+    const model = await pickAgentModel(undefined,'story');
     const answer = await complete({model,messages:[{role:'user',content:'Reply with READY.'}],maxTokens:256,signal:controller.signal});
     if (!answer) throw new Error('OpenAI returned no text.');
     res.json({ready:true,model});
@@ -662,7 +678,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
   // most capable model on the account — code that is nearly right does not
   // run, where an answer that is nearly right is still worth having.
   const building = config.building && req.body?.mode === 'build';
-  const project = building ? fitProject(req.body?.files) : { kept: [], dropped: [] };
+  const project = building ? fitProject(req.body?.files,100_000,req.body?.buildPaths) : {kept:[],dropped:[]};
 
   // What went wrong when the browser actually ran what was built. The page
   // sends the faults; the words telling the model what to do about them are
@@ -751,7 +767,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
   // is. Nobody should have to pick that from a list of forty names.
   // Asked to think harder on this one turn. The question normally chooses the
   // model by itself; this is for the hard question whose words do not look it.
-  let model = searched
+  let model = building?await pickAgentModel(req.body?.model,'story'):searched
     ? reader
     : await pickModel(
       req.body?.model,
@@ -814,7 +830,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     send('start', { model, spoken, searched, dropped, saw: Boolean(photo), thought: think });
 
     // Allow complete answers, larger builds, and manageable spoken parts.
-    const budget = generationBudget({model, building, spoken, depth});
+    const budget = building && /^gpt-4\.1(?:-|$)/.test(model)?24_000:generationBudget({model,building,spoken,depth});
 
     // Carrying on has more room than starting did, always. By the time a
     // continuation is running, the one thing known for certain is that the
@@ -1064,7 +1080,7 @@ app.post('/api/build/team-plan', rateLimit, requireAccess, runtime.middleware('o
   const controller = new AbortController();
   res.on('close', () => controller.abort());
   try {
-    const plan=await generateTeamPlan({asked,model:await pickModel(req.body?.model,'story'),complete,signal:controller.signal});
+    const plan=await generateTeamPlan({asked,model:await pickAgentModel(req.body?.model,'story'),complete,signal:controller.signal});
     res.json({plan, workers:plan.tasks.map(task => ({
       agent:task.agent, files:task.files, instruction:workerInstruction(plan,task.agent,asked),
     }))});
@@ -1085,26 +1101,18 @@ app.post('/api/build/team-review', rateLimit, requireAccess, runtime.middleware(
     if(typeof updates !== 'string' || updates.length>6000)throw new TypeError('The latest change must be no more than 6,000 characters.');
     plan = normalizeTeamPlan(req.body?.plan);
     faults = teamProjectFaults(plan, req.body?.files, req.body?.faults || []);
-    project = fitProject(req.body.files, 180_000);
-    if (project.dropped.length) faults.push(`Source could not be completely reviewed: ${project.dropped.join(', ')}. Keep this build unapproved until all source can be inspected.`);
+
   } catch (error) {
     res.status(400).json({error:error.message}); return;
   }
   const controller = new AbortController();
   res.on('close', () => controller.abort());
   try {
-    const raw = await complete({
-      model:await pickModel(req.body?.model, 'story'),
-      messages:[{role:'system',content:TEAM_REVIEW_PROMPT},{role:'user',content:[
-        `Original brief:\n${asked}`, updates ? `Most recent user change (takes precedence over conflicting earlier choices):\n${updates}` : '', `Shared plan:\n${JSON.stringify(plan)}`,
-        `Observed faults:\n${JSON.stringify(faults)}`, projectContext(project.kept),
-      ].join('\n\n')}],
-      maxTokens:6000, temperature:0.2, json:true, signal:controller.signal,
-    });
-    const review = normalizeTeamReview(parseTeamJson(raw), plan, faults);
+    const review=await reviewArtifact({complete,model:await pickAgentModel(req.body?.model,'story'),asked,updates,plan,files:req.body.files,faults,signal:controller.signal});
     res.json({review});
   } catch (error) {
     if (controller.signal.aborted) return;
+    if(error instanceof TypeError && /chunk budget|review capacity|complete prompt budget|bitmap/i.test(error.message))return res.json({review:{approved:false,summary:'Complete source review is blocked.',faults:[`Source could not be completely reviewed: ${error.message}`],repairs:[]}});
     console.error('[team-review]', error?.message || error);
     res.status([401,403,429,503].includes(error?.status)?error.status:502).json({error:`Review paused: ${error?.message || 'The supervisor could not finish its review.'} Your completed files are kept; resume to retry.`});
   }
@@ -1118,7 +1126,7 @@ app.post('/api/build/architecture',rateLimit,requireAccess,runtime.middleware('a
     const asked=req.body?.asked;
     if(typeof asked!=='string' || !asked.trim() || asked.length>6000)return res.status(400).json({error:'The original project request is required.'});
     const plan=normalizeTeamPlan(req.body?.plan);
-    const architecture=await generateArchitecture({asked,plan,model:await pickModel(undefined,'story'),complete,signal:controller.signal});
+    const architecture=await generateArchitecture({asked,plan,model:await pickAgentModel(undefined,'story'),complete,signal:controller.signal});
     res.json({architecture});
   }catch(error){if(!controller.signal.aborted)res.status(error.status || 502).json({error:error.message || 'Architecture decisions could not finish.'});}
 });
@@ -1149,7 +1157,7 @@ app.get('/api/build/governance',rateLimit,requireAccess,async(_req,res)=>{
   catch {res.status(503).json({available:false,paused:true,error:'Persistent agent governance is unavailable. Agent work and releases are blocked.'});}
 });
 app.get('/api/build/audit',rateLimit,requireAgentAdmin,async(_req,res)=>{
-  try {res.json({events:await governance.audit({limit:100})});}catch(error){res.status(503).json({error:error.message});}
+  try {const events=await governance.audit({limit:100,before:Number(_req.query.before||0)});res.json({events,nextBefore:events[0]?.sequence || null});}catch(error){res.status(503).json({error:error.message});}
 });
 app.post('/api/build/control',rateLimit,requireAgentAdmin,async(req,res)=>{
   try {

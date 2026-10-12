@@ -4,7 +4,7 @@ Every Ritual Coding release must pass independent review, security, QA and appro
 
 Direct GitHub Pages publication is disabled because it cannot split production traffic into gradual rollout steps. GitHub repository reading and source downloads remain available. Old deployment status records can be checked for recovery, but cannot authorize a new direct release.
 
-The operator must provide shared persistent governance storage on an ordinary Node host, an approved model/cost policy, a separate administrator credential and a trusted HTTPS deployment adapter. The current filesystem governance implementation refuses serverless execution; Vercel requires an additional durable service/database implementation before engineering agents can run there.
+The operator must provide shared persistent governance storage, an approved model/cost policy, a separate administrator credential and a trusted HTTPS deployment adapter. Vercel engineering agents use a connected Upstash Redis store; ordinary Node hosts can use a shared persistent volume. Connect the store to the correct Vercel environment and redeploy before agent work can resume. See the guardrails document for credential and namespace configuration.
 
 In Build, open Agent guardrails to inspect status, budget, rate/concurrency limits and audit metadata, or pause/resume as an authorized operator. Publish website first checks whether the required release infrastructure is configured. Unavailable infrastructure is a blocker, never a model-generated claim of successful deployment.
 

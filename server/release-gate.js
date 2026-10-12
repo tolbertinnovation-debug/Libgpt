@@ -1,6 +1,8 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Script } from 'node:vm';
+import {posix} from 'node:path';
 import { spawnSync } from 'node:child_process';
+import {partitionReviewFiles} from './review-chunks.js';
 import { TEAM_REVIEW_PROMPT, normalizeTeamReview, teamProjectFaults, parseTeamJson, safeTeamPath } from './build-team.js';
 
 const TTL = 15 * 60_000;
@@ -56,8 +58,18 @@ function syntaxValid(source, filename, module = false) {
   return !result.error && result.status === 0;
 }
 
+function browserModulePaths(files){
+  const sources=new Map(files.map(f=>[f.path,f.body])),modules=new Set(files.filter(f=>/\.mjs$/i.test(f.path)).map(f=>f.path));
+  const add=(from,reference)=>{if(/^(?:[a-z]+:|\/\/)/i.test(reference))return;let clean;try{clean=decodeURIComponent(reference.split(/[?#]/)[0]);}catch{return;}const path=posix.normalize(posix.join(posix.dirname(from),clean));if(safeTeamPath(path)&&sources.has(path))modules.add(path);};
+  const imports=(from,body)=>{for(const match of body.matchAll(/\b(?:import\s*\(\s*|import\s+|(?:import|export)\s+[^;]*?\sfrom\s*)["']([^"']+)["']/g))if(match[1].startsWith('.'))add(from,match[1]);};
+  for(const file of files.filter(f=>/\.html?$/i.test(f.path)))for(const [,attrs,body]of file.body.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi))if(/type\s*=\s*["']module["']/i.test(attrs)){const src=attrs.match(/\bsrc\s*=\s*["']([^"']+)["']/i);if(src)add(file.path,src[1]);else imports(file.path,body);}
+  for(const path of modules)imports(path,sources.get(path)||'');
+  return modules;
+}
+
 export function qaFaults(plan, files, runtimeFaults = [], architecture = {}) {
-  const faults = teamProjectFaults(plan, files, runtimeFaults);
+  const faults = teamProjectFaults(plan,files,runtimeFaults);
+  const modules=browserModulePaths(files);
   for (const file of files) {
     const image = bitmap(file);
     if (image) { if (image.fault) faults.push(image.fault); continue; }
@@ -68,7 +80,7 @@ export function qaFaults(plan, files, runtimeFaults = [], architecture = {}) {
         if (!syntaxValid(source,file.path,/type\s*=\s*["']module["']/i.test(attrs))) faults.push(`${file.path}: inline JavaScript syntax cannot be verified.`);
       }
     } else if (/\.(?:js|mjs)$/i.test(file.path)) {
-      const module = /\.mjs$/i.test(file.path) || files.some(page => /\.html?$/i.test(page.path) && [...page.body.matchAll(/<script\b([^>]*)>/gi)].some(([,attrs]) => /type\s*=\s*["']module["']/i.test(attrs) && attrs.includes(file.path.split('/').pop())));
+      const module=modules.has(file.path);
       if (!syntaxValid(file.body,file.path,module)) faults.push(`${file.path}: JavaScript syntax cannot be verified in the static release environment.`);
     }
   }
@@ -108,27 +120,24 @@ export function createReleaseGate({complete, chooseModel, secret, runQa=async fn
     const hash = artifactHash(files);
     const gates = {review:blocked('Review pending.'),security:blocked('Security pending.'),qa:blocked('QA pending.'),approver:blocked('Approval pending.')};
     let review = {approved:false,summary:'Review pending.',faults:[],repairs:[]};
-    const reviewFiles = files.map(file => { const image = bitmap(file); return image && !image.fault ? image : file; });
-    const source = JSON.stringify({asked,plan,architecture,files:reviewFiles,updates});
-    const finish = () => ({approved:false,gates,approvalToken:null,artifactHash:hash,faults:[...new Set(Object.values(gates).flatMap(g => g.faults))],review});
-    if (source.length > MAX_SOURCE) {
-      gates.qa = blocked('The entire artifact exceeds the independent review budget.', ['Full source review is required; no truncated review can approve release.']);
-      return finish();
-    }
+    const finish = () => ({approved:false,gates,approvalToken:null,artifactHash:hash,faults:[...new Set(Object.values(gates).flatMap(g=>g.faults))],review});
+    let partition;
+    try{partition=partitionReviewFiles(files);}catch(error){gates.qa=blocked('Complete source review cannot be performed.',[error.message]);return finish();}
+    const chunkData=partition.chunks.map((files,index)=>({asked,plan,architecture,files,updates,manifest:partition.manifest,chunk:{index:index+1,total:partition.chunks.length}}));
+    if(chunkData.some(data=>Buffer.byteLength(JSON.stringify(data))>MAX_SOURCE-16000)){gates.qa=blocked('A source chunk and contract exceed the complete review budget.',['Split large files or reduce the shared contract; source cannot be omitted.']);return finish();}
     const qa = await runQa(()=>qaFaults(plan,files,faults,architecture));
     gates.qa = {passed:!qa.length,summary:qa.length ? 'Trusted source checks found unresolved issues.' : 'Trusted structural, reference, JSON and JavaScript syntax checks passed; no generated code was executed.',faults:qa.map(clean)};
     const knownSecurity = securityFaults(files);
-    const data = {asked,plan,architecture,files:reviewFiles,updates,qa:gates.qa};
+    const chunkScope='Inspect every source file in this chunk. Other chunks are reviewed separately; their paths and identities are in the manifest. Do not claim to inspect unseen source or report files outside this chunk missing merely because their bodies are absent. The full shared contract and deterministic QA findings apply to every chunk.';
     try {
-      review = normalizeTeamReview(await decision(`${TEAM_REVIEW_PROMPT}\nYou are the independent Reviewer, separate from every builder and the orchestrator.`,data,signal),plan,qa);
-      review = {...review,summary:clean(review.summary),faults:review.faults.map(clean),repairs:review.repairs.map(r => ({...r,instruction:clean(r.instruction)}))};
-      gates.review = {passed:review.approved,summary:review.summary,faults:review.faults};
-    } catch (error) {
-      if (signal?.aborted) throw error;
-      gates.review = blocked('Independent review is unavailable or malformed.', ['Independent review must complete successfully before release.']);
-      review = {...review,summary:gates.review.summary,faults:gates.review.faults};
-    }
-    gates.security = await simpleGate('Security',data,signal);
+      const reviews=[];
+      for(const data of chunkData){const checked=normalizeTeamReview(await decision(`${TEAM_REVIEW_PROMPT}\nYou are the independent Reviewer, separate from every builder and the orchestrator.\n${chunkScope}`,{...data,qa:gates.qa},signal),plan,qa);if(checked.repairs.some(r=>r.files.some(p=>!data.files.some(f=>f.path===p))))throw new Error('Review repairs exceed inspected source.');reviews.push(checked);}
+      review={approved:reviews.every(r=>r.approved&&!r.faults.length&&!r.repairs.length),summary:`Independent review inspected all ${chunkData.length} source chunks.`,faults:[...new Set(reviews.flatMap(r=>r.faults.map(clean)))],repairs:reviews.flatMap(r=>r.repairs.map(item=>({...item,instruction:clean(item.instruction)})))};
+      gates.review={passed:review.approved,summary:review.summary,faults:review.faults};
+    }catch(error){if(signal?.aborted)throw error;gates.review=blocked('Independent review is unavailable or malformed.',['Every source chunk must complete independent review before release.']);review={...review,summary:gates.review.summary,faults:gates.review.faults};}
+    const security=[];
+    for(const data of chunkData)security.push(await simpleGate('Security',{...data,qa:gates.qa,scope:chunkScope},signal));
+    gates.security={passed:security.every(g=>g.passed),summary:`Security inspected all ${chunkData.length} source chunks.`,faults:[...new Set(security.flatMap(g=>g.faults))]};
     if (knownSecurity.length) gates.security = blocked('Security veto: source checks found unsafe release material.', [...knownSecurity,...gates.security.faults]);
     if (!gates.qa.passed || !gates.review.passed || !gates.security.passed) {
       gates.approver = blocked('Release withheld because required independent gates did not pass.');
