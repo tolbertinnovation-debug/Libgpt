@@ -735,9 +735,12 @@
     <p class="gate-blurb">Stories, homework, farming, business — in the English
       we speak at home. Enter the code you were given to begin.</p>
 
+    <p class="gate-blurb" id="gate-code-notice"><strong>Access code has changed.</strong>
+      The old code <strong>monrovia2026</strong> no longer works. Please use your new access code.</p>
+
     <label class="gate-label" for="gate-input">Access code</label>
     <div class="gate-field">
-      <input type="password" id="gate-input" placeholder="" autocomplete="current-password"
+      <input type="password" id="gate-input" placeholder="" aria-describedby="gate-code-notice" autocomplete="current-password"
              autocapitalize="none" autocorrect="off" spellcheck="false" required>
       <!-- A code typed blind on a phone keyboard is a code typed wrong. -->
       <button type="button" class="gate-peek" id="gate-peek"
