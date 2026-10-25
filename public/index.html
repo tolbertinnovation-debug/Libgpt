@@ -12,7 +12,7 @@
 <meta property="og:description" content="African-centred conversational AI by Tolbert Innovation Hub. Ask in Liberian English, by voice or text.">
 <meta property="og:image" content="logo.png">
 <meta property="og:type" content="website">
-<link rel="stylesheet" href="styles.css?v=workspace-background-1">
+<link rel="stylesheet" href="styles.css?v=workspace-live-2">
 </head>
 <body>
 
@@ -307,6 +307,7 @@
         <!-- Seeing it run -->
         <div class="build-pane" id="pane-preview" role="tabpanel" aria-labelledby="view-preview" hidden>
           <div class="preview-tools"><label class="sr-only" for="preview-page">Preview page</label><select id="preview-page" aria-label="Preview page"></select><div class="preview-devices" role="group" aria-label="Preview size"><button type="button" data-preview-size="mobile" aria-pressed="false">Phone</button><button type="button" data-preview-size="desktop" aria-pressed="true">Desktop</button></div><button type="button" id="preview-refresh" aria-label="Reload website preview">↻</button></div>
+          <div class="preview-live-bar"><span id="preview-live" role="status">Saved preview</span><button id="preview-follow" type="button" aria-pressed="true">Follow agent</button></div>
           <div class="preview-note" id="preview-note" hidden></div>
           <iframe class="preview-frame" id="preview-frame" title="What your project looks like"
                   sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe>
@@ -819,6 +820,6 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<script type="module" src="app.js?v=workspace-background-1"></script>
+<script type="module" src="app.js?v=workspace-live-2"></script>
 </body>
 </html>

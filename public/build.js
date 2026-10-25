@@ -600,7 +600,24 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
   });
 }());
 </script>`;
-  const helpers = reporter + (navigation ? previewNavigation(files, page.path, { checkId }) : '');
+  const pointer = !checkId && navigation ? `<script>
+(function(){
+ var marker,target,info;
+ function position(){if(!marker || !info)return;var rect=target && target.getBoundingClientRect();marker.style.top=(rect ? Math.max(8,Math.min(innerHeight-42,rect.top>=44 ? rect.top-36 : rect.bottom+8)) : 12)+'px';marker.style.left=(rect ? Math.max(8,Math.min(innerWidth-180,rect.left+8)) : 12)+'px';}
+ addEventListener('message',function(event){
+  if(event.source!==parent || event.data?.grandpa!=='agent-focus')return;
+  info=event.data;if(target){target.style.outline=target.dataset.grandpaOutline || '';delete target.dataset.grandpaOutline;}target=null;
+  if(!info.active){marker?.remove();marker=null;return;}
+  if(!marker){marker=document.createElement('div');marker.setAttribute('aria-live','polite');marker.style.cssText='position:fixed;z-index:2147483646;pointer-events:none;background:#43312a;color:white;padding:7px 10px;border-radius:7px;font:12px/1.4 system-ui;max-width:230px;box-shadow:0 2px 12px #0003';document.body.appendChild(marker);}
+  // Only identify a specific section from a saved DOM change with an actual ID.
+  target=info.saved && info.id ? document.getElementById(info.id) : null;
+  marker.textContent=target ? (target.getBoundingClientRect().top>=44 ? '↓ Updated this section' : '↑ Updated this section') : '↖ '+(info.path ? 'Working: '+String(info.path).slice(0,100) : 'Reviewing this page');
+  if(target){target.dataset.grandpaOutline=target.style.outline;target.style.outline='2px solid #c77818';if(info.follow && marker.dataset.lastId!==info.id){target.scrollIntoView({block:'nearest',behavior:'instant'});marker.dataset.lastId=info.id;}}
+  position();
+ });addEventListener('scroll',position,{passive:true});addEventListener('resize',position);
+})();
+<\/script>` : '';
+  const helpers = reporter + pointer + (navigation ? previewNavigation(files, page.path, { checkId }) : '');
 
   // FIRST, not last. A project's own script runs as the parser reaches it, so
   // a reporter added at the end of the body is installed after the very
@@ -878,6 +895,3 @@ export function projectIssues(files = [], expectedPaths = []) {
   }
   return faults;
 }
-
-
-

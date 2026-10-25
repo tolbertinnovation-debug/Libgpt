@@ -44,3 +44,9 @@ export function createBackgroundObserver({fetcher=fetch,headers=()=>({}),onJob,o
   stop(){serial++;closed=true;selected=null;clearTimer(timer);controller?.abort();},
  };
 }
+
+/** A real worker checkpoint, with compatibility for tasks started before this field existed. */
+export function workingFile(checkpoint={}){
+ if(!backgroundActive(checkpoint?.status))return '';
+ return typeof checkpoint?.currentFile==='string' ? checkpoint.currentFile : /^Writing ([^\n]+)$/.exec(checkpoint?.message || '')?.[1] || '';
+}

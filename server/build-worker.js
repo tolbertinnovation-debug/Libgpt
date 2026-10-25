@@ -40,7 +40,7 @@ export function createBuildWorker({store,services}){
    if(current.generation!==generation || !activeBuildStatus(current.status))controller.abort();
   }).catch(()=>controller.abort()),1200);monitor.unref?.();
   const setRole=(role,value)=>{cp.agents[role].status=value;};
-  const announce=async(message,phase)=>{status=phase;cp.status=phase;job.events=[...(job.events || []),{at:Date.now(),message}].slice(-200);
+  const announce=async(message,phase)=>{status=phase;cp.status=phase;cp.message=message;if(phase!=='building')cp.currentFile='';job.events=[...(job.events || []),{at:Date.now(),message}].slice(-200);
    const update=await store.progress(id,generation,key,{...job,files,checkpoint:cp,status:phase,message});
    if(!update.saved)throw Object.assign(new Error('Build stopped.'),{status:423});};
   try{
@@ -64,7 +64,7 @@ export function createBuildWorker({store,services}){
     }
     if(!selected){cp.phase='review';status='reviewing';event='Files saved. Running independent review.';}
     else {
-     const {task,owner,path}=selected;setRole(task.agent,'working');await announce(`Writing ${path}`,'building');
+     const {task,owner,path}=selected;setRole(task.agent,'working');cp.currentFile=path;await announce(`Writing ${path}`,'building');
      const instruction=[workerInstruction(cp.plan,task.agent,job.asked),
       `Recorded architecture: ${JSON.stringify(cp.architecture)}`,
       `For this task write ONLY ${path}. Return the entire complete file in a closed fenced block with path=${path}. Do not return other files.`,
@@ -86,7 +86,7 @@ export function createBuildWorker({store,services}){
       cp.savedPaths=[...new Set([...cp.savedPaths,path])];cp.release=null;cp.review=null;
       const remaining=owner.files.some(path=>!cp.agents[task.agent].completed.includes(path));
       setRole(task.agent,remaining?'working':'complete');
-      status='building';event=`Saved ${path}`;
+      status='building';event=`Saved ${path}`;cp.currentFile='';
      }
     }
    } else if(cp.phase==='review'){
@@ -117,7 +117,7 @@ export function createBuildWorker({store,services}){
     }
    }
    if(controller.signal.aborted)return {continue:false,status:'stopped'};
-   cp.status=status;
+   cp.status=status;cp.message=event || cp.message;
    const result=await store.save(id,generation,key,{...job,files,checkpoint:cp,status,message:cp.message || event,
     events:[...(job.events || []),{at:Date.now(),message:event}].slice(-200)});
    return {continue:result.saved && activeBuildStatus(status),status:result.job.status};

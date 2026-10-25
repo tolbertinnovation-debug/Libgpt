@@ -19,7 +19,7 @@ import {
 } from './build.js';
 import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js';
 import { shrink } from './photo.js';
-import {backgroundActive,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver} from './build-workspace.js';
+import {backgroundActive,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile} from './build-workspace.js';
 import { renderMarkdown } from './markdown.js';
 
 const $ = (id) => document.getElementById(id);
@@ -38,6 +38,7 @@ const state = {
   currentId: null,
   openPath: '',
   view: 'chat',
+  followAgent: true,
   streaming: null,
   // What is going on this moment, while a turn is in flight. Without it the
   // only sign of life during a build was the words "Writing the files…" sitting
@@ -163,6 +164,8 @@ function renderThread() {
     : '';
 
   el.thread.innerHTML = p.messages.map((turn, index) => {
+    // Old run summaries belong to the activity history, not the current conversation.
+    if(turn.role!=='user' && p.team && /^(Your request is saved, but planning did not finish|Completed files are saved\. Resolve|This task could not finish\.|Progress saved\. Resume)/.test(turn.content || ''))return '';
     if (turn.role === 'user') {
       return `<div class="build-turn build-turn-you">${escapeHtml(turn.content)}</div>`;
     }
@@ -252,7 +255,7 @@ function renderTree() {
     return;
   }
   el.tree.innerHTML = files.map((f) => `
-    <button class="tree-file ${f.path === state.openPath ? 'is-on' : ''}" type="button" data-open="${escapeHtml(f.path)}">
+    <button class="tree-file ${workingFile(p.team)===f.path?'agent-editing':''} ${f.path === state.openPath ? 'is-on' : ''}" type="button" data-open="${escapeHtml(f.path)}">
       ${escapeHtml(f.path)}
     </button>`).join('');
 }
@@ -260,6 +263,8 @@ function renderTree() {
 function renderEditor() {
   const p = project();
   renderTake();
+  const active=workingFile(p.team);
+  if(state.followAgent && active && remoteRunning(p) && p.files.some(file=>file.path===active))state.openPath=active;
   const file = p.files.find((f) => f.path === state.openPath);
   if (!file) {
     if($('editor-lines'))$('editor-lines').textContent='';
@@ -270,6 +275,7 @@ function renderEditor() {
     return;
   }
   el.editorPath.textContent = file.path;
+  el.editorPath.classList.toggle('agent-editing',Boolean(remoteRunning(p) && active===file.path));
   el.editorInput.disabled = false;
   el.editorInput.readOnly=Boolean(foregroundBusy() || remoteRunning(p));
   if (el.editorInput.value !== file.body) el.editorInput.value = file.body;
@@ -289,6 +295,23 @@ function paint() {
   if(lines){lines.textContent=Array.from({length:el.editorInput.value.split('\n').length},(_,i)=>i+1).join('\n');lines.scrollTop=el.editorInput.scrollTop;}
 }
 
+function previewFocus(p) {
+  const active=workingFile(p.team), recent=p.liveChange;
+  return {grandpa:'agent-focus',active:remoteRunning(p),path:active || recent?.path || '',id:recent?.path===($('preview-page')?.value || 'index.html') ? recent.id || '' : '',saved:Boolean(recent),follow:state.followAgent};
+}
+function sendPreviewFocus(){if(el.previewFrame?.contentWindow)el.previewFrame.contentWindow.postMessage(previewFocus(project()),'*');}
+function rememberLiveChange(p,before,after){
+  const changed=workspaceChanges(before,after).filter(file=>file.kind!=='deleted');
+  const file=changed.find(file=>/\.html?$/i.test(file.path)) || changed[0];
+  if(!file)return;
+  let id='';
+  if(/\.html?$/i.test(file.path)){
+    const old=new DOMParser().parseFromString(before.find(item=>item.path===file.path)?.body || '', 'text/html');
+    const next=new DOMParser().parseFromString(after.find(item=>item.path===file.path)?.body || '', 'text/html');
+    id=[...next.body.querySelectorAll('[id]')].find(node=>node.id && old.getElementById(node.id)?.outerHTML!==node.outerHTML)?.id || '';
+  }
+  p.liveChange={path:file.path,id,at:Date.now()};
+}
 function renderPreview() {
   const p = project();
   const look = previewState(p.files);
@@ -296,12 +319,17 @@ function renderPreview() {
   if (look.why || look.warn) el.previewNote.textContent = look.why || look.warn;
   // srcdoc rather than a URL: the frame has no origin of its own, cannot reach
   // this page, and nothing is served anywhere to make it work.
+  const active=workingFile(p.team);
+  if(state.followAgent && remoteRunning(p) && /\.html?$/i.test(active) && p.files.some(file=>file.path===active))state.previewPath=active;
   const entry=p.files.some(f=>f.path===state.previewPath) ? state.previewPath : '';
   const signature=`${p.id}:${sourceFingerprint(p.files)}:${entry}`;
   if(el.previewFrame.dataset.signature!==signature){el.previewFrame.srcdoc = look.can ? previewDocument(p.files,entry) : '';el.previewFrame.dataset.signature=signature;}
   const select=$('preview-page');
   if(select){const pages=p.files.filter(file=>/\.html?$/i.test(file.path));select.innerHTML=pages.map(file=>`<option value="${escapeHtml(file.path)}">${escapeHtml(file.path)}</option>`).join('');select.value=entry || pages.find(file=>file.path==='index.html')?.path || pages[0]?.path || '';}
   el.previewFrame.classList.toggle('is-phone',state.previewSize==='mobile');
+  const follow=$('preview-follow');if(follow)follow.setAttribute('aria-pressed',String(state.followAgent));
+  const live=$('preview-live');if(live)live.textContent=remoteRunning(p)?(active ? `Editing ${active}` : 'Reviewing saved files') : p.liveChange ? `Updated ${p.liveChange.path}` : 'Saved preview';
+  sendPreviewFocus();
 }
 
 function ensureView(view) {
@@ -537,6 +565,7 @@ let loadingTimer=null;
 function renderPlan(run) {
   clearInterval(loadingTimer);loadingTimer=null;
   if(!run){el.plan.hidden=true;el.plan.removeAttribute('aria-busy');return;}
+  const panelExpanded=el.plan.querySelector('.agent-details')?.open;
   const expanded=el.plan.querySelector('.task-details')?.open;
   const activityExpanded=el.plan.querySelector('.activity-details')?.open;
   const cp=run.checkpoint || {},plan=cp.plan,running=Boolean(run.running || state.streaming),status=state.streaming?'editing':cp.status || 'planning';
@@ -545,12 +574,12 @@ function renderPlan(run) {
   const roles=TEAM_ROLES.filter(role=>!plan?.tasks.some(task=>task.agent===role.id && !task.files.length));
   const message=cp.message || (run.background?'Continues on the server. You can switch screens or close this page.':running?'Keep this tab open while this local run finishes.':'Your completed files are saved.');
   el.plan.hidden=false;el.plan.setAttribute('aria-busy',String(running));
-  el.plan.innerHTML=`<div class="task-heading"><div class="task-title"><span class="task-dot is-${escapeHtml(status)}" aria-hidden="true"></span><strong>${escapeHtml(plan?.title || 'Grandpa AI workspace')}</strong><span class="task-state">${labels[status] || 'Saved'}</span></div><div class="task-actions">${running?'<button type="button" id="plan-stop">Stop</button>':cp.asked && status!=='approved'?`<button type="button" id="plan-resume">${plan?'Resume':'Retry planning'}</button>`:'<button type="button" data-view="preview">Open preview</button>'}</div></div>
+  el.plan.innerHTML=`<div class="agent-strip"><span class="agent-spark ${running?'is-working':''}" aria-hidden="true">✦</span><span class="agent-caption"><strong>${running?'Working…':labels[status] || 'Saved'}</strong><span>${escapeHtml(running ? workingFile(cp) || labels[status] || 'Preparing' : `${saved || project()?.files.length || 0} files saved`)}</span></span><details class="agent-details" ${panelExpanded?'open':''}><summary>Details</summary><div class="agent-panel"><div class="task-heading"><div class="task-title"><span class="task-dot is-${escapeHtml(status)}" aria-hidden="true"></span><strong>${escapeHtml(plan?.title || 'Grandpa AI workspace')}</strong><span class="task-state">${labels[status] || 'Saved'}</span></div><div class="task-actions">${running?'<button type="button" id="plan-stop">Stop</button>':cp.asked && status!=='approved'?`<button type="button" id="plan-resume">${plan?'Resume':'Retry planning'}</button>`:'<button type="button" data-view="preview">Open preview</button>'}</div></div>
     <div class="task-meter"><span style="width:${planned.length?Math.round(saved/planned.length*100):0}%"></span></div>
     <div class="task-meta"><span>${planned.length?`${saved} / ${planned.length} files saved`:'Preparing your project'}</span><span>${run.background || project()?.background?'Cloud checkpoints':'Device checkpoints'}</span>${running?'<span id="team-elapsed"></span>':''}</div>
     ${!running && cp.faults?.length?`<div class="team-error" role="alert">${escapeHtml(cp.faults[0])}</div>`:''}
-    <p class="task-note">${escapeHtml(message)}</p>
-    <div class="task-detail-row"><details class="task-details" ${expanded?'open':''}><summary>Tasks <span>${roles.filter(role=>cp.agents?.[role.id]?.status==='complete').length}/${roles.length}</span></summary><ol class="plan-steps team-steps">${roles.map(role=>{const agent=cp.agents?.[role.id],task=plan?.tasks.find(task=>task.agent===role.id),complete=agent?.status==='complete',busy=running && agent?.status==='working';return `<li class="plan-step is-${complete?'done':busy?'doing':agent?.status==='needs_attention'?'failed':'waiting'}"><span class="plan-tick" aria-hidden="true">${complete?'✓':''}</span><span><strong>${escapeHtml(role.name)}</strong><small>${task?`${task.files.filter(path=>cp.savedPaths?.includes(path)).length}/${task.files.length} files`:complete?'Complete':busy?'Working':'Waiting'}</small></span></li>`;}).join('')}</ol></details><details class="activity-details" ${activityExpanded?'open':''}><summary>Activity</summary><ol class="task-activity">${(project()?.backgroundEvents || []).slice(-30).reverse().map(event=>`<li><time>${new Date(event.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time><span>${escapeHtml(event.message)}</span></li>`).join('') || '<li>Task events will appear here as work is saved.</li>'}</ol></details>${cp.architecture?'<button type="button" data-team-architecture>Architecture</button>':''}</div>`;
+    <p class="task-note">${escapeHtml(!running && cp.faults?.includes(message) ? 'Your completed files are saved.' : message)}</p>
+    <div class="task-detail-row"><details class="task-details" ${expanded?'open':''}><summary>Tasks <span>${roles.filter(role=>cp.agents?.[role.id]?.status==='complete').length}/${roles.length}</span></summary><ol class="plan-steps team-steps">${roles.map(role=>{const agent=cp.agents?.[role.id],task=plan?.tasks.find(task=>task.agent===role.id),complete=agent?.status==='complete',busy=running && agent?.status==='working';return `<li class="plan-step is-${complete?'done':busy?'doing':agent?.status==='needs_attention'?'failed':'waiting'}"><span class="plan-tick" aria-hidden="true">${complete?'✓':''}</span><span><strong>${escapeHtml(role.name)}</strong><small>${task?`${task.files.filter(path=>cp.savedPaths?.includes(path)).length}/${task.files.length} files`:complete?'Complete':busy?'Working':'Waiting'}</small></span></li>`;}).join('')}</ol></details><details class="activity-details" ${activityExpanded?'open':''}><summary>Activity</summary><ol class="task-activity">${(project()?.backgroundEvents || []).slice(-30).reverse().map(event=>`<li><time>${new Date(event.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time><span>${escapeHtml(event.message)}</span></li>`).join('') || '<li>Task events will appear here as work is saved.</li>'}</ol></details>${cp.architecture?'<button type="button" data-team-architecture>Architecture</button>':''}</div></div></details><div class="agent-quick-action">${running?'<button type="button" id="agent-stop" aria-label="Stop agent">Stop</button>':cp.asked && status!=='approved'?'<button type="button" id="agent-resume">Resume</button>':''}</div></div>`;
   if(running){const update=()=>{const node=$('team-elapsed');if(node){const seconds=Math.floor(Math.max(0,Date.now()-(run.startedAt || Date.now()))/1000);node.textContent=seconds<60?`${seconds}s`:`${Math.floor(seconds/60)}m ${seconds%60}s`;}};update();loadingTimer=setInterval(update,1000);}
 }
 
@@ -568,6 +597,7 @@ async function applyBackgroundJob(p,job){
  if(!p.background || p.background.id!==job.id)return;
  if(job.revision<=p.background.revision){if(!backgroundActive(job.status))backgroundObserver?.stop();return;}
  const wasRunning=remoteRunning(p),changed=sourceFingerprint(p.files)!==sourceFingerprint(job.files || []);
+ if(changed)rememberLiveChange(p,p.files,job.files || []);
  if(changed)applyChanges(p,job.files || [],'Before background checkpoint');
  p.background={...p.background,status:job.status,revision:job.revision,generation:job.generation,sourceFingerprint:sourceFingerprint(job.files || [])};
  p.backgroundEvents=job.events || [];
@@ -1434,6 +1464,9 @@ export async function mount(options = {}) {
     if(event.target.closest('#build-commands') || event.target.closest('#workspace-commands')){showCommands();return;}
     const size=event.target.closest('[data-preview-size]');
     if(size){state.previewSize=size.dataset.previewSize;for(const button of el.build.querySelectorAll('[data-preview-size]'))button.setAttribute('aria-pressed',String(button===size));renderPreview();return;}
+    if(event.target.closest('#preview-follow')){state.followAgent=!state.followAgent;renderPreview();return;}
+    if(event.target.closest('#agent-stop')){$('plan-stop')?.click();return;}
+    if(event.target.closest('#agent-resume')){$('plan-resume')?.click();return;}
     if(event.target.closest('#preview-refresh')){el.previewFrame.dataset.signature='';renderPreview();return;}
     if(event.target.closest('[data-team-architecture]')){showArchitecture();return;}
     if (event.target.closest('#plan-stop')) { stop(); return; }
@@ -1581,7 +1614,8 @@ export async function mount(options = {}) {
   });
 
   $('build-file-search')?.addEventListener('input',renderTree);
-  $('preview-page')?.addEventListener('change',event=>{state.previewPath=event.target.value;renderPreview();});
+  el.previewFrame.addEventListener('load',sendPreviewFocus);
+  $('preview-page')?.addEventListener('change',event=>{state.followAgent=false;state.previewPath=event.target.value;renderPreview();});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)watchBackground();});
   document.addEventListener('keydown',event=>{if(state.mode!=='build' || !(event.ctrlKey || event.metaKey))return;if(event.key.toLowerCase()==='k'){event.preventDefault();showCommands();}if(event.key.toLowerCase()==='s'){event.preventDefault();persist().then(ok=>deps.toast(ok?'Project saved.':'Saving failed. Download your files.'));}});
   watchBackground();

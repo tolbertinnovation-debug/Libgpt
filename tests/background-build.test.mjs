@@ -41,7 +41,8 @@ test('private background jobs deduplicate creates and reject other capabilities 
 });
 
 test('server-side tasks finish from durable checkpoints without any browser request or connection',async t=>{
- const {store,identity}=await fixture(t),worker=createBuildWorker({store,services:services()});
+ const {store,identity}=await fixture(t);const base=services();
+ const worker=createBuildWorker({store,services:services({generate:async(...args)=>{const live=await store.get(identity.id,identity.token);assert.equal(live.checkpoint.message,`Writing ${live.checkpoint.currentFile}`);assert.ok(live.checkpoint.currentFile);return base.generate(...args);}})});
  let next,count=0;
  do{next=await worker.advance(identity.id,1);count++;assert.ok(count<15);}while(next.continue);
  const job=await store.get(identity.id,identity.token);
