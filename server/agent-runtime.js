@@ -28,6 +28,8 @@ export function createAgentRuntime({governance,complete,streamChat,allowedModels
     finally {await job.release({outcome});}
   }
   return {
+    inAgentScope:()=>Boolean(scope.getStore()),
+    allowedModels:Object.freeze([...allowedModels]),
     middleware:(role,operation,{buildOnly=false}={})=>async(req,res,next)=>{
       if(buildOnly && req.body?.mode!=='build')return next();
       try {assertAgentData(req.body);await governance.assertActive();

@@ -36,6 +36,7 @@ import {
 import * as github from './github.js';
 import { createPublisher } from './publish.js';
 import {createAgentGovernance} from './agent-governance.js';
+import {createPostgresGovernanceStorage} from './governance-postgres.js';
 import {createAgentRuntime} from './agent-runtime.js';
 import {createRolloutPolicy} from './rollout-policy.js';
 import { createReleaseGate, artifactHash } from './release-gate.js';
@@ -48,7 +49,9 @@ import { memoryContext } from '../public/memory.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const governance=createAgentGovernance({directory:process.env.RITUAL_GOVERNANCE_DIR,serverless:config.serverless,limits:{dailyUsd:Number(process.env.RITUAL_DAILY_USD || 5),callsPerMinute:Number(process.env.RITUAL_CALLS_PER_MINUTE || 20),concurrency:Number(process.env.RITUAL_CONCURRENCY || 4),maxCostPerMillionTokens:Number(process.env.RITUAL_MAX_USD_PER_MILLION_TOKENS || 100)}});
+const governanceConnection=process.env.RITUAL_DATABASE_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL;
+const governanceStorage=governanceConnection ? createPostgresGovernanceStorage({connectionString:governanceConnection}) : undefined;
+const governance=createAgentGovernance({storage:governanceStorage,directory:process.env.RITUAL_GOVERNANCE_DIR,serverless:config.serverless,limits:{dailyUsd:Number(process.env.RITUAL_DAILY_USD || 5),callsPerMinute:Number(process.env.RITUAL_CALLS_PER_MINUTE || 20),concurrency:Number(process.env.RITUAL_CONCURRENCY || 4),maxCostPerMillionTokens:Number(process.env.RITUAL_MAX_USD_PER_MILLION_TOKENS || 100)}});
 const runtime=createAgentRuntime({governance,complete:providerComplete,streamChat:providerStreamChat,
   allowedModels:(process.env.RITUAL_AGENT_MODELS || 'gpt-4.1,gpt-4.1-mini,gpt-4o,gpt-4o-mini').split(',').map(x=>x.trim()).filter(Boolean)});
 const complete=runtime.complete,streamChat=runtime.streamChat;
@@ -188,11 +191,13 @@ async function lookupModel(deep = false) {
  */
 async function pickModel(requested, task, context = {}) {
   const known = await accountModels();
-  const ids = (known.length ? known : FALLBACK_MODELS).map((m) => m.id);
+  const accountIds = (known.length ? known : FALLBACK_MODELS).map((m) => m.id);
+  const ids = runtime.inAgentScope() ? accountIds.filter(id => runtime.allowedModels.includes(id)) : accountIds;
+  if (!ids.length) throw Object.assign(new Error('No approved building model is available. Please contact the Grandpa AI team.'),{status:503});
 
   if (typeof requested === 'string' && ids.includes(requested)) return requested;
 
-  const tiers = known.length ? modelCache.tiers : resolveTiers(ids, config.modelPins);
+  const tiers = known.length && !runtime.inAgentScope() ? modelCache.tiers : resolveTiers(ids, config.modelPins);
   return tiers[tierFor(task, context)] || tiers.balanced || config.model;
 }
 
