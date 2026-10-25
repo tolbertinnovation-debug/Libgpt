@@ -1118,9 +1118,12 @@ export function restoreProjects(projects) {
   state.projects=projects;
   if(!projects.some(p=>p.id===state.currentId)) state.currentId=projects[0]?.id || null;
   state.openPath='';
-  el.previewFrame.srcdoc='';
-  ensureView('chat');
-  if(state.currentId) render();
+  // Backups can be restored from Ask before the Build workspace is mounted.
+  if(el.previewFrame) {
+    el.previewFrame.srcdoc='';
+    ensureView('chat');
+    if(state.currentId) render();
+  } else state.view='chat';
   announce();
 }
 
@@ -1486,6 +1489,3 @@ export async function mount(options = {}) {
     else deps.toast('That GitHub connection did not finish. Try again.');
   }
 }
-
-
-

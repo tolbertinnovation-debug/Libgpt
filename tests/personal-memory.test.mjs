@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { MEMORY_KEY, loadMemory, saveMemory, remember, memoriesForQuestion, memoryContext, readMemories, mergeMemories } from '../public/memory.js';
@@ -114,4 +114,19 @@ test('chat carries saved memory through the provider request without leaking it 
   assert.equal(messages.at(-1).content, 'What do you know about me?');
   assert.doesNotMatch(JSON.stringify(await post([])), /My name is Samuel/);
   assert.doesNotMatch(JSON.stringify(await post(['My name is Samuel.'], 'build')), /My name is Samuel/);
+});
+
+
+test('restoring from Ask works before the Build UI is initialized', async () => {
+  const source = await readFile(new URL('../public/ritual.js', import.meta.url), 'utf8');
+  const start = source.indexOf('export function restoreProjects(');
+  const end = source.indexOf('/** Open one', start);
+  const state = { projects: [], currentId: null, openPath: 'old.html', view: 'preview' };
+  let announcements = 0;
+  const restore = new Function('state', 'el', 'saveTimer', 'ensureView', 'render', 'announce',
+    source.slice(start, end).replace('export function', 'function') + '; return restoreProjects;')(
+      state, {}, null, () => { throw Error('UI not mounted'); }, () => { throw Error('UI not mounted'); }, () => { announcements++; });
+  restore([{ id: 'restored-build', files: [] }]);
+  assert.equal(state.currentId, 'restored-build'); assert.equal(state.view, 'chat');
+  assert.equal(announcements, 1);
 });
