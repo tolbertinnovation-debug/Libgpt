@@ -106,7 +106,7 @@ export function createBuildWorker({store,services}){
     cp.release=await services.release({asked:job.asked,plan:cp.plan,architecture:cp.architecture,files,faults:[]},controller.signal);
     cp.faults=cp.release.faults || [];
     for(const [gate,role]of [['review','reviewer'],['security','security'],['qa','qa'],['approver','approver']])setRole(role,cp.release.gates?.[gate]?.passed?'complete':'needs_attention');
-    const externalSetup=cp.faults.some(fault=>/signing|configuration is required|infrastructure.*unavailable|executable tests.*unavailable|hosting.*required|spending cap|rate limit|credential.*required/i.test(fault));
+    const externalSetup=cp.faults.some(fault=>/signing|configuration is required|unavailable|malformed|must complete successfully|hosting.*required|spending cap|rate limit|cost policy|authorization|credential.*required/i.test(fault));
     if(!cp.release.approved && !externalSetup && cp.faults.length && (cp.reviewRound || 0)<6){
      cp.gateFindings=[...cp.faults];cp.reviewRound=(cp.reviewRound || 0)+1;cp.phase='review';cp.release=null;
      status='repairing';cp.message='Final checks found issues. Sending them to the reviewer for targeted repairs.';event=cp.message;

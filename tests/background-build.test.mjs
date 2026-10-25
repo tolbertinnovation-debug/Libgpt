@@ -93,3 +93,10 @@ test('final gate findings return to bounded owner repairs and must pass fresh ga
  const job=await store.get(identity.id,identity.token);assert.equal(job.status,'approved');assert.equal(gates,2);assert.equal(observed,true);
  assert.ok(job.events.some(event=>event.message.includes('targeted repairs')));
 });
+
+test('unavailable final model decisions pause without another review or paid repair attempt',async t=>{
+ const {store,identity}=await fixture(t);let reviews=0,gates=0;
+ const worker=createBuildWorker({store,services:services({review:async()=>{reviews++;return {approved:true,faults:[],repairs:[],summary:'Reviewed.'};},release:async()=>{gates++;return {approved:false,faults:['Security decision is unavailable or malformed.'],gates:{security:{passed:false}}};}})});
+ let next,count=0;do{next=await worker.advance(identity.id,1);assert.ok(++count<15);}while(next.continue);
+ assert.equal((await store.get(identity.id,identity.token)).status,'needs_attention');assert.equal(reviews,1);assert.equal(gates,1);
+});
