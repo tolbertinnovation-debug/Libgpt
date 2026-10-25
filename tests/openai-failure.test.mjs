@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { limitMessage, safeDiagnostic } from '../server/openai-failure.js';
 
-test('specific billing codes take precedence over the broad insufficient_quota type', () => {
+test('billing restrictions use Grandpa AI wording without disclosing the provider', () => {
   for (const [code, expected] of [
-    ['credit_balance_exhausted', /no credits remaining/],
-    ['organization_spend_limit_exceeded', /organization spending limit/],
-    ['project_spend_limit_exceeded', /project spending limit/],
-    ['organization_usage_limit_exceeded', /account usage limit/],
+    ['credit_balance_exhausted', /Grandpa AI is temporarily unavailable/],
+    ['organization_spend_limit_exceeded', /Grandpa AI is temporarily unavailable/],
+    ['project_spend_limit_exceeded', /Grandpa AI is temporarily unavailable/],
+    ['organization_usage_limit_exceeded', /Grandpa AI is temporarily unavailable/],
   ]) {
     const message = limitMessage(code, 'insufficient_quota');
     assert.match(message, expected);
@@ -16,11 +16,11 @@ test('specific billing codes take precedence over the broad insufficient_quota t
   }
 });
 
-test('legacy quota responses point to the connected account without advising retries', () => {
+test('legacy quota responses also keep billing details private', () => {
   for (const args of [['insufficient_quota'], ['', 'insufficient_quota'], ['', '', 'You exceeded your current quota']]) {
     const message = limitMessage(...args);
-    assert.match(message, /organization and project/);
-    assert.match(message, /Retrying alone will not fix/);
+    assert.match(message, /Grandpa AI is temporarily unavailable/);
+    assert.doesNotMatch(message, /OpenAI|API|credits|billing|quota|organization|project/i);
   }
 });
 
@@ -30,7 +30,7 @@ test('temporary rate limits never tell the owner to buy credits', () => {
     assert.match(message, /wait a moment/);
     assert.doesNotMatch(message, /no credits remaining|billing or quota restriction/);
   }
-  assert.match(limitMessage(), /server logs/);
+  assert.match(limitMessage(), /Grandpa AI is temporarily unavailable/);
 });
 
 test('diagnostic messages redact credentials and bound log size', () => {
@@ -59,7 +59,7 @@ test('completion propagates the actual quota code and logs only redacted diagnos
     await assert.rejects(complete({ messages: [] }), error => {
       assert.equal(error.code, 'project_spend_limit_exceeded');
       assert.equal(error.requestId, 'req_test');
-      assert.match(error.message, /project spending limit/);
+      assert.match(error.message, /Grandpa AI is temporarily unavailable/);
       return true;
     });
     assert.equal(calls, 1, 'quota restrictions must not be retried');
