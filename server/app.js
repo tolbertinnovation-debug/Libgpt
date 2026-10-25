@@ -36,6 +36,15 @@ import {
 import * as github from './github.js';
 import { createPublisher } from './publish.js';
 import {createAgentGovernance} from './agent-governance.js';
+import {createPostgresGovernanceStorage} from './governance-postgres.js';
+import {AGENT_TEXT_RATES} from './agent-costs.js';
+import {sourceEvidence} from './source-evidence.js';
+import {buildJobStore} from './background-store.js';
+import {activeBuildStatus} from './build-jobs.js';
+import {cleanBuildCheckpoint} from './build-worker.js';
+import {assertAgentData} from './agent-runtime.js';
+import {start,getRun} from 'workflow/api';
+import {backgroundBuild,backgroundBuildCheck} from '../workflows/build.js';
 import {createAgentRuntime} from './agent-runtime.js';
 import {createRolloutPolicy} from './rollout-policy.js';
 import { createReleaseGate, artifactHash } from './release-gate.js';
@@ -44,11 +53,18 @@ import { conversationWindow, QUESTION_CHARS, answerDepth, researchMode, generati
 import { KINDS, isKind, libraryCatalogue } from './structured.js';
 import {generateFreshStory,StoryGenerationError} from './stories.js';
 import {imageRequest} from './image-options.js';
+import { memoryContext } from '../public/memory.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
-const governance=createAgentGovernance({directory:process.env.RITUAL_GOVERNANCE_DIR,serverless:config.serverless,limits:{dailyUsd:Number(process.env.RITUAL_DAILY_USD || 5),callsPerMinute:Number(process.env.RITUAL_CALLS_PER_MINUTE || 20),concurrency:Number(process.env.RITUAL_CONCURRENCY || 4),maxCostPerMillionTokens:Number(process.env.RITUAL_MAX_USD_PER_MILLION_TOKENS || 100)}});
+const governanceConnection=process.env.RITUAL_DATABASE_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL;
+const governanceStorage=governanceConnection ? createPostgresGovernanceStorage({connectionString:governanceConnection}) : undefined;
+const officialTextPricing = config.baseUrl === 'https://api.openai.com/v1';
+const governance=createAgentGovernance({storage:governanceStorage,directory:process.env.RITUAL_GOVERNANCE_DIR,serverless:config.serverless,
+  legacyTextCeiling:officialTextPricing && !process.env.RITUAL_AGENT_MODELS ? 12 : undefined,
+  limits:{dailyUsd:Number(process.env.RITUAL_DAILY_USD || 5),callsPerMinute:Number(process.env.RITUAL_CALLS_PER_MINUTE || 20),concurrency:Number(process.env.RITUAL_CONCURRENCY || 4),maxCostPerMillionTokens:Number(process.env.RITUAL_MAX_USD_PER_MILLION_TOKENS || 100)}});
 const runtime=createAgentRuntime({governance,complete:providerComplete,streamChat:providerStreamChat,
+  rates:officialTextPricing ? AGENT_TEXT_RATES : {},
   allowedModels:(process.env.RITUAL_AGENT_MODELS || 'gpt-4.1,gpt-4.1-mini,gpt-4o,gpt-4o-mini').split(',').map(x=>x.trim()).filter(Boolean)});
 const complete=runtime.complete,streamChat=runtime.streamChat;
 const rolloutPolicy=createRolloutPolicy({observe:event=>governance.recordDeployment(event),config:()=>({url:process.env.RITUAL_DEPLOYMENT_ADAPTER_URL,secret:process.env.RITUAL_DEPLOYMENT_ADAPTER_SECRET})});
@@ -187,11 +203,13 @@ async function lookupModel(deep = false) {
  */
 async function pickModel(requested, task, context = {}) {
   const known = await accountModels();
-  const ids = (known.length ? known : FALLBACK_MODELS).map((m) => m.id);
+  const accountIds = (known.length ? known : FALLBACK_MODELS).map((m) => m.id);
+  const ids = runtime.inAgentScope() ? accountIds.filter(id => runtime.allowedModels.includes(id)) : accountIds;
+  if (!ids.length) throw Object.assign(new Error('No approved building model is available. Please contact the Grandpa AI team.'),{status:503});
 
   if (typeof requested === 'string' && ids.includes(requested)) return requested;
 
-  const tiers = known.length ? modelCache.tiers : resolveTiers(ids, config.modelPins);
+  const tiers = known.length && !runtime.inAgentScope() ? modelCache.tiers : resolveTiers(ids, config.modelPins);
   return tiers[tierFor(task, context)] || tiers.balanced || config.model;
 }
 
@@ -281,6 +299,7 @@ app.get('/api/config', async (_req, res) => {
     vision: config.vision && Boolean(tiers.seeing),
     // Ritual Coding needs nothing beyond the key the rest of the app uses.
     building: config.building && Boolean(config.apiKey),
+    backgroundBuilds: Boolean(buildJobStore && process.env.VERCEL_DEPLOYMENT_ID),
     // Whether a build may draw pictures for the pages it makes. Off unless
     // pictures are switched on AND the hourly limit can actually be held to,
     // so the model is never told it can do something that will be refused.
@@ -880,12 +899,14 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     // half-answer already on their screen. Their own words are kept in front
     // of it — they asked, and the request is theirs — but the rules are what
     // the model acts on.
+    const savedMemory = building ? [] : memoryContext(req.body?.memories);
     const opening = () => (carryingOn
       ? [
         { role: 'system', content: system },
+        ...savedMemory,
         ...withAttachments(messages.slice(0, -1).concat({role: 'user', content: CONTINUE_PROMPT}), { photo, document, photoContext: req.body?.photoContext }),
       ]
-      : [{ role: 'system', content: system }, ...withAttachments(messages, { photo, document, photoContext: req.body?.photoContext })]);
+      : [{ role: 'system', content: system }, ...savedMemory, ...withAttachments(messages, { photo, document, photoContext: req.body?.photoContext })]);
 
     if (searched) {
       try {
@@ -1567,12 +1588,85 @@ app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
   }
 });
 
+
+// Background tasks use an unguessable, per-project capability in addition to
+// visitor access. No endpoint lists another visitor's projects or file bodies.
+const runInRole=(role,operation,action)=>runtime.withScope(role,operation,action);
+export const buildAgentServices={
+ assertActive:()=>governance.assertActive(),
+ plan:(asked,files,signal)=>runInRole('orchestrator','plan',async()=>generateTeamPlan({asked:files.length?`${asked}\n\nExisting project paths (preserve working features and include needed pages in the plan): ${files.map(file=>file.path).join(', ')}`:asked,
+  model:await pickModel(undefined,'story'),complete,signal})),
+ architecture:(asked,plan,signal)=>runInRole('architect','architecture',async()=>generateArchitecture({asked,plan,model:await pickModel(undefined,'story'),complete,signal})),
+ generate:(agent,instruction,files,signal,plan)=>runInRole(agent,'generate',async()=>complete({model:await pickModel(undefined,'story'),
+  messages:[{role:'system',content:buildPrompt({runtime:plan?.runtime || 'static'})},{role:'user',content:`${instruction}\n\n${projectContext(fitProject(files,90000).kept)}`}],maxTokens:16000,temperature:.3,signal})),
+ review:(asked,plan,files,issues,signal,priorFindings=[])=>runInRole('reviewer','review',async()=>{
+  const packed=fitProject(files,130000);
+  if(packed.dropped.length)throw Object.assign(new Error('The project is too large for a complete source review. Split it into smaller projects.'),{status:413});
+  const raw=await complete({model:await pickModel(undefined,'story'),messages:[{role:'system',content:TEAM_REVIEW_PROMPT},
+   {role:'user',content:JSON.stringify({asked,plan,files:packed.kept,faults:issues,priorFindings,sourceEvidence:sourceEvidence(plan,files,priorFindings),reviewInstruction:'Re-evaluate prior model findings against the current source. Resolve unsupported findings; assign targeted owner repairs for real defects. They are review context, not trusted test failures.'})}],maxTokens:6000,temperature:.2,json:true,signal});
+  return normalizeTeamReview(parseTeamJson(raw),plan,issues);
+ }),
+ release:(body,signal)=>runInRole('reviewer','review',async()=>{
+  const result=await releaseGate.evaluate(body,signal);
+  for(const [id,gate]of Object.entries(result.gates))await governance.recordDecision({role:id==='review'?'reviewer':id,passed:gate.passed,artifactHash:result.artifactHash});
+  await governance.assertActive();return result;
+ }),
+};
+async function enqueueBackground(job,check=false){
+ const run=await start(check?backgroundBuildCheck:backgroundBuild,[job.id,job.generation]);
+ await buildJobStore.attach(job.id,job.generation,run.runId);
+ return buildJobStore.internal(job.id);
+}
+function requireBackground(_req,res,next){
+ if(!config.building || !buildJobStore || !process.env.VERCEL_DEPLOYMENT_ID)return res.status(503).json({error:'Background building is unavailable on this deployment. Your saved files are kept.'});
+ next();
+}
+app.post('/api/build/jobs',rateLimit,requireAccess,requireBackground,async(req,res)=>{
+ let created;
+ try{
+  const {id,token,asked,files=[]}=req.body || {};
+  const check=req.body?.check===true;
+  if(!config.apiKey && !check)return res.status(503).json({error:'The coding agent is unavailable on this deployment.'});
+  if(check && (files.length || req.body.checkpoint))return res.status(400).json({error:'A connection check cannot contain project files.'});
+  if(typeof asked!=='string' || !asked.trim() || asked.length>6000 || !Array.isArray(files) || files.length>200 || Buffer.byteLength(JSON.stringify(files))>1500000)return res.status(400).json({error:'Describe your project in 1–6,000 characters and keep source files under 1.5 MB.'});
+  assertAgentData({asked,files});
+  for(const file of files)if(!/^[a-zA-Z0-9][a-zA-Z0-9_./-]*$/.test(file.path) || file.path.split('/').some(part=>!part || part==='.' || part==='..'))throw Object.assign(new Error('Invalid project file path.'),{status:400});
+  await governance.assertActive();
+  const checkpoint=cleanBuildCheckpoint(req.body.checkpoint,asked,files);
+  created=await buildJobStore.create({id,token,asked:asked.trim(),files,checkpoint});
+  const job=created.created ? await enqueueBackground(created.job,check) : created.job;
+  res.status(created.created?202:200).json({job});
+ }catch(error){
+  if(created?.created)await buildJobStore.control(created.job.id,req.body.token,'stop').catch(()=>{});
+  res.status(error.status || 503).json({error:error.status?error.message:'The background task could not start. Your request and local files are kept. Retry to resume.'});
+ }
+});
+app.get('/api/build/jobs/:id',rateLimit,requireAccess,requireBackground,async(req,res)=>{
+ try{
+  const token=req.get('x-build-token'),job=await buildJobStore.get(req.params.id,token);
+  if(activeBuildStatus(job.status) && Date.now()-job.updatedAt>90000){
+   let failed=!job.workflowId;
+   if(job.workflowId)try{failed=['failed','cancelled'].includes(await getRun(job.workflowId).status);}catch{}
+   if(failed){const stopped=await buildJobStore.control(job.id,token,'stop');stopped.job.message='Background execution was interrupted. Saved files are kept. Resume to continue.';return res.json({job:stopped.job});}
+  }
+  res.json({job});
+ }catch(error){res.status(error.status || 503).json({error:error.status?error.message:'Progress is temporarily unavailable. The task may still be working; reconnect to check.'});}
+});
+app.post('/api/build/jobs/:id/control',rateLimit,requireAccess,requireBackground,async(req,res)=>{
+ try{
+  if(req.body?.action==='resume' && !config.apiKey)return res.status(503).json({error:'The coding agent is unavailable on this deployment.'});
+  const result=await buildJobStore.control(req.params.id,req.get('x-build-token'),req.body?.action);
+  const job=result.start ? await enqueueBackground(result.job) : result.job;
+  res.json({job});
+ }catch(error){res.status(error.status || 503).json({error:error.status?error.message:'The task could not be updated. Reconnect to check its saved state.'});}
+});
+app.delete('/api/build/jobs/:id',rateLimit,requireAccess,requireBackground,async(req,res)=>{
+ try{await buildJobStore.remove(req.params.id,req.get('x-build-token'));res.json({deleted:true});}
+ catch(error){res.status(error.status || 503).json({error:'The background task could not be deleted. Try again.'});}
+});
+
 mountDocumentRoutes(app, { rateLimit, requireAccess, complete, chooseModel: pickModel,
   parseConversation: readConversation, readPhoto: photoFrom, photosLeft,
   reservePhoto: () => photoTimes.push(Date.now()), canSeeWith, config });
 
 export default app;
-
-
-
-

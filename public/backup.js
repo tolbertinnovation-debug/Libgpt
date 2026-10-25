@@ -1,3 +1,4 @@
+import { MEMORY_KEY, loadMemory, readMemories, mergeMemories } from './memory.js';
 import { readDocumentSpec } from './documents.js';
 import { readTaskBrief } from './document-tasks.js';
 import { saveProjectsDurable } from './build.js';
@@ -104,6 +105,7 @@ function cleanTeam(value, projectFiles) {
         files: list(task.files, 12, 'specialist files').map(path => text(path, 180, 'planned filename')),
       })),
     };
+    if(['static','fullstack'].includes(value.plan.runtime))plan.runtime=value.plan.runtime;
     validateTeamPlan(plan);
   }
   // Keep architecture notes as reference material, never as executable or
@@ -162,6 +164,14 @@ function cleanBackup(value) {
   projects.forEach((project, index) => {
     const team = cleanTeam(value.projects[index].team, project.files);
     if (team) project.team = team;
+    const source=value.projects[index];
+    if(source.background){
+      const background=source.background;
+      if(!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(background.id || '') || !/^[a-f0-9]{64}$/i.test(background.token || ''))fail('Invalid background project access in this backup.');
+      project.background={id:background.id,token:background.token,revision:-1,status:'queued',startedAt:stamp(background.startedAt),asked:text(background.asked || team?.asked || '',6000,'background task request')};
+      if(/^[a-f0-9]{1,8}$/.test(background.sourceFingerprint || ''))project.background.sourceFingerprint=background.sourceFingerprint;
+      if(source.backgroundBase)project.backgroundBase=files(source.backgroundBase);
+    }
   });
   const journal=list(value.journal || [],Infinity,'journal entries').map(item=>{
     const kind=text(item?.kind,40,'journal kind');
@@ -177,10 +187,11 @@ function cleanBackup(value) {
     return entry;
   });
   for (const group of [chats,projects,journal]) if (new Set(group.map(item=>item.id)).size !== group.length) fail('Duplicate identifiers in this backup.');
-  return {format:'grandpa-ai-backup',version:1,savedAt:stamp(value.savedAt),chats,projects,journal};
+  const memories=readMemories(value.memories || [],true);
+  return {format:'grandpa-ai-backup',version:1,savedAt:stamp(value.savedAt),chats,projects,journal,memories};
 }
-export function createBackup(chats, projects, journal=[]) {
-  const body = JSON.stringify(cleanBackup({format:'grandpa-ai-backup',version:1,savedAt:Date.now(),chats,projects,journal}),null,2);
+export function createBackup(chats, projects, journal=[], memories=[]) {
+  const body = JSON.stringify(cleanBackup({format:'grandpa-ai-backup',version:1,savedAt:Date.now(),chats,projects,journal,memories}),null,2);
   if (new TextEncoder().encode(body).length > BACKUP_LIMIT) fail('This backup is too large. Download conversations and project files separately.');
   return body;
 }
@@ -190,22 +201,26 @@ export function parseBackup(body) {
   try { value = JSON.parse(body); } catch { fail('This file is not valid JSON.'); }
   return cleanBackup(value);
 }
-export function prepareRestore(backup, chats, projects, journal=[]) {
+export function prepareRestore(backup, chats, projects, journal=[], memories=[]) {
   const clean = cleanBackup(backup);
+  const memory=mergeMemories(memories,clean.memories);
   const addChats = clean.chats.filter(item=>!chats.some(existing=>existing.id === item.id));
   const addProjects = clean.projects.filter(item=>!projects.some(existing=>existing.id === item.id));
   const addJournal=clean.journal.filter(item=>!journal.some(existing=>existing.id===item.id));
   return {
     chats:[...chats,...addChats], projects:[...projects,...addProjects],
+    memories:memory.items,addedMemories:memory.added,
     journal:[...journal,...addJournal],addedJournal:addJournal.length,
     addedChats:addChats.length,addedProjects:addProjects.length,
-    skipped:clean.chats.length + clean.projects.length + clean.journal.length - addChats.length - addProjects.length - addJournal.length,
+    skipped:clean.chats.length + clean.projects.length + clean.journal.length + clean.memories.length - addChats.length - addProjects.length - addJournal.length - memory.added,
   };
 }
 export function commitRestore(prepared, storage = localStorage) {
   const keys = [CHAT_KEY,BUILD_KEY,JOURNAL_KEY];
+  if (Array.isArray(prepared.memories)) keys.push(MEMORY_KEY);
   const previous = keys.map(key=>storage.getItem(key));
   const contents = [JSON.stringify(prepared.chats),JSON.stringify(prepared.projects),JSON.stringify(prepared.journal || [])];
+  if (Array.isArray(prepared.memories)) contents.push(JSON.stringify({...loadMemory(storage),items:readMemories(prepared.memories,true)}));
   try {
     keys.forEach((key,index)=>storage.setItem(key,contents[index]));
   } catch {
@@ -218,12 +233,14 @@ export function commitRestore(prepared, storage = localStorage) {
 /** Keep project restoration aligned with the primary device database. */
 export async function commitRestoreDurable(prepared, { storage = localStorage, saveBuilds = saveProjectsDurable } = {}) {
   const keys = [CHAT_KEY, JOURNAL_KEY];
+  if (Array.isArray(prepared.memories)) keys.push(MEMORY_KEY);
   const previous = keys.map(key => storage.getItem(key));
   try {
     storage.setItem(CHAT_KEY, JSON.stringify(prepared.chats));
     storage.setItem(JOURNAL_KEY, JSON.stringify(prepared.journal || []));
+    if (Array.isArray(prepared.memories)) storage.setItem(MEMORY_KEY, JSON.stringify({...loadMemory(storage),items:readMemories(prepared.memories,true)}));
     // Commit projects last. A rejected/false autosave has not replaced the
-    // previous database snapshot, so only the two local archives roll back.
+    // previous database snapshot, so the local archives and saved memory roll back together.
     if (await saveBuilds(prepared.projects) === false) throw new Error('Build storage failed');
   } catch {
     try { keys.forEach((key, index) => previous[index] === null ? storage.removeItem(key) : storage.setItem(key, previous[index])); }
@@ -231,4 +248,3 @@ export async function commitRestoreDurable(prepared, { storage = localStorage, s
     fail('Device storage is full or blocked. Existing saved work was kept.');
   }
 }
-

@@ -78,3 +78,14 @@ test('expanded engineering backup preserves design notes but never imports relea
   assert.equal(restored.architectureNotes.decisions[0].choice, 'Static');
   assert.equal(restored.agents.approver.status, 'waiting');
 });
+
+test('owner backups reconnect private background work without trusting cached progress or approval',()=>{
+ const project={id:'cloud-project',name:'Cloud build',files:[{path:'index.html',body:'saved'}],messages:[],versions:[],team:checkpoint(),
+  background:{id:'4b4bd673-72b7-4d80-a603-eb486d156022',token:'a'.repeat(64),asked:'Build my shop website',revision:99,status:'approved',startedAt:1,sourceFingerprint:'deadbeef'},
+  backgroundBase:[{path:'index.html',body:'before'}]};
+ const restored=parseBackup(createBackup([],[project])).projects[0];
+ assert.equal(restored.background.id,project.background.id);assert.equal(restored.background.token,project.background.token);
+ assert.equal(restored.background.revision,-1);assert.equal(restored.background.status,'queued');assert.equal(restored.team.release,null);
+ assert.deepEqual(restored.backgroundBase,project.backgroundBase);
+ project.background.token='not-a-capability';assert.throws(()=>createBackup([],[project]),/Invalid background project access/);
+});

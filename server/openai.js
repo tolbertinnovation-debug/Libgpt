@@ -1,4 +1,5 @@
 import { config } from './config.js';
+import { limitMessage, safeDiagnostic } from './openai-failure.js';
 
 export class OpenAIError extends Error {
   constructor(message, status, code) {
@@ -19,10 +20,12 @@ export class OpenAIError extends Error {
 async function toError(response, asked = '', path = '') {
   let detail = '';
   let code = '';
+  let type = '';
   try {
     const body = await response.json();
     detail = body?.error?.message || '';
-    code = body?.error?.code || body?.error?.type || '';
+    type = body?.error?.type || '';
+    code = body?.error?.code || type;
   } catch {
     /* non-JSON error body — fall through to the status-based message */
   }
@@ -45,13 +48,7 @@ async function toError(response, asked = '', path = '') {
     404: `This key cannot use ${asked ? `"${asked}"` : 'that model'}. `
       + 'Open Settings and pick a different model, or check which models your OpenAI '
       + `project allows.${detail ? ` OpenAI said: ${detail}` : ''}`,
-    // OpenAI sends 429 both for "too many requests" and for "no credit left",
-    // and the fix for each is different, so the two are told apart.
-    429: code === 'insufficient_quota' || /quota|billing/i.test(detail)
-      ? 'The OpenAI account behind this site has no usable credit. Check that the credit was added to the '
-        + 'same organization and project as OPENAI_API_KEY, and that the project has no monthly budget limit '
-        + `blocking it. New credit can take a few minutes to apply.${detail ? ` OpenAI said: ${detail}` : ''}`
-      : `Too many requests to OpenAI right now. Wait a moment and try again.${detail ? ` OpenAI said: ${detail}` : ''}`,
+    429: limitMessage(code, type, detail),
     // Named for what the reader was doing. "OpenAI had a server error" means
     // nothing to someone who was listening to an elder talk.
     //
@@ -79,6 +76,14 @@ async function toError(response, asked = '', path = '') {
   );
   // The raw text too: the retry below reads it to learn what a model refused.
   error.detail = detail;
+  error.requestId = response.headers.get('x-request-id') || '';
+  if (response.status === 429) {
+    console.error('[openai-limit]', JSON.stringify({
+      status: response.status, code: safeDiagnostic(code), type: safeDiagnostic(type),
+      model: safeDiagnostic(asked), path, requestId: safeDiagnostic(error.requestId),
+      detail: safeDiagnostic(detail), retryAfter: response.headers.get('retry-after'),
+    }));
+  }
   return error;
 }
 
@@ -183,12 +188,13 @@ async function post(path, body, signal, maxAttempts = 3) {
  * its thought, "length" when it hit the token ceiling part-way through.
  */
 export async function* streamChat({
-  model, messages, maxTokens, temperature, signal, onFinish, maxAttempts,
+  model, messages, maxTokens, temperature, signal, onFinish, maxAttempts, onUsage,
 }) {
   const response = await post('/chat/completions', {
     model: model || config.model,
     messages,
     stream: true,
+    ...(onUsage ? {stream_options:{include_usage:true}} : {}),
     temperature: temperature ?? 0.7,
     max_tokens: maxTokens ?? 1400,
   }, signal, maxAttempts);
@@ -217,6 +223,7 @@ export async function* streamChat({
 
           try {
             const chunk = JSON.parse(payload);
+            if (chunk.usage) onUsage?.(chunk.usage);
             const choice = chunk.choices?.[0];
             const delta = choice?.delta?.content;
             if (delta) yield delta;
@@ -552,7 +559,7 @@ export async function transcribe({ audio, type = 'audio/webm', prompt = '', sign
  * validate what comes back.
  */
 export async function complete({
-  model, messages, maxTokens = 30, temperature = 0.3, json = false, signal, maxAttempts,
+  model, messages, maxTokens = 30, temperature = 0.3, json = false, signal, maxAttempts, onUsage,
 }) {
   const body = {
     model: model || config.titleModel,
@@ -564,7 +571,9 @@ export async function complete({
 
   const response = await post('/chat/completions', body, signal, maxAttempts);
   const parsed = await response.json();
+  if (parsed.usage) onUsage?.(parsed.usage);
   return parsed.choices?.[0]?.message?.content?.trim() || '';
 }
+
 
 

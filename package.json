@@ -15,16 +15,26 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "test": "node --test tests/*.test.mjs",
-    "agents": "node scripts/agents.mjs"
+    "agents": "node scripts/agents.mjs",
+    "build": "node scripts/build-workspace.mjs",
+    "dev:background": "nitro dev"
   },
   "dependencies": {
     "@fontsource/noto-sans": "^5.3.0",
     "@fontsource/noto-serif": "^5.3.0",
+    "@vercel/functions": "^3.10.3",
     "docx": "^9.10.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "fflate": "^0.8.3",
+    "nitro": "^3.0.260903-beta",
     "pdfkit": "^0.20.2",
-    "sharp": "^0.35.5"
+    "pg": "^8.23.1",
+    "rollup": "^4.65.0",
+    "sharp": "^0.35.5",
+    "workflow": "^5.2.3"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.11"
   }
 }
