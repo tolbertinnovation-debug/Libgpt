@@ -2,6 +2,7 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Script } from 'node:vm';
 import {sourceEvidence} from './source-evidence.js';
 import { spawnSync } from 'node:child_process';
+import { charterText } from './agent-charters.js';
 import { TEAM_REVIEW_PROMPT, normalizeTeamReview, teamProjectFaults, parseTeamJson, safeTeamPath } from './build-team.js';
 
 const TTL = 15 * 60_000;
@@ -74,7 +75,7 @@ export function qaFaults(plan, files, runtimeFaults = [], architecture = {}) {
     }
   }
   // A client assertion cannot prove backend integration, credentials or cloud readiness.
-  if (files.some(file => /(?:^|\/)(?:package\.json|server(?:\.|\/)|api\/|Dockerfile|.*\.(?:py|sql|tsx|jsx))$/i.test(file.path))
+  if (files.some(file => /(?:^|\/)(?:package\.json|server(?:\.|\/)|api\/|Dockerfile|.*\.(?:py|sql|ts|tsx|jsx|go|rs|java|kt|cs|php|rb|tf))$/i.test(file.path))
       || plan?.runtime === 'fullstack' || architecture?.deployment?.type === 'external'
       || /^(?:fullstack|full-stack|backend|cloud)$/i.test(architecture?.mode || architecture?.target || '')) {
     faults.push('Backend/cloud executable tests and deployment infrastructure are unavailable; production release is blocked.');
@@ -95,7 +96,7 @@ export function createReleaseGate({complete, chooseModel, secret, runQa=async fn
   }
   async function simpleGate(role, data, signal) {
     try {
-      const raw = await decision(`You are the independent ${role} agent. You did not write this code. Return only JSON {"passed":false,"summary":"specific evidence-backed assessment","faults":["defect"]}. Pass only if every check assigned to your role has demonstrable evidence; missing, incomplete or conflicting evidence must fail. ${role === 'Security' ? 'Look for exposed secrets, authentication bypass, unsafe sinks, injection, credential exfiltration, permissions and dependency/infrastructure risks. A requested public contact email or labelled demo email is public content, not a credential leak. Public mailto links alone are not a security defect. Plain static HTML/CSS/browser-JavaScript with no external dependencies does not require package.json, a dependency manifest or backend infrastructure. Do not invent a supply-chain defect from an absent manifest when no such dependencies are used. Report exploitable source-backed issues, not generic speculation. You have absolute veto power.' : 'You are the final Approver. Review all independent gate results; every review, security and QA gate must pass and there must be no remaining fault. Builders and the orchestrator cannot override you.'}`, data, signal);
+      const raw = await decision(`${charterText(role === 'Security' ? 'security' : 'approver')}\nYou are the independent ${role} agent. You did not write this code. Return only JSON {"passed":false,"summary":"specific evidence-backed assessment","faults":["defect"]}. Pass only if every check assigned to your role has demonstrable evidence; missing, incomplete or conflicting evidence must fail. ${role === 'Security' ? 'Look for exposed secrets, authentication bypass, unsafe sinks, injection, credential exfiltration, permissions and dependency/infrastructure risks. A requested public contact email or labelled demo email is public content, not a credential leak. Public mailto links alone are not a security defect. Plain static HTML/CSS/browser-JavaScript with no external dependencies does not require package.json, a dependency manifest or backend infrastructure. Do not invent a supply-chain defect from an absent manifest when no such dependencies are used. Report exploitable source-backed issues, not generic speculation. You have absolute veto power.' : 'You are the final Approver. Review all independent gate results; every review, security and QA gate must pass and there must be no remaining fault. Builders and the orchestrator cannot override you.'}`, data, signal);
       if (typeof raw?.passed !== 'boolean' || typeof raw.summary !== 'string' || !raw.summary.trim() || !Array.isArray(raw.faults) || raw.faults.length > 40 || raw.faults.some(f => typeof f !== 'string' || !f.trim())) throw new Error('Invalid decision');
       const faults = raw.faults.map(clean);
       if (!raw.passed && !faults.length) faults.push(clean(raw.summary));

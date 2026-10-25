@@ -1,5 +1,7 @@
 # Grandpa AI
 
+**Elite engineering agents:** Every Build agent now has its own charter — Atlas plans a complete multi-page site from one prompt and picks the best-fit stack, with Prism, Vertex, Pulse, Lumen, Forge and Nimbus building and Sentinel, Aegis, Crucible and Keystone guarding release. Backends can be written in TypeScript, Python, Go, Rust, Java/Kotlin, C#, PHP or Ruby. See [engineering team](docs/ritual-team.md).
+
 **Complete stories and history:** Story requests now include the beginning, development and ending in one response. The story panel shows the resolution immediately, without mandatory choices. Historical accounts cover their stated scope chronologically through outcomes and significance; interactive branching is used in chat only when explicitly requested.
 
 **Document creation:** Ask chat to write and revise complete documents, choose one of eight professional templates, and download PDF, DOCX, Word-compatible DOC, RTF, PNG, SVG, HTML, text or Markdown. See [document creation](docs/document-creation.md).

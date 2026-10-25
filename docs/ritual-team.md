@@ -2,6 +2,14 @@
 
 # Ritual Coding engineering team
 
+## Agent charters and stack choice
+
+Every role has a charter in `server/agent-charters.js`: a codename, a mission, the mastery expected of the best engineer ever to hold that seat, and standards it never drops. Atlas (Head of Engineering), Meridian (Architect), Prism (design systems), Vertex (frontend), Pulse (interactions), Lumen (content and docs), Forge (backend and APIs), Nimbus (data and cloud), Sentinel (independent review), Aegis (security), Crucible (QA/DevOps) and Keystone (release approval). Each prompt includes its own charter. The charters raise the quality bar and change no guardrail; agents are told to use only features that ship in current stable browsers and runtimes, never invented APIs.
+
+One prompt is enough: the Orchestrator infers the pages, audience, tone and call to action a real organisation of that kind needs (typically four to eight pages) and states its choices in the summary instead of asking questions.
+
+The plan records a technology `stack`. Static sites always use HTML, CSS and JavaScript (plus SVG, JSON and Markdown), because that is what a browser and the preview run; any other language named for a static plan is removed. Fullstack plans choose the best-fit backend language and framework (for example TypeScript/Node.js, Python/FastAPI or Django, Go, Rust, Java/Kotlin, C#/.NET, PHP or Ruby), a database and infrastructure such as Docker or Terraform. Builders receive the stack with their assignment. Backend and infrastructure source in any of these languages keeps production release blocked until real hosting and tests exist.
+
 A new Build turns one website brief into a shared plan, architecture decisions and complete project files. The Head of Engineering orchestrates assignments and tracks progress. The Architect records decisions, constraints, test plans and deployment requirements before building starts.
 
 Six builders own distinct files: design and assets, frontend pages, interactions, content and materials, backend, and data/cloud. Builders queue within four simultaneous provider calls. Backend and interaction files are generated one at a time; other builders use batches of up to two. An incomplete batch receives one targeted retry for each unfinished file, keeping its completed neighbours. Access, spending, rate and governance denials do not receive this retry. Each generation has a 16,000-token output ceiling, subject to the operator’s existing hard limits. Backend and cloud work may be unnecessary for a static website. These roles use separate provider calls with explicit responsibilities, not just progress labels.

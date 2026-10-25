@@ -2,18 +2,18 @@
 // Provider calls and device persistence belong to the host, so this engine is
 // also usable with recorded responses for testing and interrupted-build recovery.
 export const TEAM_ROLES = Object.freeze([
-  { id: 'supervisor', name: 'Head of Engineering', job: 'Orchestrates goals, assigns work, and tracks completion.' },
-  { id: 'architect', name: 'Architect', job: 'Records architecture decisions and shared contracts.' },
-  { id: 'design', name: 'Design & assets', job: 'Responsive styles and accessible artwork.' },
-  { id: 'pages', name: 'Frontend builder', job: 'Complete pages and shared navigation.' },
-  { id: 'interactions', name: 'Interaction builder', job: 'Menus, forms, and browser interactions.' },
-  { id: 'content', name: 'Content & materials', job: 'Truthful content and project documentation.' },
-  { id: 'backend', name: 'Backend builder', job: 'Server code and integration contracts when required.' },
-  { id: 'cloud', name: 'Data & cloud builder', job: 'Data models and deployment configuration when required.' },
-  { id: 'reviewer', name: 'Independent reviewer', job: 'Reviews changes separately from their authors.' },
-  { id: 'security', name: 'Security agent', job: 'Vetoes release when security checks fail.' },
-  { id: 'qa', name: 'QA / DevOps', job: 'Validates tests and release readiness.' },
-  { id: 'approver', name: 'Release approver', job: 'Releases only after review, security, and QA pass.' },
+  { id: 'supervisor', name: 'Atlas · Head of Engineering', job: 'Turns one prompt into a complete site plan, stack and contracts.' },
+  { id: 'architect', name: 'Meridian · Principal Architect', job: 'Performance, accessibility, security and test decisions before building.' },
+  { id: 'design', name: 'Prism · Design systems', job: 'Distinctive token-driven design, responsive layouts and SVG artwork.' },
+  { id: 'pages', name: 'Vertex · Frontend', job: 'Complete semantic pages, SEO metadata and shared navigation.' },
+  { id: 'interactions', name: 'Pulse · Interactions', job: 'Accessible menus, forms and every working control.' },
+  { id: 'content', name: 'Lumen · Content & docs', job: 'Truthful, persuasive copy and complete project documentation.' },
+  { id: 'backend', name: 'Forge · Backend & APIs', job: 'Server code and tests in the best-fit language when required.' },
+  { id: 'cloud', name: 'Nimbus · Data & cloud', job: 'Database schemas, Docker and infrastructure-as-code when required.' },
+  { id: 'reviewer', name: 'Sentinel · Independent reviewer', job: 'Reviews changes separately from their authors.' },
+  { id: 'security', name: 'Aegis · Security', job: 'Vetoes release when security checks fail.' },
+  { id: 'qa', name: 'Crucible · QA / DevOps', job: 'Validates tests and release readiness.' },
+  { id: 'approver', name: 'Keystone · Release approver', job: 'Releases only after review, security, and QA pass.' },
 ]);
 export const WORKER_IDS = Object.freeze(['design', 'pages', 'interactions', 'content', 'backend', 'cloud']);
 const WORKERS = WORKER_IDS;
