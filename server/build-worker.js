@@ -70,10 +70,11 @@ export function createBuildWorker({store,services}){
       `For this task write ONLY ${path}. Return the entire complete file in a closed fenced block with path=${path}. Do not return other files.`,
       cp.repairs?.length ? `Review repair instructions: ${task.instruction}` : '',
       `Preserve the existing working project. Follow the shared contract and use only planned local assets.`].filter(Boolean).join('\n\n');
-     const raw=await services.generate(task.agent,instruction,files,controller.signal);
+     const raw=await services.generate(task.agent,instruction,files,controller.signal,cp.plan);
      const parsed=filesFrom(raw);
      const file=parsed.files.find(file=>file.path===path && validFile(file));
-     if(!file || parsed.unfinished){
+     const unchangedRepair=file && cp.repairs?.length && files.some(existing=>existing.path===path && existing.body===file.body);
+     if(!file || parsed.unfinished || unchangedRepair){
       cp.fileAttempts ||= {};cp.fileAttempts[path]=(cp.fileAttempts[path] || 0)+1;
       if(cp.fileAttempts[path]>1)throw new Error('Incomplete file');
       event=`Retrying unfinished file: ${path}`;status='building';
@@ -91,7 +92,7 @@ export function createBuildWorker({store,services}){
    } else if(cp.phase==='review'){
     setRole('reviewer','working');await announce('Reviewing the complete saved source.','reviewing');
     const issues=teamProjectFaults(cp.plan,files);
-    const review=await services.review(job.asked,cp.plan,files,issues,controller.signal);
+    const review=await services.review(job.asked,cp.plan,files,issues,controller.signal,cp.gateFindings || []);
     cp.review=review;cp.faults=[...new Set([...issues,...review.faults])];
     if(review.approved && !cp.faults.length && !review.repairs.length){
      cp.phase='gate';status='security';setRole('reviewer','complete');event='Independent source review passed. Checking release gates.';
@@ -105,9 +106,15 @@ export function createBuildWorker({store,services}){
     cp.release=await services.release({asked:job.asked,plan:cp.plan,architecture:cp.architecture,files,faults:[]},controller.signal);
     cp.faults=cp.release.faults || [];
     for(const [gate,role]of [['review','reviewer'],['security','security'],['qa','qa'],['approver','approver']])setRole(role,cp.release.gates?.[gate]?.passed?'complete':'needs_attention');
-    status=cp.release.approved?'approved':'needs_attention';setRole('supervisor',cp.release.approved?'complete':'needs_attention');
-    cp.message=cp.release.approved?'Files saved and source checks passed. Open Preview to check the website before publishing.':'Release checks need attention. Your files are saved.';
-    event=cp.message;
+    const externalSetup=cp.faults.some(fault=>/signing|configuration is required|infrastructure.*unavailable|executable tests.*unavailable|hosting.*required|spending cap|rate limit|credential.*required/i.test(fault));
+    if(!cp.release.approved && !externalSetup && cp.faults.length && (cp.reviewRound || 0)<6){
+     cp.gateFindings=[...cp.faults];cp.reviewRound=(cp.reviewRound || 0)+1;cp.phase='review';cp.release=null;
+     status='repairing';cp.message='Final checks found issues. Sending them to the reviewer for targeted repairs.';event=cp.message;
+    }else{
+     status=cp.release.approved?'approved':'needs_attention';setRole('supervisor',cp.release.approved?'complete':'needs_attention');
+     cp.message=cp.release.approved?'Files saved and source checks passed. Open Preview to check the website before publishing.':'Release checks need attention. Your files are saved.';
+     event=cp.message;
+    }
    }
    if(controller.signal.aborted)return {continue:false,status:'stopped'};
    cp.status=status;
