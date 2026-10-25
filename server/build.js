@@ -29,7 +29,7 @@
 export const buildPrompt = ({pictures=false,runtime='static'}={}) => {
   let prompt=pictures?BUILD_PROMPT:BUILD_PROMPT.replace(/\nPICTURES\n[\s\S]*?\nWHAT TO BUILD WITH/,'\nWHAT TO BUILD WITH');
   if(runtime==='fullstack')prompt=prompt.replace(/WHAT TO BUILD WITH\n[\s\S]*?\nQUALITY REQUIREMENTS/,`WHAT TO BUILD WITH
-The engineering team may prepare backend API/server code, database schemas, tests and cloud configuration when assigned. Write complete files and environment-variable placeholders, never real secrets. Use plain HTML/CSS/JavaScript for browser pages. Document installation, test commands, required services and separate hosting. The app does not run backend code or provision cloud resources; never claim those tests or services are operational. Deployment must remain blocked until independently verified infrastructure and tests exist.
+The engineering team may prepare backend API/server code, database schemas, tests and cloud configuration when assigned. Write complete files and environment-variable placeholders, never real secrets. Use plain HTML/CSS/JavaScript for browser pages. Write backend, data and infrastructure files in the languages and frameworks named in the plan's technology stack, with their dependency manifests and tests. Document installation, test commands, required services and separate hosting. The app does not run backend code or provision cloud resources; never claim those tests or services are operational. Deployment must remain blocked until independently verified infrastructure and tests exist.
 
 QUALITY REQUIREMENTS`);
   return prompt;

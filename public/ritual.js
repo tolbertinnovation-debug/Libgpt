@@ -528,6 +528,7 @@ function renderPlan(run) {
     ${!running && cp.faults?.length?`<div class="team-error" role="alert"><strong>${escapeHtml(cp.faults[0])}</strong>${cp.faults.length>1?`<details><summary>${cp.faults.length-1} more ${cp.faults.length===2?'issue':'issues'}</summary><ul>${cp.faults.slice(1).map(f=>`<li>${escapeHtml(f)}</li>`).join('')}</ul></details>`:''}</div>`:''}
     <div class="team-controls">${running?'<button class="proposal-look" type="button" id="plan-stop">Stop</button>':cp.asked && !done?`<button class="proposal-apply" type="button" id="plan-resume">${plan?'Resume project & review':'Retry planning'}</button>`:''}</div>
     ${plan?.summary?`<p>${escapeHtml(plan.summary)}</p>`:''}
+    ${plan?.stack?.languages?.length?`<p class="team-stack"><strong>Stack:</strong> ${escapeHtml(plan.stack.languages.join(' · '))}${plan.stack.backend && plan.stack.backend!=='none'?` — backend ${escapeHtml(plan.stack.backend)}`:''}${plan.stack.database && plan.stack.database!=='none'?`, ${escapeHtml(plan.stack.database)}`:''}</p>`:''}
     <ol class="plan-steps team-steps">${roles.map(agent=>{
       const task=plan?.tasks.find(t=>t.agent===agent),agentState=cp.agents?.[agent];
       const count=task?task.files.filter(path=>cp.savedPaths?.includes(path)).length:0;
