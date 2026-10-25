@@ -10,14 +10,15 @@ test('Build automatic selection stays inside the approved allowlist while Ask ke
     ACCESS_CODE: '', RATE_LIMIT_PER_MINUTE: '0', RITUAL_GOVERNANCE_DIR: directory,
     RITUAL_DAILY_USD: '1000', RITUAL_CALLS_PER_MINUTE: '1000' });
   const original = globalThis.fetch;
-  let chosen;
+  let chosen,providerMessages;
   globalThis.fetch = async (url, options) => {
     if (!String(url).startsWith('https://models.invalid')) return original(url, options);
     if (String(url).endsWith('/models')) return Response.json({ data: ['gpt-6.1-sol', 'gpt-4.1', 'gpt-4.1-mini'].map(id => ({ id })) });
-    chosen = JSON.parse(options.body).model;
+    const body=JSON.parse(options.body);chosen=body.model;providerMessages=body.messages;
+    if(!body.stream)return Response.json({choices:[{message:{content:'Completed backend source.'}}]});
     return new Response('data: {"choices":[{"delta":{"content":"A completed answer."},"finish_reason":"stop"}]}\n\n');
   };
-  const { default: app } = await import('../server/app.js');
+  const { default: app,buildAgentServices } = await import('../server/app.js');
   const server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
   t.after(async () => { globalThis.fetch = original; server.closeAllConnections(); server.close(); await rm(directory, { recursive: true, force: true }); });
   const post = async extra => {
@@ -29,4 +30,6 @@ test('Build automatic selection stays inside the approved allowlist while Ask ke
   assert.equal(await post({ mode: 'build' }), 'gpt-4.1');
   assert.equal(await post({ mode: 'build', model: 'gpt-6.1-sol' }), 'gpt-4.1');
   assert.equal(await post({}), 'gpt-6.1-sol');
+  assert.equal(await buildAgentServices.generate('backend','Create assigned server source.',[],new AbortController().signal,{runtime:'fullstack'}),'Completed backend source.');
+  assert.equal(chosen,'gpt-4.1');assert.match(providerMessages[0].content,/engineering team may prepare backend API/);
 });

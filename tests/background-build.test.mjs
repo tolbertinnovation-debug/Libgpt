@@ -78,3 +78,25 @@ test('untrusted imported checkpoints cannot grant approval or skip independent c
  assert.deepEqual(checkpoint.agents.pages.completed,['index.html']);
  assert.throws(()=>cleanBuildCheckpoint({plan:{...plan,tasks:plan.tasks.map(task=>({...task,files:['../bad']}))}},'Build',[]));
 });
+
+test('final gate findings return to bounded owner repairs and must pass fresh gates before approval',async t=>{
+ const {store,identity}=await fixture(t);let gates=0,observed=false;
+ const worker=createBuildWorker({store,services:services({
+  generate:async(agent,...args)=>{const result=await services().generate(agent,...args);return observed && agent==='pages'?result.replace('</body>','<!-- repaired -->\n</body>'):result;},
+  review:async(asked,plan,files,issues,signal,prior)=>{
+   if(prior.length && !observed){observed=true;return {approved:false,summary:'Repair the page.',faults:['Fix the page.'],repairs:[{agent:'pages',files:['index.html'],instruction:'Correct the final gate finding.'}]};}
+   return {approved:true,summary:'Reviewed current source.',faults:[],repairs:[]};
+  },
+  release:async()=>{gates++;return gates===1?{approved:false,faults:['A source defect must be repaired.'],gates:{qa:{passed:false}}}:{approved:true,approvalToken:'fresh-test-only',artifactHash:'b'.repeat(64),faults:[],gates:Object.fromEntries(['review','security','qa','approver'].map(id=>[id,{passed:true}]))};},
+ })});
+ let next,count=0;do{next=await worker.advance(identity.id,1);assert.ok(++count<25);}while(next.continue);
+ const job=await store.get(identity.id,identity.token);assert.equal(job.status,'approved');assert.equal(gates,2);assert.equal(observed,true);
+ assert.ok(job.events.some(event=>event.message.includes('targeted repairs')));
+});
+
+test('unavailable final model decisions pause without another review or paid repair attempt',async t=>{
+ const {store,identity}=await fixture(t);let reviews=0,gates=0;
+ const worker=createBuildWorker({store,services:services({review:async()=>{reviews++;return {approved:true,faults:[],repairs:[],summary:'Reviewed.'};},release:async()=>{gates++;return {approved:false,faults:['Security decision is unavailable or malformed.'],gates:{security:{passed:false}}};}})});
+ let next,count=0;do{next=await worker.advance(identity.id,1);assert.ok(++count<15);}while(next.continue);
+ assert.equal((await store.get(identity.id,identity.token)).status,'needs_attention');assert.equal(reviews,1);assert.equal(gates,1);
+});
