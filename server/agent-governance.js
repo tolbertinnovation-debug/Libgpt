@@ -36,7 +36,7 @@ function normalizeLimits(input = {}, previous = DEFAULTS) {
  * is suitable for one server/volume; it is not a distributed/cloud database.
  * Caller authenticates administrative pause/resume/configure operations.
  */
-export function createAgentGovernance({directory, serverless = false, storage, limits = {}, now = Date.now} = {}) {
+export function createAgentGovernance({directory, serverless = false, storage, limits = {}, now = Date.now, legacyTextCeiling} = {}) {
   const transactions = new AsyncLocalStorage();
   const root = path.resolve(directory || path.join(process.cwd(), '..', 'ritual-agent-data'));
   const ledgerPath = path.join(root, 'ledger.json');
@@ -66,7 +66,7 @@ export function createAgentGovernance({directory, serverless = false, storage, l
       throw failure('Agent governance storage is unavailable; work is paused.');
     } finally {if (owned) await fs.rmdir(lockPath).catch(() => {});}
   }
-  const freshState = () => ({version: 1, paused: false, limits: initialLimits, day: day(), reservedMicroUsd: 0,
+  const freshState = () => ({version: 1, accountingVersion: 2, paused: false, limits: initialLimits, day: day(), reservedMicroUsd: 0,
     calls: [], active: {}, sequence: 0, auditHash: ZERO});
   const verifyRecord = (record, sequence, previousHash) => {
     const {hash, ...metadata} = record;
@@ -85,6 +85,7 @@ export function createAgentGovernance({directory, serverless = false, storage, l
       const {state, head} = await transactions.getStore().load(freshState());
       if (head) verifyRecord(head, state.sequence, head.previousHash);
       validateState(state, head?.sequence || 0, head?.hash || ZERO);
+      if (await upgradeAccounting(state)) return read();
       return {state, records: []};
     }
     let state, raw = '';
@@ -105,7 +106,22 @@ export function createAgentGovernance({directory, serverless = false, storage, l
       state = freshState();
     }
     validateState(state, seq, hash);
+    if (await upgradeAccounting(state)) return read();
     return {state, records};
+  }
+  async function upgradeAccounting(state) {
+    // Only the app's unchanged default text-model policy opts into this repair.
+    // Historical usage was not recorded: keep a conservative upper bound rather
+    // than pretending the old requests cost zero or inventing actual usage.
+    if (state.accountingVersion === 2 || Object.values(state.active).some(active => active.expiresAt > now())) return false;
+    const previousMicroUsd = state.reservedMicroUsd;
+    const reprice = Number.isFinite(legacyTextCeiling) && legacyTextCeiling > 0 && legacyTextCeiling <= state.limits.maxCostPerMillionTokens;
+    if (reprice) state.reservedMicroUsd = Math.ceil(previousMicroUsd * legacyTextCeiling / state.limits.maxCostPerMillionTokens);
+    state.active = {};
+    state.accountingVersion = 2;
+    await save(state, 'accounting-upgraded', {previousMicroUsd, retainedUpperBoundMicroUsd: state.reservedMicroUsd,
+      ...(reprice ? {legacyTextCeiling} : {}), basis: reprice ? 'default-approved-text-model-upper-bound' : 'original-upper-bound-retained'});
+    return true;
   }
   async function save(state, event, metadata = {}) {
     if (storage) {
@@ -146,7 +162,7 @@ export function createAgentGovernance({directory, serverless = false, storage, l
       return true;
     });
   }
-  async function begin({role, operation, inputChars = 0, maxTokens = 0, actor} = {}) {
+  async function begin({role, operation, inputChars = 0, maxTokens = 0, actor, pricing, messageCount = 0} = {}) {
     const id = crypto.randomUUID();
     await locked(async () => {
       const {state} = await read(); prune(state);
@@ -156,10 +172,17 @@ export function createAgentGovernance({directory, serverless = false, storage, l
         denial = failure('This agent role cannot perform that operation.', 'GOVERNANCE_PERMISSION', 403);
       else {meta.role = role; meta.operation = operation;}
       if (!denial && state.paused) denial = failure('All agents are paused.', 'GOVERNANCE_PAUSED', 423);
+      if (!denial && state.accountingVersion !== 2) denial = failure('Grandpa AI Build is updating its spending records. Please try again shortly.', 'GOVERNANCE_PAUSED', 423);
       if (!denial && (!Number.isSafeInteger(inputChars) || inputChars < 0 || inputChars > state.limits.maxInputChars ||
         !Number.isSafeInteger(maxTokens) || maxTokens < 0 || maxTokens > state.limits.maxOutputTokens))
         denial = failure('Agent request exceeds its hard size limits.', 'GOVERNANCE_SIZE', 413);
-      const reserved = Math.ceil((inputChars + maxTokens) * state.limits.maxCostPerMillionTokens);
+      const validPricing = pricing && ['input','output'].every(key => Number.isFinite(pricing[key]) && pricing[key] > 0 && pricing[key] <= state.limits.maxCostPerMillionTokens) &&
+        Number.isSafeInteger(messageCount) && messageCount >= 0 && messageCount <= 10000;
+      if (pricing && !validPricing && !denial) denial = failure('Agent pricing exceeds its cost policy.', 'GOVERNANCE_BUDGET', 429);
+      const rates = validPricing ? {input:pricing.input, output:pricing.output} : {input:state.limits.maxCostPerMillionTokens,output:state.limits.maxCostPerMillionTokens};
+      // UTF-8 bytes bound text tokens; reserve framing overhead as well. Never
+      // use the common characters/4 average as a hard spending bound.
+      const reserved = Math.ceil(validPricing ? (inputChars + 1024 + messageCount * 64) * rates.input + maxTokens * rates.output : (inputChars + maxTokens) * rates.input);
       if (!denial && (!Number.isSafeInteger(reserved) || state.reservedMicroUsd + reserved > Math.floor(state.limits.dailyUsd * 1000000)))
         denial = failure('The daily agent spending cap has been reached.', 'GOVERNANCE_BUDGET', 429);
       if (!denial && state.calls.length >= state.limits.callsPerMinute)
@@ -168,7 +191,7 @@ export function createAgentGovernance({directory, serverless = false, storage, l
         denial = failure('The agent concurrency limit has been reached.', 'GOVERNANCE_CONCURRENCY', 429);
       if (denial) {await save(state, 'denied', {...meta, reason: denial.code}); denial.persistAudit = true; throw denial;}
       state.reservedMicroUsd += reserved; state.calls.push(now());
-      state.active[id] = {role, operation, expiresAt: now() + state.limits.leaseMs};
+      state.active[id] = {role, operation, day:state.day, reservedMicroUsd:reserved, rates, expiresAt: now() + state.limits.leaseMs};
       await save(state, 'started', {...meta, ticket: id, reservedMicroUsd: reserved});
     });
     const controller = new AbortController(); controllers.set(id, controller);
@@ -176,13 +199,21 @@ export function createAgentGovernance({directory, serverless = false, storage, l
       check(id).catch(() => {controller.abort(failure('Agent work paused by governance.', 'GOVERNANCE_PAUSED', 423)); clearInterval(timer);});
     }, 1000); timer.unref();
     let released = false;
-    const release = async ({outcome = 'completed'} = {}) => {
+    const release = async ({outcome = 'completed', usage} = {}) => {
       if (released) return; released = true; clearInterval(timer); controllers.delete(id);
       await locked(async () => {
-        const {state} = await read();
+        const {state} = await read(); prune(state);
         if (!state.active[id]) return;
-        const {role, operation} = state.active[id]; delete state.active[id];
+        const active = state.active[id], {role, operation} = active; delete state.active[id];
+        const validUsage = usage && ['prompt_tokens','completion_tokens'].every(key => Number.isSafeInteger(usage[key]) && usage[key] >= 0);
+        const settled = validUsage && active.rates && Number.isSafeInteger(active.reservedMicroUsd) && active.day === state.day;
+        const chargedMicroUsd = settled ? Math.ceil(usage.prompt_tokens * active.rates.input + usage.completion_tokens * active.rates.output) : undefined;
+        if (settled) {
+          if (!Number.isSafeInteger(chargedMicroUsd)) throw failure('Agent usage accounting is invalid.');
+          state.reservedMicroUsd = Math.max(0, state.reservedMicroUsd - active.reservedMicroUsd) + chargedMicroUsd;
+        }
         await save(state, 'finished', {ticket: id, role, operation,
+          ...(settled ? {chargedMicroUsd, usage:{prompt_tokens:usage.prompt_tokens,completion_tokens:usage.completion_tokens}, accounting:'reported-usage'} : {accounting:'retained-upper-bound'}),
           outcome: ['completed', 'failed', 'cancelled'].includes(outcome) ? outcome : 'failed'});
       });
     };

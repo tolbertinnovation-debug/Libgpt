@@ -86,3 +86,20 @@ test('production and preview scopes are isolated; migration is idempotent; audit
   assert.equal(governanceScope({ VERCEL_ENV: 'production' }), 'production');
   assert.equal(governanceScope({ VERCEL_ENV: 'preview', VERCEL_GIT_COMMIT_REF: 'feature' }), 'preview:feature');
 });
+
+test('usage settlement persists atomically and frees capacity for another serverless instance', async t => {
+ const {gate,fail}=await fixture(t),first=gate('settled',{dailyUsd:.3});
+ const request={role:'pages',operation:'generate',inputChars:1000,maxTokens:32000,messageCount:1,pricing:{input:2,output:8}};
+ const job=await first.begin(request);
+ await assert.rejects(gate('settled').begin(request),{code:'GOVERNANCE_BUDGET'});
+ await job.release({usage:{prompt_tokens:300,completion_tokens:400}});
+ assert.equal((await gate('settled').status()).reservedUsd,.0038);
+ const next=await gate('settled').begin(request);
+ const before=(await first.status()).reservedUsd;
+ fail(sql=>sql.startsWith('UPDATE public.grandpa_ai_governance_state'));
+ await assert.rejects(next.release({usage:{prompt_tokens:300,completion_tokens:400}}),{code:'GOVERNANCE_UNAVAILABLE'});
+ fail(undefined);
+ assert.equal((await first.status()).reservedUsd,before);
+ assert.equal((await first.status()).activeCount,1);
+ assert.equal((await first.audit()).filter(row=>row.event==='finished').length,1);
+});
