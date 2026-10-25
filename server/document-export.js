@@ -7,11 +7,11 @@ import { DOCUMENT_TEMPLATES, DOCUMENT_FORMATS, readDocumentSpec, documentMarkdow
 import { visualScene, visualSvg, sceneSvg } from '../public/document-visuals.js';
 import { ARTWORK_FORMATS } from '../public/document-design.js';
 
-const require = createRequire(import.meta.url);
-const regular = require.resolve('@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff');
-const bold = require.resolve('@fontsource/noto-sans/files/noto-sans-latin-700-normal.woff');
-const serif = require.resolve('@fontsource/noto-serif/files/noto-serif-latin-400-normal.woff');
-const serifBold = require.resolve('@fontsource/noto-serif/files/noto-serif-latin-700-normal.woff');
+const documentRequire = createRequire(import.meta.url);
+const regular = documentRequire.resolve('@fontsource/noto-sans/files/noto-sans-latin-400-normal.woff');
+const bold = documentRequire.resolve('@fontsource/noto-sans/files/noto-sans-latin-700-normal.woff');
+const serif = documentRequire.resolve('@fontsource/noto-serif/files/noto-serif-latin-400-normal.woff');
+const serifBold = documentRequire.resolve('@fontsource/noto-serif/files/noto-serif-latin-700-normal.woff');
 const esc = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const fonts = (doc, theme) => {
   doc.registerFont('body', theme.font === 'serif' ? serif : regular);

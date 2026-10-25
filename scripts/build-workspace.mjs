@@ -22,6 +22,11 @@ for(const directory of await functionsAt('.vercel/output/functions')){
   for(const file of files)await cp(path.join(relative,'files',file),path.join(directory,relative,'files',file));
  }
  for(const folder of ['data','_libs/data','_chunks/data'])await cp('node_modules/pdfkit/js/data',path.join(directory,folder),{recursive:true});
+ await cp('node_modules/pdfkit/js/standard-fonts',path.join(directory,'standard-fonts'),{recursive:true});
+ const packageFile=path.join(directory,'package.json');
+ const pkg=JSON.parse(await readFile(packageFile,'utf8'));
+ pkg.imports={...pkg.imports,'#standard-fonts/*':'./standard-fonts/*.cjs'};
+ await writeFile(packageFile,JSON.stringify(pkg,null,2));
  const config=path.join(directory,'.vc-config.json');
  const value=JSON.parse(await readFile(config,'utf8'));if(value.maxDuration==='max'){value.maxDuration=300;await writeFile(config,JSON.stringify(value,null,2));}
 }
