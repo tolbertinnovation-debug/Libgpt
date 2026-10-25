@@ -27,10 +27,10 @@ import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary, loadJournal } from './library.js';
 import { Dictation, canRecord } from './dictate.js';
 import { RecordedEar, canListenByRecording } from './hearing.js';
-import * as ritual from './ritual.js?v=saved-memory-1';
+import * as ritual from './ritual.js?v=workspace-background-1';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
-import { mountSupport } from './support.js?v=saved-memory-1';
+import { mountSupport } from './support.js?v=workspace-background-1';
 import { loadMemory, memoriesForQuestion } from './memory.js';
 import {imageCard,mountImageComposer,safeChatImage,imagePrompt,imageLoadingMarkup} from './image-chat.js';
 
@@ -3569,6 +3569,7 @@ async function boot() {
         headers: apiHeaders,
         toast,
         canDraw: Boolean(config.buildPictures),
+        backgroundAvailable: Boolean(config.backgroundBuilds),
         onMode: (mode) => {
           const building = mode === 'build';
           el.input.placeholder = building

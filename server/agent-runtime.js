@@ -30,6 +30,7 @@ export function createAgentRuntime({governance,complete,streamChat,allowedModels
     finally {await job.release({outcome,usage});}
   }
   return {
+    withScope:(role,operation,action)=>scope.run({role,operation,actor:'background-build'},action),
     inAgentScope:()=>Boolean(scope.getStore()),
     allowedModels:Object.freeze([...allowedModels]),
     middleware:(role,operation,{buildOnly=false}={})=>async(req,res,next)=>{

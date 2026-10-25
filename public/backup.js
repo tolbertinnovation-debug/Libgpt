@@ -105,6 +105,7 @@ function cleanTeam(value, projectFiles) {
         files: list(task.files, 12, 'specialist files').map(path => text(path, 180, 'planned filename')),
       })),
     };
+    if(['static','fullstack'].includes(value.plan.runtime))plan.runtime=value.plan.runtime;
     validateTeamPlan(plan);
   }
   // Keep architecture notes as reference material, never as executable or
@@ -163,6 +164,14 @@ function cleanBackup(value) {
   projects.forEach((project, index) => {
     const team = cleanTeam(value.projects[index].team, project.files);
     if (team) project.team = team;
+    const source=value.projects[index];
+    if(source.background){
+      const background=source.background;
+      if(!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(background.id || '') || !/^[a-f0-9]{64}$/i.test(background.token || ''))fail('Invalid background project access in this backup.');
+      project.background={id:background.id,token:background.token,revision:-1,status:'queued',startedAt:stamp(background.startedAt),asked:text(background.asked || team?.asked || '',6000,'background task request')};
+      if(/^[a-f0-9]{1,8}$/.test(background.sourceFingerprint || ''))project.background.sourceFingerprint=background.sourceFingerprint;
+      if(source.backgroundBase)project.backgroundBase=files(source.backgroundBase);
+    }
   });
   const journal=list(value.journal || [],Infinity,'journal entries').map(item=>{
     const kind=text(item?.kind,40,'journal kind');

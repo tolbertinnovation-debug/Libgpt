@@ -39,7 +39,7 @@ test('separate instances cannot overrun shared concurrency and minute-rate limit
 });
 test('concurrent reservations are serialized across instances',async t=>{
  const {directory,gate}=await fixture(t,{limits:{dailyUsd:0.02}});
- const results=await Promise.allSettled([gate.begin(request),createAgentGovernance({directory}).begin(request)]);
+ const results=await Promise.allSettled([gate.begin(request),createAgentGovernance({directory,limits:{dailyUsd:0.02}}).begin(request)]);
  assert.equal(results.filter(result=>result.status==='fulfilled').length,1);
  const ticket=results.find(result=>result.status==='fulfilled').value; await ticket.release();
  assert.equal((await gate.status()).reservedUsd,0.02);

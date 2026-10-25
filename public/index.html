@@ -12,7 +12,7 @@
 <meta property="og:description" content="African-centred conversational AI by Tolbert Innovation Hub. Ask in Liberian English, by voice or text.">
 <meta property="og:image" content="logo.png">
 <meta property="og:type" content="website">
-<link rel="stylesheet" href="styles.css?v=saved-memory-1">
+<link rel="stylesheet" href="styles.css?v=workspace-background-1">
 </head>
 <body>
 
@@ -219,10 +219,11 @@
           <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16v4Z"/></svg>
         </button>
 
-        <div class="build-views" role="tablist" aria-label="Chat, code or preview">
-          <button class="build-view is-on" id="view-chat" type="button" role="tab" aria-selected="true" data-view="chat">Talk</button>
-          <button class="build-view" id="view-files" type="button" role="tab" aria-selected="false" data-view="files">Code</button>
-          <button class="build-view" id="view-preview" type="button" role="tab" aria-selected="false" data-view="preview">Look</button>
+        <div class="build-views" role="tablist" aria-label="Build workspace views">
+          <button class="build-view is-on" id="view-chat" type="button" role="tab" aria-selected="true" data-view="chat">Chat</button>
+          <button class="build-view" id="view-files" type="button" role="tab" aria-selected="false" data-view="files">Files</button>
+          <button class="build-view" id="view-preview" type="button" role="tab" aria-selected="false" data-view="preview">Preview</button>
+          <button class="build-view" id="view-changes" type="button" role="tab" aria-selected="false" data-view="changes">Changes <span id="changes-count">0</span></button>
         </div>
 
         <button class="icon-btn" id="build-menu-btn" type="button" aria-label="Builds and tools" aria-haspopup="menu" aria-expanded="false">
@@ -232,6 +233,7 @@
         </button>
 
         <div class="build-menu" id="build-menu" role="menu" hidden>
+          <button class="build-item" id="build-commands" type="button" role="menuitem">Commands & shortcuts</button>
           <button class="build-item" id="build-new" type="button" role="menuitem">New build</button>
           <button class="build-item" id="build-share" type="button" role="menuitem">Save as one page, to share</button>
           <button class="build-item" id="build-download" type="button" role="menuitem">Download the files</button>
@@ -245,16 +247,16 @@
         </div>
       </div>
 
+      <div class="build-plan" id="build-plan" hidden aria-live="polite" aria-label="Build task progress"></div>
       <div class="build-body">
         <!-- Talking about what to build -->
         <div class="build-pane is-on" id="pane-chat" role="tabpanel" aria-labelledby="view-chat">
-          <div class="build-plan" id="build-plan" hidden aria-live="polite" aria-label="AI team progress"></div>
           <div class="build-thread" id="build-thread" aria-live="polite"></div>
           <div class="build-empty" id="build-empty">
             <h2>What do you want to build?</h2>
             <p>Say it the way you would say it to a person. Grandpa works out the pieces,
-               writes them, then opens the result to check it runs — and fixes it if it
-               does not. One thing said, a whole website back.</p>
+               creates a plan and saves your files as it works. Follow the task, inspect the
+               code, and preview the result in one workspace.</p>
             <div class="build-starters" id="build-starters"></div>
           </div>
         </div>
@@ -279,6 +281,7 @@
             </button>
           </div>
 
+          <label class="file-filter"><span>Explorer</span><input id="build-file-search" type="search" placeholder="Find a file…" aria-label="Find project file"></label>
           <div class="build-tree" id="build-tree" aria-label="Files in this build"></div>
           <div class="build-editor">
             <div class="editor-head">
@@ -292,6 +295,7 @@
               </button>
             </div>
             <div class="editor-wrap" id="editor-wrap">
+              <pre class="editor-lines" id="editor-lines" aria-hidden="true"></pre>
               <pre class="editor-paint" id="editor-paint" aria-hidden="true"></pre>
               <textarea class="editor-input" id="editor-input" spellcheck="false"
                         autocapitalize="off" autocorrect="off" autocomplete="off"
@@ -302,11 +306,14 @@
 
         <!-- Seeing it run -->
         <div class="build-pane" id="pane-preview" role="tabpanel" aria-labelledby="view-preview" hidden>
+          <div class="preview-tools"><label class="sr-only" for="preview-page">Preview page</label><select id="preview-page" aria-label="Preview page"></select><div class="preview-devices" role="group" aria-label="Preview size"><button type="button" data-preview-size="mobile" aria-pressed="false">Phone</button><button type="button" data-preview-size="desktop" aria-pressed="true">Desktop</button></div><button type="button" id="preview-refresh" aria-label="Reload website preview">↻</button></div>
           <div class="preview-note" id="preview-note" hidden></div>
           <iframe class="preview-frame" id="preview-frame" title="What your project looks like"
                   sandbox="allow-scripts allow-forms allow-modals allow-popups"></iframe>
         </div>
+        <div class="build-pane" id="pane-changes" role="tabpanel" aria-labelledby="view-changes" hidden><div class="changes-head"><h3>Changes</h3><p>Compare the saved files with the start of this task.</p></div><div id="workspace-changes"></div></div>
       </div>
+      <div class="workspace-footer"><span id="workspace-file-count">0 files</span><span id="workspace-save-state">Saved on this device</span><button type="button" id="workspace-commands">Commands <kbd>⌘ K</kbd></button></div>
 
       <!-- Where a build is opened to see whether it runs. Off screen rather
            than display:none, so it certainly executes, and sandboxed the same
@@ -812,6 +819,6 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<script type="module" src="app.js?v=saved-memory-1"></script>
+<script type="module" src="app.js?v=workspace-background-1"></script>
 </body>
 </html>
