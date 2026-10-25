@@ -37,6 +37,7 @@ import * as github from './github.js';
 import { createPublisher } from './publish.js';
 import {createAgentGovernance} from './agent-governance.js';
 import {createPostgresGovernanceStorage} from './governance-postgres.js';
+import {AGENT_TEXT_RATES} from './agent-costs.js';
 import {createAgentRuntime} from './agent-runtime.js';
 import {createRolloutPolicy} from './rollout-policy.js';
 import { createReleaseGate, artifactHash } from './release-gate.js';
@@ -51,8 +52,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const governanceConnection=process.env.RITUAL_DATABASE_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL;
 const governanceStorage=governanceConnection ? createPostgresGovernanceStorage({connectionString:governanceConnection}) : undefined;
-const governance=createAgentGovernance({storage:governanceStorage,directory:process.env.RITUAL_GOVERNANCE_DIR,serverless:config.serverless,limits:{dailyUsd:Number(process.env.RITUAL_DAILY_USD || 5),callsPerMinute:Number(process.env.RITUAL_CALLS_PER_MINUTE || 20),concurrency:Number(process.env.RITUAL_CONCURRENCY || 4),maxCostPerMillionTokens:Number(process.env.RITUAL_MAX_USD_PER_MILLION_TOKENS || 100)}});
+const officialTextPricing = config.baseUrl === 'https://api.openai.com/v1';
+const governance=createAgentGovernance({storage:governanceStorage,directory:process.env.RITUAL_GOVERNANCE_DIR,serverless:config.serverless,
+  legacyTextCeiling:officialTextPricing && !process.env.RITUAL_AGENT_MODELS ? 12 : undefined,
+  limits:{dailyUsd:Number(process.env.RITUAL_DAILY_USD || 5),callsPerMinute:Number(process.env.RITUAL_CALLS_PER_MINUTE || 20),concurrency:Number(process.env.RITUAL_CONCURRENCY || 4),maxCostPerMillionTokens:Number(process.env.RITUAL_MAX_USD_PER_MILLION_TOKENS || 100)}});
 const runtime=createAgentRuntime({governance,complete:providerComplete,streamChat:providerStreamChat,
+  rates:officialTextPricing ? AGENT_TEXT_RATES : {},
   allowedModels:(process.env.RITUAL_AGENT_MODELS || 'gpt-4.1,gpt-4.1-mini,gpt-4o,gpt-4o-mini').split(',').map(x=>x.trim()).filter(Boolean)});
 const complete=runtime.complete,streamChat=runtime.streamChat;
 const rolloutPolicy=createRolloutPolicy({observe:event=>governance.recordDeployment(event),config:()=>({url:process.env.RITUAL_DEPLOYMENT_ADAPTER_URL,secret:process.env.RITUAL_DEPLOYMENT_ADAPTER_SECRET})});

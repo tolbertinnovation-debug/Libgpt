@@ -188,12 +188,13 @@ async function post(path, body, signal, maxAttempts = 3) {
  * its thought, "length" when it hit the token ceiling part-way through.
  */
 export async function* streamChat({
-  model, messages, maxTokens, temperature, signal, onFinish, maxAttempts,
+  model, messages, maxTokens, temperature, signal, onFinish, maxAttempts, onUsage,
 }) {
   const response = await post('/chat/completions', {
     model: model || config.model,
     messages,
     stream: true,
+    ...(onUsage ? {stream_options:{include_usage:true}} : {}),
     temperature: temperature ?? 0.7,
     max_tokens: maxTokens ?? 1400,
   }, signal, maxAttempts);
@@ -222,6 +223,7 @@ export async function* streamChat({
 
           try {
             const chunk = JSON.parse(payload);
+            if (chunk.usage) onUsage?.(chunk.usage);
             const choice = chunk.choices?.[0];
             const delta = choice?.delta?.content;
             if (delta) yield delta;
@@ -557,7 +559,7 @@ export async function transcribe({ audio, type = 'audio/webm', prompt = '', sign
  * validate what comes back.
  */
 export async function complete({
-  model, messages, maxTokens = 30, temperature = 0.3, json = false, signal, maxAttempts,
+  model, messages, maxTokens = 30, temperature = 0.3, json = false, signal, maxAttempts, onUsage,
 }) {
   const body = {
     model: model || config.titleModel,
@@ -569,6 +571,7 @@ export async function complete({
 
   const response = await post('/chat/completions', body, signal, maxAttempts);
   const parsed = await response.json();
+  if (parsed.usage) onUsage?.(parsed.usage);
   return parsed.choices?.[0]?.message?.content?.trim() || '';
 }
 
