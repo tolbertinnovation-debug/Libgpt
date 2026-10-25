@@ -1,3 +1,4 @@
+import {AsyncLocalStorage} from 'node:async_hooks';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
@@ -35,8 +36,8 @@ function normalizeLimits(input = {}, previous = DEFAULTS) {
  * is suitable for one server/volume; it is not a distributed/cloud database.
  * Caller authenticates administrative pause/resume/configure operations.
  */
-export function createAgentGovernance({directory, serverless = false, limits = {}, now = Date.now} = {}) {
-  const configured = Boolean(directory);
+export function createAgentGovernance({directory, serverless = false, storage, limits = {}, now = Date.now} = {}) {
+  const transactions = new AsyncLocalStorage();
   const root = path.resolve(directory || path.join(process.cwd(), '..', 'ritual-agent-data'));
   const ledgerPath = path.join(root, 'ledger.json');
   const auditPath = path.join(root, 'audit.ndjson');
@@ -46,6 +47,7 @@ export function createAgentGovernance({directory, serverless = false, limits = {
   const actorHash = actor => digest(String(actor || 'anonymous'));
   const day = () => new Date(now()).toISOString().slice(0, 10);
   async function locked(action) {
+    if (storage) return storage.transaction(tx => transactions.run(tx, action));
     if (serverless) throw failure('Persistent agent governance storage is required on this deployment.');
     let owned = false;
     try {
@@ -64,7 +66,27 @@ export function createAgentGovernance({directory, serverless = false, limits = {
       throw failure('Agent governance storage is unavailable; work is paused.');
     } finally {if (owned) await fs.rmdir(lockPath).catch(() => {});}
   }
+  const freshState = () => ({version: 1, paused: false, limits: initialLimits, day: day(), reservedMicroUsd: 0,
+    calls: [], active: {}, sequence: 0, auditHash: ZERO});
+  const verifyRecord = (record, sequence, previousHash) => {
+    const {hash, ...metadata} = record;
+    if (metadata.sequence !== sequence || metadata.previousHash !== previousHash || hash !== digest(JSON.stringify(metadata)))
+      throw failure('Agent audit integrity check failed.');
+  };
+  function validateState(state, sequence, hash) {
+    if (state?.version !== 1 || !Number.isSafeInteger(state.sequence) || state.sequence < 0 || state.sequence !== sequence || state.auditHash !== hash ||
+      !Number.isSafeInteger(state.reservedMicroUsd) || state.reservedMicroUsd < 0 ||
+      !Array.isArray(state.calls) || !state.active || typeof state.active !== 'object' || Array.isArray(state.active) || typeof state.paused !== 'boolean')
+      throw failure('Agent governance ledger integrity check failed.');
+    state.limits = normalizeLimits(state.limits);
+  }
   async function read() {
+    if (storage) {
+      const {state, head} = await transactions.getStore().load(freshState());
+      if (head) verifyRecord(head, state.sequence, head.previousHash);
+      validateState(state, head?.sequence || 0, head?.hash || ZERO);
+      return {state, records: []};
+    }
     let state, raw = '';
     try {state = JSON.parse(await fs.readFile(ledgerPath, 'utf8'));}
     catch (error) {if (error.code !== 'ENOENT') throw error;}
@@ -80,17 +102,19 @@ export function createAgentGovernance({directory, serverless = false, limits = {
     }
     if (!state) {
       if (seq) throw failure('Agent governance ledger is missing.');
-      state = {version: 1, paused: false, limits: initialLimits, day: day(), reservedMicroUsd: 0,
-        calls: [], active: {}, sequence: 0, auditHash: ZERO};
+      state = freshState();
     }
-    if (state.version !== 1 || state.sequence !== seq || state.auditHash !== hash ||
-      !Number.isSafeInteger(state.reservedMicroUsd) || state.reservedMicroUsd < 0 ||
-      !Array.isArray(state.calls) || !state.active || typeof state.paused !== 'boolean')
-      throw failure('Agent governance ledger integrity check failed.');
-    state.limits = normalizeLimits(state.limits);
+    validateState(state, seq, hash);
     return {state, records};
   }
   async function save(state, event, metadata = {}) {
+    if (storage) {
+      const record = {sequence: state.sequence + 1, timestamp: now(), event, ...metadata, previousHash: state.auditHash};
+      record.hash = digest(JSON.stringify(record));
+      state.sequence = record.sequence; state.auditHash = record.hash;
+      await transactions.getStore().append(state, record);
+      return;
+    }
     const size=await fs.stat(auditPath).then(s=>s.size).catch(e=>{if(e.code==='ENOENT')return 0;throw e;});
     if(size>50_000_000)throw failure('Audit storage is full; agents are paused until the operator archives it.');
     const record = {sequence: state.sequence + 1, timestamp: now(), event,
@@ -142,7 +166,7 @@ export function createAgentGovernance({directory, serverless = false, limits = {
         denial = failure('The agent request rate limit has been reached.', 'GOVERNANCE_RATE', 429);
       if (!denial && Object.keys(state.active).length >= state.limits.concurrency)
         denial = failure('The agent concurrency limit has been reached.', 'GOVERNANCE_CONCURRENCY', 429);
-      if (denial) {await save(state, 'denied', {...meta, reason: denial.code}); throw denial;}
+      if (denial) {await save(state, 'denied', {...meta, reason: denial.code}); denial.persistAudit = true; throw denial;}
       state.reservedMicroUsd += reserved; state.calls.push(now());
       state.active[id] = {role, operation, expiresAt: now() + state.limits.leaseMs};
       await save(state, 'started', {...meta, ticket: id, reservedMicroUsd: reserved});
@@ -216,6 +240,13 @@ export function createAgentGovernance({directory, serverless = false, limits = {
       return status();
     }, audit: async (options = {}) => locked(async () => {
       const limit = typeof options === 'number' ? options : options.limit;
-      const {records} = await read(); return records.slice(-Math.min(1000, Math.max(1, Number(limit) || 100))); 
+      const {state, records: localRecords} = await read();
+      const records = storage ? await transactions.getStore().records() : localRecords;
+      if (storage) {
+        let sequence = 0, hash = ZERO;
+        for (const record of records) { verifyRecord(record, ++sequence, hash); hash = record.hash; }
+        validateState(state, sequence, hash);
+      }
+      return records.slice(-Math.min(1000, Math.max(1, Number(limit) || 100)));
     })};
 }
