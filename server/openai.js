@@ -45,7 +45,13 @@ async function toError(response, asked = '', path = '') {
     404: `This key cannot use ${asked ? `"${asked}"` : 'that model'}. `
       + 'Open Settings and pick a different model, or check which models your OpenAI '
       + `project allows.${detail ? ` OpenAI said: ${detail}` : ''}`,
-    429: 'Rate limit or quota reached on the OpenAI account. Wait a moment, or check your billing.',
+    // OpenAI sends 429 both for "too many requests" and for "no credit left",
+    // and the fix for each is different, so the two are told apart.
+    429: code === 'insufficient_quota' || /quota|billing/i.test(detail)
+      ? 'The OpenAI account behind this site has no usable credit. Check that the credit was added to the '
+        + 'same organization and project as OPENAI_API_KEY, and that the project has no monthly budget limit '
+        + `blocking it. New credit can take a few minutes to apply.${detail ? ` OpenAI said: ${detail}` : ''}`
+      : `Too many requests to OpenAI right now. Wait a moment and try again.${detail ? ` OpenAI said: ${detail}` : ''}`,
     // Named for what the reader was doing. "OpenAI had a server error" means
     // nothing to someone who was listening to an elder talk.
     //
