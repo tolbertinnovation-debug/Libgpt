@@ -571,7 +571,7 @@ async function applyBackgroundJob(p,job){
  if(changed)applyChanges(p,job.files || [],'Before background checkpoint');
  p.background={...p.background,status:job.status,revision:job.revision,generation:job.generation,sourceFingerprint:sourceFingerprint(job.files || [])};
  p.backgroundEvents=job.events || [];
- p.team=job.checkpoint || {asked:job.asked,status:job.status,faults:[],message:job.message};
+ p.team=job.checkpoint || {version:1,asked:job.asked,status:job.status,faults:[],message:job.message};
  p.team.status=job.status;p.team.message=job.message || p.team.message;
  if(p.team.plan && !p.named){p.name=p.team.plan.title;p.named=true;}
  if(changed)p.updatedAt=Date.now();
@@ -588,6 +588,7 @@ function watchBackground(){
  if(!p?.background || !deps.backgroundAvailable)return;
  backgroundObserver=createBackgroundObserver({headers:deps.headers,onJob:job=>applyBackgroundJob(p,job),onError:error=>{
   if(p!==project())return;
+  if([403,404].includes(error.status)){p.background.status='unavailable';if(p.team){p.team.status='interrupted';p.team.message='The cloud task is unavailable. Your saved device files are kept. Resume to start from those files.';}persist();backgroundObserver?.stop();render();document.dispatchEvent(new CustomEvent('ritual:busy',{detail:false}));return;}
   const node=$('workspace-save-state');if(node)node.textContent=error.status===404?'Cloud task unavailable · device files kept':'Reconnecting… Your cloud task may still be working.';
  }});
  backgroundObserver.watch(p.background);
@@ -600,14 +601,14 @@ async function startBackgroundBuild(asked,resume=false){
  const p=project();if(!p || foregroundBusy() || remoteRunning(p))return;
  try{
   if(asked.length>6000)throw new Error('Keep the project request and latest change under 6,000 characters.');
-  if(resume && p.background && p.background.sourceFingerprint===sourceFingerprint(p.files)){
+  if(resume && p.background && p.background.status!=='unavailable' && p.background.sourceFingerprint===sourceFingerprint(p.files)){
    const job=await backgroundRequest(p,`/api/build/jobs/${p.background.id}/control`,{action:'resume'});await applyBackgroundJob(p,job);
   }else{
-   const retryPending=p.background?.revision===-1 && p.background?.asked===asked;
+   const retryPending=p.background?.revision===-1 && p.background?.status!=='unavailable' && p.background?.asked===asked;
    if(!resume && !retryPending)p.messages.push({role:'user',content:asked});
    if(!retryPending){p.backgroundBase=p.files.map(file=>({...file}));p.background={...newBackgroundIdentity(),asked};}
    const checkpoint=resume?p.team:null;
-   p.team={...(checkpoint || {}),asked,status:'queued',release:null,message:'Starting a cloud task. Your files will be saved as it works.'};
+   p.team={version:1,...(checkpoint || {}),asked,status:'queued',release:null,message:'Starting a cloud task. Your files will be saved as it works.'};
    if(!await persist())throw new Error('Device storage could not save the task identity. Download your files before continuing.');
    render();
    const job=await backgroundRequest(p,'/api/build/jobs',{id:p.background.id,token:p.background.token,asked,files:p.files.map(file=>({path:file.path,body:file.body})),checkpoint});
@@ -1213,6 +1214,7 @@ export function restoreProjects(projects) {
     el.previewFrame.srcdoc='';
     ensureView('chat');
     if(state.currentId) render();
+    watchBackground();
   } else state.view='chat';
   announce();
 }

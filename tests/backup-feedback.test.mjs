@@ -89,12 +89,11 @@ test('restoring builds leaves imported source out of the live preview',async()=>
   const end=source.indexOf('/** Open one',start);
   const state={projects:[],currentId:null,view:'preview',openPath:'old.html'};
   const frame={srcdoc:'old preview'};
-  let renders=0;
-  const restore=new Function('state','el','saveTimer','ensureView','render','announce',
+  let renders=0,reconnections=0;
+  const restore=new Function('state','el','saveTimer','ensureView','render','announce','watchBackground',
     source.slice(start,end).replace('export function','function')+'; return restoreProjects;')(
       state,{previewFrame:frame},null,view=>{state.view=view;},
-      ()=>{assert.equal(state.view,'chat');renders++;},()=>{});
+      ()=>{assert.equal(state.view,'chat');renders++;},()=>{},()=>{reconnections++;});
   restore([project]);
-  assert.equal(frame.srcdoc,'');assert.equal(renders,1);assert.equal(state.currentId,project.id);
+  assert.equal(frame.srcdoc,'');assert.equal(renders,1);assert.equal(state.currentId,project.id);assert.equal(reconnections,1);
 });
-
