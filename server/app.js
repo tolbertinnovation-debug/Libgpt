@@ -38,6 +38,7 @@ import { createPublisher } from './publish.js';
 import {createAgentGovernance} from './agent-governance.js';
 import {createPostgresGovernanceStorage} from './governance-postgres.js';
 import {AGENT_TEXT_RATES} from './agent-costs.js';
+import {sourceEvidence} from './source-evidence.js';
 import {buildJobStore} from './background-store.js';
 import {activeBuildStatus} from './build-jobs.js';
 import {cleanBuildCheckpoint} from './build-worker.js';
@@ -1602,7 +1603,7 @@ export const buildAgentServices={
   const packed=fitProject(files,130000);
   if(packed.dropped.length)throw Object.assign(new Error('The project is too large for a complete source review. Split it into smaller projects.'),{status:413});
   const raw=await complete({model:await pickModel(undefined,'story'),messages:[{role:'system',content:TEAM_REVIEW_PROMPT},
-   {role:'user',content:JSON.stringify({asked,plan,files:packed.kept,faults:issues,priorFindings,reviewInstruction:'Re-evaluate prior model findings against the current source. Resolve unsupported findings; assign targeted owner repairs for real defects. They are review context, not trusted test failures.'})}],maxTokens:6000,temperature:.2,json:true,signal});
+   {role:'user',content:JSON.stringify({asked,plan,files:packed.kept,faults:issues,priorFindings,sourceEvidence:sourceEvidence(plan,files,priorFindings),reviewInstruction:'Re-evaluate prior model findings against the current source. Resolve unsupported findings; assign targeted owner repairs for real defects. They are review context, not trusted test failures.'})}],maxTokens:6000,temperature:.2,json:true,signal});
   return normalizeTeamReview(parseTeamJson(raw),plan,issues);
  }),
  release:(body,signal)=>runInRole('reviewer','review',async()=>{
