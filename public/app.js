@@ -27,10 +27,11 @@ import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary, loadJournal } from './library.js';
 import { Dictation, canRecord } from './dictate.js';
 import { RecordedEar, canListenByRecording } from './hearing.js';
-import * as ritual from './ritual.js';
+import * as ritual from './ritual.js?v=saved-memory-1';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
-import { mountSupport } from './support.js';
+import { mountSupport } from './support.js?v=saved-memory-1';
+import { loadMemory, memoriesForQuestion } from './memory.js';
 import {imageCard,mountImageComposer,safeChatImage,imagePrompt,imageLoadingMarkup} from './image-chat.js';
 
 /* ========================================================================
@@ -602,6 +603,7 @@ function messageActions(index, content) {
           <path d="M11 5L6 9H3v6h3l5 4V5zM16 9a4 4 0 0 1 0 6"/>
         </svg>Listen
       </button>
+      <button class="msg-action" data-memory="${index}" type="button">Save to memory</button>
       <button class="msg-action" data-report="${index}" type="button">Report</button>
       ${unfinished
         ? '<button class="msg-action" data-continue type="button">Continue unfinished answer</button>' : ''}
@@ -882,6 +884,7 @@ async function streamReply(chat, hooks = {}) {
       signal: controller.signal,
       body: JSON.stringify({
         messages: sending.list,
+        memories: memoriesForQuestion(loadMemory(), sending.list.at(-1)?.content || ''),
         persona: chat.persona || state.prefs.persona,
         language: state.prefs.language,
         model: state.prefs.model,
@@ -2734,7 +2737,7 @@ el.setExport.addEventListener('click', () => {
 });
 
 const support = mountSupport({
-  snapshot:()=>({chats:state.chats,projects:ritual.backupProjects(),journal:loadJournal()}),
+  snapshot:()=>({chats:state.chats,projects:ritual.backupProjects(),journal:loadJournal(),memories:loadMemory().items}),
   busy:()=>Boolean(state.streaming || ritual.isBusy() || conversation.active || listening || dictation.recording || transcribing),
   area:()=>ritual.currentMode(),
   restored:async prepared=>{
@@ -2743,11 +2746,14 @@ const support = mountSupport({
     renderThread();renderSidebar();
   },
 });
+document.getElementById('settings-memory').addEventListener('click',()=>{closeSettings();support.memories();});
 document.getElementById('settings-backup').addEventListener('click',()=>{closeSettings();support.backup();});
 document.getElementById('settings-report').addEventListener('click',()=>{closeSettings();support.feedback();});
 el.thread.addEventListener('click',event=>{
   const button=event.target.closest('[data-report]');
   if(button) support.feedback(currentChat()?.messages[Number(button.dataset.report)]?.content || '');
+  const memory=event.target.closest('[data-memory]');
+  if(memory) support.memories(currentChat()?.messages[Number(memory.dataset.memory)]?.content || '');
 });
 
 // Two taps to delete, so a mis-tap on a shared phone cannot wipe the history.
@@ -3624,5 +3630,3 @@ document.addEventListener('visibilitychange', () => {
 });
 
 boot();
-
-

@@ -3554,3 +3554,21 @@ body {
 .publish-loading>svg {visibility:hidden;}
 .publish-loading::after {content:"";position:absolute;inset:50% auto auto 50%;margin:-10px 0 0 -10px;width:20px;height:20px;border:2px solid currentColor;border-right-color:transparent;border-radius:50%;animation:team-spin .8s linear infinite;}
 @media (prefers-reduced-motion:reduce){.publish-loading::after{animation:none;}}
+
+/* User-owned memory notebook */
+.memory-intro { font-size: .95rem; line-height: 1.6; margin: .75rem 0 1rem; }
+.memory-switch { padding: .85rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); font-weight: 600; }
+.memory-switch input { width: 1.15rem; height: 1.15rem; accent-color: var(--text); flex-shrink: 0; }
+#memory-text { min-height: 6rem; }
+.memory-form-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: .7rem; }
+.memory-form-footer small { color: var(--text-faint); font-size: .76rem; }
+.memory-save { font-weight: 600; }
+.memory-list-head { display: flex; justify-content: space-between; align-items: center; gap: .75rem; margin-top: 1.7rem; }
+.memory-list-head h3 { margin: 0; font-size: .95rem; }
+.memory-list-head h3 span { color: var(--text-faint); font-weight: 400; font-size: .8rem; margin-left: .4rem; }
+.memory-list { list-style: none; padding: 0; display: grid; gap: .7rem; }
+.memory-list li { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: .9rem; }
+.memory-list p { margin: 0 0 .65rem; font-size: .9rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.memory-list .setting-actions { margin: 0; }
+.memory-empty { border: 1px dashed var(--border-strong); border-radius: var(--radius-sm); padding: 1rem; margin: 1rem 0; }
+.memory-empty p { margin: .5rem 0 0; color: var(--text-faint); font-size: .85rem; line-height: 1.6; }
