@@ -38,6 +38,12 @@ import { createPublisher } from './publish.js';
 import {createAgentGovernance} from './agent-governance.js';
 import {createPostgresGovernanceStorage} from './governance-postgres.js';
 import {AGENT_TEXT_RATES} from './agent-costs.js';
+import {buildJobStore} from './background-store.js';
+import {activeBuildStatus} from './build-jobs.js';
+import {cleanBuildCheckpoint} from './build-worker.js';
+import {assertAgentData} from './agent-runtime.js';
+import {start,getRun} from 'workflow/api';
+import {backgroundBuild,backgroundBuildCheck} from '../workflows/build.js';
 import {createAgentRuntime} from './agent-runtime.js';
 import {createRolloutPolicy} from './rollout-policy.js';
 import { createReleaseGate, artifactHash } from './release-gate.js';
@@ -292,6 +298,7 @@ app.get('/api/config', async (_req, res) => {
     vision: config.vision && Boolean(tiers.seeing),
     // Ritual Coding needs nothing beyond the key the rest of the app uses.
     building: config.building && Boolean(config.apiKey),
+    backgroundBuilds: Boolean(buildJobStore && process.env.VERCEL_DEPLOYMENT_ID),
     // Whether a build may draw pictures for the pages it makes. Off unless
     // pictures are switched on AND the hourly limit can actually be held to,
     // so the model is never told it can do something that will be refused.
@@ -1578,6 +1585,83 @@ app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
     if (!(error instanceof OpenAIError)) console.error('[album]', error);
     res.status(error.status || 500).json({ error: message });
   }
+});
+
+
+// Background tasks use an unguessable, per-project capability in addition to
+// visitor access. No endpoint lists another visitor's projects or file bodies.
+const runInRole=(role,operation,action)=>runtime.withScope(role,operation,action);
+export const buildAgentServices={
+ assertActive:()=>governance.assertActive(),
+ plan:(asked,files,signal)=>runInRole('orchestrator','plan',async()=>generateTeamPlan({asked:files.length?`${asked}\n\nExisting project paths (preserve working features and include needed pages in the plan): ${files.map(file=>file.path).join(', ')}`:asked,
+  model:await pickModel(undefined,'story'),complete,signal})),
+ architecture:(asked,plan,signal)=>runInRole('architect','architecture',async()=>generateArchitecture({asked,plan,model:await pickModel(undefined,'story'),complete,signal})),
+ generate:(agent,instruction,files,signal)=>runInRole(agent,'generate',async()=>complete({model:await pickModel(undefined,'story'),
+  messages:[{role:'system',content:buildPrompt({runtime:'static'})},{role:'user',content:`${instruction}\n\n${projectContext(fitProject(files,90000).kept)}`}],maxTokens:16000,temperature:.3,signal})),
+ review:(asked,plan,files,issues,signal)=>runInRole('reviewer','review',async()=>{
+  const packed=fitProject(files,130000);
+  if(packed.dropped.length)throw Object.assign(new Error('The project is too large for a complete source review. Split it into smaller projects.'),{status:413});
+  const raw=await complete({model:await pickModel(undefined,'story'),messages:[{role:'system',content:TEAM_REVIEW_PROMPT},
+   {role:'user',content:JSON.stringify({asked,plan,files:packed.kept,faults:issues})}],maxTokens:6000,temperature:.2,json:true,signal});
+  return normalizeTeamReview(parseTeamJson(raw),plan,issues);
+ }),
+ release:(body,signal)=>runInRole('reviewer','review',async()=>{
+  const result=await releaseGate.evaluate(body,signal);
+  for(const [id,gate]of Object.entries(result.gates))await governance.recordDecision({role:id==='review'?'reviewer':id,passed:gate.passed,artifactHash:result.artifactHash});
+  await governance.assertActive();return result;
+ }),
+};
+async function enqueueBackground(job,check=false){
+ const run=await start(check?backgroundBuildCheck:backgroundBuild,[job.id,job.generation]);
+ await buildJobStore.attach(job.id,job.generation,run.runId);
+ return buildJobStore.internal(job.id);
+}
+function requireBackground(_req,res,next){
+ if(!config.building || !buildJobStore || !process.env.VERCEL_DEPLOYMENT_ID)return res.status(503).json({error:'Background building is unavailable on this deployment. Your saved files are kept.'});
+ next();
+}
+app.post('/api/build/jobs',rateLimit,requireAccess,requireBackground,async(req,res)=>{
+ let created;
+ try{
+  const {id,token,asked,files=[]}=req.body || {};
+  const check=req.body?.check===true;
+  if(!config.apiKey && !check)return res.status(503).json({error:'The coding agent is unavailable on this deployment.'});
+  if(check && (files.length || req.body.checkpoint))return res.status(400).json({error:'A connection check cannot contain project files.'});
+  if(typeof asked!=='string' || !asked.trim() || asked.length>6000 || !Array.isArray(files) || files.length>200 || Buffer.byteLength(JSON.stringify(files))>1500000)return res.status(400).json({error:'Describe your project in 1–6,000 characters and keep source files under 1.5 MB.'});
+  assertAgentData({asked,files});
+  for(const file of files)if(!/^[a-zA-Z0-9][a-zA-Z0-9_./-]*$/.test(file.path) || file.path.split('/').some(part=>!part || part==='.' || part==='..'))throw Object.assign(new Error('Invalid project file path.'),{status:400});
+  await governance.assertActive();
+  const checkpoint=cleanBuildCheckpoint(req.body.checkpoint,asked,files);
+  created=await buildJobStore.create({id,token,asked:asked.trim(),files,checkpoint});
+  const job=created.created ? await enqueueBackground(created.job,check) : created.job;
+  res.status(created.created?202:200).json({job});
+ }catch(error){
+  if(created?.created)await buildJobStore.control(created.job.id,req.body.token,'stop').catch(()=>{});
+  res.status(error.status || 503).json({error:error.status?error.message:'The background task could not start. Your request and local files are kept. Retry to resume.'});
+ }
+});
+app.get('/api/build/jobs/:id',rateLimit,requireAccess,requireBackground,async(req,res)=>{
+ try{
+  const token=req.get('x-build-token'),job=await buildJobStore.get(req.params.id,token);
+  if(activeBuildStatus(job.status) && Date.now()-job.updatedAt>90000){
+   let failed=!job.workflowId;
+   if(job.workflowId)try{failed=['failed','cancelled'].includes(await getRun(job.workflowId).status);}catch{}
+   if(failed){const stopped=await buildJobStore.control(job.id,token,'stop');stopped.job.message='Background execution was interrupted. Saved files are kept. Resume to continue.';return res.json({job:stopped.job});}
+  }
+  res.json({job});
+ }catch(error){res.status(error.status || 503).json({error:error.status?error.message:'Progress is temporarily unavailable. The task may still be working; reconnect to check.'});}
+});
+app.post('/api/build/jobs/:id/control',rateLimit,requireAccess,requireBackground,async(req,res)=>{
+ try{
+  if(req.body?.action==='resume' && !config.apiKey)return res.status(503).json({error:'The coding agent is unavailable on this deployment.'});
+  const result=await buildJobStore.control(req.params.id,req.get('x-build-token'),req.body?.action);
+  const job=result.start ? await enqueueBackground(result.job) : result.job;
+  res.json({job});
+ }catch(error){res.status(error.status || 503).json({error:error.status?error.message:'The task could not be updated. Reconnect to check its saved state.'});}
+});
+app.delete('/api/build/jobs/:id',rateLimit,requireAccess,requireBackground,async(req,res)=>{
+ try{await buildJobStore.remove(req.params.id,req.get('x-build-token'));res.json({deleted:true});}
+ catch(error){res.status(error.status || 503).json({error:'The background task could not be deleted. Try again.'});}
 });
 
 mountDocumentRoutes(app, { rateLimit, requireAccess, complete, chooseModel: pickModel,
