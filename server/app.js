@@ -44,6 +44,7 @@ import { conversationWindow, QUESTION_CHARS, answerDepth, researchMode, generati
 import { KINDS, isKind, libraryCatalogue } from './structured.js';
 import {generateFreshStory,StoryGenerationError} from './stories.js';
 import {imageRequest} from './image-options.js';
+import { memoryContext } from '../public/memory.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -880,12 +881,14 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     // half-answer already on their screen. Their own words are kept in front
     // of it — they asked, and the request is theirs — but the rules are what
     // the model acts on.
+    const savedMemory = building ? [] : memoryContext(req.body?.memories);
     const opening = () => (carryingOn
       ? [
         { role: 'system', content: system },
+        ...savedMemory,
         ...withAttachments(messages.slice(0, -1).concat({role: 'user', content: CONTINUE_PROMPT}), { photo, document, photoContext: req.body?.photoContext }),
       ]
-      : [{ role: 'system', content: system }, ...withAttachments(messages, { photo, document, photoContext: req.body?.photoContext })]);
+      : [{ role: 'system', content: system }, ...savedMemory, ...withAttachments(messages, { photo, document, photoContext: req.body?.photoContext })]);
 
     if (searched) {
       try {
@@ -1572,7 +1575,3 @@ mountDocumentRoutes(app, { rateLimit, requireAccess, complete, chooseModel: pick
   reservePhoto: () => photoTimes.push(Date.now()), canSeeWith, config });
 
 export default app;
-
-
-
-
