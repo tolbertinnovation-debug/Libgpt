@@ -3720,3 +3720,8 @@ body {
 @media(prefers-reduced-motion:reduce){.agent-spark.is-working{animation:none;}}
 .agent-editing {color:var(--gold-deep);}
 .agent-editing:after {content:' • Agent';font:600 .62rem var(--font);margin-left:.4rem;}
+
+/* Live Talk listens continuously and decides turns itself, so the relay's
+   listening-mode choice and Send button have nothing to do there. */
+.talk[data-mode="live"] .talk-input-mode,
+.talk[data-mode="live"] #talk-send { display: none; }

@@ -24,3 +24,15 @@ Mute, Done, backgrounding and cancellation discard pending recordings and abort 
 
 Validation includes automated lifecycle/quiet-speech/manual-send tests and a Chromium browser flow with simulated microphone input and mocked provider transcription, chat and speech. That flow completed two turns, played provider-format audio, resumed listening, recovered from a denied permission and released all microphone tracks. Real-device permissions, Liberian-accent transcription and live provider playback still require deployment testing.
 
+
+## Live Talk (two-way voice)
+
+Where the deployment allows it, the Talk screen now works like ChatGPT's voice mode. The browser opens one WebRTC audio connection directly to OpenAI's Realtime API, so Grandpa hears and speaks at the same time. OpenAI's semantic turn detection decides when you have finished, and the browser's echo cancellation stops him hearing himself. You interrupt by simply talking over him, or by tapping the seal. Mute, captions, and Done work as before. The Auto pause/Tap Send choice and Send now are hidden because they don't apply.
+
+The server (`POST /api/live-talk/session`) mints a short-lived key for each conversation, with Grandpa's persona, the recent chat, and saved memories already in the instructions. The real API key never reaches the browser, and audio does not pass through this server. Both your words and Grandpa's spoken replies are transcribed and saved to the chat in order. Replies you cut off are saved up to where you interrupted.
+
+Live audio costs much more than text. Each conversation ends after `LIVE_TALK_MINUTES` (default 10). The deployment allows `LIVE_TALK_SESSIONS_PER_HOUR` conversations (default 20). On a serverless host Live Talk requires `ACCESS_CODE`, like image creation, because the hourly ceiling is held in memory. `ENABLE_LIVE_TALK=false` turns it off. `OPENAI_REALTIME_MODEL` pins a model; otherwise the best `gpt-realtime` model listed on the account is used.
+
+If Live Talk is off, unsupported by the browser, or refused (for example by a quota or model-access error), the app shows the reason and continues with the standard record–transcribe–speak conversation for the rest of the visit.
+
+Validation covers model choice, session configuration and the retry with essential settings, event handling (turn order when transcripts arrive late, voice and tap interruption, mute, failed transcription), and a Chromium run against the real Express routes with a mocked OpenAI and a stand-in WebRTC connection. Real-device audio quality, latency and accent recognition still need checking on the live site with real credit.

@@ -54,6 +54,7 @@ import { KINDS, isKind, libraryCatalogue } from './structured.js';
 import {generateFreshStory,StoryGenerationError} from './stories.js';
 import {imageRequest} from './image-options.js';
 import { memoryContext } from '../public/memory.js';
+import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULES } from './realtime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -150,7 +151,7 @@ async function accountModels() {
       label: jobs(id) ? `${id} · ${jobs(id)}` : id,
       hint: '',
     }));
-    modelCache = { at: Date.now(), models, tiers, search, searchDeep };
+    modelCache = { at: Date.now(), models, tiers, search, searchDeep, all };
     return models;
   } catch {
     // An account that cannot list models can still chat; fall back rather
@@ -280,6 +281,10 @@ app.get('/api/config', async (_req, res) => {
     imagesEnabled: config.imagesEnabled,
     chatImages: config.imagesEnabled && Boolean(config.apiKey) && !(config.serverless && !config.accessCode),
     realVoice: config.realVoice && Boolean(config.apiKey),
+    // Two-way live audio. Off on a serverless host without an access code, for
+    // the same reason pictures are: the hourly ceiling cannot hold there.
+    liveTalk: liveTalkReady(),
+    liveTalkMinutes: config.liveTalkMinutes,
     voices: OPENAI_VOICES,
     defaultVoice: DEFAULT_OPENAI_VOICE,
     voiceFrom: 'openai',
@@ -1335,6 +1340,72 @@ function pictureBudgetLeft() {
   while (pictureTimes.length && pictureTimes[0] < cutoff) pictureTimes.shift();
   return Math.max(0, config.imagesPerHour - pictureTimes.length);
 }
+
+// ---- Live Talk ------------------------------------------------------------
+// One short-lived key per conversation. Counted across the deployment per
+// hour, because a minute of live audio costs what a long page of text does.
+const liveSessions = [];
+function liveTalkReady() {
+  return config.liveTalk && Boolean(config.apiKey) && !(config.serverless && !config.accessCode);
+}
+function liveSessionsLeft() {
+  const cutoff = Date.now() - 3_600_000;
+  while (liveSessions.length && liveSessions[0] < cutoff) liveSessions.shift();
+  return Math.max(0, config.liveTalkSessionsPerHour - liveSessions.length);
+}
+
+app.post('/api/live-talk/session', rateLimit, requireAccess, async (req, res) => {
+  if (!config.liveTalk || !config.apiKey) {
+    res.status(503).json({ error: 'Live Talk is switched off on this deployment.', fallback: true });
+    return;
+  }
+  if (config.serverless && !config.accessCode) {
+    res.status(503).json({ error: 'Live Talk needs the app access code to be configured on this host.', fallback: true });
+    return;
+  }
+  if (!liveSessionsLeft()) {
+    res.status(429).json({ error: 'Live Talk has reached its limit for this hour. The standard Talk screen still works.', fallback: true });
+    return;
+  }
+
+  let voice;
+  try { voice = speechOptions(req.body); }
+  catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
+
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+  try {
+    await accountModels();
+    const model = pickRealtimeModel(modelCache.all || [], config.realtimeModel);
+    const instructions = buildSystemPrompt({
+      persona: req.body?.persona,
+      language: req.body?.language,
+      speaker: req.body?.speaker,
+      tone: req.body?.tone,
+      userName: req.body?.userName,
+      register: req.body?.register,
+      spoken: true,
+    }) + LIVE_VOICE_RULES + `\n\nVOICE DELIVERY\n${voice.delivery.replace('Read the text faithfully without adding words. ', '')}`
+      + memoryContext(req.body?.memories).map((item) => `\n\n${item.content}`).join('')
+      + recentContext(req.body?.messages);
+
+    // Counted before the call, so two arriving together cannot both slip past.
+    liveSessions.push(Date.now());
+    const secret = await createRealtimeSecret({
+      model, instructions, voice: voice.voice, speed: voice.speed, transcribeModel: config.transcribeModel,
+    }, { signal: controller.signal });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ key: secret.value, expiresAt: secret.expiresAt, model, maxSeconds: config.liveTalkMinutes * 60 });
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    const readable = error instanceof OpenAIError;
+    if (!readable) console.error('[live-talk]', error);
+    res.status([400, 401, 403, 404, 429].includes(error?.status) ? error.status : 502).json({
+      error: readable ? error.message : 'Live Talk could not start.',
+      fallback: true,
+    });
+  }
+});
 
 // ---- hearing --------------------------------------------------------------
 // The browser's own speech recognition is not a browser feature. It is a
