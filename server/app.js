@@ -32,7 +32,7 @@ import {
 } from './build.js';
 import {
   TEAM_REVIEW_PROMPT, normalizeTeamPlan, normalizeTeamReview, parseTeamJson,
-  teamProjectFaults, workerInstruction, generateTeamPlan, generateArchitecture, normalizeArchitecture,
+  assertTeamFiles, teamProjectFaults, workerInstruction, generateTeamPlan, generateArchitecture, normalizeArchitecture,
 } from './build-team.js';
 import * as github from './github.js';
 import { createPublisher } from './publish.js';
@@ -1754,7 +1754,7 @@ app.post('/api/build/jobs',rateLimit,requireAccess,requireBackground,async(req,r
   if(check && (files.length || req.body.checkpoint))return res.status(400).json({error:'A connection check cannot contain project files.'});
   if(typeof asked!=='string' || !asked.trim() || asked.length>6000 || !Array.isArray(files) || files.length>200 || Buffer.byteLength(JSON.stringify(files))>1500000)return res.status(400).json({error:'Describe your project in 1–6,000 characters and keep source files under 1.5 MB.'});
   assertAgentData({asked,files});
-  for(const file of files)if(!/^[a-zA-Z0-9][a-zA-Z0-9_./-]*$/.test(file.path) || file.path.split('/').some(part=>!part || part==='.' || part==='..'))throw Object.assign(new Error('Invalid project file path.'),{status:400});
+  try{assertTeamFiles(files);}catch(error){throw Object.assign(error,{status:400});}
   await governance.assertActive();
   const checkpoint=cleanBuildCheckpoint(req.body.checkpoint,asked,files);
   created=await buildJobStore.create({id,token,asked:asked.trim(),files,checkpoint});

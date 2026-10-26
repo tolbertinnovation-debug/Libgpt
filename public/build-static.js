@@ -1,6 +1,25 @@
 /** Conservative source checks only. Never evaluates code, imports projects or opens a database. */
 export const STATIC_LIMITATIONS = 'Static checks cannot prove application behavior, accessibility, SQL dialect validity, migrations, authentication or deployment. Generated build and test commands have not run.';
 
+// Quoted attribute values may contain > or strings resembling other attributes.
+// Read actual names and keep the first duplicate, as HTML does. This remains a
+// source scanner, not a DOM/HTML validity proof.
+export function scriptTags(body){
+ const tags=[],open=/<script\b((?:[^"'<>]|"[^"]*"|'[^']*')*)>/gi;
+ let match;
+ while((match=open.exec(body))){
+  const attributes=Object.create(null);
+  for(const attr of match[1].matchAll(/(?:^|\s)([^\s=/>]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+)))?/g)){
+   const name=attr[1].toLowerCase();if(!Object.hasOwn(attributes,name))attributes[name]=attr[2] ?? attr[3] ?? attr[4] ?? '';
+  }
+  const close=/<\/script\s*>/gi;close.lastIndex=open.lastIndex;
+  const end=close.exec(body);
+  tags.push({attributes,source:body.slice(open.lastIndex,end?end.index:body.length),closed:Boolean(end)});
+  open.lastIndex=end?close.lastIndex:body.length;
+ }
+ return tags;
+}
+
 // A bounded lexical check, not a CSS or SQL grammar parser. Ignore quoted text,
 // comments and PostgreSQL dollar-quoted function bodies before counting delimiters.
 function lexicalProblem(source, sql=false) {
@@ -45,8 +64,8 @@ export function staticSourceReport(files=[]) {
     add('Package manifest shape',problem);
    }
   }
-  if(/\.html?$/i.test(path))for(const [,attrs,source]of body.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)){
-   if(/\btype\s*=\s*["']application\/(?:ld\+)?json["']/i.test(attrs)){
+  if(/\.html?$/i.test(path))for(const {attributes,source}of scriptTags(body)){
+   if(/^application\/(?:ld\+)?json$/i.test(attributes.type?.trim() || '')){
     try{JSON.parse(source);add('Embedded JSON syntax','');}catch{add('Embedded JSON syntax','embedded JSON is not valid JSON');}
    }
   }

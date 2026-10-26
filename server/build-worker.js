@@ -1,13 +1,13 @@
 import {filesFrom} from '../public/build.js';
 import {TEAM_ROLES} from '../public/build-team.js';
-import {normalizeTeamPlan,normalizeArchitecture,teamProjectFaults,workerInstruction} from './build-team.js';
+import {assertTeamFiles,normalizeTeamPlan,normalizeArchitecture,teamProjectFaults,workerInstruction} from './build-team.js';
 import {assertAgentData} from './agent-runtime.js';
 import {buildJobStore} from './background-store.js';
 import {activeBuildStatus} from './build-jobs.js';
 import {buildBlocker} from '../public/build-task-state.js';
 
 const copy=value=>structuredClone(value);
-const safeMessage=error=>[401,403,413,423,429,503].includes(error?.status)
+const safeMessage=error=>error?.code==='BUILD_PATH_CONFLICT' ? error.message.slice(0,600) : [401,403,413,423,429,503].includes(error?.status)
  ? String(error.message).replace(/OpenAI/gi,'Grandpa AI').slice(0,600)
  : 'This task could not finish. Your completed files are saved. Resume to retry the unfinished task.';
 function checkpointFor(job){
@@ -38,8 +38,8 @@ export function createBuildWorker({store,services}){
   let status=job.status,event='';
   const controller=new AbortController();
   const monitor=setInterval(()=>store.internal(id).then(current=>{
-   if(current.generation!==generation || !activeBuildStatus(current.status))controller.abort();
-  }).catch(()=>controller.abort()),1200);monitor.unref?.();
+   if(current.generation!==generation || !activeBuildStatus(current.status))controller.abort(Object.assign(new Error('Build stopped.'),{status:423,code:'BUILD_INTERRUPTED'}));
+  }).catch(()=>controller.abort(Object.assign(new Error('Task storage could not be checked. Saved progress is kept. Resume when storage is available.'),{status:503,code:'GOVERNANCE_UNAVAILABLE'}))),1200);monitor.unref?.();
   // Recheck persisted cancellation/fencing immediately before a billable service.
   const paidStep=async(action)=>{const live=await store.internal(id);if(controller.signal.aborted || live.generation!==generation || !activeBuildStatus(live.status))throw Object.assign(new Error('Build stopped.'),{status:423});return action();};
   const setRole=(role,value)=>{cp.agents[role].status=value;};
@@ -47,10 +47,11 @@ export function createBuildWorker({store,services}){
    const update=await store.progress(id,generation,key,{...job,files,checkpoint:cp,status:phase,message});
    if(!update.saved)throw Object.assign(new Error('Build stopped.'),{status:423});};
   try{
-   await services.assertActive();assertAgentData({asked:job.asked,files});
+   await services.assertActive();assertAgentData({asked:job.asked,files});assertTeamFiles(files,cp.plan);
    if(!cp.plan){
     setRole('supervisor','working');await announce('Planning the project and assigning files.','planning');
     cp.plan=normalizeTeamPlan(await paidStep(()=>services.plan(job.asked,files,controller.signal)));
+    assertTeamFiles(files,cp.plan);
     cp.phase='architecture';setRole('supervisor','waiting');status='architecting';event='Project plan saved.';
    } else if(!cp.architecture){
     setRole('architect','working');await announce('Recording architecture and implementation contracts.','architecting');
@@ -119,7 +120,7 @@ export function createBuildWorker({store,services}){
      event=cp.message;
     }
    }
-   if(controller.signal.aborted)return {continue:false,status:'stopped'};
+   if(controller.signal.aborted)throw controller.signal.reason;
    cp.status=status;cp.message=status==='needs_attention' ? cp.message || event : event || cp.message;
    if(status==='needs_attention')cp.blocker=buildBlocker({code:cp.phase==='gate'?'BUILD_VERIFICATION_REQUIRED':'BUILD_REVIEW_REQUIRED'},cp);
    else cp.blocker=null;
@@ -129,9 +130,9 @@ export function createBuildWorker({store,services}){
   }catch(error){
    const message=safeMessage(error);cp.blocker=buildBlocker(error,cp);cp.status='needs_attention';cp.message=message;cp.faults=[message];cp.release=null;
    for(const agent of Object.values(cp.agents))if(agent.status==='working')agent.status='needs_attention';
-   await store.save(id,generation,key,{...job,files,checkpoint:cp,status:'needs_attention',message,
+   const result=await store.save(id,generation,key,{...job,files,checkpoint:cp,status:'needs_attention',message,
     events:[...(job.events || []),{at:Date.now(),message}].slice(-200)});
-   return {continue:false,status:'needs_attention'};
+   return {continue:false,status:result.job.status};
   }finally{clearInterval(monitor);}
  }
  return {advance};

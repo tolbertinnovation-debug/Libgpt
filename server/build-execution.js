@@ -1,6 +1,7 @@
 // Milestone C contract only. No provider, process runner, HTTP client, or
 // environment flag can enable execution in this implementation.
-import crypto from 'node:crypto';
+import {artifactHash} from './release-gate.js';
+import {teamPathConflicts} from '../public/build-team.js';
 import {safeTeamPath} from './build-team.js';
 import {assertAgentData} from './agent-runtime.js';
 export const EXECUTION_REQUIREMENTS=Object.freeze({
@@ -20,13 +21,13 @@ export function prepareExecutionRequest(input={}){
  if(!Array.isArray(files) || !files.length || files.length>200 || !Array.isArray(checks) || !checks.length || checks.length>3 || checks.some(check=>!['build','test','browser'].includes(check)) || new Set(checks).size!==checks.length)throw invalid('Invalid execution manifest.');
  const paths=new Set();let bytes=0;
  const source=files.map(file=>{
-  if(!file || Object.keys(file).some(key=>!['path','body'].includes(key)) || !safeTeamPath(file.path) || [...paths].some(path=>path===file.path.toLowerCase() || path.startsWith(file.path.toLowerCase()+'/') || file.path.toLowerCase().startsWith(path+'/')) || typeof file.body!=='string' || file.body.includes('\0'))throw invalid('Only unique, safe project files are accepted. Links and host paths are forbidden.');
-  paths.add(file.path.toLowerCase());bytes+=Buffer.byteLength(file.body)+Buffer.byteLength(file.path);
+  if(!file || Object.keys(file).some(key=>!['path','body'].includes(key)) || !safeTeamPath(file.path) || teamPathConflicts(paths,file.path) || typeof file.body!=='string' || file.body.includes('\0'))throw invalid('Only unique, safe project files are accepted. Links and host paths are forbidden.');
+  paths.add(file.path);bytes+=Buffer.byteLength(file.body)+Buffer.byteLength(file.path);
   return {path:file.path,body:file.body};
  }).sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0);
  if(bytes>1500000)throw invalid('Execution source exceeds the file-size limit.');
  assertAgentData({files:source});
- return {version:1,artifactHash:crypto.createHash('sha256').update(JSON.stringify(source)).digest('hex'),files:source,checks:[...checks],requirements:{...EXECUTION_REQUIREMENTS}};
+ return {version:1,artifactHash:artifactHash(source),files:source,checks:[...checks],requirements:{...EXECUTION_REQUIREMENTS}};
 }
 export async function executeProject(input){
  const request=prepareExecutionRequest(input);

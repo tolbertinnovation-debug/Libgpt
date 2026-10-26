@@ -1,3 +1,5 @@
+> Final review: [findings, corrections and 434-test validation](phase2-final-review.md). Counts below describe the earlier increment.
+
 # Phase 2 continuation — Draft PR #64
 
 This increment continues the existing established architecture on `codex/phase2-audit-tasks`. It does not merge, deploy, enable execution, provision services, change production settings or complete all of Phase 2.

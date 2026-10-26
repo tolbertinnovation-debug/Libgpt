@@ -9,13 +9,13 @@ const plan={title:'School website',summary:'A school information website.',runti
  {agent:'design',instruction:'Write CSS.',files:['styles.css']},{agent:'pages',instruction:'Write HTML.',files:['index.html']},{agent:'interactions',instruction:'Write JS.',files:['app.js']},{agent:'content',instruction:'Write docs.',files:['README.md']}]};
 const architecture={decisions:[{topic:'Runtime',choice:'Static HTML',reason:'No backend requested.'}],constraints:['No backend'],testPlan:['Check files'],deployment:{type:'static',requirements:[]}};
 const bodies={'styles.css':'body { color: #123; }','index.html':'<!doctype html><html><body><h1>School</h1></body></html>','app.js':'console.log("School");','README.md':'School website. Open index.html.'};
-async function fixture(t){
+async function fixture(t,initial={}){
  const db=new PGlite();await db.waitReady;t.after(()=>db.close());
  let queue=Promise.resolve();
  const pool={async connect(){const before=queue;let release;queue=new Promise(resolve=>release=resolve);await before;return{query:(sql,params)=>sql.includes('CREATE TABLE')?db.exec(sql):db.query(sql,params),release};},end:async()=>{}};
  const store=createBuildJobStore({pool,scope:'test'});
  const identity={id:crypto.randomUUID(),token:crypto.randomBytes(32).toString('hex')};
- const created=await store.create({...identity,asked:'Build a school website.'});
+ const created=await store.create({...identity,asked:'Build a school website.',...initial});
  return {db,store,identity,job:created.job};
 }
 function services(overrides={}){
@@ -145,4 +145,25 @@ test('simultaneous Resume requests schedule once and approved jobs cannot restar
  const approved=await store.get(identity.id,identity.token);assert.equal(approved.status,'approved');
  const resume=await store.control(identity.id,identity.token,'resume');assert.equal(resume.start,false);assert.equal(resume.job.generation,approved.generation);
  const stop=await store.control(identity.id,identity.token,'stop');assert.equal(stop.job.status,'approved');assert.equal(stop.start,false);
+});
+
+test('an imported file cannot be overwritten through a conflicting planned alias',async t=>{
+ const files=[{path:'Styles.css',body:'body { color: green; }'}];
+ const {store,identity}=await fixture(t,{files});let plans=0;
+ const worker=createBuildWorker({store,services:services({plan:async()=>{plans++;return plan;},architecture:()=>assert.fail('Conflict reached another paid step'),generate:()=>assert.fail('Conflicting source was overwritten')})});
+ assert.equal((await worker.advance(identity.id,1)).continue,false);
+ let job=await store.get(identity.id,identity.token);assert.equal(job.status,'needs_attention');assert.match(job.message,/conflict.*Resolve the filenames/);assert.deepEqual(job.files,files);
+ const resumed=await store.control(identity.id,identity.token,'resume');await worker.advance(identity.id,resumed.job.generation);
+ job=await store.get(identity.id,identity.token);assert.deepEqual(job.files,files);assert.equal(job.status,'needs_attention');assert.equal(plans,1);
+});
+test('a transient storage monitor interruption saves returned progress and pauses without replaying a paid step',async t=>{
+ const {store,identity}=await fixture(t);const internal=store.internal;let reads=0,calls=0;
+ store.internal=async(...args)=>{if(++reads===2)throw Error('private database detail');return internal(...args);};
+ const worker=createBuildWorker({store,services:services({plan:async()=>{calls++;await new Promise(resolve=>setTimeout(resolve,1350));return plan;}})});
+ const result=await worker.advance(identity.id,1);assert.equal(result.status,'needs_attention');
+ const saved=await store.get(identity.id,identity.token);assert.equal(saved.processing,false);assert.equal(saved.checkpoint.blocker.kind,'storage');assert.deepEqual(saved.checkpoint.plan,plan);
+ assert.doesNotMatch(JSON.stringify(saved),/private database detail/);
+ await worker.advance(identity.id,1);assert.equal(calls,1);
+ const resumed=await store.control(identity.id,identity.token,'resume');assert.equal(resumed.start,true);
+ await worker.advance(identity.id,resumed.job.generation);assert.equal(calls,1);assert.deepEqual((await store.get(identity.id,identity.token)).checkpoint.architecture,architecture);
 });

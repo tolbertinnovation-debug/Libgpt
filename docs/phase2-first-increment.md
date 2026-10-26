@@ -1,3 +1,5 @@
+> Final review: [findings, corrections and 434-test validation](phase2-final-review.md). Counts below describe the earlier increment.
+
 > Follow-up: [Phase 2 continuation review](phase2-continuation-review.md) records the latest additional changes and 424-test validation. The results below describe the first increment.
 
 # Phase 2 first increment — implementation report
