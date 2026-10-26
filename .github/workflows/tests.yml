@@ -24,7 +24,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: [20, 22]
+        # Supported Node.js lines. Node 20 reached end of life in April 2026
+        # and lacks the global `navigator` the voice tests rely on.
+        node: [22, 24]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
