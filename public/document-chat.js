@@ -3,6 +3,7 @@ import { escapeHtml as esc } from './markdown.js';
 import { ARTWORK_FORMATS } from './document-design.js';
 import { visualSvg } from './document-visuals.js';
 import { DOCUMENT_TASKS, TASK_FIELDS, readTaskBrief, missingTaskFields } from './document-tasks.js';
+import { BUSINESS_PLAN_DEFAULT_PAGES } from './document-length.js';
 
 export function taskBriefCard(input, index, pending = true) {
   let brief; try { brief = readTaskBrief(input); } catch { return ''; }
@@ -32,7 +33,7 @@ export function documentCard(input, index) {
   const artworkCount = spec.blocks.filter(b => b.type === 'drawing').length;
   return `<section class="document-card" style="--document-accent:#${DOCUMENT_TEMPLATES[spec.template].accent}">
     <div class="document-card-top"><span class="document-file-icon" aria-hidden="true">▤</span><div><strong>${esc(spec.title)}</strong><small>Editable document · Download in your preferred format</small></div></div>
-    ${spec.longForm ? `<p class="document-length-status" aria-live="polite"><strong>${spec.longForm.pageCount} PDF pages saved</strong> · Goal: ${spec.longForm.targetPages}+ pages · ${spec.longForm.complete ? 'Draft complete' : 'Draft in progress'}<br><small>Measured at generation. Word and template changes can paginate differently. Each completed section is saved.</small></p>${!spec.longForm.complete ? `<button type="button" class="document-revise" data-document-resume="${index}">Resume long document</button>` : ''}` : ''}
+    ${spec.longForm ? `<p class="document-length-status" aria-live="polite"><strong>${spec.longForm.pageCount} PDF pages saved</strong> · Goal: ${spec.blueprint && spec.longForm.targetPages === BUSINESS_PLAN_DEFAULT_PAGES ? 'every business plan section' : `${spec.longForm.targetPages}+ pages`} · ${spec.longForm.complete ? (spec.blueprint ? 'All business plan sections written' : 'Draft complete') : 'Draft in progress'}<br><small>Measured at generation. Word and template changes can paginate differently. Each completed section is saved.</small>${spec.blueprint && !spec.longForm.complete && spec.longForm.remainingSections.length ? `<br><small>Still to write: ${spec.longForm.remainingSections.map(esc).join(', ')}.</small>` : ''}</p>${!spec.longForm.complete ? `<button type="button" class="document-revise" data-document-resume="${index}">Resume long document</button>` : ''}` : ''}
     ${spec.missing.length ? `<div class="document-missing"><strong>Details to complete</strong><ul>${spec.missing.map(x => `<li>${esc(x)}</li>`).join('')}</ul></div>` : ''}
     <label class="document-template-label">Document template <select data-document-template="${index}">${Object.entries(DOCUMENT_TEMPLATES).map(([id, t]) => `<option value="${id}"${id === spec.template ? ' selected' : ''}>${esc(t.label)}</option>`).join('')}</select></label>
     <div class="document-downloads">${['pdf', 'docx', 'png'].map(format => `<a href="#" data-document-download="${index}" data-document-format="${format}">↓ ${DOCUMENT_FORMATS[format]}</a>`).join('')}</div>

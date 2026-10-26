@@ -1,5 +1,7 @@
 # Grandpa AI
 
+**Complete business plans:** Ask for a business plan in one sentence and get a complete one: 17 sections from executive summary to appendices, with SWOT, marketing budget, organisation chart, risk table, startup costs, 3-year projections, cash flow and break-even. Every projection is labelled and built from stated assumptions. See [document creation](docs/document-creation.md#complete-business-plans-from-one-prompt).
+
 **Live Talk:** Talk with Grandpa the way you talk with ChatGPT's voice mode: one live audio connection, natural turn-taking, and interrupting just by speaking. Falls back to the standard Talk screen when unavailable. See [voice setup](docs/natural-voice.md#live-talk-two-way-voice).
 
 **Elite engineering agents:** Every Build agent now has its own charter — Atlas plans a complete multi-page site from one prompt and picks the best-fit stack, with Prism, Vertex, Pulse, Lumen, Forge and Nimbus building and Sentinel, Aegis, Crucible and Keystone guarding release. Backends can be written in TypeScript, Python, Go, Rust, Java/Kotlin, C#, PHP or Ruby. See [engineering team](docs/ritual-team.md).
