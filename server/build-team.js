@@ -56,7 +56,7 @@ export function normalizeTeamPlan(raw) {
     const files = task.files.map(value => {
       const path = safeTeamPath(value);
       if (!path) throw new TypeError('The plan contains an unsafe file path.');
-      if (owned.has(path)) throw new TypeError(`File ownership conflicts: ${path}.`);
+      if ([...owned.keys()].some(existing=>existing.toLowerCase()===path.toLowerCase() || existing.toLowerCase().startsWith(path.toLowerCase()+'/') || path.toLowerCase().startsWith(existing.toLowerCase()+'/'))) throw new TypeError(`File ownership conflicts: ${path}.`);
       if (/\.html?$/i.test(path) && task.agent !== 'pages') throw new TypeError('HTML pages must belong to the pages specialist.');
       owned.set(path, task.agent); return path;
     });
@@ -138,7 +138,7 @@ export async function generateTeamPlan({asked,model,complete,signal}) {
   for(let attempt=0;attempt<2;attempt++){
     if(signal?.aborted)throw new DOMException('Planning stopped','AbortError');
     const raw=await complete({model,messages,maxTokens:16000,temperature:0.3,json:true,signal});
-    try{return normalizeTeamPlan(parseTeamJson(raw));}catch(error){
+    try{const plan=normalizeTeamPlan(parseTeamJson(raw));if(!plan.requirements.length)throw new TypeError('Record at least one concrete acceptance requirement.');return plan;}catch(error){
       invalid=error.message;
       if(attempt===0)messages.push({role:'assistant',content:String(raw || '').slice(0,64000)},
         {role:'user',content:`Repair your plan. Validation failed: ${invalid}. Return only the complete JSON object in the required schema. Include all six distinct builder tasks with unique file ownership and index.html in the pages list. Keep the user's original request and real details. Do not return code files yet.`});

@@ -1,3 +1,4 @@
+import {staticSourceReport} from '../public/build-static.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -8,7 +9,7 @@ test('the Plan view renders requirements and source counts without trusting appr
  const p={files:[{path:'index.html',body:'present'}],team:{asked:'A school <script>unsafe</script>',plan:{title:'School',summary:'Source project',requirements:['Approve students <img src=x>'],contract:'Do not run <script>any code</script>',tasks:[{agent:'pages',files:['index.html']},{agent:'backend',files:['api.js']}]},release:{approved:true}}};
  let title,html;
  const start=source.indexOf('function showProjectPlan()'),end=source.indexOf('\nfunction renderWorkspaceChanges()',start);
- const show=new Function('project','deps','buildTaskFacts','escapeHtml','openSheet',source.slice(start,end)+';return showProjectPlan;')(()=>p,{toast:()=>assert.fail('Plan was lost')},buildTaskFacts,escapeHtml,(t,h)=>{title=t;html=h;});
+ const show=new Function('project','deps','buildTaskFacts','staticSourceReport','escapeHtml','openSheet',source.slice(start,end)+';return showProjectPlan;')(()=>p,{toast:()=>assert.fail('Plan was lost')},buildTaskFacts,staticSourceReport,escapeHtml,(t,h)=>{title=t;html=h;});
  show();assert.equal(title,'Project plan');assert.match(html,/1 of 2 planned files/);assert.match(html,/Requirements to verify/);assert.match(html,/Secure execution is disabled/);
  assert.match(html,/&lt;script&gt;unsafe/);assert.match(html,/&lt;img/);assert.doesNotMatch(html,/<script>|<img|tests passed/i);
 });

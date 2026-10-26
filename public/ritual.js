@@ -1,3 +1,4 @@
+import {staticSourceReport} from './build-static.js';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
 //
@@ -588,13 +589,15 @@ function renderPlan(run) {
 function showProjectPlan(){
  const p=project(),cp=p?.team || {},plan=cp.plan;
  if(!plan){deps.toast('The project plan has not been saved yet.');return;}
- const facts=buildTaskFacts(cp,p.files);
+ const facts=buildTaskFacts(cp,p.files),verification=staticSourceReport(p.files);
  const list=items=>`<ul>${items.map(item=>`<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
  openSheet('Project plan',`<p class="sheet-note"><strong>Your request</strong></p><p>${escapeHtml(cp.asked || p.background?.asked || '')}</p>
   <p class="sheet-note"><strong>${escapeHtml(plan.title)}</strong></p><p>${escapeHtml(plan.summary)}</p>
   <p class="sheet-note"><strong>Requirements to verify</strong></p>${facts.requirements.length?list(facts.requirements):'<p>No separate acceptance criteria were recorded.</p>'}
   <p class="sheet-note">${facts.savedFiles} of ${facts.plannedFiles} planned files are present. ${facts.activeBuilders} builders have file assignments.</p>
-  <p class="sheet-note"><strong>File ownership</strong></p>${list(plan.tasks.filter(task=>task.files.length).map(task=>`${task.agent}: ${task.files.join(', ')}`))}
+  <p class="sheet-note"><strong>File ownership and progress</strong></p>${list(plan.tasks.filter(task=>task.files.length).flatMap(task=>task.files.map(path=>`${task.agent}: ${path} — ${p.files.some(file=>file.path===path && file.body.trim())?'source present':'not saved'}`)))}
+  <p class="sheet-note"><strong>Architecture test plan (not execution results)</strong></p>${cp.architecture?.testPlan?.length?list(cp.architecture.testPlan):'<p>No architecture test plan recorded yet.</p>'}
+  <p class="sheet-note"><strong>Current static source checks</strong></p><p>${verification.checks.length} checks inspected locally; ${verification.faults.length} faults; ${verification.warnings.length} SQL lexical warnings. These inspect CSS, SQL and JSON source. HTML structure and JavaScript syntax are also checked by the release gate. These are source checks, not executed tests.</p>${verification.faults.length?list(verification.faults):''}${verification.warnings.length?list(verification.warnings):''}<p>${escapeHtml(verification.limitations)}</p>
   <p class="sheet-note"><strong>Shared implementation contract</strong></p><p>${escapeHtml(plan.contract)}</p>
   <p class="sheet-note"><strong>Verification status</strong></p><p>Generated project build and test commands have not been executed. Secure execution is disabled. Source reviews and the frontend preview do not prove that a backend, database or login works.</p>`);
 }

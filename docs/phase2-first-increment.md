@@ -1,3 +1,5 @@
+> Follow-up: [Phase 2 continuation review](phase2-continuation-review.md) records the latest additional changes and 424-test validation. The results below describe the first increment.
+
 # Phase 2 first increment — implementation report
 
 Branch: `codex/phase2-audit-tasks`. Base production commit: `58bc6252ab638cbecf063cd05ceb2115da7f08da`.

@@ -129,3 +129,20 @@ test('uncertain duplicate work is fenced with a structured interruption reason a
  assert.equal(duplicate.job.checkpoint.blocker.kind,'interrupted');
  const late=await store.save(identity.id,1,claim.key,{...claim.job,files:[{path:'README.md',body:'late'}]});assert.equal(late.saved,false);
 });
+
+test('cancellation after announcing a task prevents the next mocked paid call',async t=>{
+ const {store,identity}=await fixture(t);const progress=store.progress;
+ store.progress=async(...args)=>{const result=await progress(...args);await store.control(identity.id,identity.token,'stop');return result;};
+ const worker=createBuildWorker({store,services:services({plan:()=>assert.fail('Cancelled work reached paid service')})});
+ await worker.advance(identity.id,1);assert.equal((await store.get(identity.id,identity.token)).status,'stopped');
+});
+test('simultaneous Resume requests schedule once and approved jobs cannot restart paid work',async t=>{
+ const {store,identity}=await fixture(t);await store.control(identity.id,identity.token,'stop');
+ const results=await Promise.all([store.control(identity.id,identity.token,'resume'),store.control(identity.id,identity.token,'resume')]);
+ assert.equal(results.filter(result=>result.start).length,1);
+ const worker=createBuildWorker({store,services:services()});let next,count=0;
+ do{next=await worker.advance(identity.id,results[0].job.generation);assert.ok(++count<15);}while(next.continue);
+ const approved=await store.get(identity.id,identity.token);assert.equal(approved.status,'approved');
+ const resume=await store.control(identity.id,identity.token,'resume');assert.equal(resume.start,false);assert.equal(resume.job.generation,approved.generation);
+ const stop=await store.control(identity.id,identity.token,'stop');assert.equal(stop.job.status,'approved');assert.equal(stop.start,false);
+});

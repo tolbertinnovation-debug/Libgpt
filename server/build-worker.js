@@ -40,6 +40,8 @@ export function createBuildWorker({store,services}){
   const monitor=setInterval(()=>store.internal(id).then(current=>{
    if(current.generation!==generation || !activeBuildStatus(current.status))controller.abort();
   }).catch(()=>controller.abort()),1200);monitor.unref?.();
+  // Recheck persisted cancellation/fencing immediately before a billable service.
+  const paidStep=async(action)=>{const live=await store.internal(id);if(controller.signal.aborted || live.generation!==generation || !activeBuildStatus(live.status))throw Object.assign(new Error('Build stopped.'),{status:423});return action();};
   const setRole=(role,value)=>{cp.agents[role].status=value;};
   const announce=async(message,phase)=>{status=phase;cp.status=phase;cp.message=message;if(phase!=='building')cp.currentFile='';job.events=[...(job.events || []),{at:Date.now(),message}].slice(-200);
    const update=await store.progress(id,generation,key,{...job,files,checkpoint:cp,status:phase,message});
@@ -48,11 +50,11 @@ export function createBuildWorker({store,services}){
    await services.assertActive();assertAgentData({asked:job.asked,files});
    if(!cp.plan){
     setRole('supervisor','working');await announce('Planning the project and assigning files.','planning');
-    cp.plan=normalizeTeamPlan(await services.plan(job.asked,files,controller.signal));
+    cp.plan=normalizeTeamPlan(await paidStep(()=>services.plan(job.asked,files,controller.signal)));
     cp.phase='architecture';setRole('supervisor','waiting');status='architecting';event='Project plan saved.';
    } else if(!cp.architecture){
     setRole('architect','working');await announce('Recording architecture and implementation contracts.','architecting');
-    cp.architecture=normalizeArchitecture(await services.architecture(job.asked,cp.plan,controller.signal),cp.plan);
+    cp.architecture=normalizeArchitecture(await paidStep(()=>services.architecture(job.asked,cp.plan,controller.signal)),cp.plan);
     cp.phase='build';setRole('architect','complete');status='building';event='Architecture saved. Starting implementation.';
    } else if((cp.phase || 'build')==='build'){
     const scheduled=cp.repairs?.length ? cp.repairs : cp.plan.tasks;
@@ -71,7 +73,7 @@ export function createBuildWorker({store,services}){
       `For this task write ONLY ${path}. Return the entire complete file in a closed fenced block with path=${path}. Do not return other files.`,
       cp.repairs?.length ? `Review repair instructions: ${task.instruction}` : '',
       `Preserve the existing working project. Follow the shared contract and use only planned local assets.`].filter(Boolean).join('\n\n');
-     const raw=await services.generate(task.agent,instruction,files,controller.signal,cp.plan,path);
+     const raw=await paidStep(()=>services.generate(task.agent,instruction,files,controller.signal,cp.plan,path));
      const parsed=filesFrom(raw);
      const file=parsed.files.find(file=>file.path===path && validFile(file));
      const unchangedRepair=file && cp.repairs?.length && files.some(existing=>existing.path===path && existing.body===file.body);
@@ -93,7 +95,7 @@ export function createBuildWorker({store,services}){
    } else if(cp.phase==='review'){
     setRole('reviewer','working');await announce('Reviewing the complete saved source.','reviewing');
     const issues=teamProjectFaults(cp.plan,files);
-    const review=await services.review(job.asked,cp.plan,files,issues,controller.signal,cp.gateFindings || []);
+    const review=await paidStep(()=>services.review(job.asked,cp.plan,files,issues,controller.signal,cp.gateFindings || []));
     cp.review=review;cp.faults=[...new Set([...issues,...review.faults])];
     if(review.approved && !cp.faults.length && !review.repairs.length){
      cp.phase='gate';status='security';setRole('reviewer','complete');event='Independent source review passed. Checking release gates.';
@@ -104,7 +106,7 @@ export function createBuildWorker({store,services}){
     }else {status='needs_attention';cp.message=review.summary;setRole('reviewer','needs_attention');event='Review found issues. Completed files are kept.';}
    } else if(cp.phase==='gate'){
     for(const role of ['security','qa','approver'])setRole(role,'working');await announce('Running security, QA and release approval checks.','security');
-    cp.release=await services.release({asked:job.asked,plan:cp.plan,architecture:cp.architecture,files,faults:[]},controller.signal);
+    cp.release=await paidStep(()=>services.release({asked:job.asked,plan:cp.plan,architecture:cp.architecture,files,faults:[]},controller.signal));
     cp.faults=cp.release.faults || [];
     for(const [gate,role]of [['review','reviewer'],['security','security'],['qa','qa'],['approver','approver']])setRole(role,cp.release.gates?.[gate]?.passed?'complete':'needs_attention');
     const externalSetup=cp.faults.some(fault=>/signing|configuration is required|unavailable|malformed|must complete successfully|hosting.*required|spending cap|rate limit|cost policy|authorization|credential.*required/i.test(fault));

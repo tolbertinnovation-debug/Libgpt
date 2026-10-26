@@ -36,7 +36,7 @@ const aborted = () => Object.assign(new Error('Build stopped.'), { name: 'AbortE
 /** Strict project-relative paths. Never normalize an unsafe path into a safe one. */
 export function teamPath(raw) {
   if (typeof raw !== 'string' || !raw || raw !== raw.trim() || raw.length > 180) return '';
-  if (!/^[a-zA-Z0-9_./-]+$/.test(raw) || raw.startsWith('/')) return '';
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_./-]*$/.test(raw) || raw.startsWith('/')) return '';
   if (raw.split('/').some(part => !part || part === '.' || part === '..')) return '';
   return raw;
 }
@@ -58,7 +58,7 @@ export function validateTeamPlan(plan) {
     }
     roles.add(task.agent);
     for (const path of task.files) {
-      if (!teamPath(path) || owners.has(path)) throw new Error(`Unsafe or conflicting planned file: ${path}`);
+      if (!teamPath(path) || [...owners.keys()].some(existing=>existing.toLowerCase()===path.toLowerCase() || existing.toLowerCase().startsWith(path.toLowerCase()+'/') || path.toLowerCase().startsWith(existing.toLowerCase()+'/'))) throw new Error(`Unsafe or conflicting planned file: ${path}`);
       owners.set(path, task.agent);
     }
   }

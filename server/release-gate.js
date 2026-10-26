@@ -1,5 +1,6 @@
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Script } from 'node:vm';
+import {resolveProjectPath} from '../public/build.js';
 import {sourceEvidence} from './source-evidence.js';
 import { spawnSync } from 'node:child_process';
 import { charterText } from './agent-charters.js';
@@ -58,6 +59,18 @@ function syntaxValid(source, filename, module = false) {
   return !result.error && result.status === 0;
 }
 
+// Explicit HTML script modes take precedence over inferred module syntax.
+function moduleSource(file,files){
+ if(/\.cjs$/i.test(file.path))return false;
+ if(/\.mjs$/i.test(file.path))return true;
+ const references=files.filter(page=>/\.html?$/i.test(page.path)).flatMap(page=>[...page.body.matchAll(/<script\b([^>]*)>/gi)].flatMap(([,attrs])=>{
+  const src=attrs.match(/\bsrc\s*=\s*["']([^"']+)["']/i)?.[1];
+  return src && resolveProjectPath(page.path,src)===file.path ? [/\btype\s*=\s*["']module["']/i.test(attrs)] : [];
+ }));
+ if(references.length)return references.every(Boolean);
+ return /^\s*(?:import\s|export\s)/m.test(file.body);
+}
+
 export function qaFaults(plan, files, runtimeFaults = [], architecture = {}) {
   const faults = teamProjectFaults(plan, files, runtimeFaults);
   for (const file of files) {
@@ -69,8 +82,8 @@ export function qaFaults(plan, files, runtimeFaults = [], architecture = {}) {
       for (const [,attrs,source] of scripts) if (source.trim() && !/type\s*=\s*["'](?:application\/ld\+json|application\/json)["']/i.test(attrs)) {
         if (!syntaxValid(source,file.path,/type\s*=\s*["']module["']/i.test(attrs))) faults.push(`${file.path}: inline JavaScript syntax cannot be verified.`);
       }
-    } else if (/\.(?:js|mjs)$/i.test(file.path)) {
-      const module = /\.mjs$/i.test(file.path) || files.some(page => /\.html?$/i.test(page.path) && [...page.body.matchAll(/<script\b([^>]*)>/gi)].some(([,attrs]) => /type\s*=\s*["']module["']/i.test(attrs) && attrs.includes(file.path.split('/').pop())));
+    } else if (/\.(?:js|mjs|cjs)$/i.test(file.path)) {
+      const module = moduleSource(file,files);
       if (!syntaxValid(file.body,file.path,module)) faults.push(`${file.path}: JavaScript syntax cannot be verified in the static release environment.`);
     }
   }

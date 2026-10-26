@@ -83,9 +83,9 @@ export function createBuildJobStore({connectionString,pool:suppliedPool,scope=go
   });},
   async control(id,token,action){validateBuildIdentity(id,token);return transaction(async client=>{
    const row=await rowFor(client,id,{token,lock:true}),state={...row.state};
-   if(action==='stop') {state.status='stopped';state.message='Stopped. Completed files are saved.';if(state.checkpoint)state.checkpoint={...state.checkpoint,status:'stopped'};}
+   if(action==='stop') {if(state.status==='stopped' || state.status==='approved')return {job:snapshot(row),start:false};state.status='stopped';state.message='Stopped. Completed files are saved.';if(state.checkpoint)state.checkpoint={...state.checkpoint,status:'stopped'};}
    else if(action==='resume') {
-    if(activeBuildStatus(state.status))return {job:snapshot(row),start:false};
+    if(activeBuildStatus(state.status) || state.status==='approved')return {job:snapshot(row),start:false};
     state.status='queued';state.message='Resuming from saved files.';state.workflowId=null;
     if(state.checkpoint)state.checkpoint={...state.checkpoint,fileAttempts:{},reviewRound:0,faults:[],release:null,blocker:null,message:''};
    }else throw fail('Choose stop or resume.',400);
