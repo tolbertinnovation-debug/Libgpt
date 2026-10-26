@@ -41,7 +41,8 @@ test('diagnostic messages redact credentials and bound log size', () => {
 test('completion propagates the actual quota code and logs only redacted diagnostics', async () => {
   const source = (await readFile(new URL('../server/openai.js', import.meta.url), 'utf8'))
     .replace("import { config } from './config.js';", "const config = { apiKey: 'fake-test-key', baseUrl: 'https://api.invalid', titleModel: 'test-model' };")
-    .replace("'./openai-failure.js'", JSON.stringify(new URL('../server/openai-failure.js', import.meta.url).href));
+    .replace("'./openai-failure.js'", JSON.stringify(new URL('../server/openai-failure.js', import.meta.url).href))
+    .replace("'./agent-costs.js'", JSON.stringify(new URL('../server/agent-costs.js', import.meta.url).href));
   const { complete } = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
   const fetchBefore = globalThis.fetch;
   const logBefore = console.error;

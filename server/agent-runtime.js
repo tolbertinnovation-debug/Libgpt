@@ -1,6 +1,6 @@
 import {AsyncLocalStorage} from 'node:async_hooks';
 import {securityFaults} from './release-gate.js';
-import {AGENT_TEXT_RATES,SEARCH_CALL_MICRO_USD,requestPricing,textMicroUsd} from './agent-costs.js';
+import {AGENT_TEXT_RATES,SEARCH_CALL_MICRO_USD,requestPricing,textMicroUsd,researchReservation,RESEARCH_MAX_TOOL_CALLS} from './agent-costs.js';
 import {capabilityOf} from './agent-governance.js';
 const scope=new AsyncLocalStorage();
 const builders=new Set(['design','pages','interactions','content','backend','cloud','builder']);
@@ -9,8 +9,6 @@ const deny=(message,status=403)=>Object.assign(new Error(message),{status});
 // anything, and OpenAI does not bill a refused request. Charging the full
 // reservation for it would let a run of errors empty a small daily budget.
 const REFUSED=new Set([400,401,403,404,409,413,415,422,429]);
-// $100 per million tokens either way: the ledger's own fallback for unpriced work.
-const UNPRICED_RATE=Object.freeze({input:100,output:100});
 const refused=error=>REFUSED.has(error?.status) && !error?.code?.startsWith?.('GOVERNANCE_');
 export function assertAgentData(body={}) {
   const files=body.files || [];
@@ -119,22 +117,57 @@ export function createAgentRuntime({governance,complete,streamChat,streamSearch,
     streamSearch:async function*(options){
       const c=scope.getStore();if(!c){if(strict)ungoverned();yield*streamSearch(options);return;}
       modelCheck('research',options);
-      // An unpriced model (only reachable through a non-OpenAI base URL) is reserved at the ledger's conservative fallback.
-      const rate=rates[options.model] || UNPRICED_RATE;
-      const estimate=inputEstimate(options.messages),maxTokens=options.maxTokens ?? 1400;
-      // Search pages read by the tool are billed as input: an allowance of 8,000 tokens, and two tool calls.
-      const reserve=Math.ceil((estimate.chars+8_000)*rate.input+maxTokens*rate.output)+2*SEARCH_CALL_MICRO_USD;
-      const job=await governance.begin({role:'research',operation:'search',actor:c.actor,fixedMicroUsd:reserve}).catch(offline);
-      let outcome='failed',usage,calls=0,delivered=0,charged;
+      const maxTokens=options.maxTokens ?? 1400,maxToolCalls=options.maxToolCalls ?? RESEARCH_MAX_TOOL_CALLS;
+      const reservationRates=rates[options.model] ? rates : {[options.model]:{input:100,output:100}};
+      const reserve=researchReservation(options.model,maxTokens,maxToolCalls,reservationRates);
+      const admit=()=>governance.begin({role:'research',operation:'search',actor:c.actor,fixedMicroUsd:reserve}).catch(offline);
+      let job=await admit(),outcome='failed',usage,calls=0,completeCalls,delivered=0,charged,violation=false;
+      const ids=new Set();
+      // The first reservation is already held when the provider starts. A
+      // format refusal refunds it; every subsequent HTTP attempt re-enters
+      // the same atomic daily-budget/concurrency admission before network I/O.
+      const beforeAttempt=async()=>{
+        if(options.signal?.aborted)throw options.signal.reason;
+        if(!job)job=await admit();
+        await job.check();return job.signal;
+      };
+      const onAttemptRefused=async(error)=>{
+        if(!refused(error) || usage || calls || delivered)throw error;
+        const refusedJob=job;job=undefined;
+        await refusedJob?.release({outcome:'failed',chargedMicroUsd:0});
+      };
       try{
-        for await(const part of streamSearch({...options,signal:combine(options.signal,job.signal),
-          onUsage:value=>{usage=value;},onSearchCall:()=>{calls+=1;}})){if(job.signal.aborted)throw job.signal.reason;delivered+=String(part || '').length;yield part;}
+        for await(const part of streamSearch({...options,maxTokens,maxToolCalls,maxAttempts:1,
+          signal:combine(options.signal,job.signal),beforeAttempt,onAttemptRefused,
+          onUsage:value=>{usage=value;},onSearchSummary:count=>{if(Number.isSafeInteger(count) && count===calls)completeCalls=count;},onSearchCall:id=>{
+            if(id!==undefined && ids.has(id))return;if(id!==undefined)ids.add(id);
+            completeCalls=undefined;calls+=1;
+            if(calls>maxToolCalls)throw Object.assign(new Error('Research reached its reserved search spending allowance. Your saved work is kept; try a smaller research task.'),{code:'GOVERNANCE_BUDGET',status:429,reservationViolation:true});
+          }})){
+          if(job?.signal.aborted)throw job.signal.reason;
+          delivered+=String(part || '').length;yield part;
+        }
+        if(!job)throw Object.assign(new Error(GOVERNANCE_OFFLINE),{code:'GOVERNANCE_UNGOVERNED',status:503});
         await job.check();outcome='completed';
-      }catch(error){if(!usage && delivered===0 && calls===0 && refused(error))charged=0;throw error;}
-      finally{
+      }catch(error){
+        violation=error.reservationViolation===true;
+        // Only a definite pre-generation refusal is free. Network failures,
+        // interruption and unknown usage retain the entire reservation.
+        if(!usage && delivered===0 && calls===0 && refused(error))charged=0;
+        throw error;
+      }finally{
         const tokens=textMicroUsd(options.model,usage,rates);
-        if(tokens!==undefined)charged=tokens+Math.max(1,calls)*SEARCH_CALL_MICRO_USD;
-        await job.release({outcome,chargedMicroUsd:charged});
+        if(outcome==='completed' && tokens!==undefined){
+          // Missing/ambiguous tool events cannot create a free search.
+          charged=tokens+(completeCalls ?? maxToolCalls)*SEARCH_CALL_MICRO_USD;
+          // Never hide a provider contract violation by clipping real usage.
+          // Record the actual cost and stop all new paid work on that ledger.
+          if(charged>reserve){
+            await job?.release({outcome:'failed',chargedMicroUsd:charged});job=undefined;
+            throw Object.assign(new Error('Research exceeded its reserved spending limits. Paid features are paused for administrator review.'),{code:'GOVERNANCE_BUDGET',status:429});
+          }
+        }
+        await job?.release({outcome,chargedMicroUsd:charged,reservationViolation:violation});
       }
     },
     /**

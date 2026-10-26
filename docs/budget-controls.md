@@ -14,16 +14,18 @@ Every feature that calls OpenAI — chat and reasoning, research, documents and 
 | Model calls at the same time, across all features | 2 |
 | Calls per minute, across all features | 20 |
 
-Chat, research, documents and the Library share what remains of the total. Days run on UTC; allowances reset at midnight UTC.
+Chat, research, documents and the Library share what remains of the total. Days run on UTC; allowances reset at midnight UTC. Research still running across midnight carries its full reservation into the new day before more work is admitted.
 
 The policy (`BUDGET_POLICY` in `server/agent-costs.js`) is a ceiling. The first time a ledger sees it, stored limits are lowered to it — never raised — and an audit record `budget-policy-applied` is written. Environment variables such as `RITUAL_DAILY_USD` only seed a brand-new ledger and are capped by the policy. Nothing in the app raises a limit by itself.
 
 ## How a call is charged
 
 1. **Admission.** The ledger refuses the call if the operator has paused paid features, two calls are already running, 20 calls ran in the last minute, or the reservation would exceed the total or the feature's allowance.
-2. **Reservation.** Text calls reserve their input (UTF-8 bytes, at least one token each) plus their maximum output, at the model's verified price. Photos and PDFs are estimated (3,000 tokens per image; a share of a PDF's size) instead of being counted as base64 text. Pictures, speech, transcription, search fees and live sessions reserve a fixed upper bound.
-3. **Settlement.** When OpenAI reports usage (chat, documents, Library, research, Build), the reservation is replaced by the real cost. Research adds $0.025 for each web search actually made. A request OpenAI refused outright (400, 401, 403, 404, 409, 413, 415, 422, 429 before any output) is charged $0, because OpenAI does not bill it. A stream stopped early is charged an upper bound of what it used. When no usage is available, the reservation is kept.
-4. **No automatic paid retries.** Every paid call makes one attempt. Retries happen only for request-format refusals that OpenAI does not bill (an unsupported parameter, a tool name, a model fallback for transcription).
+2. **Reservation.** Text calls reserve their input (UTF-8 bytes, at least one token each) plus their maximum output, at the model's verified price. Photos and PDFs are estimated (3,000 tokens per image; a share of a PDF's size) instead of being counted as base64 text. Pictures, speech, transcription and live sessions reserve a fixed upper bound. Research atomically reserves up to two tool calls plus a conservative token bound for the initial model pass and every permitted tool continuation. It uses the documented 128k search context (rounded up to 131,072), additional 8k search-content blocks, and the maximum output tokens, rather than assuming retrieved pages average 8,000 tokens.
+3. **Settlement.** When OpenAI reports usage (chat, documents, Library, research, Build), the reservation is replaced by the real cost. Research adds the conservative $0.025 fee for each search in the completed response's authoritative tool list. Missing tool summaries retain all reserved search fees; missing or invalid usage, interrupted streams and network failures retain the entire reservation. A duplicate streamed/final tool event is counted once. A request OpenAI refused outright (400, 401, 403, 404, 409, 413, 415, 422, 429 before any output) is charged $0, because OpenAI does not bill it. An ordinary text stream stopped early is charged an upper bound of what it used; stopped research retains its full reservation. When no usage is available, the reservation is kept.
+4. **No automatic paid retries.** Every paid call makes one attempt. Retries happen only for request-format refusals that OpenAI does not bill (an unsupported parameter, a tool name, a model fallback for transcription). Each research format retry refunds the rejected attempt and obtains a new atomic reservation before HTTP. It cannot reuse an old admission if another request spent the balance or the operator paused the app.
+
+Research requests always send `max_tool_calls` (at most two), `parallel_tool_calls: false`, a bounded `max_output_tokens`, and low search context. Format compatibility may change the tool spelling or choice, but never removes those spending bounds. A provider that rejects `max_tool_calls` is refused rather than called without it. Budget-control failures stop gracefully without automatically starting a paid fallback answer. Unexpected provider work beyond these limits is audited and atomically pauses new paid work; real reported costs are never clipped to make the ledger look safe.
 
 A call made outside a governed route is refused (`GOVERNANCE_UNGOVERNED`) before it reaches OpenAI.
 
@@ -42,7 +44,7 @@ Pictures default to balanced (medium) quality. A medium picture fits the picture
 All require `RITUAL_ADMIN_TOKEN` (32+ characters) in the `x-ritual-admin` header; the visitor access code never works here.
 
 - `GET /api/admin/budget` — limits, today's spend in total and per feature, active calls.
-- `POST /api/admin/budget` with `{"limits":{"dailyUsd":1,"capabilityDailyUsd":{"build":0.3}}}` — change limits (audited).
+- `POST /api/admin/budget` with `{"limits":{"capabilityDailyUsd":{"images":0.05}}}` — patch only these limits (audited). Omitted allowances and other limits are preserved. An empty allowance object does nothing; an explicit zero disables spending for that capability. Independent administrator updates are serialized against the latest ledger state.
 - `POST /api/build/control` with `{"action":"pause"}` or `{"action":"resume"}` — emergency stop for every paid feature.
 - `GET /api/build/audit` — the hash-chained audit trail (metadata only; no prompts or answers).
 

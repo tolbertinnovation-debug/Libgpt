@@ -103,3 +103,44 @@ test('usage settlement persists atomically and frees capacity for another server
  assert.equal((await first.status()).activeCount,1);
  assert.equal((await first.audit()).filter(row=>row.event==='finished').length,1);
 });
+
+test('Postgres serializes partial allowance updates and admissions across independent runtime instances',async t=>{
+ const {gate}=await fixture(t);
+ const limits={dailyUsd:.5,concurrency:2,capabilityDailyUsd:{build:.2,images:.1,voice:.15,livetalk:.1}};
+ const first=gate('partial-budgets',limits);await first.status();
+ await Promise.all([
+  gate('partial-budgets').configure({limits:{capabilityDailyUsd:{images:.05}}}),
+  gate('partial-budgets').configure({limits:{capabilityDailyUsd:{voice:.08}}}),
+  gate('partial-budgets').begin({role:'pages',operation:'generate',fixedMicroUsd:190000}).then(job=>job.release()),
+ ]);
+ const state=await first.status();
+ assert.deepEqual(state.limits.capabilityDailyUsd,{build:.2,images:.05,voice:.08,livetalk:.1});
+ assert.equal(state.limits.dailyUsd,.5);assert.equal(state.limits.concurrency,2);
+ await assert.rejects(gate('partial-budgets').begin({role:'pages',operation:'generate',fixedMicroUsd:20000}),{code:'GOVERNANCE_BUDGET'});
+});
+
+test('Postgres reservation overrun settlement atomically records actual research cost and blocks another admission',async t=>{
+ const {gate}=await fixture(t),first=gate('overrun',{dailyUsd:.5,concurrency:2});
+ const job=await first.begin({role:'research',operation:'search',fixedMicroUsd:1000});
+ await job.release({chargedMicroUsd:2000});await job.release({chargedMicroUsd:0});
+ const state=await gate('overrun').status();
+ assert.equal(state.reservedUsd,.002);assert.equal(state.paused,true);assert.equal(state.activeCount,0);
+ await assert.rejects(gate('overrun').begin({role:'chat',operation:'generate',fixedMicroUsd:1}),{code:'GOVERNANCE_PAUSED'});
+ assert.ok((await first.audit()).some(event=>event.reservationExceeded===true));
+});
+
+test('parallel Postgres research reservations cannot double-spend the remaining platform balance',async t=>{
+ const {gate}=await fixture(t),first=gate('research-budget',{dailyUsd:.5,concurrency:2});
+ const prior=await first.begin({role:'chat',operation:'generate',fixedMicroUsd:100000});await prior.release({chargedMicroUsd:100000});
+ const results=await Promise.allSettled([
+  gate('research-budget').begin({role:'research',operation:'search',fixedMicroUsd:210000}),
+  gate('research-budget').begin({role:'research',operation:'search',fixedMicroUsd:210000}),
+ ]);
+ assert.equal(results.filter(result=>result.status==='fulfilled').length,1);
+ assert.equal(results.find(result=>result.status==='rejected').reason.code,'GOVERNANCE_BUDGET');
+ assert.equal((await first.status()).reservedUsd,.31);
+ const admitted=results.find(result=>result.status==='fulfilled').value;
+ await admitted.release({chargedMicroUsd:25000});await admitted.release({chargedMicroUsd:0});
+ assert.equal((await first.status()).reservedUsd,.125);
+ assert.equal((await first.status()).activeCount,0);
+});

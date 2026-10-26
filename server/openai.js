@@ -1,5 +1,6 @@
 import { config } from './config.js';
 import { limitMessage, safeDiagnostic } from './openai-failure.js';
+import {RESEARCH_MAX_TOOL_CALLS} from './agent-costs.js';
 
 export class OpenAIError extends Error {
   constructor(message, status, code) {
@@ -154,7 +155,8 @@ async function post(path, body, signal, maxAttempts = 3) {
     );
   }
 
-  let attempt = applyQuirks(body);
+  // Responses research limits are safety boundaries, not optional quirks.
+  let attempt = path === '/responses' ? body : applyQuirks(body);
 
   // At most three tries: a model may refuse two settings in turn, and one
   // spare beyond that is the end of it. Anything else is a real error.
@@ -270,8 +272,11 @@ export const searchToolName = () => toolName;
  * that could not happen is a reason to say less, not a reason to say nothing.
  */
 export async function* streamSearch({
-  model, messages, maxTokens, signal, onFinish, onSource, onSearched, onUsage, onSearchCall,
+  model, messages, maxTokens, signal, onFinish, onSource, onSearched, onUsage, onSearchCall, onSearchSummary,
+  maxToolCalls = RESEARCH_MAX_TOOL_CALLS, beforeAttempt, onAttemptRefused,
 }) {
+  if(!Number.isSafeInteger(maxToolCalls) || maxToolCalls<1 || maxToolCalls>RESEARCH_MAX_TOOL_CALLS)
+    throw Object.assign(new Error('Research reached its search spending allowance.'),{code:'GOVERNANCE_BUDGET',status:429});
   // The Responses API takes `input` rather than `messages`, and counts the
   // ceiling as `max_output_tokens`. Everything else is the same conversation.
   const build = (tool) => ({
@@ -283,7 +288,9 @@ export async function* streamSearch({
           ? { type: 'input_file', filename: part.file.filename, file_data: part.file.file_data }
           : { type: 'input_text', text: part.text || '' }) : m.content })),
     store: false,
-    tools: [{ type: tool }],
+    tools: [{ type: tool, search_context_size: 'low' }],
+    max_tool_calls: maxToolCalls,
+    parallel_tool_calls: false,
     // Not "here is a tool if you want it" — go and use it.
     //
     // Left on auto, a model will often answer a question about this week from
@@ -298,31 +305,49 @@ export async function* streamSearch({
     max_output_tokens: maxTokens ?? 1400,
   });
 
-  const attempt = async (tool) => {
-    try {
-      return await post('/responses', build(tool), signal);
-    } catch (error) {
-      // A model that will not be ordered to use the tool can still be offered
-      // it. Better a turn that might search than no turn at all.
-      if (error.status === 400 && /tool_choice/i.test(error.detail || '')) {
-        const { tool_choice: _dropped, ...rest } = build(tool);
-        return post('/responses', rest, signal);
+  // Only explicit, pre-generation format refusals may select a compatible
+  // spelling/choice. post's generic parameter retry loop is disabled here.
+  // No path may drop max_tool_calls or retry a network/streaming failure.
+  const request=async(body)=>{
+    const leaseSignal=await beforeAttempt?.();
+    const requestSignal=leaseSignal ? (signal ? AbortSignal.any([signal,leaseSignal]) : leaseSignal) : signal;
+    requestSignal?.throwIfAborted();
+    try{return await post('/responses',body,requestSignal,1);}
+    catch(error){
+      if([400,401,403,404,409,413,415,422,429].includes(error.status) && !error.code?.startsWith('GOVERNANCE_'))
+        await onAttemptRefused?.(error);
+      throw error;
+    }
+  };
+  const attempt=async(tool)=>{
+    const body=build(tool);
+    try{return await request(body);}
+    catch(error){
+      if(error.status===400 && /tool_choice/i.test(error.detail || '')){
+        const {tool_choice:_dropped,...rest}=body;
+        return request(rest);
       }
       throw error;
     }
   };
-
-  let response;
-  try {
-    response = await attempt(toolName);
-  } catch (error) {
-    // "Invalid value: 'web_search'. Supported values are: 'web_search_preview'"
-    const other = toolName === 'web_search' ? 'web_search_preview' : 'web_search';
-    const named = error.status === 400 && new RegExp(other).test(error.detail || '');
-    if (!named) throw error;
-    toolName = other;
-    response = await attempt(other);
+  let response,selectedTool=toolName;
+  try{response=await attempt(selectedTool);}
+  catch(error){
+    const other=selectedTool==='web_search'?'web_search_preview':'web_search';
+    if(error.status!==400 || !new RegExp(other).test(error.detail || ''))throw error;
+    selectedTool=other;response=await attempt(other);
   }
+  toolName=selectedTool;
+  const searchIds=new Set();
+  let observedCalls=0;
+  const reportSearch=(item,index)=>{
+    if(item?.type!=='web_search_call')return;
+    const keys=[item.id!==undefined ? `id:${item.id}` : '',index!==undefined ? `index:${index}` : ''].filter(Boolean);
+    const seen=keys.some(key=>searchIds.has(key));keys.forEach(key=>searchIds.add(key));
+    if(seen)return;
+    if(++observedCalls>maxToolCalls)throw Object.assign(new Error('Research reached its reserved search spending allowance.'),{code:'GOVERNANCE_BUDGET',status:429,reservationViolation:true});
+    onSearched?.();onSearchCall?.(item.id ?? index);
+  };
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -360,7 +385,7 @@ export async function* streamSearch({
 
             case 'response.output_item.done':
               // Each finished search call is billed once; the spending ledger counts them here.
-              if (event.item?.type === 'web_search_call') { onSearched?.(); onSearchCall?.(); }
+              reportSearch(event.item,event.output_index);
               for (const part of event.item?.content || []) {
                 for (const cited of part.annotations || []) {
                   if (cited.type === 'url_citation' && /^https?:\/\//i.test(cited.url || '')) onSource?.({url:cited.url,title:cited.title || ''});
@@ -384,6 +409,11 @@ export async function* streamSearch({
               break;
 
             case 'response.completed':
+              if(Array.isArray(event.response?.output)){
+                event.response.output.forEach(reportSearch);
+                const count=new Set(event.response.output.flatMap((item,index)=>item?.type==='web_search_call' ? [item.id ?? index] : [])).size;
+                onSearchSummary?.(count);
+              }
               if (event.response?.usage) onUsage?.(event.response.usage);
               onFinish?.('stop');
               break;

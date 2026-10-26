@@ -41,6 +41,24 @@ export const BUDGET_POLICY = Object.freeze({
 // rate is charged because either tool may be used.
 export const SEARCH_CALL_MICRO_USD = 25_000;
 
+// Responses web search is limited to a 128k context, even for larger models.
+// Reserve every possible model pass (initial + one per admitted tool call),
+// not an 8k average. 131,072 deliberately bounds either interpretation of 128k.
+// https://developers.openai.com/api/docs/guides/tools-web-search#limitations
+export const RESEARCH_MAX_TOOL_CALLS = 2;
+export const RESEARCH_CONTEXT_TOKENS = 131_072;
+export function researchReservation(model, maxTokens, maxToolCalls = RESEARCH_MAX_TOOL_CALLS, rates = AGENT_TEXT_RATES) {
+  const rate = rates[model];
+  if (!rate || !Number.isSafeInteger(maxTokens) || maxTokens < 16 || maxTokens > 32_000 ||
+      !Number.isSafeInteger(maxToolCalls) || maxToolCalls < 1 || maxToolCalls > RESEARCH_MAX_TOOL_CALLS)
+    throw Object.assign(new Error('Research cannot safely reserve this request within its spending limits. Try a shorter request or an approved model.'), {code:'GOVERNANCE_BUDGET',status:429});
+  // Add fixed 8k search-content blocks as well: some mini models bill these
+  // separately. The conservative fee covers both current and legacy tools.
+  return Math.ceil(((maxToolCalls + 1) * RESEARCH_CONTEXT_TOKENS + maxToolCalls * 8_000) * rate.input + maxTokens * rate.output)
+    + maxToolCalls * SEARCH_CALL_MICRO_USD;
+}
+
+
 // VERIFIED: GPT Image 2 per-image prices from the image generation guide's
 // cost table (1024x1024 / 1024x1536 / 1536x1024). The app's default image
 // model is newer and has no published table, so its reservation is 1.5x these.
@@ -79,6 +97,6 @@ export function requestPricing(options, rates = AGENT_TEXT_RATES) {
 export function textMicroUsd(model, usage, rates = AGENT_TEXT_RATES) {
   const rate = rates[model];
   const input = usage?.prompt_tokens ?? usage?.input_tokens, output = usage?.completion_tokens ?? usage?.output_tokens;
-  if (!rate || !Number.isSafeInteger(input) || !Number.isSafeInteger(output)) return undefined;
+  if (!rate || !Number.isSafeInteger(input) || !Number.isSafeInteger(output) || input < 0 || output < 0) return undefined;
   return Math.ceil(input * rate.input + output * rate.output);
 }
