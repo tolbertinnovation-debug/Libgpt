@@ -12,7 +12,8 @@ export function imageRequest(input={}) {
   if(input.prompt.length>4000) throw Object.assign(new Error('Keep the image description within 4,000 characters.'),{status:400});
   const prompt=input.prompt.trim();
   const size=IMAGE_SIZES.includes(input.size) ? input.size : '1024x1024';
-  const quality=IMAGE_QUALITIES.includes(input.quality) ? input.quality : 'high';
+  // Balanced by default: a high-detail picture costs about four times as much.
+  const quality=IMAGE_QUALITIES.includes(input.quality) ? input.quality : 'medium';
   const style=Object.hasOwn(IMAGE_STYLES,input.style) ? input.style : 'natural';
   const context=refersToDiscussion(prompt) ? validImageDiscussion(input.context) : '';
   if(!context && (genericImageRequest(prompt) || /\b(?:of|for)\s+(?:it|this|that|them|these|those)[.!?]*$/i.test(prompt)))

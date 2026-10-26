@@ -50,13 +50,15 @@ test('actual speak endpoint forwards the new voice and refuses old voices before
   const source=await readFile(new URL('../server/app.js',import.meta.url),'utf8');
   const start=source.indexOf('const spokenChars = []');const end=source.indexOf('// ---- the Cultural Album',start);
   let handler;const calls=[];const config={realVoice:true,apiKey:'test-placeholder',voiceCharsPerHour:60000};
-  new Function('app','rateLimit','requireAccess','config','speechOptions','speakAloud','OpenAIError',source.slice(start,end))(
-    {post(_path,...handlers){handler=handlers.at(-1);}},()=>{},()=>{},config,speechOptions,async args=>{calls.push(args);return Buffer.from('mock audio');},class extends Error {});
+  const metered=[];const runtime={governed:()=>()=>{},meter:async(role,operation,microUsd,action)=>{metered.push({role,operation,microUsd});return action(new AbortController().signal);}};
+  new Function('app','rateLimit','requireAccess','config','speechOptions','speakAloud','OpenAIError','runtime','SPEECH_MICRO_USD_PER_CHAR','governanceError',source.slice(start,end))(
+    {post(_path,...handlers){handler=handlers.at(-1);}},()=>{},()=>{},config,speechOptions,async args=>{calls.push(args);return Buffer.from('mock audio');},class extends Error {},runtime,30,()=>false);
   const invoke=async body=>{const res={headers:{},statusCode:200,on(){},status(n){this.statusCode=n;return this;},json(v){this.body=v;},setHeader(k,v){this.headers[k]=v;},send(v){this.audio=v;}};await handler({body},res);return res;};
   let res=await invoke({text:'Hello, my people.',voice:'marin',speed:1.05});
   assert.equal(res.statusCode,200);assert.equal(calls[0].voice,'marin');assert.equal(calls[0].speed,1.05);
   assert.equal(res.headers['Content-Type'],'audio/mpeg');assert.equal(res.headers['Cache-Control'],'no-store');
-  res=await invoke({text:'Hello',voice:'Sarah'});assert.equal(res.statusCode,400);assert.equal(calls.length,1);
+  assert.deepEqual(metered,[{role:'voice',operation:'speak',microUsd:'Hello, my people.'.length*30}]);
+  res=await invoke({text:'Hello',voice:'Sarah'});assert.equal(res.statusCode,400);assert.equal(calls.length,1);assert.equal(metered.length,1);
   config.apiKey='';res=await invoke({text:'Hello'});assert.equal(res.statusCode,503);assert.equal(calls.length,1);
   config.realVoice=false;res=await invoke({text:'Hello'});assert.equal(res.statusCode,503);
 });

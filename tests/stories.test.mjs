@@ -92,8 +92,8 @@ async function structuredEndpoint(complete) {
   const start=source.indexOf("app.post('/api/structured'");
   const end=source.indexOf('// ---- Grandpa',start);
   let handler;
-  new Function('app','rateLimit','requireAccess','KINDS','isKind','pickModel','complete','generateFreshStory','StoryGenerationError','OpenAIError',source.slice(start,end))(
-    {post(_path,...handlers){handler=handlers.at(-1);}},()=>{},()=>{},KINDS,isKind,async()=>'test-model',complete,generateFreshStory,StoryGenerationError,class extends Error {});
+  new Function('app','rateLimit','requireAccess','KINDS','isKind','pickModel','complete','generateFreshStory','StoryGenerationError','OpenAIError','runtime','governanceError',source.slice(start,end))(
+    {post(_path,...handlers){handler=handlers.at(-1);}},()=>{},()=>{},KINDS,isKind,async()=>'test-model',complete,generateFreshStory,StoryGenerationError,class extends Error {},{governed:()=>()=>{}},()=>false);
   return async body=>{
     const response={statusCode:200,on(){},status(code){this.statusCode=code;return this;},json(value){this.body=value;}};
     await handler({body},response);return response;

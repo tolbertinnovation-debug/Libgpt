@@ -3,6 +3,7 @@ import {tmpdir} from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { isolatedLedger } from './support/ledger.mjs';
 import {
   normalizeTeamPlan, normalizeTeamReview, safeTeamPath, teamProjectFaults, workerInstruction,
 } from '../server/build-team.js';
@@ -84,7 +85,7 @@ test('real Express team routes use access protection, provider calls and reject 
   let entered; let stopped;
   globalThis.fetch=async(url,options={})=>{
     if(!String(url).startsWith(config.baseUrl)) return originalFetch(url,options);
-    if(String(url).endsWith('/models')) return Response.json({data:[{id:'gpt-4.1'}]});
+    if(String(url).endsWith('/models')) return Response.json({data:[{id:'gpt-4.1'},{id:'gpt-4.1-mini'}]});
     calls.push(JSON.parse(options.body));
     if(waitForAbort) return new Promise((resolve,reject)=>{
       entered();
@@ -94,6 +95,7 @@ test('real Express team routes use access protection, provider calls and reject 
   };
   const governanceDir=await mkdtemp(path.join(tmpdir(),'ritual-tests-'));
   Object.assign(process.env,{RITUAL_GOVERNANCE_DIR:governanceDir,RITUAL_DAILY_USD:'1000',RITUAL_CALLS_PER_MINUTE:'1000'});
+  await isolatedLedger();
   const {default:app}=await import('../server/app.js');
   const server=app.listen(0,'127.0.0.1');
   await new Promise(resolve=>server.once('listening',resolve));

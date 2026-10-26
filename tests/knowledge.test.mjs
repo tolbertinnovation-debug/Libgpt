@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {conversationWindow, generationBudget, depthInstructions, QUESTION_CHARS} from '../public/knowledge.js';
 import {needsLookingUp, searchModelFrom} from '../server/search.js';
+import { isolatedLedger } from './support/ledger.mjs';
 
 test('context keeps complete questions and drops whole old turns', () => {
   const question = 'x'.repeat(50_000) + 'FINAL INSTRUCTION';
@@ -47,7 +48,7 @@ test('chat streams complete input, research sources, continuations and honest fa
   const frames = events => new Response(events.map(e=>`data: ${JSON.stringify(e)}\n\n`).join(''),{headers:{'Content-Type':'text/event-stream'}});
   globalThis.fetch=async (url,options={}) => {
     if (!String(url).startsWith('https://provider.invalid')) return realFetch(url,options);
-    if (String(url).endsWith('/models')) return Response.json({data:['gpt-4.1-mini','gpt-4.1','gpt-4o-mini'].map(id=>({id}))});
+    if (String(url).endsWith('/models')) return Response.json({data:['gpt-4.1-mini','gpt-4.1','gpt-4o-mini','gpt-5.4-mini'].map(id=>({id}))});
     const body=JSON.parse(options.body);
     requests.push({url:String(url),body});
     if (scenario==='timeout') {
@@ -68,6 +69,7 @@ test('chat streams complete input, research sources, continuations and honest fa
   };
   const governanceDir=await mkdtemp(path.join(tmpdir(),'ritual-tests-'));
   Object.assign(process.env,{RITUAL_GOVERNANCE_DIR:governanceDir,RITUAL_DAILY_USD:'1000',RITUAL_CALLS_PER_MINUTE:'1000'});
+  await isolatedLedger(t);
   const {default:app}=await import('../server/app.js');
   const server=app.listen(0,'127.0.0.1');
   await new Promise(resolve=>server.once('listening',resolve));
@@ -104,7 +106,8 @@ test('chat streams complete input, research sources, continuations and honest fa
     requests=[];
     const messages=[{role:'user',content:'Compare these two business plans'}, {role:'assistant',content:'We have two alternatives.'},{role:'user',content:'Explain more'}];
     await post({messages,research:'off',spoken:true});
-    assert.equal(requests[0].body.model,'gpt-4.1');
+    // The strongest APPROVED model: gpt-4.1 is on the account but outside the budget policy.
+    assert.equal(requests[0].body.model,'gpt-5.4-mini');
     assert.equal(requests[0].body.messages.at(-1).content,'Explain more');
     const system=requests[0].body.messages[0].content;
     assert.match(system,/Check calculations, units, currencies/);
@@ -116,7 +119,8 @@ test('chat streams complete input, research sources, continuations and honest fa
     requests=[];
     await post({messages:[{role:'user',content:'Compare the latest scholarship deadlines'}, {role:'assistant',content:'Here are the available programs.'},{role:'user',content:'Are you sure?'}]});
     assert.ok(requests[0].url.endsWith('/responses'));
-    assert.equal(requests[0].body.model,'gpt-4.1');
+    // The strongest approved model on the search-capable list (gpt-4.1 is outside the budget policy).
+    assert.equal(requests[0].body.model,'gpt-4.1-mini');
   });
   await t.test('photo research uses Responses image input and preserves more than six citations',async()=>{
     requests=[];

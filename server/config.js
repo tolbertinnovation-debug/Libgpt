@@ -99,9 +99,12 @@ export const config = {
   // Live Talk: a two-way audio conversation through OpenAI's Realtime API.
   // Audio is priced far above text, so each conversation has a length limit and
   // the whole deployment has an hourly number of conversations.
-  liveTalk: !/^(0|false|no|off)$/i.test(process.env.ENABLE_LIVE_TALK?.trim() || 'true'),
+  // Off unless the operator switches it on. A session's real usage is reported
+  // only to the browser, so it can be reserved at a worst case but never
+  // settled against actual cost (see docs/natural-voice.md).
+  liveTalk: /^(1|true|yes|on)$/i.test(process.env.ENABLE_LIVE_TALK?.trim() || ''),
   realtimeModel: process.env.OPENAI_REALTIME_MODEL?.trim() || '',
-  liveTalkMinutes: Math.min(30, Math.max(1, int(process.env.LIVE_TALK_MINUTES, 10))),
+  liveTalkMinutes: Math.min(30, Math.max(1, int(process.env.LIVE_TALK_MINUTES, 2))),
   liveTalkSessionsPerHour: int(process.env.LIVE_TALK_SESSIONS_PER_HOUR, 20),
 
   // Serverless platforms run each request in a short-lived instance, so
@@ -162,7 +165,9 @@ export const FALLBACK_MODELS = [
 // Models that answer chat, as opposed to the many that do embeddings, audio,
 // images or moderation. Matching on the id is a heuristic, but the list comes
 // from the account, so a wrong guess shows a model rather than hiding one.
-const NOT_CHAT = /embedding|whisper|tts|audio|realtime|transcribe|image|dall-e|moderation|davinci|babbage|codex|search|similarity|edit/i;
+// Also not chat: live voice models, -pro and deep-research models (Responses
+// API only), completions-only instruct models, and computer-use models.
+const NOT_CHAT = /embedding|whisper|tts|audio|realtime|transcribe|image|dall-e|moderation|davinci|babbage|codex|search|similarity|edit|^gpt-live|-pro(?:-|$)|deep-research|instruct|computer-use/i;
 const LOOKS_CHAT = /^(gpt-|o\d|chatgpt-)/i;
 
 export const isChatModel = (id) =>

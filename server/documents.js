@@ -46,7 +46,9 @@ When asked to revise, preserve the original facts and unaffected sections and re
 
 export function mountDocumentRoutes(app, deps) {
   const { rateLimit, requireAccess, complete, chooseModel, parseConversation, readPhoto, photosLeft, reservePhoto, canSeeWith, config } = deps;
-  app.post('/api/document', rateLimit, requireAccess, async (req, res) => {
+  // Every document request spends from the shared ledger when the app supplies it.
+  const governed = deps.governed || ((_req, _res, next) => next());
+  app.post('/api/document', rateLimit, requireAccess, governed, async (req, res) => {
     const controller = new AbortController();
     let brief = null;
     res.on('close', () => controller.abort());

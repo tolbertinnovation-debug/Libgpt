@@ -3,11 +3,12 @@ import assert from 'node:assert/strict';
 import { createRealtimeSecret, pickRealtimeModel, realtimeSession, recentContext } from '../server/realtime.js';
 import { LiveTalk } from '../public/live-talk.js';
 
-test('the best realtime model on the account is chosen, and a pin wins', () => {
-  assert.equal(pickRealtimeModel(['gpt-4o-mini', 'gpt-realtime-mini', 'gpt-realtime', 'gpt-realtime-2.1', 'gpt-4o-realtime-preview']), 'gpt-realtime-2.1');
-  assert.equal(pickRealtimeModel(['gpt-realtime-mini', 'gpt-4o-realtime-preview']), 'gpt-realtime-mini');
+test('the cheapest realtime model on the account is chosen, none means unavailable, and a pin wins', () => {
+  assert.equal(pickRealtimeModel(['gpt-4o-mini', 'gpt-realtime-mini', 'gpt-realtime', 'gpt-realtime-2.1', 'gpt-4o-realtime-preview']), 'gpt-realtime-mini');
+  assert.equal(pickRealtimeModel(['gpt-realtime', 'gpt-realtime-2.1']), 'gpt-realtime-2.1');
   assert.equal(pickRealtimeModel(['gpt-realtime-2025-08-28', 'gpt-realtime']), 'gpt-realtime');
-  assert.equal(pickRealtimeModel([]), 'gpt-realtime');
+  assert.equal(pickRealtimeModel(['gpt-5.4-mini', 'gpt-live-1']), '');
+  assert.equal(pickRealtimeModel([]), '');
   assert.equal(pickRealtimeModel(['gpt-realtime'], 'gpt-realtime-mini'), 'gpt-realtime-mini');
 });
 

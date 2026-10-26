@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 import {mkdtemp,rm} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
+import { isolatedLedger } from './support/ledger.mjs';
 test('real API protects kill switch and audit, blocks paused work and direct publication',async t=>{
  const directory=await mkdtemp(path.join(tmpdir(),'agent-control-api-'));t.after(()=>rm(directory,{recursive:true,force:true}));
  Object.assign(process.env,{RITUAL_GOVERNANCE_DIR:directory,RITUAL_ADMIN_TOKEN:'test-operator-token-'.repeat(3),RITUAL_DAILY_USD:'1000',RITUAL_CALLS_PER_MINUTE:'1000',OPENAI_API_KEY:'fixture',RATE_LIMIT_PER_MINUTE:'0',ENABLE_LIVE_NEWS:'false'});
+ await isolatedLedger(t);
  const {default:app}=await import('../server/app.js');const server=app.listen(0,'127.0.0.1');await new Promise(r=>server.once('listening',r));t.after(()=>{server.closeAllConnections();server.close();});const base=`http://127.0.0.1:${server.address().port}`;
  const post=(route,body,admin=false)=>fetch(base+route,{method:'POST',headers:{'Content-Type':'application/json',...(admin?{'x-ritual-admin':process.env.RITUAL_ADMIN_TOKEN}:{})},body:JSON.stringify(body)});
  assert.equal((await post('/api/build/control',{action:'pause'})).status,403);

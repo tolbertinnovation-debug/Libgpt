@@ -17,9 +17,11 @@ export const TEAM_ROLES = Object.freeze([
 ]);
 export const WORKER_IDS = Object.freeze(['design', 'pages', 'interactions', 'content', 'backend', 'cloud']);
 const WORKERS = WORKER_IDS;
-export const TEAM_CAPACITY = Object.freeze({repairRounds: 6, maxRepairRounds: 8, concurrency: 4, fileRetries: 1});
+// At most two builder calls at once: the approved limit for the whole app.
+// (Cloud builds on Vercel run one file at a time in the background worker.)
+export const TEAM_CAPACITY = Object.freeze({repairRounds: 6, maxRepairRounds: 8, concurrency: 2, fileRetries: 1});
 
-// Queue specialists so six builders do not exceed the four-call governance limit.
+// Queue specialists so builders stay inside the governance concurrency limit.
 async function runWorkers(items, action) {
   let next = 0;
   return Promise.allSettled(Array.from({length: Math.min(TEAM_CAPACITY.concurrency, items.length)}, async () => {
@@ -51,7 +53,7 @@ export function validateTeamPlan(plan) {
   for (const task of plan.tasks) {
     if (!WORKERS.includes(task.agent) || roles.has(task.agent)
       || typeof task.instruction !== 'string' || !task.instruction.trim()
-      || !Array.isArray(task.files) || (!task.files.length && !['backend', 'cloud'].includes(task.agent)) || task.files.length > 12) {
+      || !Array.isArray(task.files) || (!task.files.length && task.agent === 'pages') || task.files.length > 12) {
       throw new Error('The supervisor must assign distinct builders and their files.');
     }
     roles.add(task.agent);

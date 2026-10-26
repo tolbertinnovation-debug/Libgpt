@@ -113,8 +113,8 @@ test('actual structured endpoint applies the freshness guard to all new explorer
   const source=await readFile(new URL('../server/app.js',import.meta.url),'utf8');
   const start=source.indexOf("app.post('/api/structured'"),end=source.indexOf('// ---- Grandpa',start);
   let handler,calls=0;
-  new Function('app','rateLimit','requireAccess','KINDS','isKind','pickModel','complete','generateFreshStory','StoryGenerationError','OpenAIError',source.slice(start,end))(
-    {post(_path,...h){handler=h.at(-1);}},()=>{},()=>{},KINDS,isKind,async()=>'test-model',async()=>{calls++;return JSON.stringify(entry());},generateFreshStory,StoryGenerationError,class extends Error {});
+  new Function('app','rateLimit','requireAccess','KINDS','isKind','pickModel','complete','generateFreshStory','StoryGenerationError','OpenAIError','runtime','governanceError',source.slice(start,end))(
+    {post(_path,...h){handler=h.at(-1);}},()=>{},()=>{},KINDS,isKind,async()=>'test-model',async()=>{calls++;return JSON.stringify(entry());},generateFreshStory,StoryGenerationError,class extends Error {},{governed:()=>()=>{}},()=>false);
   for(const kind of ['history','wisdom','learn']) {
     const res={statusCode:200,on(){},status(n){this.statusCode=n;return this;},json(body){this.body=body;}};
     await handler({body:{kind,input:{recentStories:[storyRecord(entry())]}}},res);

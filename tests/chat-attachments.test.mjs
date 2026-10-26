@@ -4,6 +4,7 @@ import { chatContext } from '../public/chat-context.js';
 import { readPaper } from '../public/papers.js';
 import { readDocument, withAttachments } from '../server/chat-attachments.js';
 import { createBackup, parseBackup } from '../public/backup.js';
+import { isolatedLedger } from './support/ledger.mjs';
 
 const photo = 'data:image/jpeg;base64,/9j/AA==';
 const pdf = `data:application/pdf;base64,${Buffer.from('%PDF-1.7\nscanned page').toString('base64')}`;
@@ -95,6 +96,7 @@ test('chat routes image and PDF follow-ups to vision inputs in both provider API
       : [{ choices: [{ delta: { content: 'I can read the attachment.' }, finish_reason: 'stop' }] }];
     return new Response(events.map(e => `data: ${JSON.stringify(e)}\n\n`).join(''), { headers: { 'Content-Type': 'text/event-stream' } });
   };
+  await isolatedLedger(t);
   const { default: app } = await import('../server/app.js');
   const server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));
