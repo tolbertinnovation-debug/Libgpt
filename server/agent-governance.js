@@ -259,9 +259,12 @@ export function createAgentGovernance({directory, serverless = false, storage, l
       await save(state, 'started', {...meta, capability, ticket: id, reservedMicroUsd: reserved});
     });
     const controller = new AbortController(); controllers.set(id, controller);
+    // Other instances learn of a pause within five seconds (this one at once,
+    // through its controllers). Every paid call holds one of these, so a
+    // shorter interval would mean a database lock per second per chat stream.
     const timer = setInterval(() => {
       check(id).catch(() => {controller.abort(failure('Agent work paused by governance.', 'GOVERNANCE_PAUSED', 423)); clearInterval(timer);});
-    }, 1000); timer.unref();
+    }, 5000); timer.unref();
     let released = false;
     // `chargedMicroUsd` = a cost the caller computed from real usage (search
     // fees, picture tokens) or 0 for a request the provider refused outright.
