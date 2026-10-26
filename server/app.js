@@ -41,7 +41,7 @@ import {createPostgresGovernanceStorage} from './governance-postgres.js';
 import {AGENT_TEXT_RATES,APPROVED_MODELS,BUDGET_POLICY,REALTIME_MICRO_USD_PER_MINUTE,SPEECH_MICRO_USD_PER_CHAR,TRANSCRIBE_MICRO_USD_PER_SECOND,imageMicroUsd} from './agent-costs.js';
 import {sourceEvidence} from './source-evidence.js';
 import {buildJobStore} from './background-store.js';
-import {activeBuildStatus} from './build-jobs.js';
+import {activeBuildStatus,requireBuildGeneration} from './build-jobs.js';
 import {cleanBuildCheckpoint} from './build-worker.js';
 import {assertAgentData} from './agent-runtime.js';
 import {start,getRun} from 'workflow/api';
@@ -1748,16 +1748,16 @@ function requireBackground(_req,res,next){
 app.post('/api/build/jobs',rateLimit,requireAccess,requireBackground,async(req,res)=>{
  let created;
  try{
-  const {id,token,asked,files=[]}=req.body || {};
+  const {id,token,asked,files=[],requestHistory=null}=req.body || {};
   const check=req.body?.check===true;
   if(!config.apiKey && !check)return res.status(503).json({error:'The coding agent is unavailable on this deployment.'});
-  if(check && (files.length || req.body.checkpoint))return res.status(400).json({error:'A connection check cannot contain project files.'});
+  if(check && (files.length || req.body.checkpoint || requestHistory))return res.status(400).json({error:'A connection check cannot contain project files.'});
   if(typeof asked!=='string' || !asked.trim() || asked.length>6000 || !Array.isArray(files) || files.length>200 || Buffer.byteLength(JSON.stringify(files))>1500000)return res.status(400).json({error:'Describe your project in 1–6,000 characters and keep source files under 1.5 MB.'});
-  assertAgentData({asked,files});
+  assertAgentData({asked,files,requestHistory,checkpoint:req.body.checkpoint});
   try{assertTeamFiles(files);}catch(error){throw Object.assign(error,{status:400});}
   await governance.assertActive();
   const checkpoint=cleanBuildCheckpoint(req.body.checkpoint,asked,files);
-  created=await buildJobStore.create({id,token,asked:asked.trim(),files,checkpoint});
+  created=await buildJobStore.create({id,token,asked:asked.trim(),files,checkpoint,requestHistory});
   const job=created.created ? await enqueueBackground(created.job,check) : created.job;
   res.status(created.created?202:200).json({job});
  }catch(error){
@@ -1778,15 +1778,24 @@ app.get('/api/build/jobs/:id',rateLimit,requireAccess,requireBackground,async(re
 });
 app.post('/api/build/jobs/:id/control',rateLimit,requireAccess,requireBackground,async(req,res)=>{
  try{
-  if(req.body?.action==='resume' && !config.apiKey)return res.status(503).json({error:'The coding agent is unavailable on this deployment.'});
-  const result=await buildJobStore.control(req.params.id,req.get('x-build-token'),req.body?.action);
+  const action=req.body?.action;
+  if(['resume','revise'].includes(action) && !config.apiKey)return res.status(503).json({error:'The coding agent is unavailable on this deployment.'});
+  requireBuildGeneration(action,req.body?.generation);
+  const options={generation:req.body?.generation};
+  if(action==='revise'){
+   const {asked,files=[],requestHistory=null}=req.body;
+   if(typeof asked!=='string' || !asked.trim() || asked.length>6000 || !Array.isArray(files) || files.length>200 || Buffer.byteLength(JSON.stringify(files))>1500000)return res.status(400).json({error:'Keep the project request under 6,000 characters and source under 1.5 MB.'});
+   assertAgentData({asked,files,requestHistory,checkpoint:req.body.checkpoint});
+   try{assertTeamFiles(files);Object.assign(options,{asked:asked.trim(),files,requestHistory,checkpoint:cleanBuildCheckpoint(req.body.checkpoint,asked.trim(),files)});}catch(error){throw Object.assign(error,{status:400});}
+  }
+  const result=await buildJobStore.control(req.params.id,req.get('x-build-token'),action,options);
   const job=result.start ? await enqueueBackground(result.job) : result.job;
   res.json({job});
  }catch(error){res.status(error.status || 503).json({error:error.status?error.message:'The task could not be updated. Reconnect to check its saved state.'});}
 });
 app.delete('/api/build/jobs/:id',rateLimit,requireAccess,requireBackground,async(req,res)=>{
  try{await buildJobStore.remove(req.params.id,req.get('x-build-token'));res.json({deleted:true});}
- catch(error){res.status(error.status || 503).json({error:'The background task could not be deleted. Try again.'});}
+ catch(error){res.status(error.status || 503).json({error:error.status?error.message:'The background task could not be deleted. Try again.'});}
 });
 
 mountDocumentRoutes(app, { rateLimit, requireAccess, governed: runtime.governed('documents','generate'), complete, chooseModel: pickModel,

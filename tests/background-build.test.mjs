@@ -16,7 +16,7 @@ async function fixture(t,initial={}){
  const store=createBuildJobStore({pool,scope:'test'});
  const identity={id:crypto.randomUUID(),token:crypto.randomBytes(32).toString('hex')};
  const created=await store.create({...identity,asked:'Build a school website.',...initial});
- return {db,store,identity,job:created.job};
+ return {db,pool,store,identity,job:created.job};
 }
 function services(overrides={}){
  return {assertActive:async()=>{},plan:async()=>plan,architecture:async()=>architecture,
@@ -166,4 +166,88 @@ test('a transient storage monitor interruption saves returned progress and pause
  await worker.advance(identity.id,1);assert.equal(calls,1);
  const resumed=await store.control(identity.id,identity.token,'resume');assert.equal(resumed.start,true);
  await worker.advance(identity.id,resumed.job.generation);assert.equal(calls,1);assert.deepEqual((await store.get(identity.id,identity.token)).checkpoint.architecture,architecture);
+});
+
+test('cloud checkpoints preserve request history through a budget pause and explicit Resume',async t=>{
+ const {appendBuildRequest,buildRequestBrief}=await import('../public/build-requests.js');
+ const history=appendBuildRequest(appendBuildRequest(null,'School website',{at:1}),'Include course fees',{at:2});
+ const {store,identity}=await fixture(t,{asked:buildRequestBrief(history),requestHistory:history});
+ const worker=createBuildWorker({store,services:services({plan:async()=>{throw Object.assign(Error('The coding spending cap has been reached.'),{code:'GOVERNANCE_BUDGET',status:429});}})});
+ await worker.advance(identity.id,1);const paused=await store.get(identity.id,identity.token);
+ assert.deepEqual(paused.requestHistory,history);assert.deepEqual(paused.checkpoint.requestHistory,history);
+ const resumed=await store.control(identity.id,identity.token,'resume');assert.deepEqual(resumed.job.requestHistory,history);assert.deepEqual(resumed.job.checkpoint.requestHistory,history);assert.equal(resumed.start,true);
+});
+test('cloud admission rejects misleading request history and cannot change an existing task through a retry',async t=>{
+ const {appendBuildRequest,buildRequestBrief}=await import('../public/build-requests.js');
+ const history=appendBuildRequest(null,'School website',{at:1});const {store,identity}=await fixture(t,{asked:buildRequestBrief(history),requestHistory:history});
+ await assert.rejects(store.create({...identity,asked:'Different request',requestHistory:history}),{status:400});
+ const other=appendBuildRequest(null,'Another request',{at:2});const duplicate=await store.create({...identity,asked:buildRequestBrief(other),requestHistory:other});
+ assert.equal(duplicate.created,false);assert.deepEqual(duplicate.job.requestHistory,history);assert.equal(duplicate.job.asked,'School website');
+ await assert.rejects(store.create({id:crypto.randomUUID(),token:identity.token,asked:'School website',requestHistory:{...history,approved:true}}),{code:'BUILD_REQUEST_HISTORY'});
+});
+
+test('same-task request revisions and Resume compete atomically; only one mocked paid step is scheduled',async t=>{
+ const {appendBuildRequest,buildRequestBrief}=await import('../public/build-requests.js');
+ const {store,identity}=await fixture(t);let paid=0;
+ for(const reviseFirst of [false,true]){
+  const paused=(await store.control(identity.id,identity.token,'stop')).job;
+  const history=appendBuildRequest(paused.requestHistory,'Add course fees',{legacyBrief:paused.asked,at:1});
+  const options={generation:paused.generation,asked:buildRequestBrief(history),files:paused.files,checkpoint:null,requestHistory:history};
+  const actions=reviseFirst?['revise','resume']:['resume','revise'];
+  const results=await Promise.allSettled(actions.map(action=>store.control(identity.id,identity.token,action,options)));
+  assert.equal(results.filter(result=>result.status==='fulfilled' && result.value.start).length,1);
+  assert.equal(results.filter(result=>result.status==='rejected' && result.reason.status===409).length,1);
+  const current=await store.get(identity.id,identity.token);assert.equal(current.id,identity.id);assert.equal(current.generation,paused.generation+1);
+  const worker=createBuildWorker({store,services:services({plan:async()=>{paid++;return plan;}})});await worker.advance(identity.id,current.generation);
+ }
+ assert.equal(paid,2);
+});
+test('request revision cannot overwrite an active task or erase accepted request history',async t=>{
+ const {appendBuildRequest,buildRequestBrief}=await import('../public/build-requests.js');
+ const history=appendBuildRequest(null,'School website',{at:1}),{store,identity}=await fixture(t,{asked:'School website',requestHistory:history});
+ const options={generation:1,asked:'School website',files:[],requestHistory:history};
+ await assert.rejects(store.control(identity.id,identity.token,'revise',options),{status:409});
+ const paused=(await store.control(identity.id,identity.token,'stop')).job;
+ const changed=appendBuildRequest(history,'Add fees',{at:2});
+ await assert.rejects(store.control(identity.id,identity.token,'revise',{...options,generation:paused.generation,requestHistory:null}),{status:400});
+ await assert.rejects(store.control(identity.id,identity.token,'revise',{...options,generation:paused.generation,asked:buildRequestBrief(changed),requestHistory:{...changed,entries:[{...changed.entries[0],text:'Replace original'},changed.entries[1]]}}),{status:400});
+ const revised=await store.control(identity.id,identity.token,'revise',{...options,generation:paused.generation,asked:buildRequestBrief(changed),requestHistory:changed});
+ assert.equal(revised.start,true);assert.equal(revised.job.id,identity.id);assert.deepEqual(revised.job.requestHistory,changed);
+ await assert.rejects(store.control(identity.id,identity.token,'resume',{generation:paused.generation}),{status:409});
+});
+test('a second capability holder cannot read, resume, revise, stop, remove or deduplicate another task',async t=>{
+ const {store,identity,pool}=await fixture(t);const before=await store.get(identity.id,identity.token),other='b'.repeat(64);
+ await assert.rejects(store.get(identity.id,other),{status:404});
+ for(const action of ['resume','revise','stop'])await assert.rejects(store.control(identity.id,other,action,{generation:1,asked:'Attack',files:[]}),{status:404});
+ await assert.rejects(store.remove(identity.id,other),{status:404});await assert.rejects(store.create({...identity,token:other,asked:'Attack'}),{status:404});
+ assert.deepEqual(await store.get(identity.id,identity.token),before);
+ await assert.rejects(store.control(identity.id,'Liberia2026','resume'),{status:403});
+ const otherScope=createBuildJobStore({pool,scope:'another-environment'});await assert.rejects(otherScope.get(identity.id,identity.token),{status:404});
+ await assert.rejects(otherScope.control(identity.id,identity.token,'resume',{generation:1}),{status:404});await assert.rejects(otherScope.remove(identity.id,identity.token),{status:404});
+ await assert.rejects(otherScope.create({...identity,asked:'Cross-scope overwrite'}),{status:404});assert.deepEqual(await store.get(identity.id,identity.token),before);
+});
+test('history survives an uncertain worker claim, fencing and a new worker instance after explicit Resume',async t=>{
+ const {appendBuildRequest}=await import('../public/build-requests.js');const history=appendBuildRequest(null,'School website',{at:1});
+ const {store,identity}=await fixture(t,{asked:'School website',requestHistory:history});const worker=createBuildWorker({store,services:services()});await worker.advance(identity.id,1);
+ const claimed=await store.claim(identity.id,1),duplicate=await store.claim(identity.id,1);assert.equal(duplicate.job.status,'needs_attention');assert.deepEqual(duplicate.job.requestHistory,history);assert.deepEqual(duplicate.job.checkpoint.requestHistory,history);
+ assert.equal((await store.save(identity.id,1,claimed.key,{...claimed.job,asked:'Stale overwrite'})).saved,false);
+ const resumed=await store.control(identity.id,identity.token,'resume',{generation:duplicate.job.generation});
+ await createBuildWorker({store,services:services()}).advance(identity.id,resumed.job.generation);
+ const current=await store.get(identity.id,identity.token);assert.deepEqual(current.requestHistory,history);assert.deepEqual(current.checkpoint.requestHistory,history);
+});
+
+test('legacy checkpoint metadata containing a credential is blocked before any mocked paid operation',async t=>{
+ const checkpoint=cleanBuildCheckpoint({plan:{...plan,contract:'Do not send sk-'+'x'.repeat(30)},architecture},'School website',[]);
+ const {store,identity}=await fixture(t,{checkpoint});let paid=0;
+ const worker=createBuildWorker({store,services:services({architecture:async()=>{paid++;return architecture;},generate:async()=>{paid++;return 'not allowed';}})});
+ await worker.advance(identity.id,1);const paused=await store.get(identity.id,identity.token);
+ assert.equal(paid,0);assert.equal(paused.status,'needs_attention');assert.doesNotMatch(paused.message,/sk-/);assert.match(paused.message,/credentials/i);
+});
+
+test('active tasks cannot be deleted through a stale inactive client; stopped task deletion remains authorized',async t=>{
+ const {store,identity}=await fixture(t);await assert.rejects(store.remove(identity.id,identity.token),{status:409});
+ const paused=await store.control(identity.id,identity.token,'stop');assert.equal(paused.job.status,'stopped');
+ const results=await Promise.allSettled([store.control(identity.id,identity.token,'resume',{generation:paused.job.generation}),store.remove(identity.id,identity.token)]);
+ assert.equal(results[0].status,'fulfilled');assert.equal(results[1].status,'rejected');assert.equal(results[1].reason.status,409);
+ await store.control(identity.id,identity.token,'stop');assert.equal(await store.remove(identity.id,identity.token),true);await assert.rejects(store.get(identity.id,identity.token),{status:404});
 });

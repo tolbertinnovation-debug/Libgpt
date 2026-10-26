@@ -1,3 +1,4 @@
+import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
@@ -21,7 +22,7 @@ import {
 import {buildTaskLabel,buildTaskFacts} from './build-task-state.js';
 import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js';
 import { shrink } from './photo.js';
-import {backgroundActive,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile} from './build-workspace.js';
+import {backgroundActive,sameProjectSource,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile} from './build-workspace.js?v=phase2-requests-review-2';
 import { renderMarkdown } from './markdown.js';
 
 const $ = (id) => document.getElementById(id);
@@ -61,8 +62,9 @@ let sheetVersion = 0;
 let activeChecks = 0;
 let manualCheck = null;
 let backgroundObserver=null;
+const backgroundActions=new Set();
 const remoteRunning=p=>Boolean(p?.background && backgroundActive(p.background.status));
-const foregroundBusy=()=>Boolean(state.streaming || ritualRun?.running || state.publishing || activeChecks || manualCheck);
+const foregroundBusy=()=>Boolean(state.streaming || ritualRun?.running || state.publishing || activeChecks || manualCheck || backgroundActions.has(project()?.id));
 const currentRun=()=>remoteRunning(project()) ? {running:true,background:true,startedAt:project().background.startedAt,checkpoint:project().team || {asked:project().background.asked,status:project().background.status}} : ritualRun?.running ? ritualRun : project()?.team ? {checkpoint:project().team,running:false} : null;
 
 const project = () => state.projects.find((p) => p.id === state.currentId) || null;
@@ -325,7 +327,7 @@ function renderPreview() {
   if(state.followAgent && remoteRunning(p) && /\.html?$/i.test(active) && p.files.some(file=>file.path===active))state.previewPath=active;
   const entry=p.files.some(f=>f.path===state.previewPath) ? state.previewPath : '';
   const signature=`${p.id}:${sourceFingerprint(p.files)}:${entry}`;
-  if(el.previewFrame.dataset.signature!==signature){el.previewFrame.srcdoc = look.can ? previewDocument(p.files,entry) : '';el.previewFrame.dataset.signature=signature;}
+  if(el.previewFrame.dataset.signature!==signature || !sameProjectSource(el.previewFrame.sourceSnapshot,p.files)){el.previewFrame.srcdoc = look.can ? previewDocument(p.files,entry) : '';el.previewFrame.dataset.signature=signature;el.previewFrame.sourceSnapshot=structuredClone(p.files);}
   const select=$('preview-page');
   if(select){const pages=p.files.filter(file=>/\.html?$/i.test(file.path));select.innerHTML=pages.map(file=>`<option value="${escapeHtml(file.path)}">${escapeHtml(file.path)}</option>`).join('');select.value=entry || pages.find(file=>file.path==='index.html')?.path || pages[0]?.path || '';}
   el.previewFrame.classList.toggle('is-phone',state.previewSize==='mobile');
@@ -374,9 +376,19 @@ async function send(text) {
   const p = project();
   if (!said || !p || isBusy()) return;
   if(deps.backgroundAvailable){
-    const original=p.team?.asked || '';
-    const brief=p.files.length && original ? `${original}\n\nLatest requested change (takes precedence): ${said}` : said;
-    await startBackgroundBuild(brief,false);return;
+    const original=p.team?.asked || p.background?.asked || '';
+    if(isBuildResumeCommand(said)){
+      if(!original){deps.toast('There is no saved task to resume. Describe what you want to build.');return;}
+      if(p.team?.status==='approved' && !p.background){deps.toast('This build is ready to preview. Describe a specific change to start new work.');return;}
+      await startBackgroundBuild(original,true);return;
+    }
+    if(p.background?.revision===-1 && p.background.status!=='unavailable'){
+      deps.toast('Confirm the previous cloud task before changing its request. Reconnect or use Resume to check the saved task.');watchBackground();return;
+    }
+    try{
+      await startBackgroundBuild(said,false,{messageText:said});
+    }catch(error){deps.toast(error.message);}
+    return;
   }
   if (!p.files.length && !p.messages.length) { await buildTheWholeThing(said); return; }
   if(p.team && !p.team.plan){
@@ -590,8 +602,12 @@ function showProjectPlan(){
  const p=project(),cp=p?.team || {},plan=cp.plan;
  if(!plan){deps.toast('The project plan has not been saved yet.');return;}
  const facts=buildTaskFacts(cp,p.files),verification=staticSourceReport(p.files);
+ let history=null,historyError='';
+ try{history=normalizeBuildRequests(p.requestHistory || cp.requestHistory);}catch{historyError='Saved request history could not be read. Your source files and recorded plan are still available.';}
  const list=items=>`<ul>${items.map(item=>`<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
- openSheet('Project plan',`<p class="sheet-note"><strong>Your request</strong></p><p>${escapeHtml(cp.asked || p.background?.asked || '')}</p>
+ openSheet('Project plan',`<p class="sheet-note"><strong>Your request</strong></p><p>${escapeHtml(history?.entries[0].text || cp.asked || p.background?.asked || '')}</p>
+  ${historyError?`<p class="sheet-note">${escapeHtml(historyError)}</p>`:''}
+  ${history?`<p class="sheet-note"><strong>Saved request history</strong></p>${history.origin==='legacy'?'<p>The first entry is the saved brief from before request history was available.</p>':''}${list(history.entries.map(entry=>`${entry.sequence}. ${entry.kind==='brief'?'Starting brief':'Requested change'}: ${entry.text}`))}<p class="sheet-note">Recorded requests are project instructions, not test results or release approval.</p>`:''}
   <p class="sheet-note"><strong>${escapeHtml(plan.title)}</strong></p><p>${escapeHtml(plan.summary)}</p>
   <p class="sheet-note"><strong>Requirements to verify</strong></p>${facts.requirements.length?list(facts.requirements):'<p>No separate acceptance criteria were recorded.</p>'}
   <p class="sheet-note">${facts.savedFiles} of ${facts.plannedFiles} planned files are present. ${facts.activeBuilders} builders have file assignments.</p>
@@ -604,24 +620,32 @@ function showProjectPlan(){
 
 function renderWorkspaceChanges(){
  const p=project();if(!p)return;
- const changes=workspaceChanges(p.backgroundBase || p.versions?.at(-1)?.files || [],p.files);
+ const changes=workspaceChanges((p.backgroundConflict?p.backgroundSource:p.backgroundBase) || p.versions?.at(-1)?.files || [],p.files);
  if($('changes-count'))$('changes-count').textContent=String(changes.length);
  if($('workspace-file-count'))$('workspace-file-count').textContent=`${p.files.length} ${p.files.length===1?'file':'files'}`;
- if($('workspace-save-state'))$('workspace-save-state').textContent=p.backgroundLocalSaveFailed?'Cloud saved · device storage full':remoteRunning(p)?'Cloud task running · files sync automatically':p.background?'Cloud checkpoint · saved on this device':'Saved on this device';
+ if($('workspace-save-state'))$('workspace-save-state').textContent=p.backgroundConflict?'Local edits kept · cloud source differs':p.backgroundLocalSaveFailed?'Cloud saved · device storage full':remoteRunning(p)?'Cloud task running · files sync automatically':p.background?'Cloud checkpoint · saved on this device':'Saved on this device';
  const node=$('workspace-changes');if(!node)return;
  node.innerHTML=changes.length?changes.map(change=>`<details class="file-change"><summary><span class="change-kind is-${change.kind}">${change.kind==='added'?'A':change.kind==='deleted'?'D':'M'}</span><strong>${escapeHtml(change.path)}</strong><span class="change-stats">+${change.added.length} −${change.removed.length}</span></summary><div class="change-code" aria-label="Changes in ${escapeHtml(change.path)}"><div class="diff-location">From line ${change.line}</div>${change.removed.slice(0,400).map(line=>`<pre class="diff-removed">− ${escapeHtml(line)}</pre>`).join('')}${change.added.slice(0,400).map(line=>`<pre class="diff-added">+ ${escapeHtml(line)}</pre>`).join('')}${change.removed.length>400 || change.added.length>400?'<p class="diff-location">Showing the first 400 changed lines. Open Files for the complete source.</p>':''}</div></details>`).join(''):'<div class="workspace-empty"><strong>No changes yet</strong><p>New and edited files will appear here as the agent saves them.</p></div>';
 }
 
 async function applyBackgroundJob(p,job){
  if(!p.background || p.background.id!==job.id)return;
- if(job.revision<=p.background.revision){if(!backgroundActive(job.status))backgroundObserver?.stop();return;}
- const wasRunning=remoteRunning(p),changed=sourceFingerprint(p.files)!==sourceFingerprint(job.files || []);
- if(changed)rememberLiveChange(p,p.files,job.files || []);
- if(changed)applyChanges(p,job.files || [],'Before background checkpoint');
+ if(job.revision<=p.background.revision){if(p===project() && !backgroundActive(job.status))backgroundObserver?.stop();return;}
+ const history=normalizeBuildRequests(job.requestHistory);
+ const incoming=job.files || [],baseline=p.backgroundSource;
+ const conflict=!sameProjectSource(p.files,incoming) && (Array.isArray(baseline)?!sameProjectSource(p.files,baseline):p.files.length>0);
+ const wasRunning=remoteRunning(p),changed=!sameProjectSource(p.files,incoming);
+
+ if(changed && !conflict)rememberLiveChange(p,p.files,incoming);
+ if(changed && !conflict)applyChanges(p,incoming,'Before background checkpoint');
+ p.backgroundSource=structuredClone(incoming);p.backgroundConflict=conflict;
  p.background={...p.background,status:job.status,revision:job.revision,generation:job.generation,sourceFingerprint:sourceFingerprint(job.files || [])};
+ delete p.background.pendingRequest;
  p.backgroundEvents=job.events || [];
+ if(history)p.requestHistory=history;else delete p.requestHistory;
  p.team=job.checkpoint || {version:1,asked:job.asked,status:job.status,faults:[],message:job.message};
  p.team.status=job.status;p.team.message=job.message || p.team.message;
+ if(conflict){invalidateRelease(p,'Local edits are kept. Cloud files differ; stop any active cloud task, then Resume to review your local source.');p.team.faults=[p.team.message,...(p.team.faults || [])];}
  if(p.team.plan && !p.named){p.name=p.team.plan.title;p.named=true;}
  if(changed)p.updatedAt=Date.now();
  if(wasRunning && !remoteRunning(p))p.messages.push({role:'assistant',content:job.status==='approved'?'Your files are saved and source checks passed. Open Preview to check the result.':job.message || 'Progress saved. Resume when you are ready.'});
@@ -642,35 +666,64 @@ function watchBackground(){
  }});
  backgroundObserver.watch(p.background);
 }
-async function backgroundRequest(p,path,body){
- const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',...deps.headers(),'x-build-token':p.background.token},body:JSON.stringify(body)});
- const result=await response.json();if(!response.ok)throw new Error(result.error || 'The background task could not be updated.');return result.job;
+async function backgroundRequest(p,path,body,method='POST'){
+ const identity=p.background;
+ const response=await fetch(path,{method,headers:{'Content-Type':'application/json',...deps.headers(),'x-build-token':identity.token},...(body?{body:JSON.stringify(body)}:{}),signal:AbortSignal.timeout(15000)});
+ const result=await response.json();if(!response.ok)throw Object.assign(new Error(result.error || 'The background task could not be updated.'),{status:response.status});
+ if(!result.job || result.job.id!==identity.id)throw new Error('The cloud response does not match this saved task. Your files are kept.');
+ return result.job;
 }
-async function startBackgroundBuild(asked,resume=false){
- const p=project();if(!p || foregroundBusy() || remoteRunning(p))return;
+async function startBackgroundBuild(asked,resume=false,{messageText=asked}={}){
+ const p=project();if(!p || foregroundBusy() || remoteRunning(p) || backgroundActions.has(p.id))return;
+ backgroundActions.add(p.id);if(p===project())render();
  try{
+  let remote=null;
+  if(p.background && p.background.status!=='unavailable'){
+   try{remote=await backgroundRequest(p,`/api/build/jobs/${p.background.id}`,undefined,'GET');}
+   catch(error){if(error.status!==404)throw error;if(p.background.revision!==-1)p.background.status='unavailable';}
+   if(remote && backgroundActive(remote.status)){await applyBackgroundJob(p,remote);deps.toast('This cloud task is already active. Stop it before changing its request.');return;}
+  }
+  if(remote && Array.isArray(p.backgroundSource) && sameProjectSource(p.files,p.backgroundSource))await applyBackgroundJob(p,remote);
+  if(remote && !Array.isArray(p.backgroundSource) && !sameProjectSource(p.files,remote.files)){
+   await applyBackgroundJob(p,remote);throw new Error('Cloud and device source differ. Your local files are kept. Compare Changes, then Resume to review them.');
+  }
+  if(remote && resume && remote.status==='approved' && sameProjectSource(p.files,remote.files)){deps.toast('This build is ready to preview. Describe a specific change to start new work.');return;}
+  if(remote && resume)asked=remote.asked;
+  const baseHistory=normalizeBuildRequests(remote?remote.requestHistory:p.requestHistory || p.team?.requestHistory);
+  const history=resume?baseHistory:appendBuildRequest(baseHistory,asked,{legacyBrief:remote?.asked || p.team?.asked || p.background?.asked || ''});
+  if(!resume)asked=buildRequestBrief(history);
   if(asked.length>6000)throw new Error('Keep the project request and latest change under 6,000 characters.');
-  if(resume && p.background && p.background.status!=='unavailable' && p.background.sourceFingerprint===sourceFingerprint(p.files)){
-   const job=await backgroundRequest(p,`/api/build/jobs/${p.background.id}/control`,{action:'resume'});await applyBackgroundJob(p,job);
+  if(remote){
+   const same=sameProjectSource(p.files,remote.files);
+   const body=resume && same ? {action:'resume',generation:remote.generation} : {action:'revise',generation:remote.generation,asked,files:structuredClone(p.files),checkpoint:resume?(remote.checkpoint || p.team):null,requestHistory:history};
+   if(!resume)p.messages.push({role:'user',content:messageText});
+   p.backgroundBase=structuredClone(p.files);p.backgroundSource=structuredClone(p.files);
+   const job=await backgroundRequest(p,`/api/build/jobs/${p.background.id}/control`,body);await applyBackgroundJob(p,job);
   }else{
-   const retryPending=p.background?.revision===-1 && p.background?.status!=='unavailable' && p.background?.asked===asked;
-   if(!resume && !retryPending)p.messages.push({role:'user',content:asked});
-   if(!retryPending){p.backgroundBase=p.files.map(file=>({...file}));p.background={...newBackgroundIdentity(),asked};}
-   const checkpoint=resume?p.team:null;
-   p.team={version:1,...(checkpoint || {}),asked,status:'queued',release:null,message:'Starting a cloud task. Your files will be saved as it works.'};
+   if(p.background?.revision===-1 && p.background.status!=='unavailable' && !p.background.pendingRequest)p.background.pendingRequest={asked:p.background.asked,files:structuredClone(p.backgroundBase || p.files),checkpoint:resume?p.team:null,requestHistory:baseHistory};
+   const retry=p.background?.revision===-1 && p.background?.status!=='unavailable' && p.background?.pendingRequest;
+   if(retry){asked=retry.asked;}
+   else{
+    if(!resume)p.messages.push({role:'user',content:messageText});
+    p.backgroundBase=structuredClone(p.files);p.backgroundSource=structuredClone(p.files);
+    p.background={...newBackgroundIdentity(),asked,pendingRequest:{asked,files:structuredClone(p.files),checkpoint:resume?p.team:null,requestHistory:history}};
+   }
+   p.team={version:1,...(resume?p.team:{}),asked,status:'queued',release:null,message:'Confirming the saved cloud task. Your files are kept.'};
    if(!await persist())throw new Error('Device storage could not save the task identity. Download your files before continuing.');
-   render();
-   const job=await backgroundRequest(p,'/api/build/jobs',{id:p.background.id,token:p.background.token,asked,files:p.files.map(file=>({path:file.path,body:file.body})),checkpoint});
-   await applyBackgroundJob(p,job);
+   if(p===project())render();
+   const job=await backgroundRequest(p,'/api/build/jobs',{id:p.background.id,token:p.background.token,...p.background.pendingRequest});
+   delete p.background.pendingRequest;await applyBackgroundJob(p,job);
   }
   watchBackground();
  }catch(error){
   if(p.background)p.background.status='needs_attention';
   p.team ||= {asked};p.team.status='needs_attention';p.team.faults=[error.message];p.team.message='The cloud task could not be confirmed. Reconnect before starting it again.';
-  await persist();render();deps.toast(error.message);watchBackground();
+  await persist();if(p===project()){render();deps.toast(error.message);watchBackground();}
+ }finally{
+  backgroundActions.delete(p.id);if(p===project()){render();document.dispatchEvent(new CustomEvent('ritual:busy',{detail:state.mode==='build' && isBusy()}));}
  }
- document.dispatchEvent(new CustomEvent('ritual:busy',{detail:state.mode==='build' && isBusy()}));
 }
+
 async function stopBackgroundBuild(){
  const p=project();if(!remoteRunning(p))return;
  try{const job=await backgroundRequest(p,`/api/build/jobs/${p.background.id}/control`,{action:'stop'});await applyBackgroundJob(p,job);}
@@ -1305,10 +1358,19 @@ export function renameBuild(id, name) {
  * or a fresh empty one. Being dropped onto a blank screen with no explanation
  * is how a delete comes to feel like a crash.
  */
-export function deleteBuild(id) {
+export async function deleteBuild(id) {
   if(foregroundBusy() || remoteRunning(state.projects.find(p=>p.id===id))){deps.toast('Stop this build before deleting it.');return false;}
   const removed=state.projects.find(p=>p.id===id);
-  if(removed?.background)fetch(`/api/build/jobs/${removed.background.id}`,{method:'DELETE',headers:{...deps.headers(),'x-build-token':removed.background.token}}).catch(()=>deps.toast('Device copy deleted. The cloud copy could not be removed; reconnect to retry.'));
+  if(removed?.background){
+    if(backgroundActions.has(id))return false;
+    backgroundActions.add(id);if(removed===project())render();
+    try{
+      const response=await fetch(`/api/build/jobs/${removed.background.id}`,{method:'DELETE',headers:{...deps.headers(),'x-build-token':removed.background.token},signal:AbortSignal.timeout(15000)});
+      const result=await response.json();
+      if(response.status!==404 && (!response.ok || result.deleted!==true))throw new Error(result.error || 'Cloud deletion could not be confirmed.');
+    }catch(error){deps.toast(`${error.message} Your device files and task identity are kept.`);if(removed===project())watchBackground();return false;}
+    finally{backgroundActions.delete(id);if(removed===project())render();}
+  }
   const had = state.projects.length;
   state.projects = state.projects.filter((p) => p.id !== id);
   if (state.projects.length === had) return false;
@@ -1534,7 +1596,7 @@ export async function mount(options = {}) {
   // more thing to lose work to.
   el.editorInput.addEventListener('input', () => {
     const file = project()?.files.find((f) => f.path === state.openPath);
-    if (!file) return;
+    if (!file || foregroundBusy() || remoteRunning(project())) return;
     file.body = el.editorInput.value;
     if(project().team){invalidateRelease(project());project().team.latestRequest=`Review the manually edited file ${file.path}, preserving current user changes.`;project().team.message='Files edited. Resume the supervisor review before approval.';renderPlan({checkpoint:project().team,running:false});}
     paint();
