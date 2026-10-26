@@ -12,6 +12,18 @@ Chat asks up to three unresolved questions per turn and preserves the answers in
 
 Business-plan and proposal instructions cover the relevant sections, milestones, risks and financial tables. Facts, market evidence, credentials, citations and signatures must come from supplied sources; financial scenarios require an explicit instruction and clear labelling. These are editable drafts to review, not a promise of perfect accuracy or unlimited resources.
 
+## Complete business plans from one prompt
+
+Ask for a business plan in one sentence, for example “Business plan for a bakery in Paynesville, Liberia”, or choose **Complete business plan** in **Create a document**. There is no question-and-answer intake. The only question ever asked is what the business is and where it operates, and only if the request doesn't say.
+
+The plan follows a fixed 17-section blueprint (`server/business-plan.js`): Executive Summary, Company Description, Products and Services, Industry and Market Analysis, Competitive Analysis, SWOT Analysis, Marketing and Sales Strategy, Operations Plan, Management and Organisation, Legal and Regulatory Requirements, Implementation Plan and Milestones, Risk Analysis and Mitigation, Financial Plan, Financial Projections, Funding Request, Social and Economic Impact, and Appendices. The application adds a contents list. Each section brief names the tables, charts and diagrams it needs, such as the pricing table, SWOT table, marketing budget, operations process diagram, organisation chart, milestone and risk tables, startup costs, use-of-funds pie chart, 12-month forecast, 3-year income statement and cash flow, break-even calculation, revenue/expense/profit chart and scenario table.
+
+Sections are written in seven batches. After each batch the server checks which section headings exist and asks for the next group, so the plan is complete only when every section is present. The default length only switches on batching and is never padded to. A page count the user asks for is still honoured with substantive annexes. Later batches receive the Executive Summary and every earlier table, so figures stay consistent. The card lists the sections still to write, and **Resume long document** continues an interrupted plan.
+
+Asking for a complete plan counts as asking for financial projections. Supplied figures are used exactly. Missing figures become conservative assumptions stated in a Key Assumptions table, every derived number is calculated from them, and financial tables and charts are captioned as illustrative projections to replace with verified figures. Market statistics, named competitors' figures, sources, registrations and personal details are never invented: the industry is described qualitatively, market size is a bottom-up calculation from labelled assumptions, competitors are the ones the user named or competitor types, legal requirements are marked to confirm locally, and personal details are labelled placeholders listed under **Details to complete**. Review every figure before sharing the plan with a lender or investor.
+
+The guided intake remains available for other document types.
+
 ## Templates
 
 Report, proposal, formal letter, resume, invoice, certificate, handbook and poster templates provide distinct typography, accent colours, spacing and page treatments. Certificates use landscape pages and a decorative frame. Template selection can be changed on the document card before downloading.

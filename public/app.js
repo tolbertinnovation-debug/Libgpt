@@ -1632,6 +1632,7 @@ async function createChatDocument(chat) {
   state.streaming = controller; setBusy(true);
   const target = startAiTurn();
   target.textContent = 'Reviewing your task details and preparing the next step…';
+  const writingPlan = (text) => { if (target.isConnected) target.textContent = text; };
   const index = documentTarget?.chatId === chat.id ? documentTarget.index : -1;
   const action = documentTarget?.chatId === chat.id ? documentTarget.mode : '';
   const pending = chat.messages.findLast(m => m.role === 'assistant');
@@ -1640,7 +1641,10 @@ async function createChatDocument(chat) {
   let brief = action === 'new' ? null : documentTarget?.brief || (pending?.documentQuestions ? pending.taskBrief : null);
   const createNow = documentTarget?.createNow === true || Boolean(pending?.documentQuestions && wantsTaskDraft(chat.messages.at(-1)?.content));
   const taskKind = documentMode && documentKind?.value ? documentKind.value : brief?.kind || documentTaskKind(chat.messages.at(-1)?.content);
-  const guided = !previous || Boolean(brief && pending?.documentQuestions);
+  // Business plans are written complete from one prompt; the only question
+  // ever asked is what the business is, and the answer keeps the same mode.
+  const blueprint = (!previous && !brief && taskKind === 'business_plan') || (pending?.documentQuestions && pending.documentBlueprint) ? 'business_plan' : undefined;
+  const guided = !blueprint && (!previous || Boolean(brief && pending?.documentQuestions));
   const targetPages = documentMode && documentLength?.value ? Number(documentLength.value) : undefined;
   const designStyle = documentMode && documentDesignStyle?.value ? documentDesignStyle.value : undefined;
   const artworkSize = documentMode && documentDesignSize?.value ? documentDesignSize.value : undefined;
@@ -1648,12 +1652,13 @@ async function createChatDocument(chat) {
   const mode = fresh ? 'new' : action || (pending?.documentQuestions ? pending.documentAction : '') || '';
   const template = documentMode ? documentTemplate?.value : pending?.documentQuestions ? pending.documentTemplate || '' : '';
   setDocumentMode(false);
+  if (blueprint && !previous) writingPlan('Writing your complete business plan. This takes a few minutes; each finished section is saved as it arrives.');
   let savedDocumentMessage = null;
   try {
     const context = await forSending(chat.messages);
     const response = await fetch('/api/document', { method: 'POST', headers: apiHeaders(), signal: controller.signal,
       body: JSON.stringify({ messages: context.list, photo: context.photo, photoContext: context.photoContext,
-        document: context.document, currentDocument: previous, template, mode, guided, taskKind, brief, createNow, targetPages, designStyle, artworkSize }) });
+        document: context.document, currentDocument: previous, template, mode, guided, taskKind, brief, createNow, targetPages, designStyle, artworkSize, blueprint }) });
     const result = await response.json().catch(() => ({}));
     if (result.brief) brief = readTaskBrief(result.brief);
     if (response.status === 401) showGate(result.error);
@@ -1661,7 +1666,7 @@ async function createChatDocument(chat) {
     if (controller.signal.aborted || !state.chats.includes(chat)) return;
     if (pending?.documentQuestions) pending.documentQuestions = false;
     if (Array.isArray(result.questions)) {
-      chat.messages.push({ role: 'assistant', content: 'To complete your task, please provide:\n\n' + result.questions.map(q => '- ' + q).join('\n'), documentQuestions: true, documentTemplate: template || '', documentAction: mode, ...(result.brief ? { taskBrief: readTaskBrief(result.brief) } : {}) });
+      chat.messages.push({ role: 'assistant', content: 'To complete your task, please provide:\n\n' + result.questions.map(q => '- ' + q).join('\n'), documentQuestions: true, documentTemplate: template || '', documentAction: mode, ...(blueprint ? { documentBlueprint: blueprint } : {}), ...(result.brief ? { taskBrief: readTaskBrief(result.brief) } : {}) });
     } else {
       const spec = readDocumentSpec(result.document);
       savedDocumentMessage = { role: 'assistant', content: documentMarkdown(spec), document: spec, ...(result.brief ? { taskBrief: readTaskBrief(result.brief) } : {}) };

@@ -1,3 +1,7 @@
+// A complete business plan is finished when every section is written. This
+// page goal only switches on section-by-section writing; it is never padded to.
+export const BUSINESS_PLAN_DEFAULT_PAGES = 25;
+
 // Requested length is a content goal. The trusted PDF layout measures progress.
 export function requestedDocumentPages(value) {
   const text = String(value || '');

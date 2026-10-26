@@ -30,6 +30,7 @@ export function readDocumentSpec(value) {
     missing: [], blocks: [],
   };
   if (value.longForm != null) spec.longForm = readLongForm(value.longForm);
+  if (value.blueprint === 'business_plan') spec.blueprint = 'business_plan';
   if (value.missing != null && (!Array.isArray(value.missing) || value.missing.length > 20)) fail('Invalid missing details.');
   spec.missing = (value.missing || []).map(x => text(x, 200, 'missing detail'));
   if (!Array.isArray(value.blocks) || !value.blocks.length || value.blocks.length > 400) fail('A document needs between 1 and 400 content blocks. Start a new volume for a larger document.');

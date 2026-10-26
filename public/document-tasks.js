@@ -1,5 +1,5 @@
 export const DOCUMENT_TASKS = {
-  business_plan: { label: 'Business plan', template: 'report', required: ['business', 'offering', 'audience', 'location', 'purpose', 'finances'] },
+  business_plan: { label: 'Complete business plan', template: 'report', required: ['business', 'offering', 'audience', 'location', 'purpose', 'finances'] },
   project_proposal: { label: 'Project proposal', template: 'proposal', required: ['organisation', 'project', 'problem', 'audience', 'location', 'timeline', 'budget', 'recipient'] },
   letter: { label: 'Letter', template: 'letter', required: ['sender', 'recipient', 'purpose', 'details'] },
   graphic_design: { label: 'Graphic design', template: 'poster', required: ['format', 'audience', 'headline', 'details', 'branding', 'dimensions'] },

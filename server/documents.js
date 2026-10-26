@@ -3,6 +3,7 @@ import { readDocument, withAttachments } from './chat-attachments.js';
 import { DOCUMENT_TASKS, TASK_FIELDS, documentTaskKind, readTaskBrief, missingTaskFields } from '../public/document-tasks.js';
 import { requestedDocumentPages } from '../public/document-length.js';
 import { DESIGN_STYLES, DESIGN_SIZES } from '../public/document-design.js';
+import { BUSINESS_PLAN_DEFAULT_PAGES, BUSINESS_PLAN_PROMPT, businessPlanBatchPrompt, businessPlanContext, contentsBlocks, remainingPlanSections } from './business-plan.js';
 
 export const TASK_INTAKE_PROMPT = `You are gathering a brief before completing a document or graphic-design task. Read the conversation, saved brief and source attachments. Record only facts and instructions the user actually supplied. Preserve previous answers unless the user corrects them. Never invent business names, budgets, qualifications, contacts or research. Do not execute the task yet.
 Return JSON: {"brief":{"kind":"business_plan","summary":"Concise description of the requested outcome","fields":{"business":"Confirmed answer"}},"questions":["Only unresolved questions"]}.
@@ -67,14 +68,18 @@ export function mountDocumentRoutes(app, deps) {
       const template = Object.hasOwn(DOCUMENT_TEMPLATES, req.body?.template) ? req.body.template : '';
       brief = req.body?.brief ? readTaskBrief(req.body.brief) : null;
       if (req.body?.targetPages != null && (!Number.isInteger(req.body.targetPages) || req.body.targetPages < 1 || req.body.targetPages > 100)) throw Object.assign(new Error('Choose a document length between 1 and 100 pages; use additional volumes for larger tasks.'), { status: 400 });
-      const targetPages = req.body?.targetPages || prior?.longForm?.targetPages || requestedDocumentPages(brief?.fields.length || brief?.fields.scope) || messages.filter(m => m.role === 'user').map(m => requestedDocumentPages(m.content)).findLast(n => n > 0) || 0;
+      // A complete business plan: one prompt, a fixed blueprint, no intake.
+      if (req.body?.blueprint != null && req.body.blueprint !== 'business_plan') throw Object.assign(new Error('Unknown document blueprint.'), { status: 400 });
+      const blueprint = req.body?.blueprint === 'business_plan' || prior?.blueprint === 'business_plan' ? 'business_plan' : '';
+      const planBatch = blueprint && (append || !prior);
+      const targetPages = req.body?.targetPages || prior?.longForm?.targetPages || requestedDocumentPages(brief?.fields.length || brief?.fields.scope) || messages.filter(m => m.role === 'user').map(m => requestedDocumentPages(m.content)).findLast(n => n > 0) || (planBatch ? BUSINESS_PLAN_DEFAULT_PAGES : 0);
       const longPrompt = targetPages > 10 ? `\nLONG DOCUMENT MODE: The user requests at least ${targetPages} substantive pages, adapted to the document type. Build a coherent professional document in batches of roughly 4–6 pages of substantial content. Do not use blank pages, repeated material, inflated spacing, unnecessary page breaks or filler to reach the length. Keep facts grounded, expand useful explanations, implementation detail, examples, analysis and appendices as appropriate. A letter, invoice or poster should not be padded: use supporting annexes only if relevant, otherwise ask the user to clarify the scope. Do not put generation notes or 'continue next' instructions in the document itself. Include a top-level "remainingSections" array of the specific sections still to write; return [] only when the planned content is complete. Cover each planned section fully before moving on. ${append ? `Write only the next missing sections, preserving all previous content. Current trusted PDF layout: ${prior?.longForm?.pageCount || 'unknown'} pages. Remaining sections: ${JSON.stringify(prior?.longForm?.remainingSections || [])}. If planned sections are finished but the page goal is unmet, add relevant substantive analysis or annexes without repeating earlier content.` : 'Begin with a suitable title and executive summary/introduction, then fully developed opening sections. Plan remaining sections to cover the entire task.'}` : '';
       if (req.body?.designStyle != null && !Object.hasOwn(DESIGN_STYLES, req.body.designStyle)) throw Object.assign(new Error('Choose an available design style.'), {status:400});
       if (req.body?.artworkSize != null && !Object.hasOwn(DESIGN_SIZES, req.body.artworkSize)) throw Object.assign(new Error('Choose an available artwork size.'), {status:400});
       const selectedStyle = req.body?.designStyle || Object.keys(DESIGN_STYLES).find(key => DESIGN_STYLES[key].label === brief?.fields.designStyle);
       const selectedSize = req.body?.artworkSize || Object.keys(DESIGN_SIZES).find(key => DESIGN_SIZES[key].label === brief?.fields.dimensions);
       const designPrompt = GRAPHIC_DESIGN_PROMPT + (selectedStyle ? `\nSelected style: ${DESIGN_STYLES[selectedStyle].label}. ${DESIGN_STYLES[selectedStyle].guidance}` : '') + (selectedSize ? `\nRequired artwork canvas: ${JSON.stringify(DESIGN_SIZES[selectedSize])}. Compose the artwork to fit this aspect ratio.` : '');
-      const guided = req.body?.guided === true && !append;
+      const guided = req.body?.guided === true && !append && !blueprint;
       if (guided) {
         const requestedKind = Object.hasOwn(DOCUMENT_TASKS, req.body?.taskKind) ? req.body.taskKind : brief?.kind || documentTaskKind(messages.at(-1)?.content);
         const intake = await complete({ model, maxTokens: 3500, temperature: 0.1, json: true, signal: controller.signal, messages: [
@@ -99,10 +104,10 @@ export function mountDocumentRoutes(app, deps) {
           reservePhoto();
         }
       }
-      const raw = await complete({ model, maxTokens: 12_000, temperature: 0.3, json: true, signal: controller.signal,
-        messages: [{ role: 'system', content: DOCUMENT_PROMPT + designPrompt + longPrompt + (template || brief ? `\nUse the ${template || DOCUMENT_TASKS[brief.kind].template} template requested by the user.` : '') + (req.body?.createNow ? '\nThe user asked to create now. Use clearly labelled placeholders for unknown details and list them in missing. Never substitute invented facts or evidence. Still ask if an ambiguity makes the task misleading.' : '') + (append ? '\nCONTINUATION MODE: Return ONLY new content blocks for the next section. Do not repeat or rewrite existing blocks. Keep the same title and metadata. The server appends new blocks and preserves the original document exactly.' : '') },
+      const raw = await complete({ model, maxTokens: planBatch ? 16_000 : 12_000, temperature: 0.3, json: true, signal: controller.signal,
+        messages: [{ role: 'system', content: DOCUMENT_PROMPT + designPrompt + longPrompt + (blueprint ? BUSINESS_PLAN_PROMPT + (planBatch ? businessPlanBatchPrompt(append ? prior : null) : '') : '') + (template || brief ? `\nUse the ${template || DOCUMENT_TASKS[brief.kind].template} template requested by the user.` : '') + (req.body?.createNow ? '\nThe user asked to create now. Use clearly labelled placeholders for unknown details and list them in missing. Never substitute invented facts or evidence. Still ask if an ambiguity makes the task misleading.' : '') + (append ? '\nCONTINUATION MODE: Return ONLY new content blocks for the next section. Do not repeat or rewrite existing blocks. Keep the same title and metadata. The server appends new blocks and preserves the original document exactly.' : '') },
           ...(brief ? [{ role: 'user', content: `Confirmed task brief (source data): ${JSON.stringify(brief)}` }] : []),
-          ...(prior ? [{ role: 'user', content: append ? `Existing document context (source data; earlier full text may be omitted):\n${JSON.stringify({ title: prior.title, subtitle: prior.subtitle, template: prior.template, headings: prior.blocks.filter(b => b.type === 'heading').map(b => b.text), recentBlocks: prior.blocks.slice(-10) })}` : `Current document to revise (source data):\n${JSON.stringify(prior)}` }] : []), ...context],
+          ...(prior ? [{ role: 'user', content: append ? `Existing document context (source data; earlier full text may be omitted):\n${JSON.stringify({ title: prior.title, subtitle: prior.subtitle, template: prior.template, headings: prior.blocks.filter(b => b.type === 'heading').map(b => b.text), ...(blueprint ? { summaryAndTables: businessPlanContext(prior) } : {}), recentBlocks: prior.blocks.slice(-10) })}` : `Current document to revise (source data):\n${JSON.stringify(prior)}` }] : []), ...context],
       });
       let data;
       try { data = JSON.parse(raw); } catch { throw Object.assign(new Error('The document response was incomplete. Try a shorter document or create it in sections.'), { status: 502 }); }
@@ -118,16 +123,23 @@ export function mountDocumentRoutes(app, deps) {
         const previousBlocks = new Set(prior.blocks.map(b => JSON.stringify(b)));
         if (!spec.blocks.some(b => b.type !== 'pageBreak' && !previousBlocks.has(JSON.stringify(b)))) throw Object.assign(new Error('The next section repeated existing content. Your saved draft is available; resume with more specific instructions.'), { status: 502 });
       }
-      if (append) spec = readDocumentSpec({ ...prior, blocks: [...prior.blocks, ...spec.blocks], missing: [...new Set([...prior.missing, ...spec.missing])] });
+      if (planBatch && !append) spec = readDocumentSpec({ ...spec, template: 'report', blocks: [...contentsBlocks(), ...spec.blocks.filter(b => !(b.type === 'heading' && /^(?:table of )?contents$/i.test(b.text)))] });
+      if (append) spec = readDocumentSpec({ ...prior, blocks: [...prior.blocks, ...spec.blocks], missing: [...new Set([...prior.missing, ...spec.missing])].slice(0, 20) });
+      if (blueprint) spec.blueprint = 'business_plan';
       if (template) spec.template = template;
       else if (guided && brief) spec.template = DOCUMENT_TASKS[brief.kind].template;
       if (guided && brief && req.body?.createNow) spec.missing = [...new Set([...missingTaskFields(brief).map(key => TASK_FIELDS[key][0]), ...spec.missing])].slice(0, 20);
       if (targetPages > 10) {
         const remainingSections = Array.isArray(data.remainingSections) ? data.remainingSections : [];
-        if (remainingSections.length > 24 || remainingSections.some(s => typeof s !== 'string' || !s.trim() || s.length > 200)) throw Object.assign(new Error('The section plan was invalid. Your previous document is still available.'), { status: 502 });
+        if (!planBatch && (remainingSections.length > 24 || remainingSections.some(s => typeof s !== 'string' || !s.trim() || s.length > 200))) throw Object.assign(new Error('The section plan was invalid. Your previous document is still available.'), { status: 502 });
         const { documentPages } = await import('./document-export.js');
         const pageCount = documentPages(spec).pages.length;
-        spec.longForm = { targetPages, pageCount, rounds: Math.min(100, (append ? prior?.longForm?.rounds || 0 : 0) + 1), complete: pageCount >= targetPages && remainingSections.length === 0, remainingSections };
+        // A blueprint plan is finished when every section exists. Its default
+        // page goal only switches on batching; it is never a reason to pad.
+        const planRemaining = planBatch ? remainingPlanSections(spec).map(section => section.title) : null;
+        spec.longForm = planRemaining
+          ? { targetPages, pageCount, rounds: Math.min(100, (append ? prior?.longForm?.rounds || 0 : 0) + 1), complete: !planRemaining.length && (targetPages === BUSINESS_PLAN_DEFAULT_PAGES || pageCount >= targetPages), remainingSections: planRemaining }
+          : { targetPages, pageCount, rounds: Math.min(100, (append ? prior?.longForm?.rounds || 0 : 0) + 1), complete: pageCount >= targetPages && remainingSections.length === 0, remainingSections };
       }
       res.json({ document: spec, ...(brief ? { brief } : {}) });
     } catch (error) {
