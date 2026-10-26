@@ -16,5 +16,10 @@
       ]
     }
   ],
-  "framework": "nitro"
+  "framework": "nitro",
+  "git": {
+    "deploymentEnabled": {
+      "codex/governance-budget-fixes": false
+    }
+  }
 }

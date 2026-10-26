@@ -41,7 +41,8 @@ function normalizeLimits(input = {}, previous = DEFAULTS) {
   if (Object.hasOwn(input, 'capabilityDailyUsd')) {
     const caps = input.capabilityDailyUsd;
     if (!caps || typeof caps !== 'object' || Array.isArray(caps)) throw failure('Invalid agent limit.', 'INVALID_LIMIT', 400);
-    result.capabilityDailyUsd = {};
+    // Patch the latest locked ledger; omitted allowances must survive.
+    result.capabilityDailyUsd = {...result.capabilityDailyUsd};
     for (const [name, value] of Object.entries(caps)) {
       if (!CAPABILITIES.includes(name) || !Number.isFinite(value) || value < 0 || value > 10000)
         throw failure('Invalid capability limit.', 'INVALID_LIMIT', 400);
@@ -203,7 +204,17 @@ export function createAgentGovernance({directory, serverless = false, storage, l
     const time = now();
     state.calls = state.calls.filter(timestamp => time - timestamp < 60000);
     for (const [id, active] of Object.entries(state.active)) if (active.expiresAt <= time) delete state.active[id];
-    if (state.day !== day()) {state.day = day(); state.reservedMicroUsd = 0; state.capabilityMicroUsd = {};}
+    if (state.day !== day()) {
+      state.day = day(); state.reservedMicroUsd = 0; state.capabilityMicroUsd = {};
+      // An admitted research response can still be running at midnight.
+      // Carry its full reservation into the new day before admitting more
+      // paid work; settlement may then refund only that carried amount.
+      for(const active of Object.values(state.active))if(active.capability==='research'){
+        active.day=state.day;
+        state.reservedMicroUsd+=active.reservedMicroUsd;
+        state.capabilityMicroUsd.research=(state.capabilityMicroUsd.research || 0)+active.reservedMicroUsd;
+      }
+    }
   }
   async function check(id) {
     return locked(async () => {
@@ -268,7 +279,7 @@ export function createAgentGovernance({directory, serverless = false, storage, l
     let released = false;
     // `chargedMicroUsd` = a cost the caller computed from real usage (search
     // fees, picture tokens) or 0 for a request the provider refused outright.
-    const release = async ({outcome = 'completed', usage, chargedMicroUsd: computed} = {}) => {
+    const release = async ({outcome = 'completed', usage, chargedMicroUsd: computed, reservationViolation = false} = {}) => {
       if (released) return; released = true; clearInterval(timer); controllers.delete(id);
       await locked(async () => {
         const {state} = await read(); prune(state);
@@ -284,7 +295,14 @@ export function createAgentGovernance({directory, serverless = false, storage, l
           state.reservedMicroUsd = Math.max(0, state.reservedMicroUsd - active.reservedMicroUsd) + chargedMicroUsd;
           state.capabilityMicroUsd[capability] = Math.max(0, (state.capabilityMicroUsd[capability] || 0) - active.reservedMicroUsd) + chargedMicroUsd;
         }
+        // Reconcile a broken provider bound honestly and quarantine atomically:
+        // no other instance can spend between settlement and the pause.
+        const reservationExceeded = capability === 'research' && settled && chargedMicroUsd > active.reservedMicroUsd;
+        const violated = capability === 'research' && reservationViolation === true;
+        if (reservationExceeded || violated) state.paused = true;
         await save(state, 'finished', {ticket: id, role, operation, capability,
+          ...(reservationExceeded ? {reservationExceeded:true} : {}),
+          ...(violated ? {reservationViolation:true} : {}),
           ...(explicit ? {chargedMicroUsd, accounting: computed === 0 ? 'provider-refused' : 'computed-usage'}
             : settled ? {chargedMicroUsd, usage:{prompt_tokens:usage.prompt_tokens,completion_tokens:usage.completion_tokens}, accounting:'reported-usage'} : {accounting:'retained-upper-bound'}),
           outcome: ['completed', 'failed', 'cancelled'].includes(outcome) ? outcome : 'failed'});

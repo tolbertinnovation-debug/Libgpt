@@ -943,7 +943,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
         // A search that could not happen is a reason to say less, not a reason
         // to say nothing. Unless the answer was already under way — then
         // restarting it would repeat half of it on the reader's screen.
-        if (controller.signal.aborted || answer) throw error;
+        if (controller.signal.aborted || answer || governanceError(error)) throw error;
 
         rememberIfPermanent(error);
         console.error('[search] falling back to an ordinary answer:', error.message);
