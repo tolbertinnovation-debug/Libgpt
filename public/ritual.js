@@ -17,6 +17,7 @@ import {
   previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
   loadProjectsDurable, saveProjectsDurable,
 } from './build.js';
+import {buildTaskLabel,buildTaskFacts} from './build-task-state.js';
 import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js';
 import { shrink } from './photo.js';
 import {backgroundActive,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile} from './build-workspace.js';
@@ -569,7 +570,7 @@ function renderPlan(run) {
   const expanded=el.plan.querySelector('.task-details')?.open;
   const activityExpanded=el.plan.querySelector('.activity-details')?.open;
   const cp=run.checkpoint || {},plan=cp.plan,running=Boolean(run.running || state.streaming),status=state.streaming?'editing':cp.status || 'planning';
-  const labels={queued:'Queued',planning:'Planning',architecting:'Architecture',building:'Writing files',repairing:'Fixing review findings',reviewing:'Independent review',security:'Release checks',approved:'Ready to preview',stopped:'Stopped',needs_attention:'Needs attention',interrupted:'Progress saved',editing:'Updating files'};
+  const labels={queued:'Queued',planning:'Planning',architecting:'Architecture',building:'Writing files',repairing:'Fixing review findings',reviewing:'Independent review',security:'Release checks',approved:'Ready to preview',stopped:'Stopped',needs_attention:buildTaskLabel(cp),interrupted:'Progress saved',editing:'Updating files'};
   const planned=plan?.tasks.flatMap(task=>task.files) || [],saved=planned.filter(path=>cp.savedPaths?.includes(path)).length;
   const roles=TEAM_ROLES.filter(role=>!plan?.tasks.some(task=>task.agent===role.id && !task.files.length));
   const message=cp.message || (run.background?'Continues on the server. You can switch screens or close this page.':running?'Keep this tab open while this local run finishes.':'Your completed files are saved.');
@@ -578,10 +579,24 @@ function renderPlan(run) {
     <div class="task-meter"><span style="width:${planned.length?Math.round(saved/planned.length*100):0}%"></span></div>
     <div class="task-meta"><span>${planned.length?`${saved} / ${planned.length} files saved`:'Preparing your project'}</span><span>${run.background || project()?.background?'Cloud checkpoints':'Device checkpoints'}</span>${running?'<span id="team-elapsed"></span>':''}</div>
     ${!running && cp.faults?.length?`<div class="team-error" role="alert">${escapeHtml(cp.faults[0])}</div>`:''}
-    <p class="task-note">${escapeHtml(!running && cp.faults?.includes(message) ? 'Your completed files are saved.' : message)}</p>
+    <p class="task-note">${escapeHtml(!running && cp.faults?.includes(message) ? 'Your completed files are saved.' : message)}</p>${!running && cp.blocker?.requiresResume?'<p class="task-note">Progress is saved. Resume is your choice; the task will not restart automatically when the budget resets.</p>':''}
     ${plan?.stack?.languages?.length?`<p class="task-note team-stack"><strong>Stack:</strong> ${escapeHtml(plan.stack.languages.join(' · '))}${plan.stack.backend && plan.stack.backend!=='none'?` — backend ${escapeHtml(plan.stack.backend)}`:''}${plan.stack.database && plan.stack.database!=='none'?`, ${escapeHtml(plan.stack.database)}`:''}</p>`:''}
-    <div class="task-detail-row"><details class="task-details" ${expanded?'open':''}><summary>Tasks <span>${roles.filter(role=>cp.agents?.[role.id]?.status==='complete').length}/${roles.length}</span></summary><ol class="plan-steps team-steps">${roles.map(role=>{const agent=cp.agents?.[role.id],task=plan?.tasks.find(task=>task.agent===role.id),complete=agent?.status==='complete',busy=running && agent?.status==='working';return `<li class="plan-step is-${complete?'done':busy?'doing':agent?.status==='needs_attention'?'failed':'waiting'}"><span class="plan-tick" aria-hidden="true">${complete?'✓':''}</span><span><strong>${escapeHtml(role.name)}</strong><small>${task?`${task.files.filter(path=>cp.savedPaths?.includes(path)).length}/${task.files.length} files`:complete?'Complete':busy?'Working':'Waiting'}</small></span></li>`;}).join('')}</ol></details><details class="activity-details" ${activityExpanded?'open':''}><summary>Activity</summary><ol class="task-activity">${(project()?.backgroundEvents || []).slice(-30).reverse().map(event=>`<li><time>${new Date(event.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time><span>${escapeHtml(event.message)}</span></li>`).join('') || '<li>Task events will appear here as work is saved.</li>'}</ol></details>${cp.architecture?'<button type="button" data-team-architecture>Architecture</button>':''}</div></div></details><div class="agent-quick-action">${running?'<button type="button" id="agent-stop" aria-label="Stop agent">Stop</button>':cp.asked && status!=='approved'?'<button type="button" id="agent-resume">Resume</button>':''}</div></div>`;
+    <div class="task-detail-row"><details class="task-details" ${expanded?'open':''}><summary>Tasks <span>${roles.filter(role=>cp.agents?.[role.id]?.status==='complete').length}/${roles.length}</span></summary><ol class="plan-steps team-steps">${roles.map(role=>{const agent=cp.agents?.[role.id],task=plan?.tasks.find(task=>task.agent===role.id),complete=agent?.status==='complete',busy=running && agent?.status==='working';return `<li class="plan-step is-${complete?'done':busy?'doing':agent?.status==='needs_attention'?'failed':'waiting'}"><span class="plan-tick" aria-hidden="true">${complete?'✓':''}</span><span><strong>${escapeHtml(role.name)}</strong><small>${task?`${task.files.filter(path=>cp.savedPaths?.includes(path)).length}/${task.files.length} files`:complete?'Complete':busy?'Working':'Waiting'}</small></span></li>`;}).join('')}</ol></details><details class="activity-details" ${activityExpanded?'open':''}><summary>Activity</summary><ol class="task-activity">${(project()?.backgroundEvents || []).slice(-30).reverse().map(event=>`<li><time>${new Date(event.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time><span>${escapeHtml(event.message)}</span></li>`).join('') || '<li>Task events will appear here as work is saved.</li>'}</ol></details>${plan?'<button type="button" data-team-plan>Plan</button>':''}${cp.architecture?'<button type="button" data-team-architecture>Architecture</button>':''}</div></div></details><div class="agent-quick-action">${running?'<button type="button" id="agent-stop" aria-label="Stop agent">Stop</button>':cp.asked && status!=='approved'?'<button type="button" id="agent-resume">Resume</button>':''}</div></div>`;
   if(running){const update=()=>{const node=$('team-elapsed');if(node){const seconds=Math.floor(Math.max(0,Date.now()-(run.startedAt || Date.now()))/1000);node.textContent=seconds<60?`${seconds}s`:`${Math.floor(seconds/60)}m ${seconds%60}s`;}};update();loadingTimer=setInterval(update,1000);}
+}
+
+function showProjectPlan(){
+ const p=project(),cp=p?.team || {},plan=cp.plan;
+ if(!plan){deps.toast('The project plan has not been saved yet.');return;}
+ const facts=buildTaskFacts(cp,p.files);
+ const list=items=>`<ul>${items.map(item=>`<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
+ openSheet('Project plan',`<p class="sheet-note"><strong>Your request</strong></p><p>${escapeHtml(cp.asked || p.background?.asked || '')}</p>
+  <p class="sheet-note"><strong>${escapeHtml(plan.title)}</strong></p><p>${escapeHtml(plan.summary)}</p>
+  <p class="sheet-note"><strong>Requirements to verify</strong></p>${facts.requirements.length?list(facts.requirements):'<p>No separate acceptance criteria were recorded.</p>'}
+  <p class="sheet-note">${facts.savedFiles} of ${facts.plannedFiles} planned files are present. ${facts.activeBuilders} builders have file assignments.</p>
+  <p class="sheet-note"><strong>File ownership</strong></p>${list(plan.tasks.filter(task=>task.files.length).map(task=>`${task.agent}: ${task.files.join(', ')}`))}
+  <p class="sheet-note"><strong>Shared implementation contract</strong></p><p>${escapeHtml(plan.contract)}</p>
+  <p class="sheet-note"><strong>Verification status</strong></p><p>Generated project build and test commands have not been executed. Secure execution is disabled. Source reviews and the frontend preview do not prove that a backend, database or login works.</p>`);
 }
 
 function renderWorkspaceChanges(){
@@ -1469,6 +1484,7 @@ export async function mount(options = {}) {
     if(event.target.closest('#agent-stop')){$('plan-stop')?.click();return;}
     if(event.target.closest('#agent-resume')){$('plan-resume')?.click();return;}
     if(event.target.closest('#preview-refresh')){el.previewFrame.dataset.signature='';renderPreview();return;}
+    if(event.target.closest('[data-team-plan]')){showProjectPlan();return;}
     if(event.target.closest('[data-team-architecture]')){showArchitecture();return;}
     if (event.target.closest('#plan-stop')) { stop(); return; }
     if (event.target.closest('#plan-resume')) {const p=project();if(p?.team)await buildTheWholeThing(p.team.asked,true);return;}

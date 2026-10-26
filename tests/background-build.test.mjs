@@ -101,3 +101,31 @@ test('unavailable final model decisions pause without another review or paid rep
  let next,count=0;do{next=await worker.advance(identity.id,1);assert.ok(++count<15);}while(next.continue);
  assert.equal((await store.get(identity.id,identity.token)).status,'needs_attention');assert.equal(reviews,1);assert.equal(gates,1);
 });
+
+
+test('a budget pause preserves plan and completed files across restarts; only explicit Resume can schedule work',async t=>{
+ const {store,identity}=await fixture(t);let calls=0;
+ const worker=createBuildWorker({store,services:services({generate:async(...args)=>{
+  if(++calls===2)throw Object.assign(new Error('The coding spending cap has been reached.'),{code:'GOVERNANCE_BUDGET',status:429});
+  return services().generate(...args);
+ }})});
+ for(let i=0;i<4;i++)await worker.advance(identity.id,1);
+ const paused=await store.get(identity.id,identity.token);
+ assert.equal(paused.status,'needs_attention');assert.equal(paused.files.length,1);assert.ok(paused.checkpoint.plan);assert.ok(paused.checkpoint.architecture);
+ assert.equal(paused.checkpoint.blocker.kind,'budget');assert.equal(paused.checkpoint.blocker.file,'index.html');assert.equal(paused.checkpoint.blocker.automaticRetry,false);
+ const restarted=createBuildWorker({store,services:services({generate:()=>assert.fail('Paid work restarted without approval')})});
+ await restarted.advance(identity.id,1);assert.equal(calls,2);
+ const resumed=await store.control(identity.id,identity.token,'resume');assert.equal(resumed.start,true);assert.equal(resumed.job.checkpoint.blocker,null);
+ let written=[];const continuation=createBuildWorker({store,services:services({generate:async(agent,instruction,files,signal,plan,target)=>{written.push(target);return services().generate(agent,instruction);}})});
+ let next,count=0;do{next=await continuation.advance(identity.id,resumed.job.generation);assert.ok(++count<15);}while(next.continue);
+ assert.ok(!written.includes('styles.css'));assert.equal((await store.get(identity.id,identity.token)).status,'approved');
+});
+
+test('uncertain duplicate work is fenced with a structured interruption reason and cannot be billed twice',async t=>{
+ const {store,identity}=await fixture(t);const base=services();
+ const worker=createBuildWorker({store,services:base});await worker.advance(identity.id,1);
+ const claim=await store.claim(identity.id,1);assert.ok(claim.key);
+ const duplicate=await store.claim(identity.id,1);assert.equal(duplicate.key,null);assert.equal(duplicate.job.status,'needs_attention');
+ assert.equal(duplicate.job.checkpoint.blocker.kind,'interrupted');
+ const late=await store.save(identity.id,1,claim.key,{...claim.job,files:[{path:'README.md',body:'late'}]});assert.equal(late.saved,false);
+});

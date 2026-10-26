@@ -4,6 +4,7 @@ import {normalizeTeamPlan,normalizeArchitecture,teamProjectFaults,workerInstruct
 import {assertAgentData} from './agent-runtime.js';
 import {buildJobStore} from './background-store.js';
 import {activeBuildStatus} from './build-jobs.js';
+import {buildBlocker} from '../public/build-task-state.js';
 
 const copy=value=>structuredClone(value);
 const safeMessage=error=>[401,403,413,423,429,503].includes(error?.status)
@@ -70,7 +71,7 @@ export function createBuildWorker({store,services}){
       `For this task write ONLY ${path}. Return the entire complete file in a closed fenced block with path=${path}. Do not return other files.`,
       cp.repairs?.length ? `Review repair instructions: ${task.instruction}` : '',
       `Preserve the existing working project. Follow the shared contract and use only planned local assets.`].filter(Boolean).join('\n\n');
-     const raw=await services.generate(task.agent,instruction,files,controller.signal,cp.plan);
+     const raw=await services.generate(task.agent,instruction,files,controller.signal,cp.plan,path);
      const parsed=filesFrom(raw);
      const file=parsed.files.find(file=>file.path===path && validFile(file));
      const unchangedRepair=file && cp.repairs?.length && files.some(existing=>existing.path===path && existing.body===file.body);
@@ -117,12 +118,14 @@ export function createBuildWorker({store,services}){
     }
    }
    if(controller.signal.aborted)return {continue:false,status:'stopped'};
-   cp.status=status;cp.message=event || cp.message;
+   cp.status=status;cp.message=status==='needs_attention' ? cp.message || event : event || cp.message;
+   if(status==='needs_attention')cp.blocker=buildBlocker({code:cp.phase==='gate'?'BUILD_VERIFICATION_REQUIRED':'BUILD_REVIEW_REQUIRED'},cp);
+   else cp.blocker=null;
    const result=await store.save(id,generation,key,{...job,files,checkpoint:cp,status,message:cp.message || event,
     events:[...(job.events || []),{at:Date.now(),message:event}].slice(-200)});
    return {continue:result.saved && activeBuildStatus(status),status:result.job.status};
   }catch(error){
-   const message=safeMessage(error);cp.status='needs_attention';cp.message=message;cp.faults=[message];cp.release=null;
+   const message=safeMessage(error);cp.blocker=buildBlocker(error,cp);cp.status='needs_attention';cp.message=message;cp.faults=[message];cp.release=null;
    for(const agent of Object.values(cp.agents))if(agent.status==='working')agent.status='needs_attention';
    await store.save(id,generation,key,{...job,files,checkpoint:cp,status:'needs_attention',message,
     events:[...(job.events || []),{at:Date.now(),message}].slice(-200)});
