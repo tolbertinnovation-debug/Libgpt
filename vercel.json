@@ -21,7 +21,8 @@
     "deploymentEnabled": {
       "codex/governance-budget-fixes": false,
       "codex/phase2-audit-tasks": false,
-      "codex/phase2-request-history": false
+      "codex/phase2-request-history": false,
+      "codex/phase2-execution-stage1": false
     }
   }
 }

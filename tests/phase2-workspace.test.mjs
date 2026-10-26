@@ -12,6 +12,7 @@ test('the Plan view renders requirements and source counts without trusting appr
  const start=source.indexOf('function showProjectPlan()'),end=source.indexOf('\nfunction renderWorkspaceChanges()',start);
  const show=new Function('project','deps','buildTaskFacts','staticSourceReport','normalizeBuildRequests','escapeHtml','openSheet',source.slice(start,end)+';return showProjectPlan;')(()=>p,{toast:()=>assert.fail('Plan was lost')},buildTaskFacts,staticSourceReport,normalizeBuildRequests,escapeHtml,(t,h)=>{title=t;html=h;});
  show();assert.equal(title,'Project plan');assert.match(html,/1 of 2 planned files/);assert.match(html,/Requirements to verify/);assert.match(html,/Secure execution is disabled/);
+ assert.match(html,/aria-label="Verification coverage"/);assert.match(html,/Backend, database and authentication<\/dt><dd>Not verified/);assert.match(html,/Not run in an approved isolated environment/);
  assert.match(html,/&lt;script&gt;unsafe/);assert.match(html,/&lt;img/);assert.doesNotMatch(html,/<script>|<img|tests passed/i);
  p.requestHistory={version:1,origin:'user',entries:[{sequence:1,kind:'brief',text:'First <script>request</script>',at:1},{sequence:2,kind:'change',text:'Add <img src=x> courses',at:2}]};show();assert.match(html,/Saved request history/);assert.match(html,/Starting brief: First &lt;script&gt;/);assert.match(html,/Requested change: Add &lt;img/);assert.doesNotMatch(html,/<script>|<img/);
  p.requestHistory={approved:true};show();assert.match(html,/history could not be read/);assert.match(html,/Requirements to verify/);

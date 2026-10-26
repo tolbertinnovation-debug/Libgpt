@@ -12,6 +12,7 @@ export const EXECUTION_REQUIREMENTS=Object.freeze({
 const invalid=message=>Object.assign(new Error(message),{code:'BUILD_EXECUTION_REQUEST',status:400});
 export function executionReadiness(){
  return {enabled:false,status:'approval_required',provider:null,executed:false,
+  verification:{build:'not_run',test:'not_run',browser:'frontend_only',backend:'not_verified',database:'not_verified',authentication:'not_verified'},
   reason:'Secure project execution is disabled until an isolation provider and its costs are explicitly approved.',
   requirements:{...EXECUTION_REQUIREMENTS}};
 }
@@ -32,4 +33,21 @@ export function prepareExecutionRequest(input={}){
 export async function executeProject(input){
  const request=prepareExecutionRequest(input);
  return {...executionReadiness(),artifactHash:request.artifactHash,checks:request.checks.map(id=>({id,status:'not_run'})),logs:[],cleanup:'not_needed'};
+}
+
+// No provider injection: constructing this adapter can never enable execution.
+export function createDisabledExecutionAdapter(){
+ return Object.freeze({readiness:executionReadiness,prepare:prepareExecutionRequest,execute:executeProject,
+  cancel:async()=>({enabled:false,status:'not_run',cleanup:'not_needed',executed:false})});
+}
+
+export function validateExecutionCapabilities(capabilities,request){
+ const r=request.requirements;
+ if(!capabilities || capabilities.isolation!==r.isolation || capabilities.network!=='deny-all' ||
+  capabilities.productionSecrets!==false || capabilities.productionDatabase!==false || capabilities.persistentFilesystem!==false ||
+  capabilities.cleanupRequired!==true || !request.checks.every(id=>capabilities.checks?.includes(id)))throw invalid('Execution capabilities do not satisfy the isolation contract.');
+ for(const key of ['cpuMs','memoryMiB','wallMs','filesystemMiB','maxProcesses','maxOutputBytes']){
+  if(!Number.isSafeInteger(capabilities[key]) || capabilities[key]<1 || capabilities[key]>r[key])throw invalid('Execution resource bounds are missing or exceed the approved contract.');
+ }
+ return true; // Declared capability compatibility only, never provider attestation.
 }

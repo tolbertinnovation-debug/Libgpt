@@ -17,9 +17,10 @@ import {staticSourceReport} from './build-static.js';
 // that worked without understanding what broke it.
 //
 // The preview runs in a sandboxed iframe with no same-origin privilege. That
-// is a real boundary — the page cannot reach this one, its storage, or the
-// network on our behalf — and it is the ONLY execution anywhere in Ritual
-// Coding. Nothing runs on the server. Where a project needs npm, a database or
+// separates the preview from this page's DOM and storage. It does not itself
+// block outbound network requests or impose CPU limits. This frontend preview
+// is the ONLY project execution in Ritual Coding. Nothing runs on the server.
+// Where a project needs npm, a database or
 // a build step, the preview says so in as many words rather than showing a
 // blank white box and letting somebody conclude their code is broken.
 
