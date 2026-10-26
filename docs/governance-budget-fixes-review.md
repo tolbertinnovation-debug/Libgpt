@@ -18,7 +18,7 @@ The approved policy is unchanged: **$0.50 per UTC day across the platform, $0.20
 - **Provider limits:** at most two built-in tool calls, no parallel tool calls, bounded output, and low search context. Compatibility handling never removes the search/output limits. Unsupported safety parameters fail closed.
 - **Retries:** generic request adaptation is disabled for research. Only definite pre-generation format refusals can select a compatible tool spelling or choice. Every such retry releases the rejected reservation at zero and obtains a fresh reservation before another HTTP request. Network and stream errors are never automatically retried.
 - **Parallel work:** reservations and concurrency slots use the same locked ledger as chat, coding, documents, images and voice. Competing requests cannot spend the same remaining balance.
-- **Reconciliation:** validated completed usage and the authoritative final tool list free unused capacity. Duplicate events do not double-charge. Unknown usage, interrupted streams or ambiguous network outcomes retain the upper bound; incomplete tool accounting retains all search fees.
+- **Reconciliation:** validated completed usage and the authoritative final tool list free unused capacity. Duplicate events do not double-charge. Distinct search IDs cannot be hidden by reusing a streamed output position; terminal IDs may identify an earlier anonymous position without double-counting it. Unknown usage, interrupted streams or ambiguous network outcomes retain the upper bound; incomplete tool accounting retains all search fees.
 - **Midnight:** outstanding research reservations carry into the next UTC day before new spending is admitted.
 - **Provider violations:** a third tool event stops the stream. Unexpected work or reported cost beyond the reservation atomically pauses paid work and adds audit metadata. Actual reported costs are recorded honestly, never clipped or erased.
 - **Visitor experience:** budget-control denials retain their existing friendly spending-limit messages and do not trigger another paid fallback answer. Non-budget search failures retain the existing fallback behavior.
@@ -43,7 +43,7 @@ The approved policy is unchanged: **$0.50 per UTC day across the platform, $0.20
 
 ## Validation
 
-- `npm test`: **400 passed, 0 failed, 0 skipped**, including all 375 original tests and 25 added tests.
+- `npm test`: **402 passed, 0 failed, 0 skipped**, including all 375 original tests and 27 added tests.
 - `npm run build`: Nitro production bundle succeeds locally.
 - `git diff --check`: clean.
 - Concurrent administrator updates are tested through independent filesystem-backed and Postgres-backed governance objects. Postgres tests use PGlite with the real adapter SQL and serialized transactions; they do not change or load-test the production Neon database.

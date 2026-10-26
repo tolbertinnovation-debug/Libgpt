@@ -175,3 +175,16 @@ test('an authoritative one-search completion refunds only unused capacity; missi
  const {g,runtime}=await fixture(t,async function*(o){o.onSearchCall('one');o.onUsage({input_tokens:1000,output_tokens:20});yield 'answer';});
  await run(runtime());assert.equal((await g.status()).reservedUsd,.050432);
 });
+
+
+test('distinct search IDs reusing one output position cannot be hidden as duplicate calls',async t=>{
+ mock(t,()=>frames(successful(3).map(event=>event.type==='response.output_item.done' ? {...event,output_index:0} : event)));
+ const {g,runtime}=await fixture(t);await assert.rejects(run(runtime()),{code:'GOVERNANCE_BUDGET'});
+ assert.equal((await g.status()).paused,true);assert.equal((await g.status()).reservedUsd,reserve/1e6);
+});
+
+test('terminal IDs can identify anonymous streamed search positions without double charging',async t=>{
+ mock(t,()=>frames(successful(1).map(event=>event.type==='response.output_item.done' ? {...event,item:{type:'web_search_call'}} : event)));
+ const {g,runtime}=await fixture(t);await run(runtime());
+ assert.equal((await g.status()).paused,false);assert.equal((await g.status()).reservedUsd,.025432);
+});

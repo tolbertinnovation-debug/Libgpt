@@ -338,13 +338,25 @@ export async function* streamSearch({
     selectedTool=other;response=await attempt(other);
   }
   toolName=selectedTool;
-  const searchIds=new Set();
+  const searchIds=new Set(),searchIndices=new Map();
   let observedCalls=0;
   const reportSearch=(item,index)=>{
     if(item?.type!=='web_search_call')return;
-    const keys=[item.id!==undefined ? `id:${item.id}` : '',index!==undefined ? `index:${index}` : ''].filter(Boolean);
-    const seen=keys.some(key=>searchIds.has(key));keys.forEach(key=>searchIds.add(key));
-    if(seen)return;
+    const hasId=item.id!==undefined;
+    if(hasId){
+      if(searchIds.has(item.id))return;
+      searchIds.add(item.id);
+      // A terminal item can add the ID missing from its streamed event.
+      // Promote that one anonymous position, but never use a shared position
+      // to collapse distinct real IDs: that could hide extra billable calls.
+      if(index!==undefined && searchIndices.has(index) && searchIndices.get(index)===undefined){
+        searchIndices.set(index,item.id);return;
+      }
+      if(index!==undefined && !searchIndices.has(index))searchIndices.set(index,item.id);
+    }else if(index!==undefined){
+      if(searchIndices.has(index))return;
+      searchIndices.set(index,undefined);
+    }
     if(++observedCalls>maxToolCalls)throw Object.assign(new Error('Research reached its reserved search spending allowance.'),{code:'GOVERNANCE_BUDGET',status:429,reservationViolation:true});
     onSearched?.();onSearchCall?.(item.id ?? index);
   };
