@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { MEMORY_KEY, loadMemory, saveMemory, remember, memoriesForQuestion, memoryContext, readMemories, mergeMemories } from '../public/memory.js';
 import { createBackup, parseBackup, prepareRestore, commitRestoreDurable } from '../public/backup.js';
+import { isolatedLedger } from './support/ledger.mjs';
 
 const storage = () => {
   const values = new Map();
@@ -96,6 +97,7 @@ test('chat carries saved memory through the provider request without leaking it 
     sent.push(JSON.parse(options.body));
     return new Response('data: {"choices":[{"delta":{"content":"A complete reply."},"finish_reason":"stop"}]}\n\n');
   };
+  await isolatedLedger(t);
   const { default: app } = await import('../server/app.js');
   const server = app.listen(0, '127.0.0.1');
   await new Promise(resolve => server.once('listening', resolve));

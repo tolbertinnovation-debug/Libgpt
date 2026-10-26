@@ -15,7 +15,9 @@ test('six builder ownership is strict while four saved specialists remain compat
   const plan=normalizeTeamPlan(engineering());
   assert.deepEqual(plan.tasks.map(task=>task.agent),TEAM_AGENTS);
   const incomplete=engineering(); incomplete.tasks[5].agent='design'; assert.throws(()=>normalizeTeamPlan(incomplete),/duplicate/);
-  const empty=engineering(); empty.tasks[0].files=[]; assert.throws(()=>normalizeTeamPlan(empty),/1–12/);
+  // Builders a small job does not need may own nothing; the page builder never may.
+  const lean=engineering(); lean.tasks[0].files=[]; assert.equal(normalizeTeamPlan(lean).tasks[0].files.length,0);
+  const empty=engineering(); empty.tasks[1].files=[]; assert.throws(()=>normalizeTeamPlan(empty),/1–12/);
   const mixed=structuredClone(legacy); mixed.tasks[3].agent='backend'; assert.throws(()=>normalizeTeamPlan(mixed),/specialist/);
 });
 test('fullstack source/config is permitted with exclusively owned files and bounded repairs',()=>{

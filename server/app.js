@@ -16,8 +16,8 @@ import { FALLBACK_MODELS, config, isChatModel, sortModels } from './config.js';
 import { OPENAI_VOICES, DEFAULT_OPENAI_VOICE, speechOptions } from './voice.js';
 import { canSee, resolveTiers, tierFor } from './models.js';
 import {
-  OpenAIError, complete as providerComplete, generateImage, listModels, speakAloud, streamChat as providerStreamChat, streamSearch,
-  transcribe,
+  OpenAIError, complete as providerComplete, generateImage, listModels, speakAloud, streamChat as providerStreamChat,
+  streamSearch as providerStreamSearch, transcribe,
 } from './openai.js';
 import {
   DEFAULT_LANGUAGE,
@@ -37,7 +37,7 @@ import * as github from './github.js';
 import { createPublisher } from './publish.js';
 import {createAgentGovernance} from './agent-governance.js';
 import {createPostgresGovernanceStorage} from './governance-postgres.js';
-import {AGENT_TEXT_RATES} from './agent-costs.js';
+import {AGENT_TEXT_RATES,APPROVED_MODELS,BUDGET_POLICY,REALTIME_MICRO_USD_PER_MINUTE,SPEECH_MICRO_USD_PER_CHAR,TRANSCRIBE_MICRO_USD_PER_SECOND,imageMicroUsd} from './agent-costs.js';
 import {sourceEvidence} from './source-evidence.js';
 import {buildJobStore} from './background-store.js';
 import {activeBuildStatus} from './build-jobs.js';
@@ -61,13 +61,25 @@ const app = express();
 const governanceConnection=process.env.RITUAL_DATABASE_URL || process.env.DATABASE_URL || process.env.POSTGRES_URL;
 const governanceStorage=governanceConnection ? createPostgresGovernanceStorage({connectionString:governanceConnection}) : undefined;
 const officialTextPricing = config.baseUrl === 'https://api.openai.com/v1';
+// One spending ledger for every paid feature. The approved Phase 1 policy
+// ($0.50/day in total, $0.20 of it for Build, 2 calls at once) is a ceiling:
+// it can only lower stored limits. RITUAL_BUDGET_POLICY=off is an explicit
+// operator choice that leaves stored limits as they are.
+const budgetPolicy=/^(off|false|0|no)$/i.test(process.env.RITUAL_BUDGET_POLICY?.trim() || '') ? undefined : BUDGET_POLICY;
 const governance=createAgentGovernance({storage:governanceStorage,directory:process.env.RITUAL_GOVERNANCE_DIR,serverless:config.serverless,
-  legacyTextCeiling:officialTextPricing && !process.env.RITUAL_AGENT_MODELS ? 12 : undefined,
-  limits:{dailyUsd:Number(process.env.RITUAL_DAILY_USD || 5),callsPerMinute:Number(process.env.RITUAL_CALLS_PER_MINUTE || 20),concurrency:Number(process.env.RITUAL_CONCURRENCY || 4),maxCostPerMillionTokens:Number(process.env.RITUAL_MAX_USD_PER_MILLION_TOKENS || 100)}});
-const runtime=createAgentRuntime({governance,complete:providerComplete,streamChat:providerStreamChat,
+  legacyTextCeiling:officialTextPricing && !process.env.RITUAL_AGENT_MODELS ? 12 : undefined,policy:budgetPolicy,
+  limits:{dailyUsd:Number(process.env.RITUAL_DAILY_USD || BUDGET_POLICY.dailyUsd),callsPerMinute:Number(process.env.RITUAL_CALLS_PER_MINUTE || 20),concurrency:Number(process.env.RITUAL_CONCURRENCY || BUDGET_POLICY.concurrency),maxCostPerMillionTokens:Number(process.env.RITUAL_MAX_USD_PER_MILLION_TOKENS || 100),
+    capabilityDailyUsd:budgetPolicy ? {...budgetPolicy.capabilityDailyUsd} : {}}});
+// Only models with a verified price can be reserved and settled honestly, so
+// an operator-listed model without one is ignored rather than guessed at.
+const pricedModels=list=>list.split(',').map(x=>x.trim()).filter(id=>id && (!officialTextPricing || Object.hasOwn(AGENT_TEXT_RATES,id)));
+const runtime=createAgentRuntime({governance,complete:providerComplete,streamChat:providerStreamChat,streamSearch:providerStreamSearch,strict:true,
   rates:officialTextPricing ? AGENT_TEXT_RATES : {},
-  allowedModels:(process.env.RITUAL_AGENT_MODELS || 'gpt-4.1,gpt-4.1-mini,gpt-4o,gpt-4o-mini').split(',').map(x=>x.trim()).filter(Boolean)});
-const complete=runtime.complete,streamChat=runtime.streamChat;
+  allowedModels:pricedModels(process.env.RITUAL_AGENT_MODELS || APPROVED_MODELS.join(',')),
+  appModels:pricedModels(process.env.APP_MODELS || process.env.RITUAL_AGENT_MODELS || APPROVED_MODELS.join(','))});
+const complete=runtime.complete,streamChat=runtime.streamChat,streamSearch=runtime.streamSearch;
+/** Spending-control refusals are written for visitors; pass them through rather than hiding them. */
+const governanceError=error=>Boolean(error?.code?.startsWith?.('GOVERNANCE_')) || /spending cap|cost policy|spending limits/i.test(error?.message || '');
 const rolloutPolicy=createRolloutPolicy({observe:event=>governance.recordDeployment(event),config:()=>({url:process.env.RITUAL_DEPLOYMENT_ADAPTER_URL,secret:process.env.RITUAL_DEPLOYMENT_ADAPTER_SECRET})});
 
 
@@ -129,17 +141,21 @@ async function accountModels() {
 
   try {
     const all = await listModels({});
-    const ids = sortModels(all.filter(isChatModel));
+    // The picker and automatic choices offer only the approved, priced models:
+    // a model the ledger cannot price is a model it cannot hold to the budget.
+    const chatIds = sortModels(all.filter(isChatModel));
+    const ids = chatIds.filter((id) => runtime.appModels.includes(id));
     const tiers = resolveTiers(ids, config.modelPins);
     // The search-capable models are deliberately not in `ids` — they are not
     // general chat models and should not be in the picker — so they are found
     // in the full listing instead, and kept beside it.
-    const search = config.searchEnabled ? searchModelFrom(all, config.searchModel) : '';
+    const approvedAll = all.filter((id) => runtime.appModels.includes(id));
+    const search = config.searchEnabled ? searchModelFrom(approvedAll, config.searchModel) : '';
 
     // Each model says what automatic already uses it for, so picking by hand
     // is an informed change rather than a guess. The hint stays reserved for
     // where this whole list came from.
-    const searchDeep = config.searchEnabled ? searchModelFrom(all, config.searchModel, { deep: true }) : '';
+    const searchDeep = config.searchEnabled ? searchModelFrom(approvedAll, config.searchModel, { deep: true }) : '';
     const jobs = (id) => [
       id === tiers.fast && 'quick jobs',
       id === tiers.balanced && 'everyday chat',
@@ -151,7 +167,7 @@ async function accountModels() {
       label: jobs(id) ? `${id} · ${jobs(id)}` : id,
       hint: '',
     }));
-    modelCache = { at: Date.now(), models, tiers, search, searchDeep, all };
+    modelCache = { at: Date.now(), models, tiers, search, searchDeep, all, chatIds };
     return models;
   } catch {
     // An account that cannot list models can still chat; fall back rather
@@ -174,6 +190,9 @@ let searchRefused = '';
  * true in five minutes.
  */
 function rememberIfPermanent(error) {
+  // Only the provider's own refusal says this key cannot read the web; a
+  // spending or model-policy refusal from this app says nothing about that.
+  if (!(error instanceof OpenAIError)) return;
   const status = error?.status;
   if (status === 400 || status === 403 || status === 404) {
     searchRefused = error.message || 'This key cannot read the web.';
@@ -203,15 +222,18 @@ async function lookupModel(deep = false) {
  * on the account for a folktale.
  */
 async function pickModel(requested, task, context = {}) {
-  const known = await accountModels();
-  const accountIds = (known.length ? known : FALLBACK_MODELS).map((m) => m.id);
-  const ids = runtime.inAgentScope() ? accountIds.filter(id => runtime.allowedModels.includes(id)) : accountIds;
-  if (!ids.length) throw Object.assign(new Error('No approved building model is available. Please contact the Grandpa AI team.'),{status:503});
+  await accountModels();
+  const accountIds = modelCache.chatIds?.length ? modelCache.chatIds : FALLBACK_MODELS.map((m) => m.id);
+  // Build answers to its own allowlist; everything else to the app's. Both
+  // contain only models the spending ledger has verified prices for.
+  const approved = runtime.inAgentScope() ? runtime.allowedModels : runtime.appModels;
+  const ids = accountIds.filter((id) => approved.includes(id));
+  if (!ids.length) throw Object.assign(new Error('No approved AI model is available on this account. Please contact the Grandpa AI team.'),{status:503});
 
   if (typeof requested === 'string' && ids.includes(requested)) return requested;
 
-  const tiers = known.length && !runtime.inAgentScope() ? modelCache.tiers : resolveTiers(ids, config.modelPins);
-  return tiers[tierFor(task, context)] || tiers.balanced || config.model;
+  const tiers = resolveTiers(ids, config.modelPins);
+  return tiers[tierFor(task, context)] || tiers.balanced || ids[0];
 }
 
 /** Can the model this turn landed on actually look at a picture? */
@@ -253,7 +275,7 @@ app.post('/api/verify', rateLimit, (req, res) => {
 // ---- config the browser is allowed to know ------------------------------
 app.get('/api/config', async (_req, res) => {
   const fromAccount = await accountModels();
-  const models = fromAccount.length ? fromAccount : FALLBACK_MODELS;
+  const models = fromAccount.length ? fromAccount : FALLBACK_MODELS.filter((m) => runtime.appModels.includes(m.id));
 
   const tiers = fromAccount.length
     ? modelCache.tiers
@@ -664,7 +686,8 @@ function photoFrom(body) {
   return { photo, why: '' };
 }
 
-app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','generate',{buildOnly:true}), async (req, res) => {
+app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','generate',{buildOnly:true}),
+  runtime.governed('chat','generate',{when:req=>req.body?.mode!=='build'}), async (req, res) => {
   let messages;
   let dropped = 0;
   let document;
@@ -998,8 +1021,8 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       // The user pressed Stop. Nothing to report — the connection is going away.
     } else {
       const message =
-        error instanceof OpenAIError ? error.message : 'Something went wrong reaching the AI. Try again.';
-      if (!(error instanceof OpenAIError)) console.error('[chat]', error);
+        error instanceof OpenAIError || governanceError(error) ? error.message : 'Something went wrong reaching the AI. Try again.';
+      if (!(error instanceof OpenAIError) && !governanceError(error)) console.error('[chat]', error);
       if (answer.trim()) {
         if (sources.length) send('sources', { items: sources });
         send('notice', { message: `${message} Your partial answer is saved; choose Continue to finish.` });
@@ -1014,7 +1037,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
 });
 
 // ---- conversation titles ------------------------------------------------
-app.post('/api/title', rateLimit, requireAccess, async (req, res) => {
+app.post('/api/title', rateLimit, requireAccess, runtime.governed('chat','generate'), async (req, res) => {
   const text = typeof req.body?.text === 'string' ? req.body.text.slice(0, 1_000) : '';
   if (!text.trim()) {
     res.status(400).json({ error: 'Nothing to name.' });
@@ -1184,6 +1207,18 @@ app.post('/api/build/control',rateLimit,requireAgentAdmin,async(req,res)=>{
     res.json(await governance[action]({actor:req.ip}));
   }catch(error){res.status(error.status || 503).json({error:error.message});}
 });
+// Operator-only budget changes (raise or lower). Every change is audited, and
+// nothing in the app ever raises a limit on its own.
+app.get('/api/admin/budget',rateLimit,requireAgentAdmin,async(_req,res)=>{
+  try {res.json(await governance.status());}catch(error){res.status(503).json({error:error.message});}
+});
+app.post('/api/admin/budget',rateLimit,requireAgentAdmin,async(req,res)=>{
+  try {
+    const limits=req.body?.limits;
+    if(!limits || typeof limits!=='object' || Array.isArray(limits))return res.status(400).json({error:'Send {"limits":{...}} with the values to change.'});
+    res.json(await governance.configure({limits,actor:req.ip}));
+  }catch(error){res.status(error.status || 503).json({error:error.message});}
+});
 app.post('/api/build/audit',rateLimit,requireAccess,async(req,res)=>{
   try{await governance.recordEvent({event:req.body?.event,actor:req.ip,artifactHash:req.body?.artifactHash});res.json({recorded:true});}
   catch(error){res.status(error.status || 503).json({error:error.message});}
@@ -1206,7 +1241,7 @@ app.post('/api/build/rollout',rateLimit,requireAccess,runtime.middleware('devops
 });
 
 // ---- the Library: stories, names, recipes, quizzes ----------------------
-app.post('/api/structured', rateLimit, requireAccess, async (req, res) => {
+app.post('/api/structured', rateLimit, requireAccess, runtime.governed('library','generate'), async (req, res) => {
   const kind = req.body?.kind;
   if (!isKind(kind)) {
     res.status(400).json({ error: 'Unknown request.' });
@@ -1258,8 +1293,8 @@ app.post('/api/structured', rateLimit, requireAccess, async (req, res) => {
   } catch (error) {
     if (controller.signal.aborted) return;
     const message =
-      error instanceof OpenAIError || error instanceof StoryGenerationError ? error.message : 'Something went wrong. Try again.';
-    if (!(error instanceof OpenAIError) && !(error instanceof StoryGenerationError)) console.error('[structured]', error);
+      error instanceof OpenAIError || error instanceof StoryGenerationError || governanceError(error) ? error.message : 'Something went wrong. Try again.';
+    if (!(error instanceof OpenAIError) && !(error instanceof StoryGenerationError) && !governanceError(error)) console.error('[structured]', error);
     res.status(error.status || 500).json({ error: message });
   }
 });
@@ -1280,7 +1315,7 @@ function voiceBudgetLeft() {
 
 const MAX_SPOKEN = 1_000;
 
-app.post('/api/speak', rateLimit, requireAccess, async (req, res) => {
+app.post('/api/speak', rateLimit, requireAccess, runtime.governed('voice','speak'), async (req, res) => {
   if (!config.realVoice) {
     res.status(503).json({ error: 'The real voice is switched off on this deployment.' });
     return;
@@ -1310,14 +1345,15 @@ app.post('/api/speak', rateLimit, requireAccess, async (req, res) => {
     // Counted before the call, so two requests together cannot both slip past.
     spokenChars.push({ at: Date.now(), n: text.length });
 
-    const audio = await speakAloud({ text, ...options, signal: controller.signal });
+    const audio = await runtime.meter('voice', 'speak', text.length * SPEECH_MICRO_USD_PER_CHAR,
+      (signal) => speakAloud({ text, ...options, signal: AbortSignal.any([controller.signal, signal]) }));
 
     res.setHeader('Content-Type', 'audio/mpeg');
     res.setHeader('Cache-Control', 'no-store');
     res.send(audio);
   } catch (error) {
     if (controller.signal.aborted) return;
-    const readable = error instanceof OpenAIError;
+    const readable = error instanceof OpenAIError || governanceError(error);
     const message = readable ? error.message : 'Grandpa\'s voice could not be reached.';
     if (!readable) console.error('[speak]', error);
     res.status(error.status || 500).json({ error: message });
@@ -1346,15 +1382,19 @@ function pictureBudgetLeft() {
 // hour, because a minute of live audio costs what a long page of text does.
 const liveSessions = [];
 function liveTalkReady() {
-  return config.liveTalk && Boolean(config.apiKey) && !(config.serverless && !config.accessCode);
+  return config.liveTalk && Boolean(config.apiKey) && !(config.serverless && !config.accessCode)
+    && Boolean(pickRealtimeModel(modelCache.all || [], config.realtimeModel));
 }
+/** Worst-case cost of one session, reserved up front and never settled lower. */
+const liveSessionMicroUsd = (model) => config.liveTalkMinutes
+  * (/mini/.test(model) ? REALTIME_MICRO_USD_PER_MINUTE.mini : REALTIME_MICRO_USD_PER_MINUTE.full);
 function liveSessionsLeft() {
   const cutoff = Date.now() - 3_600_000;
   while (liveSessions.length && liveSessions[0] < cutoff) liveSessions.shift();
   return Math.max(0, config.liveTalkSessionsPerHour - liveSessions.length);
 }
 
-app.post('/api/live-talk/session', rateLimit, requireAccess, async (req, res) => {
+app.post('/api/live-talk/session', rateLimit, requireAccess, runtime.governed('livetalk','session'), async (req, res) => {
   if (!config.liveTalk || !config.apiKey) {
     res.status(503).json({ error: 'Live Talk is switched off on this deployment.', fallback: true });
     return;
@@ -1377,6 +1417,10 @@ app.post('/api/live-talk/session', rateLimit, requireAccess, async (req, res) =>
   try {
     await accountModels();
     const model = pickRealtimeModel(modelCache.all || [], config.realtimeModel);
+    if (!model) {
+      res.status(503).json({ error: 'Live Talk needs a realtime voice model that this account does not have.', fallback: true });
+      return;
+    }
     const instructions = buildSystemPrompt({
       persona: req.body?.persona,
       language: req.body?.language,
@@ -1391,14 +1435,14 @@ app.post('/api/live-talk/session', rateLimit, requireAccess, async (req, res) =>
 
     // Counted before the call, so two arriving together cannot both slip past.
     liveSessions.push(Date.now());
-    const secret = await createRealtimeSecret({
+    const secret = await runtime.meter('livetalk', 'session', liveSessionMicroUsd(model), (signal) => createRealtimeSecret({
       model, instructions, voice: voice.voice, speed: voice.speed, transcribeModel: config.transcribeModel,
-    }, { signal: controller.signal });
+    }, { signal: AbortSignal.any([controller.signal, signal]) }));
     res.setHeader('Cache-Control', 'no-store');
     res.json({ key: secret.value, expiresAt: secret.expiresAt, model, maxSeconds: config.liveTalkMinutes * 60 });
   } catch (error) {
     if (controller.signal.aborted) return;
-    const readable = error instanceof OpenAIError;
+    const readable = error instanceof OpenAIError || governanceError(error);
     if (!readable) console.error('[live-talk]', error);
     res.status([400, 401, 403, 404, 429].includes(error?.status) ? error.status : 502).json({
       error: readable ? error.message : 'Live Talk could not start.',
@@ -1454,6 +1498,7 @@ app.post(
   '/api/transcribe',
   rateLimit,
   requireAccess,
+  runtime.governed('voice','transcribe'),
   express.raw({ type: ['audio/*', 'application/octet-stream'], limit: MAX_AUDIO }),
   async (req, res) => {
     if (!config.dictation) {
@@ -1483,22 +1528,23 @@ app.post(
       // both slip past the ceiling.
       heardSeconds.push({ at: Date.now(), n: seconds });
 
-      const text = await transcribe({
+      // Reserved for at least ten seconds at the highest transcription rate.
+      const text = await runtime.meter('voice', 'transcribe', Math.max(10, seconds) * TRANSCRIBE_MICRO_USD_PER_SECOND, (signal) => transcribe({
         audio,
         type: req.get('Content-Type') || 'audio/webm',
         prompt: LIKELY_WORDS,
-        signal: controller.signal,
-      });
+        signal: AbortSignal.any([controller.signal, signal]),
+      }));
 
       // Silence, or a cough. Saying so beats putting an empty string in the
       // box and leaving somebody to wonder whether it heard them.
       res.json({ text, heard: Boolean(text) });
     } catch (error) {
       if (controller.signal.aborted) return;
-      const message = error instanceof OpenAIError
+      const message = error instanceof OpenAIError || governanceError(error)
         ? error.message
         : 'Could not make out the recording. Try again, or type it.';
-      if (!(error instanceof OpenAIError)) console.error('[transcribe]', error);
+      if (!(error instanceof OpenAIError) && !governanceError(error)) console.error('[transcribe]', error);
       res.status(error.status === 429 ? 429 : 502).json({ error: message });
     }
   },
@@ -1517,7 +1563,7 @@ app.post(
  * of a penny, and a build that could ask for ten of them unattended is
  * somebody's money.
  */
-app.post('/api/picture', rateLimit, requireAccess, async (req, res) => {
+app.post('/api/picture', rateLimit, requireAccess, runtime.governed('images','generate'), async (req, res) => {
   if (!config.building || !config.imagesEnabled) {
     res.status(503).json({
       error: 'Pictures are switched off on this deployment. Set ENABLE_IMAGES=true to turn them on.',
@@ -1549,12 +1595,12 @@ app.post('/api/picture', rateLimit, requireAccess, async (req, res) => {
     // wide, and the browser shrinks it further before saving; asking for a
     // larger one would cost more and be thrown away.
     pictureTimes.push(Date.now());
-    const picture = await generateImage({
+    const picture = await runtime.meter('images', 'generate', imageMicroUsd({ quality: 'medium', size: '1024x1024', model: config.imageModel }), (signal) => generateImage({
       prompt: `${asked}\n\nA clear, warm photograph suitable for a small business web page. `
         + 'No text, no lettering, no watermark, no logo. Nothing that needs reading.',
       size: '1024x1024',
-      signal: controller.signal,
-    });
+      signal: AbortSignal.any([controller.signal, signal]),
+    }));
     res.json({ picture });
   } catch (error) {
     if (controller.signal.aborted) return;
@@ -1564,7 +1610,7 @@ app.post('/api/picture', rateLimit, requireAccess, async (req, res) => {
 });
 
 // Image creation in chat uses the same access gate and spending budget as Album.
-app.post('/api/image', rateLimit, requireAccess, async (req,res)=>{
+app.post('/api/image', rateLimit, requireAccess, runtime.governed('images','generate'), async (req,res)=>{
   if(!config.imagesEnabled || !config.apiKey) return res.status(503).json({error:'Image creation is not enabled on this app yet.'});
   if(config.serverless && !config.accessCode) return res.status(503).json({error:'Image creation needs the app access code to be configured.'});
   let options;
@@ -1576,17 +1622,18 @@ app.post('/api/image', rateLimit, requireAccess, async (req,res)=>{
   // Reserve before awaiting the provider; simultaneous requests cannot pass the same slot.
   pictureTimes.push(Date.now());
   try {
-    const image=await generateImage({prompt:options.renderPrompt,size:options.size,quality:options.quality,format:'jpeg',signal:controller.signal});
+    const image=await runtime.meter('images','generate',imageMicroUsd({quality:options.quality,size:options.size,model:config.imageModel}),
+      signal=>generateImage({prompt:options.renderPrompt,size:options.size,quality:options.quality,format:'jpeg',signal:AbortSignal.any([controller.signal,signal])}));
     if(controller.signal.aborted || res.destroyed) return;
     res.json({image,prompt:options.prompt,size:options.size,quality:options.quality,style:options.style,remaining:pictureBudgetLeft()});
   } catch(error) {
     if(res.destroyed) return;
     if(controller.signal.aborted) return res.status(504).json({error:'Image creation took too long. Try a simpler description or lower quality.'});
-    res.status(error.status || 502).json({error:error instanceof OpenAIError ? error.message : 'The image could not be created. Try again.'});
+    res.status(error.status || 502).json({error:error instanceof OpenAIError || governanceError(error) ? error.message : 'The image could not be created. Try again.'});
   } finally {clearTimeout(timer);}
 });
 
-app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
+app.post('/api/album', rateLimit, requireAccess, runtime.governed('images','generate'), async (req, res) => {
   if (!config.imagesEnabled) {
     res.status(503).json({
       error: 'Pictures are switched off on this deployment. Set ENABLE_IMAGES=true to turn them on.',
@@ -1641,7 +1688,8 @@ app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
     // Step two: render it. Count the picture before the call, so two requests
     // arriving together cannot both slip past the ceiling.
     pictureTimes.push(Date.now());
-    const image = await generateImage({ prompt: plan.scene, signal: controller.signal });
+    const image = await runtime.meter('images', 'generate', imageMicroUsd({ quality: 'medium', size: '1024x1024', model: config.imageModel }),
+      (signal) => generateImage({ prompt: plan.scene, signal: AbortSignal.any([controller.signal, signal]) }));
 
     res.json({
       image,
@@ -1653,8 +1701,8 @@ app.post('/api/album', rateLimit, requireAccess, async (req, res) => {
   } catch (error) {
     if (controller.signal.aborted) return;
     const message =
-      error instanceof OpenAIError ? error.message : 'The picture could not be made. Try again.';
-    if (!(error instanceof OpenAIError)) console.error('[album]', error);
+      error instanceof OpenAIError || governanceError(error) ? error.message : 'The picture could not be made. Try again.';
+    if (!(error instanceof OpenAIError) && !governanceError(error)) console.error('[album]', error);
     res.status(error.status || 500).json({ error: message });
   }
 });
@@ -1736,7 +1784,7 @@ app.delete('/api/build/jobs/:id',rateLimit,requireAccess,requireBackground,async
  catch(error){res.status(error.status || 503).json({error:'The background task could not be deleted. Try again.'});}
 });
 
-mountDocumentRoutes(app, { rateLimit, requireAccess, complete, chooseModel: pickModel,
+mountDocumentRoutes(app, { rateLimit, requireAccess, governed: runtime.governed('documents','generate'), complete, chooseModel: pickModel,
   parseConversation: readConversation, readPhoto: photoFrom, photosLeft,
   reservePhoto: () => photoTimes.push(Date.now()), canSeeWith, config });
 

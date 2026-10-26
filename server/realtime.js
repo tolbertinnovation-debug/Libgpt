@@ -16,15 +16,15 @@
 import { config } from './config.js';
 import { OpenAIError } from './openai.js';
 
-// Newest and most capable first; mini models are cheaper and kept as a
-// fallback for accounts without the full one. A dated or preview snapshot is
-// used only when nothing better is on the account.
+// The cheapest realtime model first: a minute of live audio costs several
+// times a long text answer, and the budget is small. Among equals, the newest.
+// No realtime model on the account and no pin means Live Talk is unavailable.
 export function pickRealtimeModel(ids = [], pin = '') {
   if (pin) return pin;
   const realtime = ids.filter((id) => /^gpt-realtime/.test(id) || /^gpt-4o(?:-mini)?-realtime/.test(id));
   const rank = (id) => [
+    /mini/.test(id) ? 0 : 1,
     /preview/.test(id) ? 1 : 0,
-    /mini/.test(id) ? 1 : 0,
     /\d{4}-\d{2}-\d{2}/.test(id) ? 1 : 0,
   ];
   const version = (id) => Number(id.match(/^gpt-realtime-(\d+(?:\.\d+)?)/)?.[1] || 0);
@@ -33,7 +33,7 @@ export function pickRealtimeModel(ids = [], pin = '') {
     for (let i = 0; i < ra.length; i += 1) if (ra[i] !== rb[i]) return ra[i] - rb[i];
     return version(b) - version(a);
   });
-  return sorted[0] || 'gpt-realtime';
+  return sorted[0] || '';
 }
 
 /**

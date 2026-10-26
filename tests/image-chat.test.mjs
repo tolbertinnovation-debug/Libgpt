@@ -1,6 +1,7 @@
 import { documentIntent } from '../public/documents.js';
 import {imageDiscussion,validImageDiscussion,genericImageRequest,imageRequestLabel} from '../public/image-context.js';
 import test from 'node:test';
+import {imageMicroUsd} from '../server/agent-costs.js';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {imageModel,imageRequest,DEFAULT_IMAGE_MODEL} from '../server/image-options.js';
@@ -40,10 +41,12 @@ async function imageRoute(config,generate) {
   const source=await readFile(new URL('../server/app.js',import.meta.url),'utf8');
   const start=source.indexOf("app.post('/api/image'"),end=source.indexOf("app.post('/api/album'",start);
   let handler;const pictureTimes=[];
-  new Function('app','rateLimit','requireAccess','config','imageRequest','pictureBudgetLeft','pictureTimes','generateImage','OpenAIError',source.slice(start,end))(
-    {post(_,...handlers){handler=handlers.at(-1);}},()=>{},()=>{},config,imageRequest,()=>Math.max(0,1-pictureTimes.length),pictureTimes,generate,class extends Error {});
+  // The spending ledger is stood in for: the reservation is recorded and the action runs.
+  const metered=[];const runtime={governed:()=>()=>{},meter:async(role,operation,microUsd,action)=>{metered.push({role,operation,microUsd});return action(new AbortController().signal);}};
+  new Function('app','rateLimit','requireAccess','config','imageRequest','pictureBudgetLeft','pictureTimes','generateImage','OpenAIError','runtime','imageMicroUsd','governanceError',source.slice(start,end))(
+    {post(_,...handlers){handler=handlers.at(-1);}},()=>{},()=>{},config,imageRequest,()=>Math.max(0,1-pictureTimes.length),pictureTimes,generate,class extends Error {},runtime,imageMicroUsd,()=>false);
   const res=()=>({statusCode:200,destroyed:false,on(){},status(n){this.statusCode=n;return this;},json(body){this.body=body;return this;}});
-  return {handler,res,pictureTimes};
+  return {handler,res,pictureTimes,metered};
 }
 test('chat image route refuses disabled, unsafe and invalid requests before billing',async()=>{
   for(const config of [{imagesEnabled:false,apiKey:'test'},{imagesEnabled:true,apiKey:'test',serverless:true,accessCode:''}]) {
@@ -134,7 +137,8 @@ test('image generation closes options before starting, blocks duplicate requests
   const generate=make(()=>true,{close:()=>events.push('close')},submit,cancel,async value=>{events.push('start');options=value;await new Promise(resolve=>finish=resolve);});
   const pending=generate({prompt:' A classroom '});
   assert.deepEqual(events,['close','start']);assert.equal(submit.disabled,true);
-  assert.deepEqual(options,{prompt:'A classroom',style:'natural',size:'1024x1024',quality:'high'});
+  // Balanced quality by default: high detail costs about four times as much of the picture allowance.
+  assert.deepEqual(options,{prompt:'A classroom',style:'natural',size:'1024x1024',quality:'medium'});
   await assert.rejects(generate({prompt:'Duplicate'}),/already/);
   finish();await pending;assert.equal(submit.disabled,false);
   const failed=make(()=>true,{close(){}},submit,cancel,async()=>{throw new Error('Provider failed');});

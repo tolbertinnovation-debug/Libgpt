@@ -1,0 +1,43 @@
+# Runs the full test suite on every pull request and on pushes to the
+# deployed branch. Tests replace OpenAI with local fakes: this workflow needs
+# no API key, makes no paid calls and has read-only repository access.
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches: [claude/claude-like-chatbot-09zm2u]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: npm test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        # Supported Node.js lines. Node 20 reached end of life in April 2026
+        # and lacks the global `navigator` the voice tests rely on.
+        node: [22, 24]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm test
+        env:
+          # Belt and braces: no real provider credentials exist in CI, and the
+          # spending ledger writes to a throwaway directory. (The runner
+          # context is only available at step level.)
+          OPENAI_API_KEY: ''
+          RITUAL_GOVERNANCE_DIR: ${{ runner.temp }}/grandpa-ledger

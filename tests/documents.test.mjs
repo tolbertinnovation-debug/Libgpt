@@ -5,6 +5,7 @@ import { DOCUMENT_TEMPLATES, readDocumentSpec, documentIntent, documentMarkdown 
 import { documentCard, downloadDocument } from '../public/document-chat.js';
 import { documentPages, exportDocument, tableGeometry } from '../server/document-export.js';
 import { createBackup, parseBackup } from '../public/backup.js';
+import { isolatedLedger } from './support/ledger.mjs';
 
 const sample = { title: 'Training Programme Proposal', subtitle: 'Digital skills for young learners', author: 'Samuel S Tolbert', date: '11 October 2026', template: 'proposal', filename: 'training-proposal', missing: ['Recipient address'], blocks: [
   { type: 'heading', level: 1, text: 'Purpose and outcomes' },
@@ -131,6 +132,7 @@ test('real document routes create, clarify, revise, and download without inventi
     upstream = JSON.parse(options.body);
     return Response.json({ choices: [{ message: { content: JSON.stringify(returned) } }] });
   };
+  await isolatedLedger(t);
   const { default: app } = await import('../server/app.js');
   const server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
   t.after(() => { globalThis.fetch = realFetch; server.closeAllConnections(); server.close(); });

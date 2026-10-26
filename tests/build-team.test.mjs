@@ -42,17 +42,15 @@ function fixture(overrides = {}) {
   return { hooks, saves, events, calls };
 }
 
-test('four specialists overlap and every closed file is saved before supervisor approval', async () => {
+test('specialists queue inside the shared concurrency limit and every closed file is saved before supervisor approval', async () => {
   const entered = new Set();
-  let release;
-  const ready = new Promise(resolve => { release = resolve; });
+  let active = 0, peak = 0;
   const f = fixture();
   const original = f.hooks.generate;
   f.hooks.generate = async (agent, ...args) => {
-    entered.add(agent);
-    if (entered.size === 4) release();
-    await ready;
-    return original(agent, ...args);
+    entered.add(agent); peak = Math.max(peak, ++active);
+    await new Promise(resolve => setTimeout(resolve, 2));
+    try { return await original(agent, ...args); } finally { active--; }
   };
   const result = await runTeam({ asked: 'Build my complete shop website', hooks: f.hooks });
   assert.equal(result.status, 'approved');
@@ -66,6 +64,8 @@ test('four specialists overlap and every closed file is saved before supervisor 
   }
   assert.equal(f.saves.at(-1).checkpoint.status, 'approved');
   assert.equal(f.calls.length, 4);
+  assert.equal(entered.size, 4);
+  assert.equal(peak, TEAM_CAPACITY.concurrency);
   assert.ok(f.calls.every(call => call.paths.length <= 2));
   assert.ok(f.calls.every(call => call.instruction.includes('Original request: Build my complete shop website')));
   assert.ok(f.calls.every(call => call.instruction.includes(plan().contract)));

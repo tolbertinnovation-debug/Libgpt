@@ -6,6 +6,7 @@ import { createBackup, parseBackup } from '../public/backup.js';
 import { taskBriefCard, downloadDocument } from '../public/document-chat.js';
 import { exportDocument, documentPages } from '../server/document-export.js';
 import sharp from 'sharp';
+import { isolatedLedger } from './support/ledger.mjs';
 
 export const artwork = { title: 'TIH Digital Skills Workshop', subtitle: 'Illustrative design sample', author: 'Tolbert Innovation Hub', date: '', template: 'poster', filename: 'digital-skills-workshop', missing: ['Confirmed event date and contact details'], blocks: [{ type: 'drawing', title: 'Workshop poster artwork', layout: 'square', caption: 'Design example with labelled details to confirm.', shapes: [
   { kind: 'rect', x: 0, y: 0, width: 1000, height: 1000, color: '1B2A63' },
@@ -80,6 +81,7 @@ test('guided routes gather answers over multiple turns, create only when ready, 
     const content = intake ? assessment : broken ? { broken: true } : { ...artwork, missing: ['Budget figures'], blocks: [{ type: 'paragraph', text: 'Complete business plan content for the supplied business.' }] };
     return Response.json({ choices: [{ message: { content: JSON.stringify(content) } }] });
   };
+  await isolatedLedger(t);
   const { default: app } = await import('../server/app.js');
   const server = app.listen(0, '127.0.0.1'); await new Promise(r => server.once('listening', r));
   t.after(() => { globalThis.fetch = realFetch; server.closeAllConnections(); server.close(); });

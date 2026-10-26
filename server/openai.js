@@ -270,7 +270,7 @@ export const searchToolName = () => toolName;
  * that could not happen is a reason to say less, not a reason to say nothing.
  */
 export async function* streamSearch({
-  model, messages, maxTokens, signal, onFinish, onSource, onSearched,
+  model, messages, maxTokens, signal, onFinish, onSource, onSearched, onUsage, onSearchCall,
 }) {
   // The Responses API takes `input` rather than `messages`, and counts the
   // ceiling as `max_output_tokens`. Everything else is the same conversation.
@@ -359,7 +359,8 @@ export async function* streamSearch({
               break;
 
             case 'response.output_item.done':
-              if (event.item?.type === 'web_search_call') onSearched?.();
+              // Each finished search call is billed once; the spending ledger counts them here.
+              if (event.item?.type === 'web_search_call') { onSearched?.(); onSearchCall?.(); }
               for (const part of event.item?.content || []) {
                 for (const cited of part.annotations || []) {
                   if (cited.type === 'url_citation' && /^https?:\/\//i.test(cited.url || '')) onSource?.({url:cited.url,title:cited.title || ''});
@@ -376,12 +377,14 @@ export async function* streamSearch({
             }
 
             case 'response.incomplete':
+              if (event.response?.usage) onUsage?.(event.response.usage);
               // Same meaning as finish_reason "length" on the other endpoint.
               onFinish?.(event.response?.incomplete_details?.reason === 'max_output_tokens'
                 ? 'length' : 'stop');
               break;
 
             case 'response.completed':
+              if (event.response?.usage) onUsage?.(event.response.usage);
               onFinish?.('stop');
               break;
 
@@ -424,13 +427,14 @@ export async function listModels({ signal } = {}) {
 }
 
 /** Generate one GPT Image asset; bytes stay behind the server API. */
-export async function generateImage({ prompt, size = '1024x1024', quality = 'medium', format = 'png', signal }) {
+export async function generateImage({ prompt, size = '1024x1024', quality = 'medium', format = 'png', signal, onUsage }) {
   const model = config.imageModel;
   const outputFormat=['png','jpeg','webp'].includes(format) ? format : 'png';
   const body={model,prompt,n:1,size,quality,output_format:outputFormat};
   if(outputFormat!=='png') body.output_compression=85;
   const response=await post('/images/generations',body,signal);
   const parsed=await response.json();
+  if(parsed.usage) onUsage?.(parsed.usage);
   const b64=parsed.data?.[0]?.b64_json;
   if(typeof b64!=='string' || !b64 || !/^[A-Za-z0-9+/=]+$/.test(b64)) {
     throw new OpenAIError('The picture came back empty. Try again.',502,'no_image');

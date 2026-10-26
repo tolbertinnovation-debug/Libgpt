@@ -1,5 +1,7 @@
 # Grandpa AI
 
+**Spending controls:** Every paid AI feature reserves its cost in one persistent ledger before calling OpenAI and settles against real usage. The approved policy is $0.50 per day in total ($0.20 for coding) with 2 calls at a time. Visitors see a friendly message when a limit is reached, and the operator can pause or adjust limits. Tests run automatically on every pull request. See [spending controls](docs/budget-controls.md).
+
 **Complete business plans:** Ask for a business plan in one sentence and get a complete one: 17 sections from executive summary to appendices, with SWOT, marketing budget, organisation chart, risk table, startup costs, 3-year projections, cash flow and break-even. Every projection is labelled and built from stated assumptions. See [document creation](docs/document-creation.md#complete-business-plans-from-one-prompt).
 
 **Live Talk:** Talk with Grandpa the way you talk with ChatGPT's voice mode: one live audio connection, natural turn-taking, and interrupting just by speaking. Falls back to the standard Talk screen when unavailable. See [voice setup](docs/natural-voice.md#live-talk-two-way-voice).

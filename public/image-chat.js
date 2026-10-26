@@ -17,7 +17,7 @@ export function mountImageComposer({onGenerate,enabled=()=>true}) {
     <label for="image-prompt">Your image description</label><textarea id="image-prompt" name="prompt" maxlength="4000" rows="5" required placeholder="A beautiful Liberian classroom with students learning on laptops…"></textarea>
     <div class="image-options"><label>Style<select name="style">${Object.entries(IMAGE_STYLES).map(([id,label])=>`<option value="${id}">${label}</option>`).join('')}</select></label>
     <label>Shape<select name="size"><option value="1024x1024">Square</option><option value="1536x1024">Landscape</option><option value="1024x1536">Portrait</option></select></label>
-    <label>Quality<select name="quality"><option value="high">High detail</option><option value="medium">Balanced</option><option value="low">Quick draft</option></select></label></div>
+    <label>Quality<select name="quality"><option value="medium" selected>Balanced</option><option value="high">High detail (uses more of the daily budget)</option><option value="low">Quick draft</option></select></label></div>
     <p class="settings-note">Creates one image using the app’s API credits. High detail costs more. Generated images can contain mistakes; check important text and details.</p>
     <p data-image-status role="status" hidden></p><div class="lib-actions"><button class="lib-go" type="submit">Create image</button><button class="setting-btn" type="button" data-image-cancel hidden>Cancel generation</button></div></form>`;
   document.body.append(dialog);
@@ -37,7 +37,7 @@ export function mountImageComposer({onGenerate,enabled=()=>true}) {
     submit.disabled=true;
     // Keep progress and cancellation in the conversation, not over it.
     dialog.close();
-    try {await onGenerate({style:'natural',size:'1024x1024',quality:'high',...options,prompt},active);}
+    try {await onGenerate({style:'natural',size:'1024x1024',quality:'medium',...options,prompt},active);}
     finally {if(controller===active) controller=null;submit.disabled=false;cancel.hidden=true;}
   };
   form.addEventListener('submit',async event=>{
