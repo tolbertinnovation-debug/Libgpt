@@ -96,6 +96,14 @@ export const config = {
   // account dry. Roughly 150 spoken answers an hour.
   voiceCharsPerHour: int(process.env.VOICE_CHARS_PER_HOUR, 60_000),
 
+  // Live Talk: a two-way audio conversation through OpenAI's Realtime API.
+  // Audio is priced far above text, so each conversation has a length limit and
+  // the whole deployment has an hourly number of conversations.
+  liveTalk: !/^(0|false|no|off)$/i.test(process.env.ENABLE_LIVE_TALK?.trim() || 'true'),
+  realtimeModel: process.env.OPENAI_REALTIME_MODEL?.trim() || '',
+  liveTalkMinutes: Math.min(30, Math.max(1, int(process.env.LIVE_TALK_MINUTES, 10))),
+  liveTalkSessionsPerHour: int(process.env.LIVE_TALK_SESSIONS_PER_HOUR, 20),
+
   // Serverless platforms run each request in a short-lived instance, so
   // anything counted in memory — the rate limit, the picture ceiling — resets
   // unpredictably and cannot be relied on. The app says so rather than

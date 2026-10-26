@@ -32,6 +32,7 @@ import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 import { mountSupport } from './support.js?v=workspace-live-2';
 import { loadMemory, memoriesForQuestion } from './memory.js';
+import { LiveTalk, liveTalkSupported } from './live-talk.js';
 import {imageCard,mountImageComposer,safeChatImage,imagePrompt,imageLoadingMarkup} from './image-chat.js';
 
 /* ========================================================================
@@ -2151,11 +2152,115 @@ speaker.onStateChange = ((previous) => (speechState) => {
   conversation.noteSpeechState(speechState);
 })(speaker.onStateChange);
 
+/* Live Talk: the two-way connection used wherever the deployment offers it.
+   The relay above stays as the fallback — for browsers without WebRTC, a
+   deployment with it switched off, or a connection that is refused. */
+const LIVE_WORDS = {
+  connecting: ['Connecting…', 'Allow microphone access if your browser asks.'],
+  listening: ['Listening…', 'Just talk. Interrupt Grandpa any time by speaking.'],
+  hearing: ['I hear you…', 'Grandpa answers when you finish.'],
+  thinking: ['Grandpa is thinking…', 'One moment.'],
+  speaking: ['Grandpa is talking', 'Talk over him to cut in, or tap the seal.'],
+  muted: ['Microphone muted', 'Tap Unmute when you are ready to talk.'],
+};
+const usesLiveTalk = () => Boolean(state.catalogue.liveTalk) && liveTalkSupported() && !liveTalkRefused;
+let liveTalkRefused = false;
+
+function saveSpoken(role, content) {
+  const chat = ensureChat();
+  if (!chat.title && role === 'user') chat.title = content.slice(0, 48);
+  chat.messages.push({ role, content });
+  chat.updatedAt = Date.now();
+  persist();
+}
+
+const live = new LiveTalk({
+  requestSession: async (signal) => {
+    const chat = currentChat();
+    const recent = (chat?.messages || []).slice(-12).map(({ role, content }) => ({ role, content: String(content || '') }));
+    const response = await fetch('/api/live-talk/session', {
+      method: 'POST',
+      headers: apiHeaders(),
+      signal,
+      body: JSON.stringify({
+        persona: chat?.persona || state.prefs.persona,
+        language: state.prefs.language,
+        register: state.prefs.register,
+        speaker: state.prefs.speaker,
+        tone: state.prefs.tone,
+        userName: state.prefs.userName,
+        voice: state.prefs.openaiVoice || 'cedar',
+        accent: state.prefs.accent,
+        speed: state.prefs.voiceRate,
+        memories: memoriesForQuestion(loadMemory(), recent.filter((m) => m.role === 'user').at(-1)?.content || ''),
+        messages: recent,
+      }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(body.error || 'Live Talk could not start.');
+      error.name = 'LiveTalkError';
+      error.fallback = body.fallback !== false;
+      throw error;
+    }
+    return body;
+  },
+  onState: (liveState) => {
+    if (liveState === 'closed') { if (!el.talk.hidden && el.talk.dataset.mode === 'live') closeTalk(); return; }
+    el.talk.dataset.state = liveState === 'hearing' ? 'listening' : liveState === 'muted' ? 'paused' : liveState;
+    const [title, hint] = LIVE_WORDS[liveState] || ['', ''];
+    el.talkState.textContent = title;
+    el.talkHint.textContent = hint;
+    const muted = liveState === 'muted';
+    el.talkHoldLabel.textContent = muted ? 'Unmute' : 'Mute';
+    el.talkHold.setAttribute('aria-pressed', String(muted));
+    el.talkHold.classList.toggle('is-on', muted);
+    el.talkOrb.disabled = !['speaking', 'thinking'].includes(liveState);
+    el.talkOrb.classList.toggle('is-hearing', liveState === 'hearing');
+    if (liveState === 'hearing') el.talkSaid.textContent = '';
+    if (liveState === 'listening') sounds.listen();
+  },
+  onHeard: (text) => { el.talkHeard.textContent = text; },
+  onSaid: (text) => {
+    el.talkSaid.textContent = stripMarkdown(text);
+    el.talkSaid.scrollTop = el.talkSaid.scrollHeight;
+  },
+  onUserTurn: (text) => saveSpoken('user', text),
+  onReplyDone: (text) => saveSpoken('assistant', text),
+  onLevel: (level) => { if (!el.talk.hidden) el.talkOrb.style.setProperty('--voice', level.toFixed(2)); },
+  onNotice: (message, kind) => {
+    if (!message) return;
+    toast(message);
+    el.talkHint.textContent = message;
+    if (kind === 'trouble') el.talkState.textContent = 'Voice chat needs attention';
+  },
+});
+
+async function startLiveTalk() {
+  el.talk.dataset.mode = 'live';
+  try {
+    await live.start();
+  } catch (error) {
+    if (el.talk.hidden) return;
+    if (error.fallback && conversation.supported) {
+      // Refused for this visit — the standard Talk screen takes over now and
+      // is used directly next time, rather than failing again first.
+      liveTalkRefused = true;
+      toast(`${error.message} Using the standard Talk screen instead.`);
+      el.talk.dataset.mode = 'relay';
+      if (!conversation.start() && !conversation.active) closeTalk();
+      return;
+    }
+    toast(error.message);
+    closeTalk();
+  }
+}
+
 let talkReturnFocus = null;
 
 function openTalk() {
   if (state.streaming) { toast('Wait for the current answer, or stop it before starting voice chat.'); return; }
-  if (!conversation.supported) {
+  if (!conversation.supported && !usesLiveTalk()) {
     toast(!SpeechRecognitionAPI
       ? 'Talking needs Chrome, Edge or Safari. You can still type, and still tap Listen.'
       : 'This browser cannot speak answers aloud.');
@@ -2176,10 +2281,15 @@ function openTalk() {
   el.talk.hidden = false;
   el.talkEnd.focus();
 
-  if (!conversation.start() && !conversation.active) {
-    el.talk.hidden = true;
-    talkReturnFocus?.focus?.();
-    return;
+  if (usesLiveTalk()) {
+    startLiveTalk();
+  } else {
+    el.talk.dataset.mode = 'relay';
+    if (!conversation.start() && !conversation.active) {
+      el.talk.hidden = true;
+      talkReturnFocus?.focus?.();
+      return;
+    }
   }
   el.app.inert = true;
   talkStartedAt = Date.now();
@@ -2194,6 +2304,7 @@ function closeTalk() {
   document.body.classList.remove('is-talking');
   el.app.inert = false;
   stopTalkClock();
+  live.stop();
   conversation.stop();
   renderThread();
   renderSidebar();
@@ -2204,8 +2315,8 @@ function closeTalk() {
 el.talkBtn.addEventListener('click', openTalk);
 talkInputMode?.addEventListener('change', () => { if (conversation.active) { conversation.pause(); conversation.resume(); } });
 el.startTalking.addEventListener('click', openTalk);
-el.talkOrb.addEventListener('click', () => conversation.interrupt());
-el.talkHold.addEventListener('click', () => conversation.toggle());
+el.talkOrb.addEventListener('click', () => (live.active ? live.interrupt() : conversation.interrupt()));
+el.talkHold.addEventListener('click', () => (live.active ? live.toggleMute() : conversation.toggle()));
 el.talkSend.addEventListener('click', () => conversation.finishTurn());
 el.talkCaptions.addEventListener('click', () => {
   const show = el.talkCaptions.getAttribute('aria-pressed') !== 'true';

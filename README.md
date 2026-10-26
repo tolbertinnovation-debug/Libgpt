@@ -1,5 +1,7 @@
 # Grandpa AI
 
+**Live Talk:** Talk with Grandpa the way you talk with ChatGPT's voice mode: one live audio connection, natural turn-taking, and interrupting just by speaking. Falls back to the standard Talk screen when unavailable. See [voice setup](docs/natural-voice.md#live-talk-two-way-voice).
+
 **Elite engineering agents:** Every Build agent now has its own charter — Atlas plans a complete multi-page site from one prompt and picks the best-fit stack, with Prism, Vertex, Pulse, Lumen, Forge and Nimbus building and Sentinel, Aegis, Crucible and Keystone guarding release. Backends can be written in TypeScript, Python, Go, Rust, Java/Kotlin, C#, PHP or Ruby. See [engineering team](docs/ritual-team.md).
 
 **Complete stories and history:** Story requests now include the beginning, development and ending in one response. The story panel shows the resolution immediately, without mandatory choices. Historical accounts cover their stated scope chronologically through outcomes and significance; interactive branching is used in chat only when explicitly requested.
