@@ -161,21 +161,26 @@ export function projectContext(files = []) {
  * files that matter and say which were left out — not to send half a file and
  * let the model write the other half from imagination.
  */
-export function fitProject(files = [], room = 60_000) {
+export function fitProject(files = [], room = 60_000, {requiredPaths = []} = {}) {
+  const required = new Set(requiredPaths);
   const kept = [];
   const dropped = [];
   let used = 0;
 
-  // Smallest first: a project is mostly small files and one big one, and
+  // Required edit targets first; remaining files smallest first. A project
+  // is mostly small files and one big one, and
   // keeping ten small files beats keeping the single large one nobody asked
   // about.
   const ordered = [...(files || [])]
     .filter((f) => f && typeof f.path === 'string')
-    .sort((a, b) => String(a.body || '').length - String(b.body || '').length);
+    .sort((a, b) => Number(required.has(b.path)) - Number(required.has(a.path)) || String(a.body || '').length - String(b.body || '').length);
 
   for (const file of ordered) {
     const size = String(file.body || '').length + file.path.length + 40;
-    if (used + size > room) { dropped.push(file.path); continue; }
+    if (used + size > room) {
+      if(required.has(file.path))throw Object.assign(new Error('The file being edited is too large to include completely. Your saved source is kept; split that file before resuming.'),{status:413,code:'BUILD_CONTEXT_LIMIT'});
+      dropped.push(file.path); continue;
+    }
     used += size;
     kept.push(file);
   }

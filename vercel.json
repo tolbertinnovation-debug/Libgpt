@@ -19,7 +19,8 @@
   "framework": "nitro",
   "git": {
     "deploymentEnabled": {
-      "codex/governance-budget-fixes": false
+      "codex/governance-budget-fixes": false,
+      "codex/phase2-audit-tasks": false
     }
   }
 }

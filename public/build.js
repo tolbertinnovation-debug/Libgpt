@@ -1,3 +1,4 @@
+import {staticSourceReport} from './build-static.js';
 // Ritual Coding — the workbench.
 //
 // What is here, and what deliberately is not.
@@ -888,10 +889,5 @@ export function projectIssues(files = [], expectedPaths = []) {
   for (const path of new Set(expectedPaths)) {
     if (!have.has(path)) faults.push(`The plan promised "${path}", but that file was not created. Create it and connect it to the existing pages.`);
   }
-  for (const file of files) {
-    if (/\.json$/i.test(file.path)) {
-      try { JSON.parse(file.body); } catch { faults.push(`${file.path} is not valid JSON. Fix its syntax without losing its contents.`); }
-    }
-  }
-  return faults;
+  return [...new Set([...faults,...staticSourceReport(files).faults])];
 }

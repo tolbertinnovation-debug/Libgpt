@@ -36,9 +36,15 @@ const aborted = () => Object.assign(new Error('Build stopped.'), { name: 'AbortE
 /** Strict project-relative paths. Never normalize an unsafe path into a safe one. */
 export function teamPath(raw) {
   if (typeof raw !== 'string' || !raw || raw !== raw.trim() || raw.length > 180) return '';
-  if (!/^[a-zA-Z0-9_./-]+$/.test(raw) || raw.startsWith('/')) return '';
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_./-]*$/.test(raw) || raw.startsWith('/')) return '';
   if (raw.split('/').some(part => !part || part === '.' || part === '..')) return '';
   return raw;
+}
+
+/** Reject aliases and file/directory overlap on case-insensitive export targets. */
+export function teamPathConflicts(paths,path){
+ const key=path.toLowerCase();
+ return [...paths].some(existing=>{const other=existing.toLowerCase();return other===key || other.startsWith(key+'/') || key.startsWith(other+'/');});
 }
 
 export function validateTeamPlan(plan) {
@@ -58,7 +64,7 @@ export function validateTeamPlan(plan) {
     }
     roles.add(task.agent);
     for (const path of task.files) {
-      if (!teamPath(path) || owners.has(path)) throw new Error(`Unsafe or conflicting planned file: ${path}`);
+      if (!teamPath(path) || teamPathConflicts(owners.keys(),path)) throw new Error(`Unsafe or conflicting planned file: ${path}`);
       owners.set(path, task.agent);
     }
   }
@@ -112,11 +118,13 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
   if (!hooks?.requestPlan || !hooks.generate || !hooks.review || !hooks.architecture || !hooks.releaseGate || !hooks.check || !hooks.save) {
     throw new Error('The build team needs planning, architecture, generation, independent review, release gating, checking, and saving hooks.');
   }
+  const current = new Map();
+  for(const file of files){if(!teamPath(file?.path) || typeof file.body!=='string' || teamPathConflicts(current.keys(),file.path))throw new Error('Unsafe or conflicting project files. Your existing source is kept.');current.set(file.path,{...file});}
   const controller = new AbortController();
   const cancel = () => controller.abort(signal?.reason);
   if (signal?.aborted) cancel();
   else signal?.addEventListener('abort', cancel, { once: true });
-  const current = new Map(files.filter(file => teamPath(file.path)).map(file => [file.path, { ...file }]));
+
   const state = checkpoint ? copy(checkpoint) : {
     version: 1, asked: String(asked || ''), status: 'planning', plan: null,
     agents: {}, reviewRound: 0, faults: [], savedPaths: [], review: null,
@@ -319,6 +327,7 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
       emit({ type: 'planned' });
       await save();
     } else validateTeamPlan(state.plan);
+    for(const path of state.plan.tasks.flatMap(task=>task.files))if(teamPathConflicts([...current.keys()].filter(existing=>existing!==path),path))throw new Error('Planned files conflict with existing source. Your existing files are kept.');
     if (!state.architecture) {
     state.status = 'architecting';
     agentFor('architect').status = 'working';

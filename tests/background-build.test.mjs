@@ -9,13 +9,13 @@ const plan={title:'School website',summary:'A school information website.',runti
  {agent:'design',instruction:'Write CSS.',files:['styles.css']},{agent:'pages',instruction:'Write HTML.',files:['index.html']},{agent:'interactions',instruction:'Write JS.',files:['app.js']},{agent:'content',instruction:'Write docs.',files:['README.md']}]};
 const architecture={decisions:[{topic:'Runtime',choice:'Static HTML',reason:'No backend requested.'}],constraints:['No backend'],testPlan:['Check files'],deployment:{type:'static',requirements:[]}};
 const bodies={'styles.css':'body { color: #123; }','index.html':'<!doctype html><html><body><h1>School</h1></body></html>','app.js':'console.log("School");','README.md':'School website. Open index.html.'};
-async function fixture(t){
+async function fixture(t,initial={}){
  const db=new PGlite();await db.waitReady;t.after(()=>db.close());
  let queue=Promise.resolve();
  const pool={async connect(){const before=queue;let release;queue=new Promise(resolve=>release=resolve);await before;return{query:(sql,params)=>sql.includes('CREATE TABLE')?db.exec(sql):db.query(sql,params),release};},end:async()=>{}};
  const store=createBuildJobStore({pool,scope:'test'});
  const identity={id:crypto.randomUUID(),token:crypto.randomBytes(32).toString('hex')};
- const created=await store.create({...identity,asked:'Build a school website.'});
+ const created=await store.create({...identity,asked:'Build a school website.',...initial});
  return {db,store,identity,job:created.job};
 }
 function services(overrides={}){
@@ -100,4 +100,70 @@ test('unavailable final model decisions pause without another review or paid rep
  const worker=createBuildWorker({store,services:services({review:async()=>{reviews++;return {approved:true,faults:[],repairs:[],summary:'Reviewed.'};},release:async()=>{gates++;return {approved:false,faults:['Security decision is unavailable or malformed.'],gates:{security:{passed:false}}};}})});
  let next,count=0;do{next=await worker.advance(identity.id,1);assert.ok(++count<15);}while(next.continue);
  assert.equal((await store.get(identity.id,identity.token)).status,'needs_attention');assert.equal(reviews,1);assert.equal(gates,1);
+});
+
+
+test('a budget pause preserves plan and completed files across restarts; only explicit Resume can schedule work',async t=>{
+ const {store,identity}=await fixture(t);let calls=0;
+ const worker=createBuildWorker({store,services:services({generate:async(...args)=>{
+  if(++calls===2)throw Object.assign(new Error('The coding spending cap has been reached.'),{code:'GOVERNANCE_BUDGET',status:429});
+  return services().generate(...args);
+ }})});
+ for(let i=0;i<4;i++)await worker.advance(identity.id,1);
+ const paused=await store.get(identity.id,identity.token);
+ assert.equal(paused.status,'needs_attention');assert.equal(paused.files.length,1);assert.ok(paused.checkpoint.plan);assert.ok(paused.checkpoint.architecture);
+ assert.equal(paused.checkpoint.blocker.kind,'budget');assert.equal(paused.checkpoint.blocker.file,'index.html');assert.equal(paused.checkpoint.blocker.automaticRetry,false);
+ const restarted=createBuildWorker({store,services:services({generate:()=>assert.fail('Paid work restarted without approval')})});
+ await restarted.advance(identity.id,1);assert.equal(calls,2);
+ const resumed=await store.control(identity.id,identity.token,'resume');assert.equal(resumed.start,true);assert.equal(resumed.job.checkpoint.blocker,null);
+ let written=[];const continuation=createBuildWorker({store,services:services({generate:async(agent,instruction,files,signal,plan,target)=>{written.push(target);return services().generate(agent,instruction);}})});
+ let next,count=0;do{next=await continuation.advance(identity.id,resumed.job.generation);assert.ok(++count<15);}while(next.continue);
+ assert.ok(!written.includes('styles.css'));assert.equal((await store.get(identity.id,identity.token)).status,'approved');
+});
+
+test('uncertain duplicate work is fenced with a structured interruption reason and cannot be billed twice',async t=>{
+ const {store,identity}=await fixture(t);const base=services();
+ const worker=createBuildWorker({store,services:base});await worker.advance(identity.id,1);
+ const claim=await store.claim(identity.id,1);assert.ok(claim.key);
+ const duplicate=await store.claim(identity.id,1);assert.equal(duplicate.key,null);assert.equal(duplicate.job.status,'needs_attention');
+ assert.equal(duplicate.job.checkpoint.blocker.kind,'interrupted');
+ const late=await store.save(identity.id,1,claim.key,{...claim.job,files:[{path:'README.md',body:'late'}]});assert.equal(late.saved,false);
+});
+
+test('cancellation after announcing a task prevents the next mocked paid call',async t=>{
+ const {store,identity}=await fixture(t);const progress=store.progress;
+ store.progress=async(...args)=>{const result=await progress(...args);await store.control(identity.id,identity.token,'stop');return result;};
+ const worker=createBuildWorker({store,services:services({plan:()=>assert.fail('Cancelled work reached paid service')})});
+ await worker.advance(identity.id,1);assert.equal((await store.get(identity.id,identity.token)).status,'stopped');
+});
+test('simultaneous Resume requests schedule once and approved jobs cannot restart paid work',async t=>{
+ const {store,identity}=await fixture(t);await store.control(identity.id,identity.token,'stop');
+ const results=await Promise.all([store.control(identity.id,identity.token,'resume'),store.control(identity.id,identity.token,'resume')]);
+ assert.equal(results.filter(result=>result.start).length,1);
+ const worker=createBuildWorker({store,services:services()});let next,count=0;
+ do{next=await worker.advance(identity.id,results[0].job.generation);assert.ok(++count<15);}while(next.continue);
+ const approved=await store.get(identity.id,identity.token);assert.equal(approved.status,'approved');
+ const resume=await store.control(identity.id,identity.token,'resume');assert.equal(resume.start,false);assert.equal(resume.job.generation,approved.generation);
+ const stop=await store.control(identity.id,identity.token,'stop');assert.equal(stop.job.status,'approved');assert.equal(stop.start,false);
+});
+
+test('an imported file cannot be overwritten through a conflicting planned alias',async t=>{
+ const files=[{path:'Styles.css',body:'body { color: green; }'}];
+ const {store,identity}=await fixture(t,{files});let plans=0;
+ const worker=createBuildWorker({store,services:services({plan:async()=>{plans++;return plan;},architecture:()=>assert.fail('Conflict reached another paid step'),generate:()=>assert.fail('Conflicting source was overwritten')})});
+ assert.equal((await worker.advance(identity.id,1)).continue,false);
+ let job=await store.get(identity.id,identity.token);assert.equal(job.status,'needs_attention');assert.match(job.message,/conflict.*Resolve the filenames/);assert.deepEqual(job.files,files);
+ const resumed=await store.control(identity.id,identity.token,'resume');await worker.advance(identity.id,resumed.job.generation);
+ job=await store.get(identity.id,identity.token);assert.deepEqual(job.files,files);assert.equal(job.status,'needs_attention');assert.equal(plans,1);
+});
+test('a transient storage monitor interruption saves returned progress and pauses without replaying a paid step',async t=>{
+ const {store,identity}=await fixture(t);const internal=store.internal;let reads=0,calls=0;
+ store.internal=async(...args)=>{if(++reads===2)throw Error('private database detail');return internal(...args);};
+ const worker=createBuildWorker({store,services:services({plan:async()=>{calls++;await new Promise(resolve=>setTimeout(resolve,1350));return plan;}})});
+ const result=await worker.advance(identity.id,1);assert.equal(result.status,'needs_attention');
+ const saved=await store.get(identity.id,identity.token);assert.equal(saved.processing,false);assert.equal(saved.checkpoint.blocker.kind,'storage');assert.deepEqual(saved.checkpoint.plan,plan);
+ assert.doesNotMatch(JSON.stringify(saved),/private database detail/);
+ await worker.advance(identity.id,1);assert.equal(calls,1);
+ const resumed=await store.control(identity.id,identity.token,'resume');assert.equal(resumed.start,true);
+ await worker.advance(identity.id,resumed.job.generation);assert.equal(calls,1);assert.deepEqual((await store.get(identity.id,identity.token)).checkpoint.architecture,architecture);
 });

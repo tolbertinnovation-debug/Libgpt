@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import pg from 'pg';
+import {buildBlocker} from '../public/build-task-state.js';
 import {attachDatabasePool} from '@vercel/functions';
 import {governanceScope} from './governance-postgres.js';
 
@@ -65,7 +66,7 @@ export function createBuildJobStore({connectionString,pool:suppliedPool,scope=go
    if(row.generation!==generation || !activeBuildStatus(row.state.status))return {job:snapshot(row),key:null};
    if(row.work_key){
     // An uncertain attempt is never silently repeated and billed again.
-    const state={...row.state,status:'needs_attention',message:'A background task was interrupted. Saved files are kept. Resume to retry the unfinished task.'};
+    const state={...row.state,status:'needs_attention',checkpoint:row.state.checkpoint?{...row.state.checkpoint,blocker:buildBlocker({code:'BUILD_INTERRUPTED'},row.state.checkpoint),status:'needs_attention'}:row.state.checkpoint,message:'A background task was interrupted. Saved files are kept. Resume to retry the unfinished task.'};
     return {job:await write(client,row,state,{generation:generation+1}),key:null};
    }
    const key=crypto.randomUUID();return {job:await write(client,row,{...row.state,status:row.state.status==='queued'?'planning':row.state.status},{key}),key};
@@ -82,11 +83,11 @@ export function createBuildJobStore({connectionString,pool:suppliedPool,scope=go
   });},
   async control(id,token,action){validateBuildIdentity(id,token);return transaction(async client=>{
    const row=await rowFor(client,id,{token,lock:true}),state={...row.state};
-   if(action==='stop') {state.status='stopped';state.message='Stopped. Completed files are saved.';if(state.checkpoint)state.checkpoint={...state.checkpoint,status:'stopped'};}
+   if(action==='stop') {if(state.status==='stopped' || state.status==='approved')return {job:snapshot(row),start:false};state.status='stopped';state.message='Stopped. Completed files are saved.';if(state.checkpoint)state.checkpoint={...state.checkpoint,status:'stopped'};}
    else if(action==='resume') {
-    if(activeBuildStatus(state.status))return {job:snapshot(row),start:false};
+    if(activeBuildStatus(state.status) || state.status==='approved')return {job:snapshot(row),start:false};
     state.status='queued';state.message='Resuming from saved files.';state.workflowId=null;
-    if(state.checkpoint)state.checkpoint={...state.checkpoint,fileAttempts:{},reviewRound:0,faults:[],release:null,message:''};
+    if(state.checkpoint)state.checkpoint={...state.checkpoint,fileAttempts:{},reviewRound:0,faults:[],release:null,blocker:null,message:''};
    }else throw fail('Choose stop or resume.',400);
    state.events=[...(state.events || []),{at:Date.now(),message:state.message}].slice(-200);
    return {job:await write(client,row,state,{generation:row.generation+1}),start:action==='resume'};

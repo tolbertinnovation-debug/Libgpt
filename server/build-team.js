@@ -1,3 +1,4 @@
+import {teamPathConflicts} from '../public/build-team.js';
 import { danglingLinks, projectIssues } from '../public/build.js';
 import { charterText, normalizeStack } from './agent-charters.js';
 
@@ -56,7 +57,7 @@ export function normalizeTeamPlan(raw) {
     const files = task.files.map(value => {
       const path = safeTeamPath(value);
       if (!path) throw new TypeError('The plan contains an unsafe file path.');
-      if (owned.has(path)) throw new TypeError(`File ownership conflicts: ${path}.`);
+      if (teamPathConflicts(owned.keys(),path)) throw new TypeError(`File ownership conflicts: ${path}.`);
       if (/\.html?$/i.test(path) && task.agent !== 'pages') throw new TypeError('HTML pages must belong to the pages specialist.');
       owned.set(path, task.agent); return path;
     });
@@ -111,14 +112,20 @@ export function normalizeTeamReview(raw, plan, knownFaults = []) {
   return {approved:raw.approved && !faults.length && !repairs.length, summary, faults, repairs};
 }
 
+export function assertTeamFiles(files,plan){
+ if(!Array.isArray(files) || files.length>200)throw new TypeError('Invalid project files.');
+ const paths=new Set();
+ for(const file of files){
+  if(!safeTeamPath(file?.path) || typeof file.body!=='string' || teamPathConflicts(paths,file.path))throw Object.assign(new TypeError('Invalid or conflicting project files. Rename conflicting files before resuming; your existing source is kept.'),{status:400,code:'BUILD_PATH_CONFLICT'});
+  paths.add(file.path);
+ }
+ for(const path of plan?.tasks.flatMap(task=>task.files) || [])if(teamPathConflicts([...paths].filter(existing=>existing!==path),path))throw Object.assign(new TypeError('Planned files conflict with existing source. Resolve the filenames before resuming; your existing files are kept.'),{status:400,code:'BUILD_PATH_CONFLICT'});
+}
+
 export function teamProjectFaults(plan, files, runtimeFaults = []) {
   if (!Array.isArray(files) || files.length > 200) throw new TypeError('Invalid project files.');
   if (!Array.isArray(runtimeFaults) || runtimeFaults.length > 100) throw new TypeError('Invalid runtime findings.');
-  const paths = new Set();
-  for (const file of files) {
-    if (!safeTeamPath(file?.path) || paths.has(file.path) || typeof file.body !== 'string') throw new TypeError('Invalid or duplicate project file.');
-    paths.add(file.path);
-  }
+  assertTeamFiles(files,plan);
   const expected = plan.tasks.flatMap(task => task.files);
   const faults = [...projectIssues(files, expected), ...danglingLinks(files)];
   for (const file of files) if (expected.includes(file.path) && !file.body.trim()) faults.push(`${file.path} is empty.`);
@@ -138,7 +145,7 @@ export async function generateTeamPlan({asked,model,complete,signal}) {
   for(let attempt=0;attempt<2;attempt++){
     if(signal?.aborted)throw new DOMException('Planning stopped','AbortError');
     const raw=await complete({model,messages,maxTokens:16000,temperature:0.3,json:true,signal});
-    try{return normalizeTeamPlan(parseTeamJson(raw));}catch(error){
+    try{const plan=normalizeTeamPlan(parseTeamJson(raw));if(!plan.requirements.length)throw new TypeError('Record at least one concrete acceptance requirement.');return plan;}catch(error){
       invalid=error.message;
       if(attempt===0)messages.push({role:'assistant',content:String(raw || '').slice(0,64000)},
         {role:'user',content:`Repair your plan. Validation failed: ${invalid}. Return only the complete JSON object in the required schema. Include all six distinct builder tasks with unique file ownership and index.html in the pages list. Keep the user's original request and real details. Do not return code files yet.`});

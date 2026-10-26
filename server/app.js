@@ -1,3 +1,4 @@
+import {executionReadiness} from './build-execution.js';
 import { mountDocumentRoutes } from './documents.js';
 import { readDocument, withAttachments } from './chat-attachments.js';
 import { taskQuestion, QUALITY_PROMPT } from './intelligence.js';
@@ -31,7 +32,7 @@ import {
 } from './build.js';
 import {
   TEAM_REVIEW_PROMPT, normalizeTeamPlan, normalizeTeamReview, parseTeamJson,
-  teamProjectFaults, workerInstruction, generateTeamPlan, generateArchitecture, normalizeArchitecture,
+  assertTeamFiles, teamProjectFaults, workerInstruction, generateTeamPlan, generateArchitecture, normalizeArchitecture,
 } from './build-team.js';
 import * as github from './github.js';
 import { createPublisher } from './publish.js';
@@ -1193,6 +1194,7 @@ function requireAgentAdmin(req,res,next){
   if(a.length<32 || a.length!==b.length || !crypto.timingSafeEqual(a,b))return res.status(403).json({error:'Operator authorization is required.'});
   next();
 }
+app.get('/api/build/execution',rateLimit,requireAccess,(_req,res)=>res.json(executionReadiness()));
 app.get('/api/build/governance',rateLimit,requireAccess,async(_req,res)=>{
   try {const s=await governance.status();res.json({...s,available:true,rolloutConfigured:Boolean(process.env.RITUAL_DEPLOYMENT_ADAPTER_URL && process.env.RITUAL_DEPLOYMENT_ADAPTER_SECRET),steps:[5,25,50,100]});}
   catch {res.status(503).json({available:false,paused:true,error:'Persistent agent governance is unavailable. Agent work and releases are blocked.'});}
@@ -1716,8 +1718,11 @@ export const buildAgentServices={
  plan:(asked,files,signal)=>runInRole('orchestrator','plan',async()=>generateTeamPlan({asked:files.length?`${asked}\n\nExisting project paths (preserve working features and include needed pages in the plan): ${files.map(file=>file.path).join(', ')}`:asked,
   model:await pickModel(undefined,'story'),complete,signal})),
  architecture:(asked,plan,signal)=>runInRole('architect','architecture',async()=>generateArchitecture({asked,plan,model:await pickModel(undefined,'story'),complete,signal})),
- generate:(agent,instruction,files,signal,plan)=>runInRole(agent,'generate',async()=>complete({model:await pickModel(undefined,'story'),
-  messages:[{role:'system',content:buildPrompt({runtime:plan?.runtime || 'static'})},{role:'user',content:`${instruction}\n\n${projectContext(fitProject(files,90000).kept)}`}],maxTokens:16000,temperature:.3,signal})),
+ generate:(agent,instruction,files,signal,plan,targetPath)=>runInRole(agent,'generate',async()=>{
+  const context=fitProject(files,90000,{requiredPaths:targetPath?[targetPath]:[]});
+  return complete({model:await pickModel(undefined,'story'),
+   messages:[{role:'system',content:buildPrompt({runtime:plan?.runtime || 'static'})},{role:'user',content:`${instruction}\n\n${projectContext(context.kept)}${context.dropped.length?`\n\nExisting files omitted from this call (preserve them; do not recreate or remove them): ${context.dropped.join(', ')}`:''}`}],maxTokens:16000,temperature:.3,signal});
+ }),
  review:(asked,plan,files,issues,signal,priorFindings=[])=>runInRole('reviewer','review',async()=>{
   const packed=fitProject(files,130000);
   if(packed.dropped.length)throw Object.assign(new Error('The project is too large for a complete source review. Split it into smaller projects.'),{status:413});
@@ -1749,7 +1754,7 @@ app.post('/api/build/jobs',rateLimit,requireAccess,requireBackground,async(req,r
   if(check && (files.length || req.body.checkpoint))return res.status(400).json({error:'A connection check cannot contain project files.'});
   if(typeof asked!=='string' || !asked.trim() || asked.length>6000 || !Array.isArray(files) || files.length>200 || Buffer.byteLength(JSON.stringify(files))>1500000)return res.status(400).json({error:'Describe your project in 1–6,000 characters and keep source files under 1.5 MB.'});
   assertAgentData({asked,files});
-  for(const file of files)if(!/^[a-zA-Z0-9][a-zA-Z0-9_./-]*$/.test(file.path) || file.path.split('/').some(part=>!part || part==='.' || part==='..'))throw Object.assign(new Error('Invalid project file path.'),{status:400});
+  try{assertTeamFiles(files);}catch(error){throw Object.assign(error,{status:400});}
   await governance.assertActive();
   const checkpoint=cleanBuildCheckpoint(req.body.checkpoint,asked,files);
   created=await buildJobStore.create({id,token,asked:asked.trim(),files,checkpoint});
