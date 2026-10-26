@@ -1,3 +1,4 @@
+import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
@@ -374,9 +375,24 @@ async function send(text) {
   const p = project();
   if (!said || !p || isBusy()) return;
   if(deps.backgroundAvailable){
-    const original=p.team?.asked || '';
-    const brief=p.files.length && original ? `${original}\n\nLatest requested change (takes precedence): ${said}` : said;
-    await startBackgroundBuild(brief,false);return;
+    const original=p.team?.asked || p.background?.asked || '';
+    if(isBuildResumeCommand(said)){
+      if(!original){deps.toast('There is no saved task to resume. Describe what you want to build.');return;}
+      if(p.team?.status==='approved'){deps.toast('This build is ready to preview. Describe a specific change to start new work.');return;}
+      if(['stopped','needs_attention','interrupted','unavailable'].includes(p.team?.status || p.background?.status)){
+        await startBackgroundBuild(original,true);return;
+      }
+    }
+    if(p.background?.revision===-1 && p.background.status!=='unavailable'){
+      deps.toast('Confirm the previous cloud task before changing its request. Reconnect or use Resume to check the saved task.');watchBackground();return;
+    }
+    try{
+      const history=appendBuildRequest(p.requestHistory || p.team?.requestHistory,said,{legacyBrief:original});
+      const brief=buildRequestBrief(history);
+      p.requestHistory=history;
+      await startBackgroundBuild(brief,false,{messageText:said});
+    }catch(error){deps.toast(error.message);}
+    return;
   }
   if (!p.files.length && !p.messages.length) { await buildTheWholeThing(said); return; }
   if(p.team && !p.team.plan){
@@ -590,8 +606,12 @@ function showProjectPlan(){
  const p=project(),cp=p?.team || {},plan=cp.plan;
  if(!plan){deps.toast('The project plan has not been saved yet.');return;}
  const facts=buildTaskFacts(cp,p.files),verification=staticSourceReport(p.files);
+ let history=null,historyError='';
+ try{history=normalizeBuildRequests(p.requestHistory || cp.requestHistory);}catch{historyError='Saved request history could not be read. Your source files and recorded plan are still available.';}
  const list=items=>`<ul>${items.map(item=>`<li>${escapeHtml(item)}</li>`).join('')}</ul>`;
- openSheet('Project plan',`<p class="sheet-note"><strong>Your request</strong></p><p>${escapeHtml(cp.asked || p.background?.asked || '')}</p>
+ openSheet('Project plan',`<p class="sheet-note"><strong>Your request</strong></p><p>${escapeHtml(history?.entries[0].text || cp.asked || p.background?.asked || '')}</p>
+  ${historyError?`<p class="sheet-note">${escapeHtml(historyError)}</p>`:''}
+  ${history?`<p class="sheet-note"><strong>Saved request history</strong></p>${history.origin==='legacy'?'<p>The first entry is the saved brief from before request history was available.</p>':''}${list(history.entries.map(entry=>`${entry.sequence}. ${entry.kind==='brief'?'Starting brief':'Requested change'}: ${entry.text}`))}<p class="sheet-note">Recorded requests are project instructions, not test results or release approval.</p>`:''}
   <p class="sheet-note"><strong>${escapeHtml(plan.title)}</strong></p><p>${escapeHtml(plan.summary)}</p>
   <p class="sheet-note"><strong>Requirements to verify</strong></p>${facts.requirements.length?list(facts.requirements):'<p>No separate acceptance criteria were recorded.</p>'}
   <p class="sheet-note">${facts.savedFiles} of ${facts.plannedFiles} planned files are present. ${facts.activeBuilders} builders have file assignments.</p>
@@ -620,6 +640,7 @@ async function applyBackgroundJob(p,job){
  if(changed)applyChanges(p,job.files || [],'Before background checkpoint');
  p.background={...p.background,status:job.status,revision:job.revision,generation:job.generation,sourceFingerprint:sourceFingerprint(job.files || [])};
  p.backgroundEvents=job.events || [];
+ if(job.requestHistory)p.requestHistory=normalizeBuildRequests(job.requestHistory);
  p.team=job.checkpoint || {version:1,asked:job.asked,status:job.status,faults:[],message:job.message};
  p.team.status=job.status;p.team.message=job.message || p.team.message;
  if(p.team.plan && !p.named){p.name=p.team.plan.title;p.named=true;}
@@ -646,21 +667,27 @@ async function backgroundRequest(p,path,body){
  const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',...deps.headers(),'x-build-token':p.background.token},body:JSON.stringify(body)});
  const result=await response.json();if(!response.ok)throw new Error(result.error || 'The background task could not be updated.');return result.job;
 }
-async function startBackgroundBuild(asked,resume=false){
+async function startBackgroundBuild(asked,resume=false,{messageText=asked}={}){
  const p=project();if(!p || foregroundBusy() || remoteRunning(p))return;
  try{
+  const history=normalizeBuildRequests(p.requestHistory || p.team?.requestHistory);
+  if(history)p.requestHistory=history;
+  if(!resume && (!history || buildRequestBrief(history)!==asked)){
+   const next=appendBuildRequest(history,asked,{legacyBrief:p.team?.asked || p.background?.asked || ''});
+   asked=buildRequestBrief(next);p.requestHistory=next;
+  }
   if(asked.length>6000)throw new Error('Keep the project request and latest change under 6,000 characters.');
   if(resume && p.background && p.background.status!=='unavailable' && p.background.sourceFingerprint===sourceFingerprint(p.files)){
    const job=await backgroundRequest(p,`/api/build/jobs/${p.background.id}/control`,{action:'resume'});await applyBackgroundJob(p,job);
   }else{
    const retryPending=p.background?.revision===-1 && p.background?.status!=='unavailable' && p.background?.asked===asked;
-   if(!resume && !retryPending)p.messages.push({role:'user',content:asked});
+   if(!resume && !retryPending)p.messages.push({role:'user',content:messageText});
    if(!retryPending){p.backgroundBase=p.files.map(file=>({...file}));p.background={...newBackgroundIdentity(),asked};}
    const checkpoint=resume?p.team:null;
    p.team={version:1,...(checkpoint || {}),asked,status:'queued',release:null,message:'Starting a cloud task. Your files will be saved as it works.'};
    if(!await persist())throw new Error('Device storage could not save the task identity. Download your files before continuing.');
    render();
-   const job=await backgroundRequest(p,'/api/build/jobs',{id:p.background.id,token:p.background.token,asked,files:p.files.map(file=>({path:file.path,body:file.body})),checkpoint});
+   const job=await backgroundRequest(p,'/api/build/jobs',{id:p.background.id,token:p.background.token,asked,files:p.files.map(file=>({path:file.path,body:file.body})),checkpoint,requestHistory:p.requestHistory || null});
    await applyBackgroundJob(p,job);
   }
   watchBackground();

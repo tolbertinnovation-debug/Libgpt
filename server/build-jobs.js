@@ -1,3 +1,4 @@
+import {normalizeBuildRequests,buildRequestBrief} from '../public/build-requests.js';
 import crypto from 'node:crypto';
 import pg from 'pg';
 import {buildBlocker} from '../public/build-task-state.js';
@@ -44,8 +45,10 @@ export function createBuildJobStore({connectionString,pool:suppliedPool,scope=go
   return snapshot(result.rows[0]);
  }
  return {
-  async create({id,token,asked,files=[],checkpoint=null}){
+  async create({id,token,asked,files=[],checkpoint=null,requestHistory=null}){
    validateBuildIdentity(id,token);
+   const history=normalizeBuildRequests(requestHistory);
+   if(history && buildRequestBrief(history)!==asked.trim())throw fail('The request history does not match this task brief. Your saved files are kept.',400);
    return transaction(async client=>{
     // A short scope lock makes request-id deduplication and admission atomic.
     await client.query('SELECT pg_advisory_xact_lock(hashtext($1))',[`build-admission:${scope}`]);
@@ -53,7 +56,7 @@ export function createBuildJobStore({connectionString,pool:suppliedPool,scope=go
     if(existing.rows[0]){const row=await rowFor(client,id,{token});return {job:snapshot(row),created:false};}
     const count=await client.query("SELECT count(*)::integer AS count FROM public.grandpa_ai_build_jobs WHERE scope=$1 AND created_at > now() - interval '1 day'",[scope]);
     if(count.rows[0].count>=200)throw fail('Grandpa AI has reached today’s background task limit. Please return tomorrow.',429);
-    const state={asked,files,checkpoint,status:'queued',events:[{at:Date.now(),message:'Build queued. You can leave this page.'}],workflowId:null};
+    const state={asked,files,checkpoint,...(history?{requestHistory:history}:{}),status:'queued',events:[{at:Date.now(),message:'Build queued. You can leave this page.'}],workflowId:null};
     const result=await client.query('INSERT INTO public.grandpa_ai_build_jobs (id,scope,token_hash,state) VALUES ($1,$2,$3,$4::jsonb) RETURNING *',[id,scope,hash(token),JSON.stringify(state)]);
     return {job:snapshot(result.rows[0]),created:true};
    });

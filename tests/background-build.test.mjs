@@ -167,3 +167,21 @@ test('a transient storage monitor interruption saves returned progress and pause
  const resumed=await store.control(identity.id,identity.token,'resume');assert.equal(resumed.start,true);
  await worker.advance(identity.id,resumed.job.generation);assert.equal(calls,1);assert.deepEqual((await store.get(identity.id,identity.token)).checkpoint.architecture,architecture);
 });
+
+test('cloud checkpoints preserve request history through a budget pause and explicit Resume',async t=>{
+ const {appendBuildRequest,buildRequestBrief}=await import('../public/build-requests.js');
+ const history=appendBuildRequest(appendBuildRequest(null,'School website',{at:1}),'Include course fees',{at:2});
+ const {store,identity}=await fixture(t,{asked:buildRequestBrief(history),requestHistory:history});
+ const worker=createBuildWorker({store,services:services({plan:async()=>{throw Object.assign(Error('The coding spending cap has been reached.'),{code:'GOVERNANCE_BUDGET',status:429});}})});
+ await worker.advance(identity.id,1);const paused=await store.get(identity.id,identity.token);
+ assert.deepEqual(paused.requestHistory,history);assert.deepEqual(paused.checkpoint.requestHistory,history);
+ const resumed=await store.control(identity.id,identity.token,'resume');assert.deepEqual(resumed.job.requestHistory,history);assert.deepEqual(resumed.job.checkpoint.requestHistory,history);assert.equal(resumed.start,true);
+});
+test('cloud admission rejects misleading request history and cannot change an existing task through a retry',async t=>{
+ const {appendBuildRequest,buildRequestBrief}=await import('../public/build-requests.js');
+ const history=appendBuildRequest(null,'School website',{at:1});const {store,identity}=await fixture(t,{asked:buildRequestBrief(history),requestHistory:history});
+ await assert.rejects(store.create({...identity,asked:'Different request',requestHistory:history}),{status:400});
+ const other=appendBuildRequest(null,'Another request',{at:2});const duplicate=await store.create({...identity,asked:buildRequestBrief(other),requestHistory:other});
+ assert.equal(duplicate.created,false);assert.deepEqual(duplicate.job.requestHistory,history);assert.equal(duplicate.job.asked,'School website');
+ await assert.rejects(store.create({id:crypto.randomUUID(),token:identity.token,asked:'School website',requestHistory:{...history,approved:true}}),{code:'BUILD_REQUEST_HISTORY'});
+});

@@ -1748,16 +1748,16 @@ function requireBackground(_req,res,next){
 app.post('/api/build/jobs',rateLimit,requireAccess,requireBackground,async(req,res)=>{
  let created;
  try{
-  const {id,token,asked,files=[]}=req.body || {};
+  const {id,token,asked,files=[],requestHistory=null}=req.body || {};
   const check=req.body?.check===true;
   if(!config.apiKey && !check)return res.status(503).json({error:'The coding agent is unavailable on this deployment.'});
-  if(check && (files.length || req.body.checkpoint))return res.status(400).json({error:'A connection check cannot contain project files.'});
+  if(check && (files.length || req.body.checkpoint || requestHistory))return res.status(400).json({error:'A connection check cannot contain project files.'});
   if(typeof asked!=='string' || !asked.trim() || asked.length>6000 || !Array.isArray(files) || files.length>200 || Buffer.byteLength(JSON.stringify(files))>1500000)return res.status(400).json({error:'Describe your project in 1–6,000 characters and keep source files under 1.5 MB.'});
-  assertAgentData({asked,files});
+  assertAgentData({asked,files,requestHistory});
   try{assertTeamFiles(files);}catch(error){throw Object.assign(error,{status:400});}
   await governance.assertActive();
   const checkpoint=cleanBuildCheckpoint(req.body.checkpoint,asked,files);
-  created=await buildJobStore.create({id,token,asked:asked.trim(),files,checkpoint});
+  created=await buildJobStore.create({id,token,asked:asked.trim(),files,checkpoint,requestHistory});
   const job=created.created ? await enqueueBackground(created.job,check) : created.job;
   res.status(created.created?202:200).json({job});
  }catch(error){

@@ -12,6 +12,7 @@ const safeMessage=error=>error?.code==='BUILD_PATH_CONFLICT' ? error.message.sli
  : 'This task could not finish. Your completed files are saved. Resume to retry the unfinished task.';
 function checkpointFor(job){
  const cp=job.checkpoint ? copy(job.checkpoint) : {version:1,asked:job.asked,plan:null,architecture:null,agents:{},savedPaths:[],reviewRound:0,faults:[]};
+ cp.requestHistory=job.requestHistory?copy(job.requestHistory):null;
  cp.agents ||= {};cp.savedPaths ||= [];cp.faults ||= [];
  for(const role of TEAM_ROLES)cp.agents[role.id] ||= {status:'waiting',completed:[],faults:[]};
  return cp;

@@ -20,7 +20,8 @@
   "git": {
     "deploymentEnabled": {
       "codex/governance-budget-fixes": false,
-      "codex/phase2-audit-tasks": false
+      "codex/phase2-audit-tasks": false,
+      "codex/phase2-request-history": false
     }
   }
 }
