@@ -25,11 +25,6 @@ jobs:
       fail-fast: false
       matrix:
         node: [20, 22]
-    env:
-      # Belt and braces: no real provider credentials exist in CI, and the
-      # spending ledger writes to a throwaway directory.
-      OPENAI_API_KEY: ''
-      RITUAL_GOVERNANCE_DIR: ${{ runner.temp }}/grandpa-ledger
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -38,3 +33,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
+        env:
+          # Belt and braces: no real provider credentials exist in CI, and the
+          # spending ledger writes to a throwaway directory. (The runner
+          # context is only available at step level.)
+          OPENAI_API_KEY: ''
+          RITUAL_GOVERNANCE_DIR: ${{ runner.temp }}/grandpa-ledger
