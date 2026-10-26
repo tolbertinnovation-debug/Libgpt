@@ -1,3 +1,11 @@
+/** Exact source comparison for task decisions; the display fingerprint is not an identity check. */
+export function sameProjectSource(a,b){
+ if(!Array.isArray(a) || !Array.isArray(b) || a.length!==b.length)return false;
+ const files=new Map();
+ for(const file of a){if(typeof file?.path!=='string' || typeof file.body!=='string' || files.has(file.path))return false;files.set(file.path,file.body);}
+ const seen=new Set();
+ return b.every(file=>typeof file?.path==='string' && typeof file.body==='string' && !seen.has(file.path) && (seen.add(file.path),files.get(file.path)===file.body));
+}
 export const backgroundActive=status=>['queued','planning','architecting','building','reviewing','repairing','security'].includes(status);
 export function sourceFingerprint(files=[]){
  let hash=2166136261;

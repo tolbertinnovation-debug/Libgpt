@@ -1,3 +1,5 @@
+> Latest: [final PR #65 review, corrections and 469-test validation](pr65-final-review.md). The original implementation/results below describe the earlier draft increment.
+
 # Phase 2 — request history and economical cloud resumption
 
 Base: production merge `3f51752002f66d5b452911c465799e7cc0ae1570` (PR #64). Development branch: `codex/phase2-request-history`. This is a bounded continuation of Milestones B/E. No merge, deployment, production setting change, administrator setup, paid service or secure-execution enablement is included.

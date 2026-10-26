@@ -48,7 +48,7 @@ export function createBuildWorker({store,services}){
    const update=await store.progress(id,generation,key,{...job,files,checkpoint:cp,status:phase,message});
    if(!update.saved)throw Object.assign(new Error('Build stopped.'),{status:423});};
   try{
-   await services.assertActive();assertAgentData({asked:job.asked,files});assertTeamFiles(files,cp.plan);
+   await services.assertActive();assertAgentData({asked:job.asked,files,checkpoint:cp});assertTeamFiles(files,cp.plan);
    if(!cp.plan){
     setRole('supervisor','working');await announce('Planning the project and assigning files.','planning');
     cp.plan=normalizeTeamPlan(await paidStep(()=>services.plan(job.asked,files,controller.signal)));

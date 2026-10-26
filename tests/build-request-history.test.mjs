@@ -1,3 +1,4 @@
+import {buildScreen} from './support/build-screen.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
@@ -45,22 +46,20 @@ test('typing Continue in a paused cloud build uses saved Resume without a new re
 test('typing Continue on an approved build makes no paid request',async()=>{
  const s=screen({files:[],team:{asked:'School',status:'approved'}});await s.send('Continue');assert.deepEqual(s.calls,[]);assert.match(s.toasts[0],/ready to preview/);
 });
-test('new instructions after a planning pause retain the original brief even before any files exist',async()=>{
+test('new instructions after a planning pause delegate without replacing the saved brief prematurely',async()=>{
  const p={files:[],team:{asked:'Build a school website',status:'needs_attention'}},s=screen(p);
- await s.send('Add a course list');assert.equal(s.calls.length,1);assert.equal(s.calls[0][1],false);assert.match(s.calls[0][0],/^Build a school website/);assert.match(s.calls[0][0],/Add a course list/);assert.equal(s.calls[0][2].messageText,'Add a course list');assert.equal(p.requestHistory.entries.length,2);
+ await s.send('Add a course list');assert.deepEqual(s.calls,[['Add a course list',false,{messageText:'Add a course list'}]]);assert.equal(p.team.asked,'Build a school website');assert.equal(p.requestHistory,undefined);
 });
 test('request-history overflow cannot reach a mocked cloud API or mutate saved history',async()=>{
- const history=appendBuildRequest(null,'x'.repeat(6000),{at:1});const p={files:[],team:{asked:buildRequestBrief(history),status:'needs_attention'},requestHistory:history},s=screen(p);
- await s.send('Add something');assert.deepEqual(s.calls,[]);assert.deepEqual(p.requestHistory,history);assert.match(s.toasts[0],/request-history limit/);
+ const history=appendBuildRequest(null,'x'.repeat(6000),{at:1});const p={files:[],team:{asked:buildRequestBrief(history),status:'needs_attention'},requestHistory:history},s=buildScreen(p);
+ await s.start('Add something');assert.deepEqual(s.calls,[]);assert.deepEqual(p.requestHistory,history);assert.match(s.toasts[0],/request-history limit/);
 });
 
 test('non-chat cloud entry points compile new instructions into the same validated history before admission',async()=>{
  const history=appendBuildRequest(null,'School website',{at:1}),p={files:[],messages:[],requestHistory:history,team:{asked:'School website',status:'stopped'}};
- const calls=[];const a=source.indexOf('async function startBackgroundBuild('),b=source.indexOf('\nasync function stopBackgroundBuild()',a);
- const start=new Function('project','foregroundBusy','remoteRunning','buildRequestBrief','appendBuildRequest','normalizeBuildRequests','persist','render','newBackgroundIdentity','backgroundRequest','applyBackgroundJob','watchBackground','deps','document','CustomEvent','state','isBusy',source.slice(a,b)+';return startBackgroundBuild;')(
-  ()=>p,()=>false,()=>false,buildRequestBrief,appendBuildRequest,normalizeBuildRequests,async()=>true,()=>{},()=>({id:'unit-id',token:'unit-token',revision:-1,status:'queued'}),async(_p,path,body)=>{calls.push({path,body:structuredClone(body)});return {id:'unit-id'};},async()=>{},()=>{}, {toast:()=>assert.fail('Unexpected admission failure')},{dispatchEvent(){}},class{constructor(){}},{mode:'build'},()=>false);
- await start('Review the current project');assert.equal(calls.length,1);assert.equal(calls[0].path,'/api/build/jobs');
- assert.equal(calls[0].body.requestHistory.entries.length,2);assert.equal(calls[0].body.asked,buildRequestBrief(calls[0].body.requestHistory));assert.equal(calls[0].body.requestHistory.entries[0].text,'School website');assert.equal(p.messages[0].content,'Review the current project');
+ const ui=buildScreen(p),calls=ui.calls,start=ui.start;
+ await start('Review the current project');assert.equal(calls.length,1);assert.equal(calls[0][1],'/api/build/jobs');
+ assert.equal(calls[0][2].requestHistory.entries.length,2);assert.equal(calls[0][2].asked,buildRequestBrief(calls[0][2].requestHistory));assert.equal(calls[0][2].requestHistory.entries[0].text,'School website');assert.equal(p.messages[0].content,'Review the current project');
 });
 
 test('a resume command without a saved task cannot start a new paid planning job',async()=>{
@@ -71,4 +70,9 @@ test('an uncertain cloud creation cannot be replaced by a different request unti
  const history=appendBuildRequest(null,'School',{at:1}),p={files:[],requestHistory:history,background:{id:'uncertain-id',revision:-1,status:'needs_attention',asked:'School'},team:{asked:'School',status:'needs_attention'}},s=screen(p);
  await s.send('Add course fees');assert.deepEqual(s.calls,[]);assert.equal(s.polls,1);assert.equal(p.background.id,'uncertain-id');assert.deepEqual(p.requestHistory,history);assert.match(s.toasts[0],/Confirm the previous cloud task/);
  await s.send('Continue');assert.deepEqual(s.calls,[['School',true]]);assert.equal(p.background.id,'uncertain-id');
+});
+
+test('stale local phase labels cannot turn a Continue command into new requirements',async()=>{
+ const p={files:[],team:{asked:'School',status:'planning'},background:{id:'saved-task',revision:4,status:'needs_attention'}},ui=screen(p);
+ await ui.send('Continue');assert.deepEqual(ui.calls,[['School',true]]);assert.equal(p.requestHistory,undefined);
 });
