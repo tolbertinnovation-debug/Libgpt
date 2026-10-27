@@ -78,9 +78,9 @@ export function normalizeTeamPlan(raw) {
   return {title, summary, pages, contract, requirements, tasks, ...(raw.runtime == null ? {} : {runtime:raw.runtime}), ...(stack ? {stack} : {})};
 }
 
-export function workerInstruction(plan, agent, brief = '') {
+export function workerInstruction(plan, agent, brief = '', targetPath = '') {
   const task = plan.tasks.find(item => item.agent === agent);
-  if (!task) throw new TypeError('Unknown specialist.');
+  if (!task || (targetPath && !task.files.includes(targetPath))) throw new TypeError('Unknown specialist or file owner.');
   return [charterText(agent),
     `You are the ${agent} specialist on an engineering team with a separate Architect, Reviewer, Security, QA/DevOps and Approver.`,
     `Original request: ${brief}`, `Project: ${plan.title}. ${plan.summary}`,
@@ -88,7 +88,7 @@ export function workerInstruction(plan, agent, brief = '') {
     `Acceptance requirements: ${plan.requirements.join('\n')}`,
     `Shared contract:\n${plan.contract}`, `Pages/navigation:\n${JSON.stringify(plan.pages)}`,
     `Your task:\n${task.instruction}`, `Your exclusively owned files: ${task.files.join(', ')}.`,
-    'Write every owned file completely in a fenced code block with path=filename. Write no file owned by another specialist. Do not wait for colleagues; use the shared contract exactly. Never say rest unchanged or omit implementation. Keep all other filenames and selectors consistent. Include no image generation request blocks; draw assets as SVG files. Do not claim checks passed or files saved; the supervisor and application do that after inspecting actual output.'].filter(Boolean).join('\n\n');
+    `${targetPath?`For this operation write only ${targetPath} completely in a closed fenced block with path=${targetPath}.`:'Write every owned file completely in a fenced code block with path=filename.'} Write no file owned by another specialist. Do not wait for colleagues; use the shared contract exactly. Never say rest unchanged or omit implementation. Keep all other filenames and selectors consistent. Include no image generation request blocks; draw assets as SVG files. Do not claim checks passed or files saved; the supervisor and application do that after inspecting actual output.`].filter(Boolean).join('\n\n');
 }
 
 /** A provider cannot turn known faults into approval by returning approved:true. */

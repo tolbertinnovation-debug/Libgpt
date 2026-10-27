@@ -34,3 +34,12 @@ test('save failure interrupts the stream instead of reporting success',async()=>
  const body=frame('delta',{text:'```css path=style.css\nbody{color:red}\n```\n'})+frame('done',{});
  await assert.rejects(generator(new Response(body))('Make files',[],{onFile:async()=>{throw Error('Quota full');}}),/Quota full/);
 });
+
+test('only a trusted completion marker permits a bounded incomplete-file retry',async()=>{
+ for(const finished of [false,true]){
+  const body=frame('delta',{text:'```html path=index.html\n<html><body>Unfinished'})+(finished?frame('done',{}):'');
+  await assert.rejects(generator(new Response(body))('Make files',[]),error=>{
+   assert.equal(error.code,finished?'BUILD_INCOMPLETE_RESPONSE':undefined);return true;
+  });
+ }
+});

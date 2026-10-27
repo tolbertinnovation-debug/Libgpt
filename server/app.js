@@ -1,3 +1,4 @@
+import {generationContext} from './build-context.js';
 import {executionReadiness} from './build-execution.js';
 import { mountDocumentRoutes } from './documents.js';
 import { readDocument, withAttachments } from './chat-attachments.js';
@@ -1719,7 +1720,7 @@ export const buildAgentServices={
   model:await pickModel(undefined,'story'),complete,signal})),
  architecture:(asked,plan,signal)=>runInRole('architect','architecture',async()=>generateArchitecture({asked,plan,model:await pickModel(undefined,'story'),complete,signal})),
  generate:(agent,instruction,files,signal,plan,targetPath)=>runInRole(agent,'generate',async()=>{
-  const context=fitProject(files,90000,{requiredPaths:targetPath?[targetPath]:[]});
+  const context=targetPath ? generationContext(files,{targetPath,plan,instruction}) : fitProject(files,90000);
   return complete({model:await pickModel(undefined,'story'),
    messages:[{role:'system',content:buildPrompt({runtime:plan?.runtime || 'static'})},{role:'user',content:`${instruction}\n\n${projectContext(context.kept)}${context.dropped.length?`\n\nExisting files omitted from this call (preserve them; do not recreate or remove them): ${context.dropped.join(', ')}`:''}`}],maxTokens:16000,temperature:.3,signal});
  }),
@@ -1781,7 +1782,7 @@ app.post('/api/build/jobs/:id/control',rateLimit,requireAccess,requireBackground
   const action=req.body?.action;
   if(['resume','revise'].includes(action) && !config.apiKey)return res.status(503).json({error:'The coding agent is unavailable on this deployment.'});
   requireBuildGeneration(action,req.body?.generation);
-  const options={generation:req.body?.generation};
+  const options={generation:req.body?.generation,acknowledgeUncertain:req.body?.acknowledgeUncertain===true};
   if(action==='revise'){
    const {asked,files=[],requestHistory=null}=req.body;
    if(typeof asked!=='string' || !asked.trim() || asked.length>6000 || !Array.isArray(files) || files.length>200 || Buffer.byteLength(JSON.stringify(files))>1500000)return res.status(400).json({error:'Keep the project request under 6,000 characters and source under 1.5 MB.'});

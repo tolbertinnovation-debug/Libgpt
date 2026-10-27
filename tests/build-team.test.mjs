@@ -278,7 +278,7 @@ test('a truncated batch retries only its missing file before independent review'
     pageCalls.push([...paths]);
     if (pageCalls.length === 1) {
       await options.onFile({path: 'index.html', body: html('Already saved')});
-      throw new Error('A file was cut off.');
+      throw Object.assign(new Error('A file was cut off.'),{code:'BUILD_INCOMPLETE_RESPONSE'});
     }
     return original(agent, paths, instruction, options);
   };
@@ -321,4 +321,14 @@ test('access and budget denials never receive an immediate file retry', async ()
     assert.equal(reviews, 0);
     assert.ok(result.issues.some(issue => issue.includes(error.message)));
   }
+});
+
+test('foreground uncertain network failures never trigger automatic paid-file retries',async()=>{
+ for(const status of [undefined,502,504]){
+  let calls=0;
+  const f=fixture({generate:async(_agent,paths,_instruction,{onFile})=>{calls++;await onFile({path:paths[0],body:body(paths[0])});throw Object.assign(Error('Response interrupted after admission'),{status});}});
+  const result=await runTeam({asked:'School source',hooks:f.hooks});
+  assert.equal(result.status,'needs_attention');assert.equal(result.checkpoint.blocker.kind,'uncertain');assert.equal(result.checkpoint.blocker.automaticRetry,false);
+  assert.ok(calls<=TEAM_CAPACITY.concurrency);assert.equal(f.events.some(e=>e.event.type==='retrying'),false);assert.ok(result.files.length>0);
+ }
 });

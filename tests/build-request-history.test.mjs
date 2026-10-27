@@ -76,3 +76,20 @@ test('stale local phase labels cannot turn a Continue command into new requireme
  const p={files:[],team:{asked:'School',status:'planning'},background:{id:'saved-task',revision:4,status:'needs_attention'}},ui=screen(p);
  await ui.send('Continue');assert.deepEqual(ui.calls,[['School',true]]);assert.equal(p.requestHistory,undefined);
 });
+
+test('workspace Resume asks before retrying an uncertain operation and declining starts no work',async()=>{
+ const p={files:[],team:{asked:'School',status:'needs_attention'},background:{id:'unit-id',token:'unit-token',revision:1,status:'needs_attention'},backgroundSource:[]};
+ const original=globalThis.confirm;let prompts=0;globalThis.confirm=()=>{prompts++;return false;};
+ try{
+  const ui=buildScreen(p,{request:async(_p,_path,body,method)=>{assert.equal(method,'GET');return {id:'unit-id',revision:1,generation:3,status:'needs_attention',asked:'School',files:[],operation:{status:'uncertain'},checkpoint:{asked:'School',status:'needs_attention'}};}});
+  await ui.start('School',true);assert.equal(prompts,1);assert.equal(ui.calls.length,1);
+ }finally{globalThis.confirm=original;}
+});
+test('workspace explicit uncertain retry confirmation is sent only with the current saved generation',async()=>{
+ const p={files:[],team:{asked:'School',status:'needs_attention'},background:{id:'unit-id',token:'unit-token',revision:1,status:'needs_attention'},backgroundSource:[]};
+ const original=globalThis.confirm;globalThis.confirm=()=>true;
+ try{
+  const ui=buildScreen(p,{request:async(_p,_path,body,method)=>method==='GET'?{id:'unit-id',revision:1,generation:3,status:'needs_attention',asked:'School',files:[],operation:{status:'uncertain'},checkpoint:{asked:'School',status:'needs_attention'}}:{id:'unit-id',revision:2,generation:4,status:'queued',asked:'School',files:[],checkpoint:{asked:'School',status:'queued'}}});
+  await ui.start('School',true);assert.deepEqual(ui.calls[1][2],{action:'resume',generation:3,acknowledgeUncertain:true});
+ }finally{globalThis.confirm=original;}
+});

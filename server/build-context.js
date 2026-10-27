@@ -1,0 +1,42 @@
+// Deterministic source selection for generation only. Review still sees full source.
+import {resolveProjectPath} from '../public/build.js';
+import {safeTeamPath} from './build-team.js';
+import {fitProject,projectContext} from './build.js';
+const invalid=()=>Object.assign(new Error('Required coding context is unavailable or too large. Saved files are kept; split the task before resuming.'),{code:'BUILD_CONTEXT_LIMIT',status:413});
+const config=path=>/(?:^|\/)(?:package\.json|tsconfig\.json|jsconfig\.json|requirements\.txt|pyproject\.toml|schema\.prisma)$/.test(path);
+function references(body){
+ const refs=[];
+ // Literal local HTML/CSS/JS references. Dynamic/unsupported imports use the
+ // existing complete-file fallback rather than pretending dependency analysis.
+ const patterns=[/(?:src|href|action)\s*=\s*["']([^"']+)["']/gi,/\b(?:from|import)\s*["']([^"']+)["']/g,/\b(?:require|import|fetch)\s*\(\s*["']([^"']+)["']/g,/\burl\(\s*["']?([^\s'"\)]+)["']?\s*\)/gi,/@import\s+["']([^"']+)["']/g];
+ for(const pattern of patterns)for(const match of body.matchAll(pattern))refs.push(match[1]);
+ return refs;
+}
+export function generationContext(files,{targetPath,plan,instruction='',room=90000}={}){
+ if(!safeTeamPath(targetPath) || !Number.isSafeInteger(room) || room<1 || !Array.isArray(files))throw invalid();
+ const byPath=new Map();for(const f of files){if(!safeTeamPath(f?.path) || typeof f.body!=='string' || byPath.has(f.path))throw invalid();byPath.set(f.path,f);}
+ const required=new Set(),edges=new Map();let fallback=false;
+ const locate=(from,raw)=>{
+  if(/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(raw))return '';
+  const resolved=resolveProjectPath(from,raw);if(!resolved)return '';
+  return [resolved,resolved+'.js',resolved+'.mjs',resolved+'.ts',resolved+'.tsx',resolved+'.json',resolved+'/index.js',resolved+'/index.ts'].find(p=>byPath.has(p)) || '';
+ };
+ for(const f of files){
+  edges.set(f.path,references(f.body).map(ref=>locate(f.path,ref)).filter(Boolean));
+  // Dependencies that cannot be resolved statically are not safely pruned.
+  if(/\.(?:py|go|rs|java|kt|cs|php|rb)$/.test(f.path) || /\b(?:import|require|fetch)\s*\(\s*[^\s'"\)]/.test(f.body))fallback=true;
+ }
+ if(byPath.has(targetPath))required.add(targetPath);
+ const task=plan?.tasks?.find(t=>t.files?.includes(targetPath));
+ const contract=[plan?.contract || '',task?.instruction || '',instruction].join('\n');
+ for(const path of byPath.keys())if(config(path) || contract.includes(path))required.add(path);
+ // Include direct consumers when editing shared styles/scripts, then closure.
+ for(const [path,refs] of edges)if(refs.includes(targetPath))required.add(path);
+ const queue=[...required];for(let i=0;i<queue.length;i++)for(const path of edges.get(queue[i]) || [])if(!required.has(path)){required.add(path);queue.push(path);}
+ // A new file without any concrete references cannot be narrowed safely yet.
+ if(!required.size)fallback=true;
+ const selected=fallback?fitProject(files,room,{requiredPaths:files.map(f=>f.path)}):fitProject(files.filter(f=>required.has(f.path)),room,{requiredPaths:[...required]});
+ const kept=selected.kept,dropped=files.filter(f=>!kept.some(k=>k.path===f.path)).map(f=>f.path).sort();
+ const fullChars=projectContext(files).length,selectedChars=projectContext(kept).length;
+ return {kept,dropped,metrics:{method:'characters_divided_by_four_estimate',fallback,fullChars,selectedChars,estimatedFullTokens:Math.ceil(fullChars/4),estimatedSelectedTokens:Math.ceil(selectedChars/4)}};
+}

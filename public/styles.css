@@ -3737,3 +3737,15 @@ body {
 .verification-status dd {margin:0;overflow-wrap:anywhere;}
 .verification-status p {margin:.5rem 0;overflow-wrap:anywhere;}
 @media(max-width:420px){.verification-status dl {grid-template-columns:1fr;gap:.2rem;}.verification-status dd {margin-bottom:.35rem;}}
+
+/* Compact, keyboard-accessible task controls and durable file status. */
+.agent-quick-action {display:flex;align-items:center;gap:.35rem;flex-wrap:wrap;justify-content:flex-end;}
+.agent-quick-action button {min-height:44px;min-width:44px;}
+.agent-quick-action button:disabled {opacity:.55;cursor:wait;}
+.file-progress {margin:.6rem 0;font-size:.8rem;}
+.file-progress summary {cursor:pointer;padding:.4rem 0;}
+.file-progress ul {list-style:none;padding:0;max-height:14rem;overflow:auto;}
+.file-progress li {display:flex;flex-wrap:wrap;gap:.3rem .7rem;justify-content:space-between;padding:.4rem 0;border-bottom:1px solid var(--border);}
+.file-progress code {overflow-wrap:anywhere;min-width:0;}
+.file-progress span {color:var(--text-soft);}
+@media(max-width:420px){.agent-strip {flex-wrap:wrap;}.agent-quick-action {margin-left:auto;}.agent-caption {min-width:0;}.agent-quick-action button {font-size:.75rem;}}

@@ -261,15 +261,17 @@ export async function runTeam({ asked, checkpoint, files = [], hooks, signal, ma
       } catch (error) {
         await Promise.allSettled(pendingFiles);
         if (controller.signal.aborted || storageFailure) throw error;
-        // Budget, access and policy denials must pause, never trigger extra paid retries.
-        retryAllowed = ![401,403,413,423,429,503].includes(error?.status)
-          && !/budget|spend|rate limit|concurren|credential|governance|permission|switched off|unavailable on this host|cost policy/i.test(message(error));
-        if (!retryAllowed) {
-          policyFailure = error;
-          controller.abort(error);
-          throw error;
+        // A thrown transport/stream failure can follow a charged request.
+        // Only a normally returned incomplete response may get the bounded
+        // missing-file retry below. Never automatically repeat an uncertain call.
+        if(error?.code==='BUILD_INCOMPLETE_RESPONSE'){recoverable.push(`${task.agent}: ${message(error)}`);}
+        else {
+        retryAllowed = false;
+        const knownDenial=[401,403,413,423,429].includes(error?.status)
+          || /budget|spend|rate limit|concurren|credential|governance|permission|cost policy/i.test(message(error));
+        if(!knownDenial)state.blocker={kind:'uncertain',requiresResume:true,automaticRetry:false};
+        policyFailure=error;controller.abort(error);throw error;
         }
-        recoverable.push(`${task.agent}: ${message(error)}`);
       }
       const missing = batch.filter(path => !received.has(path));
       if (missing.length && retryAllowed && attempt < TEAM_CAPACITY.fileRetries) {

@@ -133,3 +133,10 @@ test('real Express team routes use access protection, provider calls and reject 
     server.closeAllConnections(); await new Promise(resolve=>server.close(resolve));
   }
 });
+
+test('single-file background instructions cannot request another owner or all owned files',()=>{
+ const plan=normalizeTeamPlan(sample());const prompt=workerInstruction(plan,'pages','Keep the school brief','contact.html');
+ assert.match(prompt,/write only contact.html/);assert.doesNotMatch(prompt,/Write every owned file/);
+ assert.match(prompt,/Original request: Keep the school brief/);assert.match(prompt,/Shared contract/);
+ assert.throws(()=>workerInstruction(plan,'pages','Keep brief','assets/app.js'));
+});
