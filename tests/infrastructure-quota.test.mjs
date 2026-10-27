@@ -152,3 +152,17 @@ test('cancellation during a delayed settlement cannot race a new admission or lo
  const f=fixture({verifySettlement:async()=>{entered();await wait;return false;}});await f.approve();const a=f.args();await f.c.reserve(a);const c=await f.c.claim(a.id,a.token);
  const settling=f.c.settle(a.id,c.key,result(c.attempt));await ready;const cancellation=f.make().cancel(a.id,a.token),admission=f.make().reserve(f.args());const observed=Promise.allSettled([cancellation,admission]);release();assert.equal((await settling).status,'unknown');const responses=await observed;assert.equal(responses[0].status,'fulfilled');assert.equal(responses[1].status,'rejected');assert.equal((await f.c.status()).infrastructure[0].actual,null);
 });
+
+test('audit and retained liabilities must agree even when records are individually well-formed',async()=>{
+ for(const corrupt of [
+  (s,a)=>{delete s.attempts[a.id];},
+  (s,a)=>{s.attempts[a.id].approvalId=crypto.randomUUID();},
+  s=>{s.approval.id=crypto.randomUUID();},
+  s=>{s.audit=s.audit.filter(x=>x.event!=='reserved').map((x,i)=>({...x,sequence:i+1}));},
+ ]){const f=fixture();await f.approve();const a=f.args();await f.c.reserve(a);f.storage.corrupt(s=>corrupt(s,a));await assert.rejects(f.c.status(),{code:'INFRA_STORAGE'});}
+});
+test('duplicate audit claims and conflicting cleanup counts fail closed without refunding',async()=>{
+ for(const corrupt of [s=>s.audit.push({...s.audit.at(-1),sequence:s.audit.length+1}), (s,a)=>{s.attempts[a.id].cleanupAttempts=1;}]){
+  const f=fixture();await f.approve();const a=f.args();await f.c.reserve(a);await f.c.claim(a.id,a.token);f.storage.corrupt(s=>corrupt(s,a));await assert.rejects(f.c.status(),{code:'INFRA_STORAGE'});assert.equal(f.storage.snapshot().attempts[a.id].actual,null);
+ }
+});

@@ -46,3 +46,9 @@ test('queued verification snapshots contract and signed evidence before caller m
  f.c.nonce=hash('mutated');f.report.executed=true;f.report.observations[0].actual.status=500;release();
  const result=await pending;assert.equal(result.status,'mock_passed');assert.equal(result.executed,false);assert.equal(Object.keys(state.consumed)[0],nonce);
 });
+
+test('rehashed and correctly signed contracts still reject duplicate case identities and invalid project generations',()=>{
+ for(const mutate of [c=>{c.cases[1].id=c.cases[0].id;},c=>{c.generation=0;},c=>{c.projectId='bad project!';},c=>{c.cases[0].extra=true;}]){
+  const f=fixture(),c=structuredClone(f.c);mutate(c);const {contractHash,...body}=c;c.contractHash=hash(canonicalEvidence(body));const payload={...f.payload,contractHash:c.contractHash,projectId:c.projectId,generation:c.generation,observations:c.cases.map(x=>({id:x.id,actual:x.expected}))};assert.throws(()=>verifyMockFullStackReport(c,f.sign(payload),{key,now}));
+ }
+});

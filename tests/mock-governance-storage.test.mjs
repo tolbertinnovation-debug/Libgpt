@@ -56,3 +56,19 @@ test('trusted mock evidence nonces and audit survive disk restart and reject a s
  await make(d.pool).verify(envelope,token);await d.db.close();d=await database(path);
  try{assert.equal((await make(d.pool).verify(envelope,token)).executed,false);payload.observations[0].actual.status=500;await assert.rejects(make(d.pool).verify({...envelope,report:sign()},token));const reopened=createMockGovernanceStorage({pool:d.pool,scope:'mock:restart',purpose:'evidence'});assert.equal(await reopened.transaction(s=>s.audit.length),2);}finally{await d.db.close();}
 });
+
+test('controller detects a lost reservation even when storage recomputes a valid checksum',async t=>{
+ const d=await database();t.after(()=>d.db.close());const f=gate(d.pool);await f.storage.initialize();await f.approve();const a=f.input();await f.c.reserve(a);
+ await f.storage.transaction(s=>{delete s.attempts[a.id];});await assert.rejects(f.c.status());
+});
+test('rollback failure destroys the client rather than returning an uncertain transaction to the pool',async t=>{
+ const d=await database();t.after(()=>d.db.close());const destroyed=[];let fail=false;
+ const pool={async connect(){const c=await d.pool.connect();return {async query(sql,args){if(fail && (sql==='ROLLBACK' || sql.startsWith('UPDATE public.grandpa_mock')))throw Error('private rollback error');return c.query(sql,args);},release(kill){destroyed.push(kill);c.release();}};}};
+ const f=gate(pool);await f.storage.initialize();await f.approve();fail=true;await assert.rejects(f.c.reserve(f.input()),e=>!e.message.includes('private'));assert.equal(destroyed.at(-1),true);
+});
+test('a lost commit acknowledgement retains the committed reservation and cannot duplicate admission',async t=>{
+ const d=await database();t.after(()=>d.db.close());const destroyed=[];let lose=false;
+ const pool={async connect(){const c=await d.pool.connect();return {async query(sql,args){const r=await c.query(sql,args);if(lose && sql==='COMMIT'){lose=false;throw Error('lost commit acknowledgement');}return r;},release(kill){destroyed.push(kill);c.release();}};}};
+ const f=gate(pool);await f.storage.initialize();await f.approve();const a=f.input();lose=true;await assert.rejects(f.c.reserve(a));assert.equal(destroyed.at(-1),true);
+ assert.equal((await f.make().reserve(a)).reserved,3001);const s=await f.c.status();assert.equal(s.audit.filter(x=>x.event==='reserved').length,1);assert.equal(s.infrastructure[0].actual,null);
+});

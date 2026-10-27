@@ -2,7 +2,7 @@ import {verificationStatusMarkup} from './build-verification.js';
 import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
 import {restrictPreviewDocument} from './preview-policy.js';
-import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=phase2-stage5';
+import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=phase2-stage5-review';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
 //
@@ -139,7 +139,7 @@ function render() {
   const p = project();
   if (!p) return;
   el.nameText.textContent = p.name;
-  const verificationPanel=$('build-verification');if(verificationPanel){const open=verificationPanel.querySelector('details')?.open===true;verificationPanel.innerHTML=verificationStatusMarkup(p,escapeHtml);verificationPanel.querySelector('details').open=open;}
+  const verificationPanel=$('build-verification'),verificationMarkup=verificationStatusMarkup(p,escapeHtml);if(verificationPanel && verificationPanel.verificationMarkup!==verificationMarkup){const open=verificationPanel.querySelector('details')?.open===true;verificationPanel.innerHTML=verificationMarkup;verificationPanel.querySelector('details').open=open;verificationPanel.verificationMarkup=verificationMarkup;}
   renderPlan(currentRun());
   renderThread();
   renderTree();

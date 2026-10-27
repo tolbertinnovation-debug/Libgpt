@@ -16,10 +16,10 @@ export function createMockGovernanceStorage({pool,scope,purpose}={}){
  const fresh=purpose==='infrastructure'?freshInfrastructureState:freshMockEvidenceState;
  return Object.freeze({
   // Only invoke with an explicitly supplied offline test database. Never mounted.
-  async initialize(){let c;try{c=await pool.connect();await c.query('BEGIN');await c.query("SET LOCAL lock_timeout = '3s'");await c.query("SELECT pg_advisory_xact_lock(hashtext('grandpa_mock_governance_schema_v1'))");await c.query(MOCK_GOVERNANCE_SCHEMA);await c.query('COMMIT');}catch{await c?.query('ROLLBACK').catch(()=>{});throw unavailable();}finally{c?.release();}},
-  async transaction(action){let c,actionError;
+  async initialize(){let c,destroy=false;try{c=await pool.connect();await c.query('BEGIN');await c.query("SET LOCAL lock_timeout = '3s'");await c.query("SELECT pg_advisory_xact_lock(hashtext('grandpa_mock_governance_schema_v1'))");await c.query(MOCK_GOVERNANCE_SCHEMA);await c.query('COMMIT');}catch{destroy=true;await c?.query('ROLLBACK').catch(()=>{});throw unavailable();}finally{try{c?.release(destroy);}catch{throw unavailable();}}},
+  async transaction(action){let c,actionError,destroy=false,committing=false;
    try{
-    c=await pool.connect();await c.query('BEGIN');await c.query("SET LOCAL lock_timeout = '3s'");await c.query("SET LOCAL statement_timeout = '8s'");
+    c=await pool.connect();await c.query('BEGIN');await c.query("SET LOCAL lock_timeout = '3s'");await c.query("SET LOCAL statement_timeout = '8s'");await c.query("SET LOCAL idle_in_transaction_session_timeout = '10s'");
     const initial=canonical(fresh());
     await c.query('INSERT INTO public.grandpa_mock_governance_v1 (purpose,scope,revision,state,digest) VALUES ($1,$2,0,$3::jsonb,$4) ON CONFLICT (purpose,scope) DO NOTHING',[purpose,scope,initial,digest(initial)]);
     const row=(await c.query('SELECT revision,state,digest FROM public.grandpa_mock_governance_v1 WHERE purpose=$1 AND scope=$2 FOR UPDATE',[purpose,scope])).rows[0];
@@ -29,8 +29,8 @@ export function createMockGovernanceStorage({pool,scope,purpose}={}){
     let result;try{result=structuredClone(await action(state));}catch(e){actionError=e;throw e;}
     const serialized=canonical(state);if(Buffer.byteLength(serialized)>2000000)throw unavailable();
     const updated=await c.query('UPDATE public.grandpa_mock_governance_v1 SET state=$3::jsonb,digest=$4,revision=revision+1 WHERE purpose=$1 AND scope=$2 AND revision=$5 RETURNING revision',[purpose,scope,serialized,digest(serialized),row.revision]);
-    if(updated.rows.length!==1)throw unavailable();await c.query('COMMIT');return result;
-   }catch(e){await c?.query('ROLLBACK').catch(()=>{});if(actionError===e)throw e;throw unavailable();}finally{c?.release();}
+    if(updated.rows.length!==1)throw unavailable();committing=true;await c.query('COMMIT');committing=false;return result;
+   }catch(e){destroy=committing;try{await c?.query('ROLLBACK');}catch{destroy=true;}if(actionError===e && !destroy)throw e;throw unavailable();}finally{try{c?.release(destroy);}catch{throw unavailable();}}
   },
  });
 }

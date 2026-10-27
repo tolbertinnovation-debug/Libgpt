@@ -47,3 +47,24 @@ test('queued caller mutations cannot replace source or signed evidence',async()=
  const f=fixture();let release;const blocker=f.storage.transaction(()=>new Promise(r=>release=r));await Promise.resolve();await Promise.resolve();const input=structuredClone(f.args),pending=f.c.issue(input);input.request.files[0].body='Changed';release();await blocker;const c=await pending;assert.equal(c.contract.sourceHash,f.a.sourceHash);
  const e=f.envelope(c),verified=f.c.verify(e,f.token);e.report.executed=true;assert.equal((await verified).executed,false);
 });
+
+test('a second individually valid challenge cannot reuse an existing attempt identity',async()=>{
+ const f=fixture(),c=await f.c.issue(f.args),e=f.envelope(c);
+ await f.storage.transaction(s=>{const copy=structuredClone(s.challenges[c.contract.nonce]);copy.contract.nonce=hash('conflicting nonce');const {contractHash,...body}=copy.contract;copy.contract.contractHash=hash(canonicalEvidence(body));s.challenges[copy.contract.nonce]=copy;s.audit.push({sequence:2,event:'issued',nonce:copy.contract.nonce,at:10000});});
+ await assert.rejects(f.c.verify(e,f.token));
+});
+test('missing challenge/audit records and mismatched persisted bindings fail closed',async()=>{
+ for(const mutate of [s=>{s.challenges={};},s=>{s.audit=[];},s=>{Object.values(s.challenges)[0].binding=hash('corrupted binding');}]){
+  const f=fixture(),c=await f.c.issue(f.args),e=f.envelope(c);await f.storage.transaction(mutate);await assert.rejects(f.c.verify(e,f.token));
+ }
+});
+test('persisted mock results cannot omit verification dimensions or claim real execution on replay',async()=>{
+ for(const mutate of [c=>{c.result.verification={};},c=>{c.result.executed=true;},c=>{c.result.independentlyVerified=true;}]){
+  const f=fixture(),c=await f.c.issue(f.args),e=f.envelope(c);await f.c.verify(e,f.token);await f.storage.transaction(s=>mutate(Object.values(s.challenges)[0]));await assert.rejects(f.c.verify(e,f.token));
+ }
+});
+
+test('verifier identities cannot alias the same signing key or key identity',()=>{
+ const f=fixture(),first=f.config.verifiers[0];
+ for(const other of [{id:'mock:other',keyId:'mock:other-key',key:first.key},{id:'mock:other',keyId:first.keyId,key:Buffer.alloc(32,8)}])assert.throws(()=>createTrustedMockEvidence({...f.config,verifiers:[first,other]}));
+});

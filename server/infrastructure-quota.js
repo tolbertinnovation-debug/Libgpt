@@ -22,13 +22,32 @@ function validate(s){
  let active=0;
  for(const [id,a] of Object.entries(s.attempts)){
   if(!object(a) || id!==a.id || !uuid(id) || !uuid(a.projectId) || !uuid(a.approvalId) || !hex(a.ownerHash) || !hex(a.sourceHash) || !hex(a.quoteHash) || !integer(a.generation,1) || !integer(a.createdAt) || !integer(a.expiresAt,a.createdAt) || !integer(a.quoteExpiresAt,a.createdAt) || a.day!==day(a.createdAt) || !integer(a.reserved,1,200000) || !integer(a.cleanupAttempts,0,3) || !['reserved','running','unknown','cancel_requested','cleaning','mock_passed','failed','cancelled'].includes(a.status) || (a.actual!==null && !integer(a.actual)) || (!pending(a) && a.actual===null) || (pending(a) && a.actual!==null) || (['running','cleaning'].includes(a.status)?!uuid(a.key):a.key!==null))invalid();
-  if(!object(a.quote) || !object(a.quote.components) || Object.keys(a.quote.components).length!==fields.length || !fields.every(k=>integer(a.quote.components[k],0,200000)) || !Array.isArray(a.checks) || !a.checks.length || a.checks.length>3 || Array.from(a.checks).some(k=>!['build','test','browser'].includes(k)) || a.reserved!==fields.reduce((sum,k)=>sum+a.quote.components[k],0) || a.quoteHash!==quoteDigest(a.quote,a.checks) || a.quoteExpiresAt!==a.quote.expiresAt)invalid();
+  if(!object(a.quote) || a.quote.simulation!==true || !/^mock:[\w-]{1,60}$/.test(a.quote.provider) || typeof a.quote.priceVersion!=='string' || !/^[\w.-]{1,80}$/.test(a.quote.priceVersion) || Object.keys(a.quote).some(k=>!['simulation','provider','priceVersion','expiresAt','components'].includes(k)) || !object(a.quote.components) || Object.keys(a.quote.components).length!==fields.length || !fields.every(k=>integer(a.quote.components[k],0,200000)) || !Array.isArray(a.checks) || new Set(a.checks).size!==a.checks.length || !a.checks.length || a.checks.length>3 || Array.from(a.checks).some(k=>!['build','test','browser'].includes(k)) || a.reserved!==fields.reduce((sum,k)=>sum+a.quote.components[k],0) || a.quoteHash!==quoteDigest(a.quote,a.checks) || a.quoteExpiresAt!==a.quote.expiresAt)invalid();
   if(pending(a))active++;
  }
  if(active>1)invalid();
  for(let i=0;i<s.audit.length;i++){const a=s.audit[i];if(!object(a) || a.sequence!==i+1 || (!integer(a.at) || (i>0 && a.at<s.audit[i-1].at)) || !['approved','revoked','reserved','claimed','cancelled','cancel_requested','unknown','cleanup_claimed','settled','overrun'].includes(a.event) || (a.id!==null && !uuid(a.id)))invalid();}
  if((s.observedAt??Infinity)<(s.audit.at(-1)?.at??0))invalid();
  if(s.approvals!==s.audit.filter(a=>a.event==='approved').length)invalid();
+ // Reconcile audit identities/transitions with retained liabilities. A checksum
+ // alone cannot detect a controller that accidentally drops a valid record.
+ const histories=new Map(),approvals=new Set();let currentApproval=null;
+ for(const e of s.audit){
+  if(e.event==='approved'){if(!uuid(e.id) || approvals.has(e.id))invalid();approvals.add(e.id);currentApproval=e.id;continue;}
+  if(e.event==='revoked'){if(e.id!==null || currentApproval===null)invalid();currentApproval=null;continue;}
+  const a=s.attempts[e.id],h=histories.get(e.id);
+  if(!a)invalid();
+  if(e.event==='reserved'){if(h || a.approvalId!==currentApproval || e.at!==a.createdAt)invalid();histories.set(e.id,{status:'reserved',cleanups:0});continue;}
+  if(!h)invalid();
+  const from={claimed:['reserved'],cancelled:['reserved'],cancel_requested:['running','unknown','cleaning'],unknown:['running','cleaning'],cleanup_claimed:['unknown','cancel_requested'],settled:['running','cleaning'],overrun:['running','cleaning']}[e.event];
+  if(!from?.includes(h.status))invalid();
+  h.status={claimed:'running',cancelled:'cancelled',cancel_requested:'cancel_requested',unknown:'unknown',cleanup_claimed:'cleaning',settled:'terminal',overrun:'terminal'}[e.event];
+  if(e.event==='cleanup_claimed')h.cleanups++;
+  if(e.event==='overrun' && (!s.paused || a.actual<=a.reserved))invalid();
+ }
+ if(currentApproval!==(s.approval?.id??null) || histories.size!==Object.keys(s.attempts).length)invalid();
+ for(const [id,h] of histories){const a=s.attempts[id];if(a.cleanupAttempts!==h.cleanups || (h.status==='terminal'?pending(a):a.status!==h.status) || (h.status==='cancelled' && a.actual!==0))invalid();}
+
 }
 export function createMockInfrastructureQuotaController({storage,now=Date.now,authorizeAdministrator=()=>false,authorizeProject=()=>false,verifyQuote=()=>false,verifySettlement=()=>false}={}){
  if(!storage?.transaction)throw fail('Atomic infrastructure storage is required.','INFRA_STORAGE',503);
