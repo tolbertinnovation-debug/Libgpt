@@ -1,3 +1,33 @@
+// Bound parent-side diagnostic retention. This does not stop a busy renderer,
+// block network traffic, or attest to the honesty of code inside the frame.
+export function createPreviewDiagnostics(frame, checkId) {
+  if (!frame || typeof checkId !== 'string' || !checkId || checkId.length > 256) throw new TypeError('A check frame and ID are required.');
+  const faults = [], seen = new Set();
+  let finished = false, received = 0, overflow = false;
+  const exceed = () => {
+    if (overflow) return;
+    overflow = true;
+    const note = 'Preview diagnostics exceeded the message limit; additional errors were omitted.';
+    if (faults.length === 20) faults[19] = note;
+    else faults.push(note);
+  };
+  return Object.freeze({
+    receive(event) {
+      const data = event?.data;
+      if (event?.source !== frame || !data || typeof data !== 'object' || Array.isArray(data) || data.checkId !== checkId) return;
+      if (data.grandpa === 'ran') { finished = true; return; }
+      if (data.grandpa !== 'fault' || typeof data.what !== 'string' || !data.what) return;
+      if (overflow) return;
+      if (++received > 100 || data.what.length > 400) { exceed(); return; }
+      if (seen.has(data.what)) return;
+      if (faults.length === 20) { exceed(); return; }
+      seen.add(data.what); faults.push(data.what);
+    },
+    get finished() { return finished; },
+    get faults() { return [...faults]; },
+  });
+}
+
 // A srcdoc frame otherwise resolves a project's navigation against Grandpa AI.
 // Route saved local files through the parent, without granting same-origin access.
 // Keep this installer self-contained; its source is embedded into the sandbox.
