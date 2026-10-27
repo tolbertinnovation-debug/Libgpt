@@ -16,7 +16,7 @@ function fixture(options={}){
  const args=()=>({id:crypto.randomUUID(),projectId:crypto.randomUUID(),token,generation,request,quote:{simulation:true,provider:'mock:fixture',priceVersion:'offline-v1',expiresAt:t+60000,components:{cpu:1000,memory:1000,creation:1,network:0,storage:0,recovery:500,controller:500}}});
  return {c,make,storage,policy,args,approve:p=>c.approve({...policy(),...p},'offline-admin'),advance:ms=>t+=ms,setGeneration:n=>generation=n,quoteValid:b=>validQuote=b,settlementValid:b=>validSettlement=b};
 }
-const result=(a,extra={})=>({simulation:true,executed:false,sourceHash:a.sourceHash,generation:a.generation,actualMicroUsd:1000,cleanupConfirmed:true,outcome:'mock_passed',...extra});
+const result=(a,extra={})=>({simulation:true,executed:false,sourceHash:a.sourceHash,generation:a.generation,actualMicroUsd:1000,cleanupConfirmed:true,billingFinal:true,resourcesBillable:false,outcome:'mock_passed',...extra});
 
 test('infrastructure is disabled with zero default allowance and cannot approve without administrator authorization',async()=>{
  const f=fixture({authorizeAdministrator:()=>false});assert.equal(f.c.readiness().dailyMicroUsd,0);assert.equal(f.c.readiness().enabled,false);
@@ -128,4 +128,27 @@ test('queued administrator approval cannot become effective after it expires',as
 test('ledger rejects a backwards clock without releasing liabilities or changing audit records',async()=>{
  const f=fixture();await f.approve();const a=f.args();await f.c.reserve(a);const before=f.storage.snapshot();f.advance(-1000);
  await assert.rejects(f.c.cancel(a.id,a.token));await assert.rejects(f.c.status());assert.deepEqual(f.storage.snapshot(),before);
+});
+
+test('cleanup success alone cannot release a reservation before billing-final reconciliation',async()=>{
+ for(const patch of [{billingFinal:false},{billingFinal:undefined},{resourcesBillable:true},{resourcesBillable:undefined}]){
+  const f=fixture();await f.approve();const a=f.args();await f.c.reserve(a);const c=await f.c.claim(a.id,a.token);
+  const held=await f.c.settle(a.id,c.key,result(c.attempt,patch));assert.equal(held.status,'unknown');assert.equal(held.actual,null);
+  const cleanup=await f.c.claimCleanup(a.id,a.token);assert.equal((await f.c.settle(a.id,cleanup.key,result(cleanup.attempt))).actual,1000);
+ }
+});
+test('unknown reconciliation responses and thrown verifier errors fence workers and keep the entire hold',async()=>{
+ for(const response of [null,{confirmed:true},'true',()=>{throw Error('private-provider-secret');}]){
+  const f=fixture({verifySettlement:typeof response==='function'?response:()=>response});await f.approve();const a=f.args();await f.c.reserve(a);const c=await f.c.claim(a.id,a.token);
+  const held=await f.c.settle(a.id,c.key,result(c.attempt));assert.equal(held.status,'unknown');assert.equal(held.actual,null);await assert.rejects(f.c.settle(a.id,c.key,result(c.attempt)));
+ }
+});
+test('a persisted observation clock rejects rollback even without a previous audit event',async()=>{
+ const f=fixture();await f.c.status();f.advance(-1);await assert.rejects(f.make().status());
+});
+
+test('cancellation during a delayed settlement cannot race a new admission or lose the held liability',async()=>{
+ let entered,release;const ready=new Promise(r=>entered=r),wait=new Promise(r=>release=r);
+ const f=fixture({verifySettlement:async()=>{entered();await wait;return false;}});await f.approve();const a=f.args();await f.c.reserve(a);const c=await f.c.claim(a.id,a.token);
+ const settling=f.c.settle(a.id,c.key,result(c.attempt));await ready;const cancellation=f.make().cancel(a.id,a.token),admission=f.make().reserve(f.args());const observed=Promise.allSettled([cancellation,admission]);release();assert.equal((await settling).status,'unknown');const responses=await observed;assert.equal(responses[0].status,'fulfilled');assert.equal(responses[1].status,'rejected');assert.equal((await f.c.status()).infrastructure[0].actual,null);
 });

@@ -13,11 +13,12 @@ const fields=['cpu','memory','creation','network','storage','recovery','controll
 const quoteDigest=(q,checks)=>hash(JSON.stringify([q.provider,q.priceVersion,q.expiresAt,...fields.map(k=>q.components[k]),checks]));
 const pending=a=>!['mock_passed','failed','cancelled'].includes(a.status);
 const day=t=>new Date(t).toISOString().slice(0,10);
-export const freshInfrastructureState=()=>({version:1,approval:null,approvals:0,paused:false,attempts:{},audit:[]});
+export const freshInfrastructureState=()=>({version:1,approval:null,approvals:0,paused:false,observedAt:0,attempts:{},audit:[]});
 function policyValid(p){return object(p) && Object.keys(p).every(k=>['simulation','id','provider','priceVersion','expiresAt','dailyMicroUsd','maxAttemptMicroUsd','dailyAttempts'].includes(k)) && p.simulation===true && uuid(p.id) && /^mock:[\w-]{1,60}$/.test(p.provider) && typeof p.priceVersion==='string' && /^[\w.-]{1,80}$/.test(p.priceVersion) && integer(p.expiresAt,1) && integer(p.dailyMicroUsd,1,200000) && integer(p.maxAttemptMicroUsd,1,p.dailyMicroUsd) && integer(p.dailyAttempts,1,10);}
 function validate(s){
  const invalid=()=>{throw fail('Infrastructure ledger is invalid; offline reconciliation is required.','INFRA_STORAGE',503);};
  if(!object(s) || s.version!==1 || !integer(s.approvals,0,100) || typeof s.paused!=='boolean' || !object(s.attempts) || Object.keys(s.attempts).length>100 || !Array.isArray(s.audit) || s.audit.length>10000 || (s.approval!==null && !policyValid(s.approval)))invalid();
+ if(s.observedAt!==undefined && !integer(s.observedAt))invalid();
  let active=0;
  for(const [id,a] of Object.entries(s.attempts)){
   if(!object(a) || id!==a.id || !uuid(id) || !uuid(a.projectId) || !uuid(a.approvalId) || !hex(a.ownerHash) || !hex(a.sourceHash) || !hex(a.quoteHash) || !integer(a.generation,1) || !integer(a.createdAt) || !integer(a.expiresAt,a.createdAt) || !integer(a.quoteExpiresAt,a.createdAt) || a.day!==day(a.createdAt) || !integer(a.reserved,1,200000) || !integer(a.cleanupAttempts,0,3) || !['reserved','running','unknown','cancel_requested','cleaning','mock_passed','failed','cancelled'].includes(a.status) || (a.actual!==null && !integer(a.actual)) || (!pending(a) && a.actual===null) || (pending(a) && a.actual!==null) || (['running','cleaning'].includes(a.status)?!uuid(a.key):a.key!==null))invalid();
@@ -26,12 +27,13 @@ function validate(s){
  }
  if(active>1)invalid();
  for(let i=0;i<s.audit.length;i++){const a=s.audit[i];if(!object(a) || a.sequence!==i+1 || (!integer(a.at) || (i>0 && a.at<s.audit[i-1].at)) || !['approved','revoked','reserved','claimed','cancelled','cancel_requested','unknown','cleanup_claimed','settled','overrun'].includes(a.event) || (a.id!==null && !uuid(a.id)))invalid();}
+ if((s.observedAt??Infinity)<(s.audit.at(-1)?.at??0))invalid();
  if(s.approvals!==s.audit.filter(a=>a.event==='approved').length)invalid();
 }
 export function createMockInfrastructureQuotaController({storage,now=Date.now,authorizeAdministrator=()=>false,authorizeProject=()=>false,verifyQuote=()=>false,verifySettlement=()=>false}={}){
  if(!storage?.transaction)throw fail('Atomic infrastructure storage is required.','INFRA_STORAGE',503);
  const time=()=>{const t=now();if(!integer(t,0,8640000000000000-60000))throw fail('Infrastructure clock is invalid.');return t;};
- const tx=fn=>Promise.resolve().then(()=>storage.transaction(async s=>{validate(s);if(s.audit.length && time()<s.audit.at(-1).at)throw fail('Infrastructure clock moved backwards.');const value=await fn(s);validate(s);if(s.audit.length && time()<s.audit.at(-1).at)throw fail('Infrastructure clock moved backwards.');return value;})).catch(e=>{if(e?.[internal])throw e;throw fail('Infrastructure tracking is unavailable.','INFRA_STORAGE',503);});
+ const tx=fn=>Promise.resolve().then(()=>storage.transaction(async s=>{validate(s);const began=time(),floor=Math.max(s.observedAt??0,s.audit.at(-1)?.at??0);if(began<floor)throw fail('Infrastructure clock moved backwards.');const value=await fn(s);const ended=time();if(ended<began || ended<floor)throw fail('Infrastructure clock moved backwards.');s.observedAt=ended;validate(s);return value;})).catch(e=>{if(e?.[internal])throw e;throw fail('Infrastructure tracking is unavailable.','INFRA_STORAGE',503);});
  const admin=async credential=>{try{return await authorizeAdministrator(credential)===true;}catch{return false;}};
  const audit=(s,event,id=null)=>{if(s.audit.length>=10000)throw fail('Infrastructure audit maintenance is required.');const at=time();if(s.audit.length && at<s.audit.at(-1).at)throw fail('Infrastructure clock moved backwards.');s.audit.push({sequence:s.audit.length+1,at,event,id});};
  const view=a=>{const {ownerHash,key,...rest}=structuredClone(a);return {...rest,simulation:true,executed:false};};
@@ -73,7 +75,7 @@ export function createMockInfrastructureQuotaController({storage,now=Date.now,au
   recover:()=>tx(s=>{let count=0;for(const a of Object.values(s.attempts))if(pending(a) && !['unknown','cancel_requested'].includes(a.status) && time()>=a.expiresAt){if(a.status==='reserved'){a.status='cancelled';a.actual=0;audit(s,'cancelled',a.id);}else{a.status='unknown';audit(s,'unknown',a.id);}a.key=null;count++;}return {interrupted:count,executed:false};}),
   claimCleanup:(id,token)=>tx(s=>{const a=owner(s,id,token);if(!['unknown','cancel_requested'].includes(a.status) || a.cleanupAttempts>=3)throw fail('Cleanup is unavailable or requires manual reconciliation.');a.cleanupAttempts++;a.status='cleaning';a.key=crypto.randomUUID();a.expiresAt=time()+30000;audit(s,'cleanup_claimed',id);return {attempt:view(a),key:a.key};}),
   settle:(id,key,input)=>{const report=structuredClone(input);return tx(async s=>{const a=claim(s,id,key);if(!['running','cleaning'].includes(a.status))throw fail('Infrastructure result is not claimable.');
-   const valid=object(report) && Object.keys(report).every(k=>['simulation','executed','sourceHash','generation','actualMicroUsd','cleanupConfirmed','outcome'].includes(k)) && report.simulation===true && report.executed===false && report.sourceHash===a.sourceHash && report.generation===a.generation && integer(report.actualMicroUsd) && report.cleanupConfirmed===true && ['mock_passed','failed','cancelled'].includes(report.outcome) && await verifySettlement(structuredClone(report),view(a))===true;
+   const valid=object(report) && Object.keys(report).every(k=>['simulation','executed','sourceHash','generation','actualMicroUsd','cleanupConfirmed','billingFinal','resourcesBillable','outcome'].includes(k)) && report.simulation===true && report.executed===false && report.sourceHash===a.sourceHash && report.generation===a.generation && integer(report.actualMicroUsd) && report.cleanupConfirmed===true && report.billingFinal===true && report.resourcesBillable===false && ['mock_passed','failed','cancelled'].includes(report.outcome) && await Promise.resolve().then(()=>verifySettlement(structuredClone(report),view(a))).then(value=>value===true,()=>false);
    if(!valid || time()>=a.expiresAt){a.status='unknown';a.key=null;audit(s,'unknown',id);return view(a);}
    a.actual=report.actualMicroUsd;a.status=report.outcome;a.key=null;
    if(a.actual>a.reserved){s.paused=true;audit(s,'overrun',id);}else audit(s,'settled',id);
