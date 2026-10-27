@@ -322,3 +322,10 @@ test('corrupt persisted response receipts fail closed instead of issuing another
  await assert.rejects(store.startOperation(identity.id,1,claim.key,{kind:'plan'}),{status:503});
  await assert.rejects(store.get(identity.id,identity.token),{status:503});
 });
+
+test('receipt recovery uses locale-independent source ordering across worker restarts',async t=>{
+ const {store,identity}=await fixture(t,{files:[{path:'z.js',body:'Z'},{path:'a.js',body:'A'}]}),claim=await store.claim(identity.id,1);
+ const op=await store.startOperation(identity.id,1,claim.key,{kind:'plan'});await store.finishOperation(identity.id,1,claim.key,op.id,{result:plan});
+ const original=String.prototype.localeCompare;String.prototype.localeCompare=()=>{throw Error('Locale must not determine receipt identity');};
+ try{const reused=await store.startOperation(identity.id,1,claim.key,{kind:'plan'});assert.equal(reused.reused,true);assert.equal(reused.id,op.id);}finally{String.prototype.localeCompare=original;}
+});

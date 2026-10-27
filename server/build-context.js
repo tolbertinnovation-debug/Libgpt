@@ -8,7 +8,8 @@ function references(body){
  const refs=[];
  // Literal local HTML/CSS/JS references. Dynamic/unsupported imports use the
  // existing complete-file fallback rather than pretending dependency analysis.
- const patterns=[/(?:src|href|action)\s*=\s*["']([^"']+)["']/gi,/\b(?:from|import)\s*["']([^"']+)["']/g,/\b(?:require|import|fetch)\s*\(\s*["']([^"']+)["']/g,/\burl\(\s*["']?([^\s'"\)]+)["']?\s*\)/gi,/@import\s+["']([^"']+)["']/g];
+ const patterns=[/(?:src|href|action|poster)\s*=\s*["']([^"']+)["']/gi,/\b(?:from|import)\s*["']([^"']+)["']/g,/\b(?:require|import|fetch)\s*\(\s*["']([^"']+)["']/g,/\burl\(\s*["']?([^\s'"\)]+)["']?\s*\)/gi,/@import\s+["']([^"']+)["']/g];
+ for(const match of body.matchAll(/\bsrcset\s*=\s*["']([^"']+)["']/gi))for(const candidate of match[1].split(',')){const ref=candidate.trim().split(/\s+/)[0];if(ref)refs.push(ref);}
  for(const pattern of patterns)for(const match of body.matchAll(pattern))refs.push(match[1]);
  return refs;
 }
@@ -19,10 +20,14 @@ export function generationContext(files,{targetPath,plan,instruction='',room=900
  const locate=(from,raw)=>{
   if(/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(raw))return '';
   const resolved=resolveProjectPath(from,raw);if(!resolved)return '';
-  return [resolved,resolved+'.js',resolved+'.mjs',resolved+'.ts',resolved+'.tsx',resolved+'.json',resolved+'/index.js',resolved+'/index.ts'].find(p=>byPath.has(p)) || '';
+  return [resolved,resolved+'.js',resolved+'.jsx',resolved+'.mjs',resolved+'.cjs',resolved+'.ts',resolved+'.tsx',resolved+'.json',resolved+'/index.js',resolved+'/index.jsx',resolved+'/index.mjs',resolved+'/index.ts',resolved+'/index.tsx'].find(p=>byPath.has(p)) || '';
  };
  for(const f of files){
   edges.set(f.path,references(f.body).map(ref=>locate(f.path,ref)).filter(Boolean));
+  // Bare imports may be workspace packages/aliases. Unresolved literal module
+  // or fetch references cannot establish a safe pruning boundary either.
+  const moduleRefs=[...f.body.matchAll(/\b(?:from|import)\s*["']([^"']+)["']/g),...f.body.matchAll(/\b(?:require|import|fetch)\s*\(\s*["']([^"']+)["']/g)];
+  for(const [,ref] of moduleRefs)if(!/^(?:[a-z][a-z\d+.-]*:|\/\/|#)/i.test(ref) && (!/^(?:\.|\/)/.test(ref) || !locate(f.path,ref)))fallback=true;
   // Dependencies that cannot be resolved statically are not safely pruned.
   if(/\.(?:py|go|rs|java|kt|cs|php|rb)$/.test(f.path) || /\b(?:import|require|fetch)\s*\(\s*[^\s'"\)]/.test(f.body))fallback=true;
  }

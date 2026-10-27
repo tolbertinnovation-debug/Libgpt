@@ -96,7 +96,7 @@ export function createBuildJobStore({connectionString,pool:suppliedPool,scope=go
    if(row.generation!==generation || row.work_key!==key || !activeBuildStatus(row.state.status))throw fail('This worker no longer owns the task.',409);
    if(!['plan','architecture','generate','review','release'].includes(kind) || (kind==='generate' && (!path || path!==row.state.checkpoint?.currentFile)))throw fail('Invalid coding operation.',400);
    const cp=row.state.checkpoint || {};
-   const binding=hash(canonical({kind,path,asked:row.state.asked,files:[...row.state.files].sort((a,b)=>a.path.localeCompare(b.path)),plan:cp.plan || null,architecture:cp.architecture || null,repairs:cp.repairs || null,findings:cp.gateFindings || [],attempts:cp.fileAttempts || {},round:cp.reviewRound || 0}));
+   const binding=hash(canonical({kind,path,asked:row.state.asked,files:[...row.state.files].sort((a,b)=>a.path<b.path?-1:a.path>b.path?1:0),plan:cp.plan || null,architecture:cp.architecture || null,repairs:cp.repairs || null,findings:cp.gateFindings || [],attempts:cp.fileAttempts || {},round:cp.reviewRound || 0}));
    const prior=row.state.operation;
    if(prior?.binding===binding && prior.status==='returned' && kind!=='release')return {reused:true,result:prior.result,id:prior.id};
    if(prior && ['started','uncertain'].includes(prior.status))throw Object.assign(fail('A previous AI operation has an uncertain outcome. Reconnect, then explicitly approve a retry; it may already have been charged.',409),{code:'BUILD_OUTCOME_UNCERTAIN'});

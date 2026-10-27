@@ -72,7 +72,7 @@ The branch is listed as deployment-disabled in `vercel.json` from its first publ
 
 ## Validation
 
-Local full regression: **653 tests passed, 0 failed, 0 skipped** (24 additional regression cases over the 629-test baseline). Local clean production build passed: **50.3 MB / 19.8 MB gzip**. GitHub CI on Node 22/24 is required on the exact published head; see the Draft PR checks for its final status.
+Local full regression: **658 tests passed, 0 failed, 0 skipped** (29 additional regression cases over the 629-test baseline). Local clean production build passed: **50.3 MB / 19.8 MB gzip**. GitHub CI on Node 22/24 is required on the exact published head; see the Draft PR checks for its final status.
 
 Chromium at **320×900, 390×900 and 1440×900** passed both suites: (1) Plan and verification disclosure, forged imported success flags, no document overflow, standard/restricted resource probes, bounded diagnostics and unloading; (2) mocked active background Pause, Resume, Cancel, file status, direct Plan access, saved source count and cleared composer busy state. No page errors, actual model calls, provider calls or unexpected backend requests occurred. The diagnostic flood retained 30 combined UI items and unloaded its hidden frame. The known self-navigation limitation was reproduced with a locally intercepted URL and is not claimed fixed. All test model/provider operations are mocked; SQL tests use offline PGlite. Browser routes use local static files and mocked configuration/job transport; no actual job or paid-model request is sent.
 
@@ -90,3 +90,14 @@ Chromium at **320×900, 390×900 and 1440×900** passed both suites: (1) Plan an
 - Before a future rollout/rollback, pause in-flight coding jobs and review receipt compatibility. Legacy jobs without receipts remain supported. Downgrading removes the new recovery protections; no downgrade/migration was performed here.
 
 Recommendation: ready for independent security review once exact-head CI, full tests, production build and responsive checks pass. Do not merge or deploy without separate owner approval.
+
+## Focused security/reliability review follow-up
+
+The follow-up review of the initial Draft PR head found and corrected two additional issues:
+
+- **Medium — context completeness:** extensionless JSX/directory imports, module aliases/workspace packages and unresolved literal references could omit required source. JSX/TSX entrypoints are now resolved, responsive-image/poster dependencies retained, and uncertain module resolution uses full-source fallback or fails before a paid call if complete source does not fit. This deliberately favors correctness over estimated savings for unsupported resolution.
+- **Low — receipt determinism:** locale-sensitive filename sorting could change an operation binding between environments. Receipt source ordering now uses a binary comparison. A mocked locale-change regression proves the saved response is reused without depending on `localeCompare`.
+
+Five regression cases were added. Final local full suite: 658 passed, zero failed/skipped. Clean production build remains 50.3 MB / 19.8 MB gzip. Both responsive Chromium suites passed again at 320, 390 and 1440 pixels, with mocked job transport and zero model/provider calls. GitHub CI must pass on the correction head; refer to the Draft PR checks for its final result. The original fixture's 99.12% source-context estimate is unchanged and remains a fixture-only estimate.
+
+No critical/high or additional merge-blocking medium finding was identified in this bounded pass. Existing preview isolation/report-trust, provider exactly-once, full-stack execution, physical-device testing and database anti-rollback limitations remain. This follow-up is an assistant review, not an external independent audit or merge authorization.
