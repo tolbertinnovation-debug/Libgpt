@@ -1,3 +1,4 @@
+import {verificationStatusMarkup} from '../public/build-verification.js';
 import {normalizeBuildRequests} from '../public/build-requests.js';
 import {staticSourceReport} from '../public/build-static.js';
 import test from 'node:test';
@@ -10,8 +11,8 @@ test('the Plan view renders requirements and source counts without trusting appr
  const p={files:[{path:'index.html',body:'present'}],team:{asked:'A school <script>unsafe</script>',plan:{title:'School',summary:'Source project',requirements:['Approve students <img src=x>'],contract:'Do not run <script>any code</script>',tasks:[{agent:'pages',files:['index.html']},{agent:'backend',files:['api.js']}]},release:{approved:true}}};
  let title,html;
  const start=source.indexOf('function showProjectPlan()'),end=source.indexOf('\nfunction renderWorkspaceChanges()',start);
- const show=new Function('project','deps','buildTaskFacts','staticSourceReport','normalizeBuildRequests','escapeHtml','openSheet',source.slice(start,end)+';return showProjectPlan;')(()=>p,{toast:()=>assert.fail('Plan was lost')},buildTaskFacts,staticSourceReport,normalizeBuildRequests,escapeHtml,(t,h)=>{title=t;html=h;});
- show();assert.equal(title,'Project plan');assert.match(html,/1 of 2 planned files/);assert.match(html,/Requirements to verify/);assert.match(html,/Secure execution is disabled/);
+ const show=new Function('project','deps','buildTaskFacts','staticSourceReport','normalizeBuildRequests','escapeHtml','openSheet','verificationStatusMarkup',source.slice(start,end)+';return showProjectPlan;')(()=>p,{toast:()=>assert.fail('Plan was lost')},buildTaskFacts,staticSourceReport,normalizeBuildRequests,escapeHtml,(t,h)=>{title=t;html=h;},verificationStatusMarkup);
+ show();assert.match(html,/aria-label="Project verification status"/);assert.match(html,/Awaiting trusted real execution evidence/);assert.equal(title,'Project plan');assert.match(html,/1 of 2 planned files/);assert.match(html,/Requirements to verify/);assert.match(html,/Secure execution is disabled/);
  assert.match(html,/aria-label="Verification coverage"/);assert.match(html,/Backend, database and authentication<\/dt><dd>Not verified/);assert.match(html,/Not run in an approved isolated environment/);
  assert.match(html,/&lt;script&gt;unsafe/);assert.match(html,/&lt;img/);assert.doesNotMatch(html,/<script>|<img|tests passed/i);
  p.requestHistory={version:1,origin:'user',entries:[{sequence:1,kind:'brief',text:'First <script>request</script>',at:1},{sequence:2,kind:'change',text:'Add <img src=x> courses',at:2}]};show();assert.match(html,/Saved request history/);assert.match(html,/Starting brief: First &lt;script&gt;/);assert.match(html,/Requested change: Add &lt;img/);assert.doesNotMatch(html,/<script>|<img/);

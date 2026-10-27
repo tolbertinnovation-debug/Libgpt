@@ -37,12 +37,20 @@ export function prepareMockFullStackContract(input,now=Date.now()){
  const text=canonicalEvidence(c);if(Buffer.byteLength(text)>16000)throw bad();
  return {...c,contractHash:hash(text)};
 }
-export function verifyMockFullStackReport(contract,envelope,{key,now=Date.now()}={}){
- // Clone first; callers cannot alter the contract during validation.
- const c=structuredClone(contract),r=structuredClone(envelope);
- if(!exact(c,['version','simulation','executed','projectId','ownerHash','generation','sourceHash','nonce','expiresAt','cases','contractHash']) || c.version!==1 || c.simulation!==true || c.executed!==false || !hex(c.contractHash) || !hex(c.sourceHash) || !hex(c.ownerHash) || !hex(c.nonce) || !Number.isSafeInteger(now) || !Number.isSafeInteger(c.expiresAt) || now>=c.expiresAt || c.expiresAt>now+60000)throw bad();
+export function validateMockFullStackContract(contract,now=Date.now()){
+ const c=structuredClone(contract);
+ if(!exact(c,['version','simulation','executed','projectId','ownerHash','generation','sourceHash','nonce','expiresAt','cases','contractHash']) || c.version!==1 || c.simulation!==true || c.executed!==false || !hex(c.contractHash) || !hex(c.sourceHash) || !hex(c.ownerHash) || !hex(c.nonce) || !Number.isSafeInteger(now) || now<0 || !Number.isSafeInteger(c.expiresAt) || now>=c.expiresAt || c.expiresAt>now+60000)throw bad();
  const {contractHash,...body}=c;if(hash(canonicalEvidence(body))!==contractHash)throw bad();
  if(!Array.isArray(c.cases) || !c.cases.length || c.cases.length>20 || Array.from(c.cases).some(item=>!item || !Object.hasOwn(schemas,item.kind) || !expectedValid(item.kind,item.expected,c)))throw bad();
+ const ids=new Set();
+ if(typeof c.projectId!=='string' || !/^[\w-]{1,100}$/.test(c.projectId) || !Number.isSafeInteger(c.generation) || c.generation<1)throw bad();
+ for(const item of c.cases){if(!exact(item,['id','kind','expected']) || typeof item.id!=='string' || !/^[\w-]{1,60}$/.test(item.id) || ids.has(item.id))throw bad();ids.add(item.id);}
+ return c;
+}
+export function verifyMockFullStackReport(contract,envelope,{key,now=Date.now()}={}){
+ // Clone first; callers cannot alter the contract during validation.
+ const c=validateMockFullStackContract(contract,now),r=structuredClone(envelope);
+ const {contractHash}=c;
  if(!exact(r,['simulation','executed','contractHash','sourceHash','projectId','generation','nonce','observations','signature']) || r.simulation!==true || r.executed!==false || r.contractHash!==contractHash || r.sourceHash!==c.sourceHash || r.projectId!==c.projectId || r.generation!==c.generation || r.nonce!==c.nonce || !hex(r.signature) || !(typeof key==='string' || Buffer.isBuffer(key)) || Buffer.byteLength(key)<32 || !Array.isArray(r.observations) || r.observations.length!==c.cases.length)throw bad();
  const {signature,...payload}=r,text=canonicalEvidence(payload);if(Buffer.byteLength(text)>16000)throw bad();
  const expected=createHmac('sha256',key).update('grandpa-mock-fullstack-v1\n'+text).digest();
