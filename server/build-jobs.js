@@ -1,6 +1,7 @@
 import {normalizeBuildRequests,buildRequestBrief} from '../public/build-requests.js';
 import crypto from 'node:crypto';
 import pg from 'pg';
+import {postgresPoolOptions} from './postgres-options.js';
 import {buildBlocker} from '../public/build-task-state.js';
 import {attachDatabasePool} from '@vercel/functions';
 import {governanceScope} from './governance-postgres.js';
@@ -22,7 +23,7 @@ const SCHEMA=`CREATE TABLE IF NOT EXISTS public.grandpa_ai_build_jobs (
  created_at timestamptz NOT NULL DEFAULT now(), updated_at timestamptz NOT NULL DEFAULT now()
 );`;
 export function createBuildJobStore({connectionString,pool:suppliedPool,scope=governanceScope()}={}) {
- const pool=suppliedPool || new pg.Pool({connectionString,max:3,connectionTimeoutMillis:8000,idleTimeoutMillis:10000,allowExitOnIdle:true});
+ const pool=suppliedPool || new pg.Pool(postgresPoolOptions(connectionString,{max:3,connectionTimeoutMillis:8000,idleTimeoutMillis:10000,allowExitOnIdle:true}));
  if(!suppliedPool && process.env.VERCEL)attachDatabasePool(pool);
  pool.on?.('error',()=>console.error('[build-jobs] Database connection unavailable.'));
  let ready;

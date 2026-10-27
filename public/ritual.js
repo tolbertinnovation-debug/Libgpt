@@ -615,7 +615,8 @@ function showProjectPlan(){
   <p class="sheet-note"><strong>Architecture test plan (not execution results)</strong></p>${cp.architecture?.testPlan?.length?list(cp.architecture.testPlan):'<p>No architecture test plan recorded yet.</p>'}
   <p class="sheet-note"><strong>Current static source checks</strong></p><p>${verification.checks.length} checks inspected locally; ${verification.faults.length} faults; ${verification.warnings.length} SQL lexical warnings. These inspect CSS, SQL and JSON source. HTML structure and JavaScript syntax are also checked by the release gate. These are source checks, not executed tests.</p>${verification.faults.length?list(verification.faults):''}${verification.warnings.length?list(verification.warnings):''}<p>${escapeHtml(verification.limitations)}</p>
   <p class="sheet-note"><strong>Shared implementation contract</strong></p><p>${escapeHtml(plan.contract)}</p>
-  <p class="sheet-note"><strong>Verification status</strong></p><p>Generated project build and test commands have not been executed. Secure execution is disabled. Source reviews and the frontend preview do not prove that a backend, database or login works.</p>`);
+  <p class="sheet-note"><strong>Verification status</strong></p><p>Generated project build and test commands have not been executed. Secure execution is disabled. Source reviews and the frontend preview do not prove that a backend, database or login works.</p>
+  <dl aria-label="Verification coverage"><dt>Static verification</dt><dd>Source checks only; see reported faults.</dd><dt>Frontend preview</dt><dd>Browser-only observations when opened; not a backend test.</dd><dt>Build and project tests</dt><dd>Not run in an approved isolated environment.</dd><dt>Backend, database and authentication</dt><dd>Not verified. Runtime execution requires separate approval.</dd></dl>`);
 }
 
 function renderWorkspaceChanges(){

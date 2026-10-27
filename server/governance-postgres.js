@@ -1,4 +1,5 @@
 import pg from 'pg';
+import {postgresPoolOptions} from './postgres-options.js';
 import { attachDatabasePool } from '@vercel/functions';
 import { GOVERNANCE_SCHEMA_V1 } from './governance-schema.js';
 
@@ -13,8 +14,8 @@ export function governanceScope(env = process.env) {
 
 export function createPostgresGovernanceStorage({ connectionString, scope = governanceScope(), pool: suppliedPool } = {}) {
   if (typeof scope !== 'string' || !scope || scope.length > 240) throw unavailable();
-  const pool = suppliedPool || new pg.Pool({ connectionString, max: 4,
-    connectionTimeoutMillis: 8000, idleTimeoutMillis: 10000, allowExitOnIdle: true });
+  const pool = suppliedPool || new pg.Pool(postgresPoolOptions(connectionString,{max: 4,
+    connectionTimeoutMillis: 8000, idleTimeoutMillis: 10000, allowExitOnIdle: true}));
   if (!suppliedPool && process.env.VERCEL) attachDatabasePool(pool);
   // Idle pool failures must not crash an otherwise healthy chat process.
   pool.on?.('error', () => console.error('[build-storage] Database connection unavailable.'));
