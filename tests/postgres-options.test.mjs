@@ -3,6 +3,9 @@ import assert from 'node:assert/strict';
 import tls from 'node:tls';
 import fs from 'node:fs';
 import {parse} from 'pg-connection-string';
+import pg from 'pg';
+import {X509Certificate} from 'node:crypto';
+import {fileURLToPath} from 'node:url';
 import {postgresPoolOptions} from '../server/postgres-options.js';
 const base='postgres://fake:fake@db.example.invalid/synthetic';
 for(const mode of ['prefer','require','verify-ca','verify-full'])test(`TLS ${mode} becomes explicit verified TLS without dropping URL parameters`,()=>{
@@ -40,4 +43,21 @@ test('normalization eliminates the warning offline without muting process warnin
  const script=`import {parse} from 'pg-connection-string';import {postgresPoolOptions} from './server/postgres-options.js';parse(postgresPoolOptions('${base}?sslmode=require').connectionString);`;
  const result=spawnSync(process.execPath,['--input-type=module','-e',script],{cwd:new URL('..',import.meta.url),encoding:'utf8'});
  assert.equal(result.status,0);assert.equal(result.stderr,'');
+});
+for(const query of ['ssl=no-verify','sslmode=verify-full&ssl=no-verify','sslmode=','ssl=','ssl=unknown','uselibpqcompat=unknown','sslnegotiation=direct&sslnegotiation=postgres','sslnegotiation=unknown','sslca=ignored.pem'])test(`conflicting or unsupported TLS setting fails closed: ${query}`,()=>assert.throws(()=>postgresPoolOptions(base+'?'+query),{code:'POSTGRES_TLS_CONFIG'}));
+test('local fixtures cannot mix plaintext with certificate requirements or direct TLS negotiation',()=>{
+ for(const query of ['sslmode=disable&sslrootcert=ca.pem','sslmode=require&ssl=false','sslmode=disable&ssl=true','sslmode=disable&sslnegotiation=direct'])assert.throws(()=>postgresPoolOptions('postgres://fake:fake@localhost/test?'+query),{code:'POSTGRES_TLS_CONFIG'});
+ assert.throws(()=>postgresPoolOptions(undefined,{ssl:{rejectUnauthorized:false}}),{code:'POSTGRES_TLS_CONFIG'});
+ assert.throws(()=>postgresPoolOptions(undefined),{code:'POSTGRES_TLS_CONFIG'});
+});
+test('custom CA is loaded into both pool option profiles without disabling hostname or chain checks',()=>{
+ const path=fileURLToPath(new URL('./fixtures/postgres-test-ca.pem',import.meta.url)),pem=fs.readFileSync(path,'utf8');
+ const cert=new X509Certificate(pem);assert.equal(tls.checkServerIdentity('db.example.invalid',cert.toLegacyObject()),undefined);
+ assert.ok(tls.checkServerIdentity('other.example.invalid',cert.toLegacyObject()));
+ for(const max of [3,4])for(const compat of ['true','false']){
+  const url=new URL(base);url.searchParams.set('sslmode','require');url.searchParams.set('sslrootcert',path);url.searchParams.set('uselibpqcompat',compat);
+  const client=new pg.Client(postgresPoolOptions(url.toString(),{max})),ssl=client.connectionParameters.ssl;
+  assert.equal(ssl.ca,pem);assert.notEqual(ssl.rejectUnauthorized,false);assert.equal(ssl.checkServerIdentity,undefined);assert.equal(client.connectionParameters.host,'db.example.invalid');
+  assert.doesNotThrow(()=>tls.createSecureContext({ca:ssl.ca}));
+ }
 });

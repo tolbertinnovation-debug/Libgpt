@@ -128,3 +128,77 @@ test('persistent SQL ledger survives coordinator restarts, rolls back denials an
  const state=(await db.query('SELECT state FROM public.grandpa_ai_execution_v1 WHERE scope=$1',['preview:synthetic'])).rows[0].state;
  assert.equal(Object.values(state.days)[0].runs,1);assert.equal(Object.keys(state.attempts).length,1);
 });
+
+test('completed project ownership and generations cannot be replaced by a new attempt identity',async()=>{
+ const {c,args}=fixture();await c.reserve(args);await finish(c,args,'failed');
+ await assert.rejects(c.reserve({...args,id:crypto.randomUUID(),generation:2,token:'a'.repeat(64)}),{code:'EXECUTION_OWNER'});
+ const later={...args,id:crypto.randomUUID(),generation:3};await c.reserve(later);await c.cancel(later.id,later.token);
+ await assert.rejects(c.reserve({...args,id:crypto.randomUUID(),previousId:args.id}));
+});
+test('lower declared bounds are retained and included in attempt identity and claim expiry',async()=>{
+ const f=fixture(),args={...f.args,capabilities:{...capabilities,cpuMs:100,wallMs:2,maxOutputBytes:16}};
+ const a=await f.c.reserve(args);assert.equal(a.resources.cpuMs,100);assert.equal(a.resources.maxOutputBytes,16);
+ await assert.rejects(f.c.reserve({...args,capabilities}),/limits/);
+ const {key}=await f.c.claim(args.id,args.token);await f.c.appendLog(args.id,key,'x'.repeat(16));
+ assert.equal((await f.c.appendLog(args.id,key,'x')).truncated,true);f.advance(3);await assert.rejects(f.c.appendLog(args.id,key,'late'));
+ await f.c.recover();assert.equal((await f.c.get(args.id,args.token)).status,'unknown');assert.equal((await f.c.recover()).interrupted,0);
+});
+test('string check lists and forged requirement ceilings do not validate',()=>{
+ const manifest=prepareExecutionRequest(request);
+ for(const checks of ['buildtestbrowser',[],['build','build'],['unknown']])assert.throws(()=>validateExecutionCapabilities({...capabilities,checks},manifest));
+ assert.throws(()=>validateExecutionCapabilities({...capabilities,memoryMiB:10000},{...manifest,requirements:{...manifest.requirements,memoryMiB:10000}}));
+ assert.throws(()=>validateExecutionCapabilities(capabilities,null),{code:'BUILD_EXECUTION_REQUEST'});
+});
+test('sparse check arrays cannot skip validation or forge mock success',async()=>{
+ assert.throws(()=>prepareExecutionRequest({...request,checks:new Array(1)}));
+ assert.throws(()=>validateExecutionCapabilities({...capabilities,checks:new Array(1)},prepareExecutionRequest(request)));
+ const {c,args}=fixture();await c.reserve(args);const {key,attempt}=await c.claim(args.id,args.token);
+ assert.equal((await c.record(args.id,key,{...report(attempt),checks:new Array(attempt.checks.length)})).status,'unknown');
+});
+for(const field of ['runs','cpuMs'])for(const value of [undefined,null,NaN,-1,0,'0'])test(`corrupt ${field} quota fails closed (${String(value)})`,async()=>{
+ const storage=memory(),f=fixture({storage});await f.c.reserve(f.args);await f.c.cancel(f.args.id,f.args.token);
+ await storage.transaction(state=>{Object.values(state.days)[0][field]=value;});
+ await assert.rejects(f.c.reserve({...f.args,id:crypto.randomUUID(),generation:2}),{code:'EXECUTION_STORAGE'});
+});
+test('integer quota undercounts are detected against retained attempt reservations',async()=>{
+ const storage=memory(),f=fixture({storage});await f.c.reserve(f.args);await f.c.cancel(f.args.id,f.args.token);
+ await storage.transaction(state=>{Object.values(state.days)[0].cpuMs=1;});
+ await assert.rejects(f.c.reserve({...f.args,id:crypto.randomUUID(),generation:2}),{code:'EXECUTION_STORAGE'});
+});
+for(const field of ['rawLogBytes','cleanupAttempts'])test(`missing ${field} history cannot reset a safety limit`,async()=>{
+ const storage=memory(),f=fixture({storage});await f.c.reserve(f.args);
+ await storage.transaction(state=>{delete state.attempts[f.args.id][field];});
+ await assert.rejects(f.c.claim(f.args.id,f.args.token),{code:'EXECUTION_STORAGE'});
+});
+test('raw output is charged before stripping control bytes and redacting secrets',async()=>{
+ const {c,args}=fixture();await c.reserve(args);const {key,attempt}=await c.claim(args.id,args.token);
+ for(let i=0;i<4;i++)await c.appendLog(args.id,key,'\x00'.repeat(16000));const a=await c.appendLog(args.id,key,'\x00');
+ assert.equal(a.logs,'');assert.equal(a.rawLogBytes,64000);assert.equal(a.truncated,true);
+ await c.record(args.id,key,report(attempt));const cleanup=await c.claimCleanup(args.id,args.token);
+ assert.equal((await c.cleanupResult(args.id,cleanup.key,{simulation:true,providerId:'mock:fixture',stopped:true,deleted:true})).status,'failed');
+});
+test('cleanup confirmation rejects forged fields and retries are bounded while holding the slot',async()=>{
+ const {c,args}=fixture();await c.reserve(args);const {key,attempt}=await c.claim(args.id,args.token);await c.record(args.id,key,report(attempt));
+ for(let i=0;i<3;i++){
+  const cleanup=await c.claimCleanup(args.id,args.token);
+  const a=await c.cleanupResult(args.id,cleanup.key,{simulation:true,providerId:'mock:fixture',stopped:true,deleted:true,executed:true});assert.equal(a.status,'unknown');
+  await c.identify(args.id,args.token,'mock:fixture');
+ }
+ await assert.rejects(c.claimCleanup(args.id,args.token),{code:'EXECUTION_RETRIES'});
+ await assert.rejects(c.reserve({...args,id:crypto.randomUUID(),generation:2}),{code:'EXECUTION_CONCURRENCY'});
+});
+test('pool acquisition errors never expose credentials',async()=>{
+ const store=createExecutionAttemptStorage({pool:{connect:async()=>{throw Error('synthetic-private-password');}},scope:'test'});
+ await assert.rejects(store.transaction(()=>{}),error=>error.code==='EXECUTION_STORAGE' && !error.message.includes('synthetic-private-password'));
+});
+test('execution schema creation and state writes rollback without modifying existing data',async t=>{
+ const db=new PGlite();await db.waitReady;t.after(()=>db.close());
+ const pool={connect:async()=>({query:(sql,p)=>db.query(sql,p),release(){}})};
+ const storage=createExecutionAttemptStorage({pool,scope:'rollback'});
+ await assert.rejects(storage.transaction(()=>{throw Error('synthetic failure');}),{code:'EXECUTION_STORAGE'});
+ assert.equal((await db.query("SELECT to_regclass('public.grandpa_ai_execution_v1') AS name")).rows[0].name,null);
+ await db.exec('CREATE TABLE public.grandpa_ai_execution_v1 (scope text PRIMARY KEY,state jsonb NOT NULL,extra text DEFAULT \'kept\')');
+ const prior={version:77,attempts:{},days:{}};await db.query('INSERT INTO public.grandpa_ai_execution_v1 (scope,state) VALUES ($1,$2::jsonb)',['rollback',JSON.stringify(prior)]);
+ const f=fixture({storage});await assert.rejects(f.c.reserve(f.args),{code:'EXECUTION_STORAGE'});
+ const saved=(await db.query('SELECT state,extra FROM public.grandpa_ai_execution_v1')).rows;assert.equal(saved.length,1);assert.deepEqual(saved[0],{state:prior,extra:'kept'});
+});

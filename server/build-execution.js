@@ -19,7 +19,7 @@ export function executionReadiness(){
 export function prepareExecutionRequest(input={}){
  if(!input || typeof input!=='object' || Array.isArray(input) || Object.keys(input).some(key=>!['files','checks'].includes(key)))throw invalid('Send only project files and named checks. Environment variables and shell commands are not accepted.');
  const {files,checks=['build','test']}=input;
- if(!Array.isArray(files) || !files.length || files.length>200 || !Array.isArray(checks) || !checks.length || checks.length>3 || checks.some(check=>!['build','test','browser'].includes(check)) || new Set(checks).size!==checks.length)throw invalid('Invalid execution manifest.');
+ if(!Array.isArray(files) || !files.length || files.length>200 || !Array.isArray(checks) || !checks.length || checks.length>3 || Array.from(checks).some(check=>!['build','test','browser'].includes(check)) || new Set(checks).size!==checks.length)throw invalid('Invalid execution manifest.');
  const paths=new Set();let bytes=0;
  const source=files.map(file=>{
   if(!file || Object.keys(file).some(key=>!['path','body'].includes(key)) || !safeTeamPath(file.path) || teamPathConflicts(paths,file.path) || typeof file.body!=='string' || file.body.includes('\0'))throw invalid('Only unique, safe project files are accepted. Links and host paths are forbidden.');
@@ -42,10 +42,15 @@ export function createDisabledExecutionAdapter(){
 }
 
 export function validateExecutionCapabilities(capabilities,request){
- const r=request.requirements;
+ const r=EXECUTION_REQUIREMENTS;
+ if(!request || !Array.isArray(request.checks) || !request.checks.length || request.checks.length>3 ||
+  Array.from(request.checks).some(id=>!['build','test','browser'].includes(id)) || new Set(request.checks).size!==request.checks.length ||
+  !request.requirements || Object.keys(r).some(key=>request.requirements[key]!==r[key]))throw invalid('Invalid execution requirements.');
  if(!capabilities || capabilities.isolation!==r.isolation || capabilities.network!=='deny-all' ||
   capabilities.productionSecrets!==false || capabilities.productionDatabase!==false || capabilities.persistentFilesystem!==false ||
-  capabilities.cleanupRequired!==true || !request.checks.every(id=>capabilities.checks?.includes(id)))throw invalid('Execution capabilities do not satisfy the isolation contract.');
+  capabilities.cleanupRequired!==true || !Array.isArray(capabilities.checks) || !capabilities.checks.length || capabilities.checks.length>3 ||
+  Array.from(capabilities.checks).some(id=>!['build','test','browser'].includes(id)) || new Set(capabilities.checks).size!==capabilities.checks.length ||
+  !request.checks.every(id=>capabilities.checks.includes(id)))throw invalid('Execution capabilities do not satisfy the isolation contract.');
  for(const key of ['cpuMs','memoryMiB','wallMs','filesystemMiB','maxProcesses','maxOutputBytes']){
   if(!Number.isSafeInteger(capabilities[key]) || capabilities[key]<1 || capabilities[key]>r[key])throw invalid('Execution resource bounds are missing or exceed the approved contract.');
  }

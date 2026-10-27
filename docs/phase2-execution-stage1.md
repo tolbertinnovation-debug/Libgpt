@@ -1,5 +1,7 @@
 # Phase 2 execution Stage 1 — disabled preparation
 
+The [final security review](pr66-security-review.md) supersedes the original implementation details where it adds stricter saved-state validation, project continuity, effective resource bounds, raw-byte accounting, bounded cleanup retries and TLS conflict handling. Pre-review nonempty mock ledgers missing the new safety counters fail closed; no production migration or automatic history reset is performed.
+
 This increment starts from production PR #65 (`e449076`). It is preparation for execution, not an enabled full-stack runner. Real secure execution remains hard-disabled; no provider SDK, sandbox, provider key, enabling route, paid allowance, or new service is introduced. All new execution results are explicitly synthetic and `executed:false`.
 
 ## Implementation
