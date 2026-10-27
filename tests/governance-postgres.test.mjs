@@ -23,7 +23,7 @@ async function fixture(t) {
   };
   const gate = (scope = 'test', limits) => createAgentGovernance({ serverless: true, limits,
     storage: createPostgresGovernanceStorage({ pool, scope }) });
-  return { db, gate, fail: value => { fault = value; } };
+  return { db, pool, gate, fail: value => { fault = value; } };
 }
 const request = { role: 'pages', operation: 'generate', inputChars: 100, maxTokens: 100, actor: 'private-user' };
 
@@ -143,4 +143,14 @@ test('parallel Postgres research reservations cannot double-spend the remaining 
  await admitted.release({chargedMicroUsd:25000});await admitted.release({chargedMicroUsd:0});
  assert.equal((await first.status()).reservedUsd,.125);
  assert.equal((await first.status()).activeCount,0);
+});
+
+test('uncertain governance COMMIT retains the reservation and destroys the connection without retry',async t=>{
+ const {gate,pool}=await fixture(t),control=gate('commit-ack',{dailyUsd:.02});await control.status();
+ const connect=pool.connect.bind(pool);let lose=true;const destroyed=[];
+ pool.connect=async()=>{const c=await connect();return {async query(sql,args){const result=await c.query(sql,args);if(lose && sql==='COMMIT'){lose=false;throw Error('private lost commit acknowledgement');}return result;},release(kill){destroyed.push(kill);c.release();}};};
+ await assert.rejects(control.begin(request),e=>e.code==='GOVERNANCE_UNAVAILABLE' && !e.message.includes('private'));
+ assert.equal(destroyed.at(-1),true);assert.equal((await gate('commit-ack').status()).reservedUsd,.02);
+ await assert.rejects(gate('commit-ack').begin(request),{code:'GOVERNANCE_BUDGET'});
+ assert.equal((await control.audit()).filter(e=>e.event==='started').length,1);
 });

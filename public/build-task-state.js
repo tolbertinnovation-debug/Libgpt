@@ -3,7 +3,8 @@ const pathIsSafe=path=>typeof path==='string' && path.length<=180 && /^[a-zA-Z0-
 const phases=new Set(['plan','architecture','build','review','gate']);
 export function buildBlocker(error={},checkpoint={},at=Date.now()){
  const code=String(error.code || '');let kind='failure';
- if(code==='GOVERNANCE_BUDGET' || /spending cap|credits? exhausted|quota/i.test(error.message || ''))kind='budget';
+ if(code==='BUILD_OUTCOME_UNCERTAIN')kind='uncertain';
+ else if(code==='GOVERNANCE_BUDGET' || /spending cap|credits? exhausted|quota/i.test(error.message || ''))kind='budget';
  else if(code==='GOVERNANCE_RATE')kind='rate';
  else if(code==='GOVERNANCE_CONCURRENCY')kind='concurrency';
  else if(code==='GOVERNANCE_PAUSED')kind='operator';
@@ -17,7 +18,7 @@ export function buildBlocker(error={},checkpoint={},at=Date.now()){
   requiresResume:true,automaticRetry:false,at:Number.isFinite(at)?at:Date.now()};
 }
 export function buildTaskLabel(checkpoint={}){
- const labels={budget:'Budget paused',rate:'Waiting for rate limit',concurrency:'Waiting for capacity',operator:'Operator paused',storage:'Storage unavailable',context:'File context needed',review:'Review needs attention',verification:'Verification required',interrupted:'Progress saved'};
+ const labels={uncertain:'AI outcome uncertain',budget:'Budget paused',rate:'Waiting for rate limit',concurrency:'Waiting for capacity',operator:'Operator paused',storage:'Storage unavailable',context:'File context needed',review:'Review needs attention',verification:'Verification required',interrupted:'Progress saved'};
  return labels[checkpoint.blocker?.kind] || 'Needs attention';
 }
 export function buildTaskFacts(checkpoint={},files=[]){

@@ -58,7 +58,7 @@ test('Stop fences an in-flight worker and Resume cannot accept old late writes',
  const worker=createBuildWorker({store,services:services({plan:async()=>{enter();await waiting;return plan;}})});
  const work=worker.advance(identity.id,1);await entered;
  const stopped=await store.control(identity.id,identity.token,'stop');assert.equal(stopped.job.status,'stopped');
- const resumed=await store.control(identity.id,identity.token,'resume');assert.equal(resumed.start,true);
+ const resumed=await store.control(identity.id,identity.token,'resume',{acknowledgeUncertain:true});assert.equal(resumed.start,true);
  assert.ok(resumed.job.generation>1);
  finish();await work;
  const job=await store.get(identity.id,identity.token);assert.equal(job.checkpoint.plan,null);assert.equal(job.status,'queued');
@@ -66,7 +66,7 @@ test('Stop fences an in-flight worker and Resume cannot accept old late writes',
 
 test('budget denials pause once, preserve files and never trigger another paid step',async t=>{
  const {store,identity}=await fixture(t);let calls=0;
- const worker=createBuildWorker({store,services:services({plan:async()=>{calls++;throw Object.assign(new Error('The daily agent spending cap has been reached.'),{status:429});}})});
+ const worker=createBuildWorker({store,services:services({plan:async()=>{calls++;throw Object.assign(new Error('The daily agent spending cap has been reached.'),{status:429,code:'GOVERNANCE_BUDGET'});}})});
  assert.equal((await worker.advance(identity.id,1)).continue,false);
  await worker.advance(identity.id,1);assert.equal(calls,1);
  const job=await store.get(identity.id,identity.token);assert.equal(job.status,'needs_attention');assert.deepEqual(job.files,[]);
@@ -122,9 +122,11 @@ test('a budget pause preserves plan and completed files across restarts; only ex
 });
 
 test('uncertain duplicate work is fenced with a structured interruption reason and cannot be billed twice',async t=>{
- const {store,identity}=await fixture(t);const base=services();
+ const {store,identity,db}=await fixture(t);const base=services();
  const worker=createBuildWorker({store,services:base});await worker.advance(identity.id,1);
  const claim=await store.claim(identity.id,1);assert.ok(claim.key);
+ const liveDuplicate=await store.claim(identity.id,1);assert.equal(liveDuplicate.key,null);assert.equal(liveDuplicate.job.status,claim.job.status);
+ await db.query("UPDATE public.grandpa_ai_build_jobs SET work_started_at=now()-interval '6 minutes' WHERE id=$1",[identity.id]);
  const duplicate=await store.claim(identity.id,1);assert.equal(duplicate.key,null);assert.equal(duplicate.job.status,'needs_attention');
  assert.equal(duplicate.job.checkpoint.blocker.kind,'interrupted');
  const late=await store.save(identity.id,1,claim.key,{...claim.job,files:[{path:'README.md',body:'late'}]});assert.equal(late.saved,false);
@@ -157,9 +159,9 @@ test('an imported file cannot be overwritten through a conflicting planned alias
  job=await store.get(identity.id,identity.token);assert.deepEqual(job.files,files);assert.equal(job.status,'needs_attention');assert.equal(plans,1);
 });
 test('a transient storage monitor interruption saves returned progress and pauses without replaying a paid step',async t=>{
- const {store,identity}=await fixture(t);const internal=store.internal;let reads=0,calls=0;
- store.internal=async(...args)=>{if(++reads===2)throw Error('private database detail');return internal(...args);};
- const worker=createBuildWorker({store,services:services({plan:async()=>{calls++;await new Promise(resolve=>setTimeout(resolve,1350));return plan;}})});
+ const {store,identity}=await fixture(t);const internal=store.internal;let interrupted=false,started=false,calls=0;
+ store.internal=async(...args)=>{if(started && !interrupted){interrupted=true;throw Error('private database detail');}return internal(...args);};
+ const worker=createBuildWorker({store,services:services({plan:async()=>{calls++;started=true;await new Promise(resolve=>setTimeout(resolve,1350));return plan;}})});
  const result=await worker.advance(identity.id,1);assert.equal(result.status,'needs_attention');
  const saved=await store.get(identity.id,identity.token);assert.equal(saved.processing,false);assert.equal(saved.checkpoint.blocker.kind,'storage');assert.deepEqual(saved.checkpoint.plan,plan);
  assert.doesNotMatch(JSON.stringify(saved),/private database detail/);
@@ -228,8 +230,8 @@ test('a second capability holder cannot read, resume, revise, stop, remove or de
 });
 test('history survives an uncertain worker claim, fencing and a new worker instance after explicit Resume',async t=>{
  const {appendBuildRequest}=await import('../public/build-requests.js');const history=appendBuildRequest(null,'School website',{at:1});
- const {store,identity}=await fixture(t,{asked:'School website',requestHistory:history});const worker=createBuildWorker({store,services:services()});await worker.advance(identity.id,1);
- const claimed=await store.claim(identity.id,1),duplicate=await store.claim(identity.id,1);assert.equal(duplicate.job.status,'needs_attention');assert.deepEqual(duplicate.job.requestHistory,history);assert.deepEqual(duplicate.job.checkpoint.requestHistory,history);
+ const {store,identity,db}=await fixture(t,{asked:'School website',requestHistory:history});const worker=createBuildWorker({store,services:services()});await worker.advance(identity.id,1);
+ const claimed=await store.claim(identity.id,1);await db.query("UPDATE public.grandpa_ai_build_jobs SET work_started_at=now()-interval '6 minutes' WHERE id=$1",[identity.id]);const duplicate=await store.claim(identity.id,1);assert.equal(duplicate.job.status,'needs_attention');assert.deepEqual(duplicate.job.requestHistory,history);assert.deepEqual(duplicate.job.checkpoint.requestHistory,history);
  assert.equal((await store.save(identity.id,1,claimed.key,{...claimed.job,asked:'Stale overwrite'})).saved,false);
  const resumed=await store.control(identity.id,identity.token,'resume',{generation:duplicate.job.generation});
  await createBuildWorker({store,services:services()}).advance(identity.id,resumed.job.generation);
@@ -250,4 +252,97 @@ test('active tasks cannot be deleted through a stale inactive client; stopped ta
  const results=await Promise.allSettled([store.control(identity.id,identity.token,'resume',{generation:paused.job.generation}),store.remove(identity.id,identity.token)]);
  assert.equal(results[0].status,'fulfilled');assert.equal(results[1].status,'rejected');assert.equal(results[1].reason.status,409);
  await store.control(identity.id,identity.token,'stop');assert.equal(await store.remove(identity.id,identity.token),true);await assert.rejects(store.get(identity.id,identity.token),{status:404});
+});
+
+test('concurrent deliveries leave a healthy claim intact and invoke the mocked model once',async t=>{
+ const {store,identity}=await fixture(t);let calls=0,enter,finish;
+ const entered=new Promise(r=>enter=r),waiting=new Promise(r=>finish=r);
+ const worker=createBuildWorker({store,services:services({plan:async()=>{calls++;enter();await waiting;return plan;}})});
+ const first=worker.advance(identity.id,1);await entered;
+ await Promise.all(Array.from({length:8},()=>worker.advance(identity.id,1)));
+ assert.equal((await store.get(identity.id,identity.token)).status,'planning');assert.equal(calls,1);
+ finish();await first;assert.ok((await store.get(identity.id,identity.token)).checkpoint.plan);
+});
+test('lost receipt acknowledgement reuses the saved model response after explicit Resume without another call',async t=>{
+ const {store,identity}=await fixture(t);let calls=0,lose=true;const finish=store.finishOperation;
+ store.finishOperation=async(...args)=>{const result=await finish(...args);if(lose && args[4].status===undefined){lose=false;throw Error('lost receipt acknowledgement');}return result;};
+ const worker=createBuildWorker({store,services:services({plan:async()=>{calls++;return plan;}})});
+ await worker.advance(identity.id,1);const stopped=await store.get(identity.id,identity.token);
+ assert.equal(stopped.operation.status,'returned');assert.equal(stopped.operation.result,undefined);assert.equal(stopped.checkpoint.plan,null);
+ const resumed=await store.control(identity.id,identity.token,'resume',{generation:stopped.generation});
+ await worker.advance(identity.id,resumed.job.generation);assert.equal(calls,1);assert.ok((await store.get(identity.id,identity.token)).checkpoint.plan);
+});
+test('unknown provider outcome survives restart and requires explicit retry acknowledgement',async t=>{
+ const {store,identity}=await fixture(t);let calls=0;
+ const worker=createBuildWorker({store,services:services({plan:async()=>{calls++;throw Error('network failed after provider admission');}})});
+ await worker.advance(identity.id,1);const paused=await store.get(identity.id,identity.token);assert.equal(paused.operation.status,'uncertain');
+ await assert.rejects(store.control(identity.id,identity.token,'resume',{generation:paused.generation}),{code:'BUILD_OUTCOME_UNCERTAIN'});
+ await createBuildWorker({store,services:services()}).advance(identity.id,paused.generation);assert.equal(calls,1);
+ const a=await store.control(identity.id,identity.token,'resume',{generation:paused.generation,acknowledgeUncertain:true});
+ const outcomes=await Promise.allSettled([store.control(identity.id,identity.token,'resume',{generation:paused.generation,acknowledgeUncertain:true}),store.get(identity.id,identity.token)]);
+ assert.equal(outcomes[0].status,'rejected');assert.equal(a.start,true);assert.equal(calls,1);
+});
+test('pause and cancel preserve history, fence receipts and never let an old worker finish',async t=>{
+ for(const action of ['pause','cancel']){
+  const {store,identity}=await fixture(t),claim=await store.claim(identity.id,1);
+  const op=await store.startOperation(identity.id,1,claim.key,{kind:'plan'});
+  const paused=await store.control(identity.id,identity.token,action,{generation:1});assert.equal(paused.job.status,'stopped');assert.equal(paused.job.asked,'Build a school website.');
+  await assert.rejects(store.finishOperation(identity.id,1,claim.key,op.id,{result:plan}),{status:409});
+  await assert.rejects(store.startOperation(identity.id,1,claim.key,{kind:'plan'}),{status:409});
+ }
+});
+test('committed job create with a lost acknowledgement is deduplicated and destroys the client',async t=>{
+ const {store,identity,pool}=await fixture(t);const connect=pool.connect.bind(pool);let lose=true;const destroyed=[];
+ pool.connect=async()=>{const c=await connect();return {async query(sql,args){const result=await c.query(sql,args);if(lose && sql==='COMMIT'){lose=false;throw Error('lost commit acknowledgement');}return result;},release(kill){destroyed.push(kill);c.release();}};};
+ const id=crypto.randomUUID(),token=crypto.randomBytes(32).toString('hex');
+ await assert.rejects(store.create({id,token,asked:'Another school'}));assert.equal(destroyed.at(-1),true);
+ assert.equal((await store.create({id,token,asked:'Another school'})).created,false);
+ assert.equal((await store.get(identity.id,identity.token)).asked,'Build a school website.');
+});
+test('response receipts bind source and requests and cannot be forged through ordinary checkpoint saves',async t=>{
+ const {store,identity}=await fixture(t),claim=await store.claim(identity.id,1);
+ const op=await store.startOperation(identity.id,1,claim.key,{kind:'plan'});
+ await store.finishOperation(identity.id,1,claim.key,op.id,{result:plan});
+ await store.progress(identity.id,1,claim.key,{...claim.job,operation:{status:'returned',result:{approved:true}}});
+ const receipt=await store.startOperation(identity.id,1,claim.key,{kind:'plan'});assert.equal(receipt.reused,true);assert.deepEqual(receipt.result,plan);
+ await store.progress(identity.id,1,claim.key,{...claim.job,files:[{path:'new.txt',body:'Changed source'}]});
+ const changed=await store.startOperation(identity.id,1,claim.key,{kind:'plan'});assert.equal(changed.reused,false);assert.notEqual(changed.id,op.id);
+});
+
+test('committed checkpoints retire raw response receipts without exposing them to workspace clients',async t=>{
+ const {store,identity,db}=await fixture(t);await createBuildWorker({store,services:services()}).advance(identity.id,1);
+ const saved=await store.get(identity.id,identity.token);assert.equal(saved.operation.status,'applied');assert.equal(saved.operation.result,undefined);
+ const row=await db.query('SELECT state FROM public.grandpa_ai_build_jobs WHERE id=$1',[identity.id]);assert.equal(row.rows[0].state.operation.result,undefined);assert.ok(saved.checkpoint.plan);
+});
+
+test('corrupt persisted response receipts fail closed instead of issuing another paid operation',async t=>{
+ const {store,identity,db}=await fixture(t),claim=await store.claim(identity.id,1);
+ const op=await store.startOperation(identity.id,1,claim.key,{kind:'plan'});await store.finishOperation(identity.id,1,claim.key,op.id,{result:plan});
+ await db.query("UPDATE public.grandpa_ai_build_jobs SET state=jsonb_set(state,'{operation,result,title}','\"Forged school\"') WHERE id=$1",[identity.id]);
+ await assert.rejects(store.startOperation(identity.id,1,claim.key,{kind:'plan'}),{status:503});
+ await assert.rejects(store.get(identity.id,identity.token),{status:503});
+});
+
+test('receipt recovery uses locale-independent source ordering across worker restarts',async t=>{
+ const {store,identity}=await fixture(t,{files:[{path:'z.js',body:'Z'},{path:'a.js',body:'A'}]}),claim=await store.claim(identity.id,1);
+ const op=await store.startOperation(identity.id,1,claim.key,{kind:'plan'});await store.finishOperation(identity.id,1,claim.key,op.id,{result:plan});
+ const original=String.prototype.localeCompare;String.prototype.localeCompare=()=>{throw Error('Locale must not determine receipt identity');};
+ try{const reused=await store.startOperation(identity.id,1,claim.key,{kind:'plan'});assert.equal(reused.reused,true);assert.equal(reused.id,op.id);}finally{String.prototype.localeCompare=original;}
+});
+test('lost operation admission acknowledgement cannot dispatch or silently retry a paid call',async t=>{
+ const {store,identity}=await fixture(t),start=store.startOperation;let lose=true,calls=0;
+ store.startOperation=async(...args)=>{const op=await start(...args);if(lose){lose=false;throw Error('Admission commit acknowledgement lost');}return op;};
+ const worker=createBuildWorker({store,services:services({plan:async()=>{calls++;return plan;}})});
+ await worker.advance(identity.id,1);const paused=await store.get(identity.id,identity.token);
+ assert.equal(calls,0);assert.equal(paused.status,'needs_attention');assert.equal(paused.operation.status,'started');
+ await assert.rejects(store.control(identity.id,identity.token,'resume',{generation:paused.generation}),{code:'BUILD_OUTCOME_UNCERTAIN'});
+ await worker.advance(identity.id,paused.generation);assert.equal(calls,0);
+});
+test('unknown final checkpoint acknowledgement preserves an applied receipt without another paid call',async t=>{
+ const {store,identity}=await fixture(t),save=store.save;let lose=true,calls=0;
+ store.save=async(...args)=>{const result=await save(...args);if(lose && args[4]?.appliedOperation){lose=false;throw Error('Checkpoint commit acknowledgement lost');}return result;};
+ const worker=createBuildWorker({store,services:services({plan:async()=>{calls++;return plan;}})});
+ await worker.advance(identity.id,1);const saved=await store.get(identity.id,identity.token);
+ assert.equal(saved.operation.status,'applied');assert.ok(saved.checkpoint.plan);assert.equal(calls,1);
+ await worker.advance(identity.id,1);assert.equal(calls,1);assert.ok((await store.get(identity.id,identity.token)).checkpoint.architecture);
 });

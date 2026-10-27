@@ -1,4 +1,5 @@
 import pg from 'pg';
+import {postgresTransaction} from './postgres-transaction.js';
 import {postgresPoolOptions} from './postgres-options.js';
 import { attachDatabasePool } from '@vercel/functions';
 import { GOVERNANCE_SCHEMA_V1 } from './governance-schema.js';
@@ -21,32 +22,20 @@ export function createPostgresGovernanceStorage({ connectionString, scope = gove
   pool.on?.('error', () => console.error('[build-storage] Database connection unavailable.'));
   let initialized;
   async function initialize() {
-    if (!initialized) initialized = (async () => {
-      const client = await pool.connect();
-      try {
-        await client.query('BEGIN');
-        await client.query("SET LOCAL lock_timeout = '8s'");
-        await client.query("SET LOCAL statement_timeout = '10s'");
-        // Serialize first-use migration across serverless instances.
-        await client.query("SELECT pg_advisory_xact_lock(hashtext('grandpa_ai_governance_schema_v1'))");
-        await client.query(GOVERNANCE_SCHEMA_V1);
-        await client.query('COMMIT');
-      } catch (error) { await client.query('ROLLBACK').catch(() => {}); throw error; }
-      finally { client.release(); }
-    })().catch(error => { initialized = undefined; throw error; });
+    if (!initialized) initialized = postgresTransaction(pool,async client=>{
+      await client.query("SELECT pg_advisory_xact_lock(hashtext('grandpa_ai_governance_schema_v1'))");
+      await client.query(GOVERNANCE_SCHEMA_V1);
+    },{lock:'8s'}).catch(error=>{initialized=undefined;throw error;});
     return initialized;
   }
 
   return {
     scope,
     async transaction(action) {
-      let client, dirty = false;
+      let dirty = false;
       try {
         await initialize();
-        client = await pool.connect();
-        await client.query('BEGIN');
-        await client.query("SET LOCAL lock_timeout = '3s'");
-        await client.query("SET LOCAL statement_timeout = '8s'");
+        return await postgresTransaction(pool,async client=>{
         let loaded;
         const tx = {
           async load(initial) {
@@ -72,22 +61,13 @@ export function createPostgresGovernanceStorage({ connectionString, scope = gove
             return result.rows.map(row => JSON.parse(row.record));
           },
         };
-        try {
-          const result = await action(tx);
-          await client.query('COMMIT');
-          return result;
-        } catch (error) {
-          // Expected denials have a durable audit entry even though the API rejects them.
-          if (dirty && error.persistAudit === true) await client.query('COMMIT');
-          else await client.query('ROLLBACK');
-          throw error;
-        }
+        return action(tx);
+        },{statement:'8s',commitOnError:error=>dirty && error.persistAudit===true});
       } catch (error) {
-        await client?.query('ROLLBACK').catch(() => {});
         if (error.code?.startsWith('GOVERNANCE_') || error.code === 'INVALID_LIMIT') throw error;
         // Never expose connection URLs, role names or driver errors to visitors.
         throw unavailable();
-      } finally { client?.release(); }
+      }
     },
     close: () => pool.end(),
   };

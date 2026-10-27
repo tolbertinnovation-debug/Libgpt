@@ -33,6 +33,19 @@ test('only explicit whole-message resume commands are recognized',()=>{
 });
 
 const source=await readFile(new URL('../public/ritual.js',import.meta.url),'utf8');
+test('file progress disclosure preserves the user choice across task rerenders',()=>{
+ const code=source.slice(source.indexOf('function renderPlan(run)'),source.indexOf('\nasync function applyBackgroundJob',source.indexOf('function renderPlan(run)')));
+ // Only the render function is evaluated; no transport or application startup.
+ const renderCode=code.slice(0,code.indexOf('\n}\n')+2);
+ for(const open of [true,false]){
+  const node={querySelector:selector=>({open:selector==='.file-progress'?open:true}),setAttribute:()=>{},innerHTML:''};
+  const p={id:'school',files:[{path:'index.html',body:'Source'}]};
+  const render=new Function('el','project','TEAM_ROLES','state','escapeHtml','backgroundActions','buildTaskLabel',`let loadingTimer=null;${renderCode};return renderPlan;`)({plan:node},()=>p,[],{},String,new Set(),()=> 'Paused');
+  render({checkpoint:{status:'stopped',plan:{tasks:[{files:['index.html']}]}}});
+  assert.match(node.innerHTML,open?/<details class="file-progress" open>/ : /<details class="file-progress" >/);
+  assert.match(node.innerHTML,/Source saved.*runtime unverified/);
+ }
+});
 const start=source.indexOf('async function send(text)'),end=source.indexOf('\n/** Complete file fences',start);
 function screen(p){
  const calls=[],toasts=[];let polls=0;
@@ -75,4 +88,21 @@ test('an uncertain cloud creation cannot be replaced by a different request unti
 test('stale local phase labels cannot turn a Continue command into new requirements',async()=>{
  const p={files:[],team:{asked:'School',status:'planning'},background:{id:'saved-task',revision:4,status:'needs_attention'}},ui=screen(p);
  await ui.send('Continue');assert.deepEqual(ui.calls,[['School',true]]);assert.equal(p.requestHistory,undefined);
+});
+
+test('workspace Resume asks before retrying an uncertain operation and declining starts no work',async()=>{
+ const p={files:[],team:{asked:'School',status:'needs_attention'},background:{id:'unit-id',token:'unit-token',revision:1,status:'needs_attention'},backgroundSource:[]};
+ const original=globalThis.confirm;let prompts=0;globalThis.confirm=()=>{prompts++;return false;};
+ try{
+  const ui=buildScreen(p,{request:async(_p,_path,body,method)=>{assert.equal(method,'GET');return {id:'unit-id',revision:1,generation:3,status:'needs_attention',asked:'School',files:[],operation:{status:'uncertain'},checkpoint:{asked:'School',status:'needs_attention'}};}});
+  await ui.start('School',true);assert.equal(prompts,1);assert.equal(ui.calls.length,1);
+ }finally{globalThis.confirm=original;}
+});
+test('workspace explicit uncertain retry confirmation is sent only with the current saved generation',async()=>{
+ const p={files:[],team:{asked:'School',status:'needs_attention'},background:{id:'unit-id',token:'unit-token',revision:1,status:'needs_attention'},backgroundSource:[]};
+ const original=globalThis.confirm;globalThis.confirm=()=>true;
+ try{
+  const ui=buildScreen(p,{request:async(_p,_path,body,method)=>method==='GET'?{id:'unit-id',revision:1,generation:3,status:'needs_attention',asked:'School',files:[],operation:{status:'uncertain'},checkpoint:{asked:'School',status:'needs_attention'}}:{id:'unit-id',revision:2,generation:4,status:'queued',asked:'School',files:[],checkpoint:{asked:'School',status:'queued'}}});
+  await ui.start('School',true);assert.deepEqual(ui.calls[1][2],{action:'resume',generation:3,acknowledgeUncertain:true});
+ }finally{globalThis.confirm=original;}
 });

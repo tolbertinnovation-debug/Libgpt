@@ -2,7 +2,7 @@ import {verificationStatusMarkup} from './build-verification.js';
 import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
 import {restrictPreviewDocument} from './preview-policy.js';
-import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=phase2-stage5-review';
+import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=phase2-stage6-reliability';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
 //
@@ -22,8 +22,8 @@ import {
   previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
   loadProjectsDurable, saveProjectsDurable,
 } from './build.js';
-import {buildTaskLabel,buildTaskFacts} from './build-task-state.js';
-import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js';
+import {buildTaskLabel,buildTaskFacts} from './build-task-state.js?v=phase2-stage6-reliability';
+import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js?v=phase2-stage6-reliability';
 import { shrink } from './photo.js';
 import {backgroundActive,sameProjectSource,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile} from './build-workspace.js?v=phase2-requests-review-2';
 import { renderMarkdown } from './markdown.js';
@@ -496,7 +496,7 @@ async function generateFiles(instruction, files, {signal,onFile=async()=>{},onPr
     }
   } finally {await reader.cancel().catch(()=>{});reader.releaseLock();}
   const parsed=filesFrom(whole);
-  if(parsed.unfinished)throw new Error('A file was cut off. Completed files were saved; resume to finish the missing file.');
+  if(parsed.unfinished)throw Object.assign(new Error('A file was cut off. Completed files were saved; resume to finish the missing file.'),finished?{code:'BUILD_INCOMPLETE_RESPONSE'}:{});
   if(!finished)throw new Error('The connection ended before the agent finished. Completed files were saved.');
   // Team designs use local SVG files, avoiding additional unattended image charges.
   if(parsed.pictures.length){
@@ -593,9 +593,10 @@ function renderPlan(run) {
   const panelExpanded=el.plan.querySelector('.agent-details')?.open;
   const expanded=el.plan.querySelector('.task-details')?.open;
   const activityExpanded=el.plan.querySelector('.activity-details')?.open;
+  const filesExpanded=el.plan.querySelector('.file-progress')?.open;
   const cp=run.checkpoint || {},plan=cp.plan,running=Boolean(run.running || state.streaming),status=state.streaming?'editing':cp.status || 'planning';
   const labels={queued:'Queued',planning:'Planning',architecting:'Architecture',building:'Writing files',repairing:'Fixing review findings',reviewing:'Independent review',security:'Release checks',approved:'Ready to preview',stopped:'Stopped',needs_attention:buildTaskLabel(cp),interrupted:'Progress saved',editing:'Updating files'};
-  const planned=plan?.tasks.flatMap(task=>task.files) || [],saved=planned.filter(path=>cp.savedPaths?.includes(path)).length;
+  const planned=plan?.tasks.flatMap(task=>task.files) || [],saved=planned.filter(path=>project()?.files.some(file=>file.path===path && file.body.trim())).length;
   const roles=TEAM_ROLES.filter(role=>!plan?.tasks.some(task=>task.agent===role.id && !task.files.length));
   const message=cp.message || (run.background?'Continues on the server. You can switch screens or close this page.':running?'Keep this tab open while this local run finishes.':'Your completed files are saved.');
   el.plan.hidden=false;el.plan.setAttribute('aria-busy',String(running));
@@ -604,8 +605,9 @@ function renderPlan(run) {
     <div class="task-meta"><span>${planned.length?`${saved} / ${planned.length} files saved`:'Preparing your project'}</span><span>${run.background || project()?.background?'Cloud checkpoints':'Device checkpoints'}</span>${running?'<span id="team-elapsed"></span>':''}</div>
     ${!running && cp.faults?.length?`<div class="team-error" role="alert">${escapeHtml(cp.faults[0])}</div>`:''}
     <p class="task-note">${escapeHtml(!running && cp.faults?.includes(message) ? 'Your completed files are saved.' : message)}</p>${!running && cp.blocker?.requiresResume?'<p class="task-note">Progress is saved. Resume is your choice; the task will not restart automatically when the budget resets.</p>':''}
+    ${['started','uncertain'].includes(project()?.background?.operation?.status)?'<p class="task-note" role="status">An AI response may already have been charged. Resume will ask before repeating it. Downloaded files and request history are kept.</p>':''}
     ${plan?.stack?.languages?.length?`<p class="task-note team-stack"><strong>Stack:</strong> ${escapeHtml(plan.stack.languages.join(' · '))}${plan.stack.backend && plan.stack.backend!=='none'?` — backend ${escapeHtml(plan.stack.backend)}`:''}${plan.stack.database && plan.stack.database!=='none'?`, ${escapeHtml(plan.stack.database)}`:''}</p>`:''}
-    <div class="task-detail-row"><details class="task-details" ${expanded?'open':''}><summary>Tasks <span>${roles.filter(role=>cp.agents?.[role.id]?.status==='complete').length}/${roles.length}</span></summary><ol class="plan-steps team-steps">${roles.map(role=>{const agent=cp.agents?.[role.id],task=plan?.tasks.find(task=>task.agent===role.id),complete=agent?.status==='complete',busy=running && agent?.status==='working';return `<li class="plan-step is-${complete?'done':busy?'doing':agent?.status==='needs_attention'?'failed':'waiting'}"><span class="plan-tick" aria-hidden="true">${complete?'✓':''}</span><span><strong>${escapeHtml(role.name)}</strong><small>${task?`${task.files.filter(path=>cp.savedPaths?.includes(path)).length}/${task.files.length} files`:complete?'Complete':busy?'Working':'Waiting'}</small></span></li>`;}).join('')}</ol></details><details class="activity-details" ${activityExpanded?'open':''}><summary>Activity</summary><ol class="task-activity">${(project()?.backgroundEvents || []).slice(-30).reverse().map(event=>`<li><time>${new Date(event.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time><span>${escapeHtml(event.message)}</span></li>`).join('') || '<li>Task events will appear here as work is saved.</li>'}</ol></details>${plan?'<button type="button" data-team-plan>Plan</button>':''}${cp.architecture?'<button type="button" data-team-architecture>Architecture</button>':''}</div></div></details><div class="agent-quick-action">${running?'<button type="button" id="agent-stop" aria-label="Stop agent">Stop</button>':cp.asked && status!=='approved'?'<button type="button" id="agent-resume">Resume</button>':''}</div></div>`;
+    <details class="file-progress" ${filesExpanded?'open':''}><summary>Files · saved source, not executed</summary><ul>${planned.map(path=>{const present=project()?.files.some(f=>f.path===path && f.body.trim());return `<li><code>${escapeHtml(path)}</code><span>${running && cp.currentFile===path?'Generating':present?'Source saved':'Queued'} · runtime unverified</span></li>`;}).join('')}</ul></details><div class="task-detail-row"><details class="task-details" ${expanded?'open':''}><summary>Tasks <span>${roles.filter(role=>cp.agents?.[role.id]?.status==='complete').length}/${roles.length}</span></summary><ol class="plan-steps team-steps">${roles.map(role=>{const agent=cp.agents?.[role.id],task=plan?.tasks.find(task=>task.agent===role.id),complete=agent?.status==='complete',busy=running && agent?.status==='working';return `<li class="plan-step is-${complete?'done':busy?'doing':agent?.status==='needs_attention'?'failed':'waiting'}"><span class="plan-tick" aria-hidden="true">${complete?'✓':''}</span><span><strong>${escapeHtml(role.name)}</strong><small>${task?`${task.files.filter(path=>project()?.files.some(file=>file.path===path && file.body.trim())).length}/${task.files.length} files`:complete?'Complete':busy?'Working':'Waiting'}</small></span></li>`;}).join('')}</ol></details><details class="activity-details" ${activityExpanded?'open':''}><summary>Activity</summary><ol class="task-activity">${(project()?.backgroundEvents || []).slice(-30).reverse().map(event=>`<li><time>${new Date(event.at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</time><span>${escapeHtml(event.message)}</span></li>`).join('') || '<li>Task events will appear here as work is saved.</li>'}</ol></details>${plan?'<button type="button" data-team-plan>Plan</button>':''}${cp.architecture?'<button type="button" data-team-architecture>Architecture</button>':''}</div></div></details><div class="agent-quick-action">${plan?'<button type="button" data-team-plan>Plan</button>':''}${running?`<button type="button" id="agent-pause" ${backgroundActions.has(project()?.id)?'disabled':''}>Pause</button><button type="button" id="agent-cancel" ${backgroundActions.has(project()?.id)?'disabled':''}>Cancel</button>`:cp.asked && status!=='approved'?'<button type="button" id="agent-resume">Resume</button>':''}</div></div>`;
   if(running){const update=()=>{const node=$('team-elapsed');if(node){const seconds=Math.floor(Math.max(0,Date.now()-(run.startedAt || Date.now()))/1000);node.textContent=seconds<60?`${seconds}s`:`${Math.floor(seconds/60)}m ${seconds%60}s`;}};update();loadingTimer=setInterval(update,1000);}
 }
 
@@ -651,7 +653,7 @@ async function applyBackgroundJob(p,job){
  if(changed && !conflict)rememberLiveChange(p,p.files,incoming);
  if(changed && !conflict)applyChanges(p,incoming,'Before background checkpoint');
  p.backgroundSource=structuredClone(incoming);p.backgroundConflict=conflict;
- p.background={...p.background,status:job.status,revision:job.revision,generation:job.generation,sourceFingerprint:sourceFingerprint(job.files || [])};
+ p.background={...p.background,status:job.status,revision:job.revision,generation:job.generation,updatedAt:job.updatedAt,operation:job.operation,sourceFingerprint:sourceFingerprint(job.files || [])};
  delete p.background.pendingRequest;
  p.backgroundEvents=job.events || [];
  if(history)p.requestHistory=history;else delete p.requestHistory;
@@ -708,6 +710,10 @@ async function startBackgroundBuild(asked,resume=false,{messageText=asked}={}){
   if(remote){
    const same=sameProjectSource(p.files,remote.files);
    const body=resume && same ? {action:'resume',generation:remote.generation} : {action:'revise',generation:remote.generation,asked,files:structuredClone(p.files),checkpoint:resume?(remote.checkpoint || p.team):null,requestHistory:history};
+   if(body.action==='resume' && ['started','uncertain'].includes(remote.operation?.status)){
+    if(globalThis.confirm?.('The previous AI operation has an uncertain outcome and may already have been charged. Retry it with the existing spending limits?')!==true)return;
+    body.acknowledgeUncertain=true;
+   }
    if(!resume)p.messages.push({role:'user',content:messageText});
    p.backgroundBase=structuredClone(p.files);p.backgroundSource=structuredClone(p.files);
    const job=await backgroundRequest(p,`/api/build/jobs/${p.background.id}/control`,body);await applyBackgroundJob(p,job);
@@ -736,11 +742,14 @@ async function startBackgroundBuild(asked,resume=false,{messageText=asked}={}){
  }
 }
 
-async function stopBackgroundBuild(){
- const p=project();if(!remoteRunning(p))return;
- try{const job=await backgroundRequest(p,`/api/build/jobs/${p.background.id}/control`,{action:'stop'});await applyBackgroundJob(p,job);}
- catch(error){deps.toast(`${error.message} The task may still be working; reconnect to stop it.`);}
+async function stopBackgroundBuild(action='stop'){
+ const p=project();if(!remoteRunning(p) || backgroundActions.has(p.id))return;
+ backgroundActions.add(p.id);render();
+ try{const job=await backgroundRequest(p,`/api/build/jobs/${p.background.id}/control`,{action,generation:p.background.generation});await applyBackgroundJob(p,job);}
+ catch(error){deps.toast(`${error.message} The task may still be working; reconnect to confirm ${action==='cancel'?'cancellation':'pause'}.`);}
+ finally{backgroundActions.delete(p.id);if(p===project()){render();document.dispatchEvent(new CustomEvent('ritual:busy',{detail:state.mode==='build' && isBusy()}));}}
 }
+
 function showCommands(){
  const commands=[['Files','view-files'],['Preview','view-preview'],['Changes','view-changes'],['New build','build-new'],['Download project','build-download'],['Check website','build-check'],['Connect GitHub','build-github'],['Publish website','build-publish']];
  openSheet('Workspace commands','<input class="command-search" id="command-search" type="search" placeholder="Find a command…" aria-label="Find a workspace command">'+commands.map(([label,id])=>`<button class="sheet-go workspace-command" type="button" data-command="${id}">${label}</button>`).join('')+'<p class="sheet-note">Ctrl / ⌘ K: commands · Ctrl / ⌘ S: save file · Escape: close</p>');
@@ -1558,6 +1567,8 @@ export async function mount(options = {}) {
     if(size){state.previewSize=size.dataset.previewSize;for(const button of el.build.querySelectorAll('[data-preview-size]'))button.setAttribute('aria-pressed',String(button===size));renderPreview();return;}
     if(event.target.closest('#preview-follow')){state.followAgent=!state.followAgent;renderPreview();return;}
     if(event.target.closest('#agent-stop')){$('plan-stop')?.click();return;}
+    if(event.target.closest('#agent-pause')){if(remoteRunning(project()))await stopBackgroundBuild('pause');else stop();return;}
+    if(event.target.closest('#agent-cancel')){if(remoteRunning(project()))await stopBackgroundBuild('cancel');else stop();return;}
     if(event.target.closest('#agent-resume')){$('plan-resume')?.click();return;}
     if(event.target.closest('#preview-refresh')){state.previewUnloaded=false;el.previewFrame.dataset.signature='';renderPreview();return;}
     if(event.target.closest('[data-team-plan]')){showProjectPlan();return;}

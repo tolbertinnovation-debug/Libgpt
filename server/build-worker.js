@@ -1,3 +1,4 @@
+import {generationContext} from './build-context.js';
 import {filesFrom} from '../public/build.js';
 import {TEAM_ROLES} from '../public/build-team.js';
 import {assertTeamFiles,normalizeTeamPlan,normalizeArchitecture,teamProjectFaults,workerInstruction} from './build-team.js';
@@ -36,13 +37,26 @@ export function createBuildWorker({store,services}){
   const claimed=await store.claim(id,generation);
   if(!claimed.key)return {continue:false,status:claimed.job.status};
   const job=claimed.job,cp=checkpointFor(job),files=copy(job.files),key=claimed.key;
-  let status=job.status,event='';
+  let status=job.status,event='',appliedOperation=null;
   const controller=new AbortController();
   const monitor=setInterval(()=>store.internal(id).then(current=>{
    if(current.generation!==generation || !activeBuildStatus(current.status))controller.abort(Object.assign(new Error('Build stopped.'),{status:423,code:'BUILD_INTERRUPTED'}));
   }).catch(()=>controller.abort(Object.assign(new Error('Task storage could not be checked. Saved progress is kept. Resume when storage is available.'),{status:503,code:'GOVERNANCE_UNAVAILABLE'}))),1200);monitor.unref?.();
   // Recheck persisted cancellation/fencing immediately before a billable service.
-  const paidStep=async(action)=>{const live=await store.internal(id);if(controller.signal.aborted || live.generation!==generation || !activeBuildStatus(live.status))throw Object.assign(new Error('Build stopped.'),{status:423});return action();};
+  const paidStep=async(kind,action,path='')=>{
+   const live=await store.internal(id);if(controller.signal.aborted || live.generation!==generation || !activeBuildStatus(live.status))throw Object.assign(new Error('Build stopped.'),{status:423});
+   const operation=await store.startOperation(id,generation,key,{kind,path});
+   if(operation.reused){appliedOperation=operation.id;return operation.result;}
+   const current=await store.internal(id);if(current.generation!==generation || !activeBuildStatus(current.status))throw Object.assign(new Error('Build stopped.'),{status:423});
+   try{
+    const result=await action();
+    await store.finishOperation(id,generation,key,operation.id,{result});appliedOperation=operation.id;return result;
+   }catch(error){
+    const denied=['GOVERNANCE_BUDGET','GOVERNANCE_RATE','GOVERNANCE_CONCURRENCY','GOVERNANCE_PERMISSION'].includes(error.code) || error.code==='BUILD_CONTEXT_LIMIT';
+    await store.finishOperation(id,generation,key,operation.id,{status:denied?'denied':'uncertain'}).catch(()=>{});
+    throw error;
+   }
+  };
   const setRole=(role,value)=>{cp.agents[role].status=value;};
   const announce=async(message,phase)=>{status=phase;cp.status=phase;cp.message=message;if(phase!=='building')cp.currentFile='';job.events=[...(job.events || []),{at:Date.now(),message}].slice(-200);
    const update=await store.progress(id,generation,key,{...job,files,checkpoint:cp,status:phase,message});
@@ -51,12 +65,12 @@ export function createBuildWorker({store,services}){
    await services.assertActive();assertAgentData({asked:job.asked,files,checkpoint:cp});assertTeamFiles(files,cp.plan);
    if(!cp.plan){
     setRole('supervisor','working');await announce('Planning the project and assigning files.','planning');
-    cp.plan=normalizeTeamPlan(await paidStep(()=>services.plan(job.asked,files,controller.signal)));
+    cp.plan=normalizeTeamPlan(await paidStep('plan',()=>services.plan(job.asked,files,controller.signal)));
     assertTeamFiles(files,cp.plan);
     cp.phase='architecture';setRole('supervisor','waiting');status='architecting';event='Project plan saved.';
    } else if(!cp.architecture){
     setRole('architect','working');await announce('Recording architecture and implementation contracts.','architecting');
-    cp.architecture=normalizeArchitecture(await paidStep(()=>services.architecture(job.asked,cp.plan,controller.signal)),cp.plan);
+    cp.architecture=normalizeArchitecture(await paidStep('architecture',()=>services.architecture(job.asked,cp.plan,controller.signal)),cp.plan);
     cp.phase='build';setRole('architect','complete');status='building';event='Architecture saved. Starting implementation.';
    } else if((cp.phase || 'build')==='build'){
     const scheduled=cp.repairs?.length ? cp.repairs : cp.plan.tasks;
@@ -70,12 +84,12 @@ export function createBuildWorker({store,services}){
     if(!selected){cp.phase='review';status='reviewing';event='Files saved. Running independent review.';}
     else {
      const {task,owner,path}=selected;setRole(task.agent,'working');cp.currentFile=path;await announce(`Writing ${path}`,'building');
-     const instruction=[workerInstruction(cp.plan,task.agent,job.asked),
+     const instruction=[workerInstruction(cp.plan,task.agent,job.asked,path),
       `Recorded architecture: ${JSON.stringify(cp.architecture)}`,
-      `For this task write ONLY ${path}. Return the entire complete file in a closed fenced block with path=${path}. Do not return other files.`,
       cp.repairs?.length ? `Review repair instructions: ${task.instruction}` : '',
       `Preserve the existing working project. Follow the shared contract and use only planned local assets.`].filter(Boolean).join('\n\n');
-     const raw=await paidStep(()=>services.generate(task.agent,instruction,files,controller.signal,cp.plan,path));
+     const context=generationContext(files,{targetPath:path,plan:cp.plan,instruction});cp.context=context.metrics;
+     const raw=await paidStep('generate',()=>services.generate(task.agent,instruction,files,controller.signal,cp.plan,path),path);
      const parsed=filesFrom(raw);
      const file=parsed.files.find(file=>file.path===path && validFile(file));
      const unchangedRepair=file && cp.repairs?.length && files.some(existing=>existing.path===path && existing.body===file.body);
@@ -97,7 +111,7 @@ export function createBuildWorker({store,services}){
    } else if(cp.phase==='review'){
     setRole('reviewer','working');await announce('Reviewing the complete saved source.','reviewing');
     const issues=teamProjectFaults(cp.plan,files);
-    const review=await paidStep(()=>services.review(job.asked,cp.plan,files,issues,controller.signal,cp.gateFindings || []));
+    const review=await paidStep('review',()=>services.review(job.asked,cp.plan,files,issues,controller.signal,cp.gateFindings || []));
     cp.review=review;cp.faults=[...new Set([...issues,...review.faults])];
     if(review.approved && !cp.faults.length && !review.repairs.length){
      cp.phase='gate';status='security';setRole('reviewer','complete');event='Independent source review passed. Checking release gates.';
@@ -108,7 +122,7 @@ export function createBuildWorker({store,services}){
     }else {status='needs_attention';cp.message=review.summary;setRole('reviewer','needs_attention');event='Review found issues. Completed files are kept.';}
    } else if(cp.phase==='gate'){
     for(const role of ['security','qa','approver'])setRole(role,'working');await announce('Running security, QA and release approval checks.','security');
-    cp.release=await paidStep(()=>services.release({asked:job.asked,plan:cp.plan,architecture:cp.architecture,files,faults:[]},controller.signal));
+    cp.release=await paidStep('release',()=>services.release({asked:job.asked,plan:cp.plan,architecture:cp.architecture,files,faults:[]},controller.signal));
     cp.faults=cp.release.faults || [];
     for(const [gate,role]of [['review','reviewer'],['security','security'],['qa','qa'],['approver','approver']])setRole(role,cp.release.gates?.[gate]?.passed?'complete':'needs_attention');
     const externalSetup=cp.faults.some(fault=>/signing|configuration is required|unavailable|malformed|must complete successfully|hosting.*required|spending cap|rate limit|cost policy|authorization|credential.*required/i.test(fault));
@@ -126,7 +140,7 @@ export function createBuildWorker({store,services}){
    if(status==='needs_attention')cp.blocker=buildBlocker({code:cp.phase==='gate'?'BUILD_VERIFICATION_REQUIRED':'BUILD_REVIEW_REQUIRED'},cp);
    else cp.blocker=null;
    const result=await store.save(id,generation,key,{...job,files,checkpoint:cp,status,message:cp.message || event,
-    events:[...(job.events || []),{at:Date.now(),message:event}].slice(-200)});
+    events:[...(job.events || []),{at:Date.now(),message:event}].slice(-200)},{appliedOperation});
    return {continue:result.saved && activeBuildStatus(status),status:result.job.status};
   }catch(error){
    const message=safeMessage(error);cp.blocker=buildBlocker(error,cp);cp.status='needs_attention';cp.message=message;cp.faults=[message];cp.release=null;
