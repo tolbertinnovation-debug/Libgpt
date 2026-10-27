@@ -4,6 +4,8 @@ import {safeTeamPath} from './build-team.js';
 import {fitProject,projectContext} from './build.js';
 const invalid=()=>Object.assign(new Error('Required coding context is unavailable or too large. Saved files are kept; split the task before resuming.'),{code:'BUILD_CONTEXT_LIMIT',status:413});
 const config=path=>/(?:^|\/)(?:package\.json|tsconfig\.json|jsconfig\.json|requirements\.txt|pyproject\.toml|schema\.prisma)$/.test(path);
+// Guidance is part of the project's constraints even when no source imports it.
+const guidance=path=>/(?:^|\/)(?:AGENTS|CLAUDE|README|SECURITY|CONTRIBUTING|instructions|coding-guidelines|security-policy)\.(?:md|txt)$/i.test(path) || /(?:^|\/)[^/]*(?:instructions|guidelines|policy)\.(?:md|txt)$/i.test(path);
 function references(body){
  const refs=[];
  // Literal local HTML/CSS/JS references. Dynamic/unsupported imports use the
@@ -34,9 +36,12 @@ export function generationContext(files,{targetPath,plan,instruction='',room=900
  if(byPath.has(targetPath))required.add(targetPath);
  const task=plan?.tasks?.find(t=>t.files?.includes(targetPath));
  const contract=[plan?.contract || '',task?.instruction || '',instruction].join('\n');
- for(const path of byPath.keys())if(config(path) || contract.includes(path))required.add(path);
- // Include direct consumers when editing shared styles/scripts, then closure.
- for(const [path,refs] of edges)if(refs.includes(targetPath))required.add(path);
+ for(const path of byPath.keys())if(config(path) || guidance(path) || contract.includes(path))required.add(path);
+ // Follow all upstream consumers of the edit target, not just its immediate
+ // importer, then include their dependency closure. Do not pull consumers of
+ // unrelated configuration/guidance into the edit graph.
+ const consumers=new Set([targetPath]),upstream=[targetPath];
+ for(let i=0;i<upstream.length;i++)for(const [path,refs] of edges)if(refs.includes(upstream[i]) && !consumers.has(path)){consumers.add(path);upstream.push(path);required.add(path);}
  const queue=[...required];for(let i=0;i<queue.length;i++)for(const path of edges.get(queue[i]) || [])if(!required.has(path)){required.add(path);queue.push(path);}
  // A new file without any concrete references cannot be narrowed safely yet.
  if(!required.size)fallback=true;

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {generationContext} from '../server/build-context.js';
+import {fitProject,projectContext} from '../server/build.js';
 const files=[{path:'index.html',body:'<html><link href="assets/site.css"><script type="module" src="assets/app.js"></script></html>'},{path:'assets/site.css',body:'body {color:navy}'},{path:'assets/app.js',body:'import {data} from "./data.js"; console.log(data)'},{path:'assets/data.js',body:'export const data = "School";'},...Array.from({length:12},(_,i)=>({path:`archive-${i}.html`,body:'<html>'+('Unrelated archive. '.repeat(1000))+'</html>'}))];
 test('generation retains complete transitive dependencies but omits unrelated archive bodies',()=>{
  const c=generationContext(files,{targetPath:'index.html',plan:{contract:'Keep existing behavior',tasks:[]}});
@@ -44,4 +45,42 @@ test('unresolved literal dependencies fail closed when complete fallback source 
 test('responsive image sources and poster assets are retained without truncating source',()=>{
  const c=generationContext([{path:'index.html',body:'<img srcset="small.svg 400w, large.svg 900w"><video poster="poster.svg"></video>'},...['small.svg','large.svg','poster.svg'].map(path=>({path,body:'<svg></svg>'})),{path:'unrelated.svg',body:'<svg></svg>'}],{targetPath:'index.html'});
  assert.deepEqual(c.kept.map(f=>f.path).sort(),['index.html','large.svg','poster.svg','small.svg']);
+});
+test('security and coding guidance survives pruning and cannot be truncated to claim savings',()=>{
+ const input=[{path:'app.js',body:'console.log("School")'},...['AGENTS.md','SECURITY.md','README.md','docs/nested/AGENTS.md','docs/auth.instructions.md'].map(path=>({path,body:'Require authorization and preserve user data.'})),{path:'archive.html',body:'Unrelated archive'}];
+ const c=generationContext(input,{targetPath:'app.js'});
+ for(const f of input.filter(f=>f.path.endsWith('.md')))assert.ok(c.kept.some(k=>k.path===f.path && k.body===f.body));
+ assert.ok(c.dropped.includes('archive.html'));
+ assert.throws(()=>generationContext(input,{targetPath:'app.js',room:100}),{code:'BUILD_CONTEXT_LIMIT'});
+});
+test('shared dependency edits retain transitive consumers and their sibling dependencies',()=>{
+ const input=[{path:'index.html',body:'<script src="app.js"></script><link href="styles.css">'},{path:'app.js',body:'import {x} from "./service.js";'},{path:'service.js',body:'import {x} from "./data.js"; export {x};'},{path:'data.js',body:'export const x=1;'},{path:'styles.css',body:'body{color:navy}'},{path:'unrelated.txt',body:'Unrelated'}];
+ const c=generationContext(input,{targetPath:'data.js'});
+ assert.deepEqual(c.kept.map(f=>f.path).sort(),['app.js','data.js','index.html','service.js','styles.css']);
+});
+test('context selection has no cross-request project cache or mutable summaries',()=>{
+ const a=[{path:'app.js',body:'console.log("Private school A")'}],b=[{path:'app.js',body:'console.log("Private school B")'}];
+ generationContext(a,{targetPath:'app.js'});
+ const c=generationContext(b,{targetPath:'app.js'});assert.equal(c.kept[0].body,b[0].body);assert.doesNotMatch(projectContext(c.kept),/school A/);
+ b[0].body='console.log("Updated school B")';assert.match(projectContext(generationContext(b,{targetPath:'app.js'}).kept),/Updated school B/);
+});
+test('representative offline source estimates include omission notices and report no savings for full fallback',()=>{
+ const base=files.slice(0,4),archive=files.slice(4);
+ const scenarios=[
+  ['linked static site',[...base,...archive],'index.html'],
+  ['guidance and shared dependency',[...base,{path:'AGENTS.md',body:'Preserve authorization checks.'},...archive],'assets/data.js'],
+  ['workspace alias',[{path:'app.tsx',body:'import View from "@school/ui";'},...base],'app.tsx'],
+  ['backend project',[{path:'api.py',body:'import application'},...base],'api.py'],
+  ['small site',base,'index.html']
+ ];
+ const results=[];
+ for(const [name,input,targetPath] of scenarios){
+  const old=fitProject(input,90000),selected=generationContext(input,{targetPath});
+  const packed=context=>projectContext(context.kept)+(context.dropped.length?`\n\nExisting files omitted from this call (preserve them; do not recreate or remove them): ${context.dropped.join(', ')}`:'');
+  const before=packed(old).length,after=packed(selected).length;
+  assert.equal(selected.metrics.estimatedSelectedTokens,Math.ceil(projectContext(selected.kept).length/4));
+  if(selected.metrics.fallback)assert.equal(after,before);
+  results.push({name,beforeChars:before,afterChars:after,beforeEstimatedTokens:Math.ceil(before/4),afterEstimatedTokens:Math.ceil(after/4),reductionPercent:Number((100*(before-after)/before).toFixed(2)),fallback:selected.metrics.fallback});
+ }
+ console.log('Representative context fixtures',JSON.stringify(results));
 });

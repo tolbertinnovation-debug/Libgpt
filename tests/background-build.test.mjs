@@ -329,3 +329,20 @@ test('receipt recovery uses locale-independent source ordering across worker res
  const original=String.prototype.localeCompare;String.prototype.localeCompare=()=>{throw Error('Locale must not determine receipt identity');};
  try{const reused=await store.startOperation(identity.id,1,claim.key,{kind:'plan'});assert.equal(reused.reused,true);assert.equal(reused.id,op.id);}finally{String.prototype.localeCompare=original;}
 });
+test('lost operation admission acknowledgement cannot dispatch or silently retry a paid call',async t=>{
+ const {store,identity}=await fixture(t),start=store.startOperation;let lose=true,calls=0;
+ store.startOperation=async(...args)=>{const op=await start(...args);if(lose){lose=false;throw Error('Admission commit acknowledgement lost');}return op;};
+ const worker=createBuildWorker({store,services:services({plan:async()=>{calls++;return plan;}})});
+ await worker.advance(identity.id,1);const paused=await store.get(identity.id,identity.token);
+ assert.equal(calls,0);assert.equal(paused.status,'needs_attention');assert.equal(paused.operation.status,'started');
+ await assert.rejects(store.control(identity.id,identity.token,'resume',{generation:paused.generation}),{code:'BUILD_OUTCOME_UNCERTAIN'});
+ await worker.advance(identity.id,paused.generation);assert.equal(calls,0);
+});
+test('unknown final checkpoint acknowledgement preserves an applied receipt without another paid call',async t=>{
+ const {store,identity}=await fixture(t),save=store.save;let lose=true,calls=0;
+ store.save=async(...args)=>{const result=await save(...args);if(lose && args[4]?.appliedOperation){lose=false;throw Error('Checkpoint commit acknowledgement lost');}return result;};
+ const worker=createBuildWorker({store,services:services({plan:async()=>{calls++;return plan;}})});
+ await worker.advance(identity.id,1);const saved=await store.get(identity.id,identity.token);
+ assert.equal(saved.operation.status,'applied');assert.ok(saved.checkpoint.plan);assert.equal(calls,1);
+ await worker.advance(identity.id,1);assert.equal(calls,1);assert.ok((await store.get(identity.id,identity.token)).checkpoint.architecture);
+});

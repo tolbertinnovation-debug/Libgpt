@@ -33,6 +33,19 @@ test('only explicit whole-message resume commands are recognized',()=>{
 });
 
 const source=await readFile(new URL('../public/ritual.js',import.meta.url),'utf8');
+test('file progress disclosure preserves the user choice across task rerenders',()=>{
+ const code=source.slice(source.indexOf('function renderPlan(run)'),source.indexOf('\nasync function applyBackgroundJob',source.indexOf('function renderPlan(run)')));
+ // Only the render function is evaluated; no transport or application startup.
+ const renderCode=code.slice(0,code.indexOf('\n}\n')+2);
+ for(const open of [true,false]){
+  const node={querySelector:selector=>({open:selector==='.file-progress'?open:true}),setAttribute:()=>{},innerHTML:''};
+  const p={id:'school',files:[{path:'index.html',body:'Source'}]};
+  const render=new Function('el','project','TEAM_ROLES','state','escapeHtml','backgroundActions','buildTaskLabel',`let loadingTimer=null;${renderCode};return renderPlan;`)({plan:node},()=>p,[],{},String,new Set(),()=> 'Paused');
+  render({checkpoint:{status:'stopped',plan:{tasks:[{files:['index.html']}]}}});
+  assert.match(node.innerHTML,open?/<details class="file-progress" open>/ : /<details class="file-progress" >/);
+  assert.match(node.innerHTML,/Source saved.*runtime unverified/);
+ }
+});
 const start=source.indexOf('async function send(text)'),end=source.indexOf('\n/** Complete file fences',start);
 function screen(p){
  const calls=[],toasts=[];let polls=0;

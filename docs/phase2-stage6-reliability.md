@@ -7,7 +7,7 @@ Branch: `codex/phase2-stage6-reliability-efficiency`. Draft only; no merge/deplo
 
 ### Generation context
 
-`server/build-context.js` selects complete edit targets, directly related consumers, transitive literal HTML/CSS/JS dependencies, named contract/task dependencies and root package/compiler/schema configuration. Unsupported backend languages and dynamic imports use a complete-source fallback; required files that exceed the context budget fail before a model call. Unrelated bodies are omitted with their filenames explicitly retained. No file is truncated.
+`server/build-context.js` selects complete edit targets, transitive upstream consumers and their literal HTML/CSS/JS dependencies, named contract/task dependencies, coding/security guidance and root package/compiler/schema configuration. Unsupported backend languages and dynamic imports use a complete-source fallback; required files that exceed the context budget fail before a model call. Unrelated bodies are omitted with their filenames explicitly retained. No file is truncated.
 
 The background worker records character-based context estimates; `server/app.js` applies the selector to the actual generation request. Original requests, acceptance requirements, architecture and ownership instructions remain intact. Single-file worker instructions no longer also ask for every owned file. Foreground/legacy paths remain compatible. The selector is a conservative lexical analysis, not a complete language-service dependency graph. Unknown frameworks/aliases and future syntax need independent review; final source review still requires the complete project and is never pruned.
 
@@ -48,7 +48,7 @@ Method: deterministic fixture with four linked frontend files and twelve unrelat
 | Source-context component | Before | After |
 |---|---:|---:|
 | Included file bodies | 8 | 4 |
-| Characters including omitted-path notice | 76,837 | 673 |
+| Characters including omitted-path notice | 76,839 | 675 |
 | Estimated tokens at 4 characters/token | 19,210 | 169 |
 | Fixture reduction | | 99.12% |
 
@@ -72,7 +72,7 @@ The branch is listed as deployment-disabled in `vercel.json` from its first publ
 
 ## Validation
 
-Local full regression: **658 tests passed, 0 failed, 0 skipped** (29 additional regression cases over the 629-test baseline). Local clean production build passed: **50.3 MB / 19.8 MB gzip**. GitHub CI on Node 22/24 is required on the exact published head; see the Draft PR checks for its final status.
+Local full regression: **667 tests passed, 0 failed, 0 skipped** (38 additional regression cases over the 629-test baseline). Local clean production build passed: **50.3 MB / 19.8 MB gzip**. GitHub CI on Node 22/24 is required on the exact published head; see the Draft PR checks for its final status.
 
 Chromium at **320×900, 390×900 and 1440×900** passed both suites: (1) Plan and verification disclosure, forged imported success flags, no document overflow, standard/restricted resource probes, bounded diagnostics and unloading; (2) mocked active background Pause, Resume, Cancel, file status, direct Plan access, saved source count and cleared composer busy state. No page errors, actual model calls, provider calls or unexpected backend requests occurred. The diagnostic flood retained 30 combined UI items and unloaded its hidden frame. The known self-navigation limitation was reproduced with a locally intercepted URL and is not claimed fixed. All test model/provider operations are mocked; SQL tests use offline PGlite. Browser routes use local static files and mocked configuration/job transport; no actual job or paid-model request is sent.
 
@@ -101,3 +101,58 @@ The follow-up review of the initial Draft PR head found and corrected two additi
 Five regression cases were added. Final local full suite: 658 passed, zero failed/skipped. Clean production build remains 50.3 MB / 19.8 MB gzip. Both responsive Chromium suites passed again at 320, 390 and 1440 pixels, with mocked job transport and zero model/provider calls. GitHub CI must pass on the correction head; refer to the Draft PR checks for its final result. The original fixture's 99.12% source-context estimate is unchanged and remains a fixture-only estimate.
 
 No critical/high or additional merge-blocking medium finding was identified in this bounded pass. Existing preview isolation/report-trust, provider exactly-once, full-stack execution, physical-device testing and database anti-rollback limitations remain. This follow-up is an assistant review, not an external independent audit or merge authorization.
+
+
+## Final security and regression review (27 October 2026)
+
+Reviewed starting head: `6e4e8414e53e7130078272623cedef0f46664989`. All 23 remote changed-file blobs matched the local source before corrections. This is a fresh assistant review, not certification by an external security organization. Final published head and exact-head Node 22/24 CI results are recorded in the Draft PR, avoiding a self-referential documentation commit.
+
+### Findings and corrections
+
+- **Medium — missing project guidance, corrected.** Source pruning did not explicitly retain unimported coding/security instructions. Known guidance names (AGENTS, CLAUDE, README, SECURITY, CONTRIBUTING and instruction/guideline/policy text or Markdown files), including nested paths allowed by the existing file validator, are now mandatory complete context. Overflow stops before a paid call. Hidden project paths remain disallowed by the existing path policy; this change does not widen that policy.
+- **Medium — incomplete consumer chain, corrected.** Editing a deeply shared dependency retained its immediate importer but could omit the entry page and that page's other dependencies. Selection now traverses the full reverse consumer chain and then the complete dependency closure. Required source still fails closed on overflow.
+- **Low — collapsing file-progress disclosure, corrected.** Task rerenders could close a disclosure the user was reading. Its open/closed choice now survives updates. Regression tests and mocked browser Pause/Resume/Cancel checks cover the behavior.
+- **Low — measurement precision, corrected.** The original fixture character totals omitted the two separator newlines before the omission notice. Correct full packed totals are 76,839 and 675; the rounded 99.12% reduction and 19,210/169 estimates are unchanged.
+
+No new critical or high finding was identified, and no unresolved merge-blocking medium finding was found in the bounded disabled-preparation changes. Existing medium-risk preview isolation/report-trust limitations and duplicate-charge exposure after explicitly authorized uncertain retries remain, as detailed below. This does not authorize execution or a production rollout.
+
+### Representative offline measurements
+
+The regression now compares actual packed source plus omission notices against the old 90,000-character packing behavior. It excludes identical system/task prompts, uses `ceil(characters/4)` estimates, and makes no paid call. Each fixture is deterministic and synthetic, not a production workload sample or a model-quality benchmark.
+
+| Fixture | Before characters | After characters | Estimated tokens before / after | Reduction |
+|---|---:|---:|---:|---:|
+| Linked static site plus 12 unrelated archive pages | 76,839 | 675 | 19,210 / 169 | 99.12% |
+| Guidance plus shared dependency and archive pages | 76,905 | 741 | 19,227 / 186 | 99.04% |
+| Unresolved workspace alias | 458 | 458 | 115 / 115 | 0% |
+| Backend source requiring full fallback | 445 | 445 | 112 / 112 | 0% |
+| Small tightly linked static site | 394 | 394 | 99 / 99 | 0% |
+
+Three of five fixtures have zero savings. No aggregate production savings or API-dollar reduction is claimed. Source-only metric fields exclude the omission notice; the comparative packed measurements above include it. Governance uses its unchanged conservative UTF-8-based reservation, not this characters/4 display estimate. No new agent/model call was introduced.
+
+### Recovery and transaction audit
+
+Nine additional regression cases cover guidance and overflow, reverse dependency closure, cross-project and current-source separation, five measurement fixtures, lost admission acknowledgement, lost final checkpoint acknowledgement, transaction setup failure, uncertain audited-denial COMMIT and disclosure persistence. Admission with an unknown commit does not dispatch a model call or allow an unacknowledged retry. An applied checkpoint whose acknowledgement is lost advances without repeating its plan call. Existing tests continue to cover eight concurrent duplicate deliveries, competing Resume/revise requests, stale writers, receipt corruption, cancellation, budget exhaustion and retained reservations.
+
+The existing AI ledger's atomic admission and conservative reconciliation remain authoritative. Operation receipts neither refund usage nor authorize a provider. Workflow paid steps keep automatic retries at zero. DB transaction action/COMMIT is not automatically repeated. Row locks, capability ownership, scope, generation and claim-key fencing remain intact. Pool initialization and audited-denial transactions use the same reviewed helper; BEGIN/ROLLBACK/COMMIT uncertainty tests pass offline. TLS policy and administrator guards are unchanged. Host clock skew may delay or prematurely fence a claim, but cannot automatically authorize another uncertain paid attempt.
+
+### Final validation and changed files
+
+Full local suite: **667 passed, zero failures/skips**. Clean local production build: **50.3 MB / 19.8 MB gzip**. Responsive Chromium suites pass at **320×900, 390×900 and 1440×900**. Checks include no horizontal overflow, keyboard focus and 44px Pause control, persistent file disclosure across control responses, Plan, source counts, uncertainty/verification labels, mocked controls, imported forged success, restricted resource probes, bounded diagnostics and unloading. No actual job submission, provider request, generated backend execution or production database connection occurred. Exact-head GitHub Node 22/24 CI must be green before a merge recommendation is acted upon.
+
+Corrections in this final review touch seven existing PR files: `server/build-context.js`, `public/ritual.js`, `tests/build-context.test.mjs`, `tests/background-build.test.mjs`, `tests/postgres-transaction.test.mjs`, `tests/build-request-history.test.mjs` and this report. The entire PR's changed-file inventory remains:
+
+- Server: `server/app.js`, `server/build-context.js`, `server/build-jobs.js`, `server/build-team.js`, `server/build-worker.js`, `server/governance-postgres.js`, `server/postgres-transaction.js`.
+- Workspace: `public/app.js`, `public/build-task-state.js`, `public/build-team.js`, `public/index.html`, `public/ritual.js`, `public/styles.css`.
+- Regression: `tests/background-build.test.mjs`, `tests/build-context.test.mjs`, `tests/build-request-history.test.mjs`, `tests/build-stream.test.mjs`, `tests/build-team-server.test.mjs`, `tests/build-team.test.mjs`, `tests/governance-postgres.test.mjs`, `tests/postgres-transaction.test.mjs`.
+- Documentation/configuration: `docs/phase2-stage6-reliability.md`, `vercel.json` (disables this branch's automatic deployment).
+
+### Remaining limitations and recommendation
+
+- **Medium, existing preview boundary:** iframe self-navigation can bypass a document's CSP; renderer CPU/memory is not hard-isolated; same-frame diagnostic reports remain forgeable. These diagnostics cannot grant real execution or verification. No full network isolation is claimed.
+- **Medium, paid-operation recovery boundary:** no provider-side exactly-once primitive or transactional queue outbox exists. An explicitly approved uncertain retry may charge again within the unchanged AI limits. Compound release gates are not independently journaled per model call; fresh release evaluation can repeat confirmed governed checks after manual Resume. No automatic uncertain-call retry is allowed.
+- **Medium, persisted integrity boundary:** no external anti-rollback anchor or malicious-database protection. Digests detect corrupted response contents, not a consistent restoration of an old DB snapshot. PGlite fixtures serialize one connection and do not certify production failover.
+- **Low/functional:** lexical dependency selection cannot prove every framework/runtime dependency. Unknown/dynamic imports and unsupported backend languages retain full source or stop; hidden paths remain outside the source import contract. Real-model quality, actual production savings, physical Android and screen-reader certification are untested.
+- **Incomplete by design:** frontend browser preview is available, but backend/database/authentication/full-stack execution is unverified. Real execution has no enabled provider path. Infrastructure allowance stays zero and persistent mock infrastructure governance remains unmounted. Existing DB/Workflow/hosting costs are outside the AI ledger.
+
+**Recommendation:** safe to merge as a bounded reliability/efficiency and disabled-preparation improvement after final exact-head CI succeeds and the owner explicitly approves merging. It does not remove the NO-GO decision for live execution. No merge, deployment, administrator secret, billing setting or production data change is part of this review.

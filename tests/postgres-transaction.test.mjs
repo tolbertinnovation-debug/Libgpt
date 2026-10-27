@@ -21,3 +21,13 @@ test('initial connection and BEGIN failures cannot return a dirty reusable clien
  await assert.rejects(postgresTransaction({connect:async()=>{throw Error('offline');}},()=>assert.fail()));
  const f=fixture(q=>q==='BEGIN');await assert.rejects(postgresTransaction(f.pool,()=>assert.fail()));assert.deepEqual(f.release,[true]);
 });
+test('transaction setup failure rolls back without executing the mutation',async()=>{
+ const f=fixture(q=>q.includes('statement_timeout'));let actions=0;
+ await assert.rejects(postgresTransaction(f.pool,async()=>{actions++;}));
+ assert.equal(actions,0);assert.equal(f.sql.includes('COMMIT'),false);assert.equal(f.sql.filter(q=>q==='ROLLBACK').length,1);assert.deepEqual(f.release,[false]);
+});
+test('uncertain COMMIT during audited denial destroys the client and is never retried',async()=>{
+ const f=fixture(q=>q==='COMMIT');let actions=0;
+ await assert.rejects(postgresTransaction(f.pool,async()=>{actions++;throw Object.assign(Error('Denied'),{persistAudit:true});},{commitOnError:e=>e.persistAudit}));
+ assert.equal(actions,1);assert.equal(f.sql.filter(q=>q==='COMMIT').length,1);assert.deepEqual(f.release,[true]);
+});
