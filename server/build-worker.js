@@ -32,6 +32,21 @@ function validFile(file){
  if(/\.json$/i.test(file.path))try{JSON.parse(file.body);}catch{return false;}
  return true;
 }
+/** One storage observation at a time; a hung read aborts work, never queues more reads. */
+export function createWorkerMonitor({read,check,onFailure,interval=1200,timeout=10000,setTimer=setTimeout,clearTimer=clearTimeout}){
+ let stopped=false,timer,deadline,pending=false;
+ function schedule(){if(!stopped){timer=setTimer(poll,interval);timer?.unref?.();}}
+ async function poll(){
+  if(stopped || pending)return;
+  pending=true;
+  deadline=setTimer(()=>{if(!stopped){stopped=true;onFailure();}},timeout);deadline?.unref?.();
+  try{const current=await read();if(!stopped && check(current)===false)stopped=true;}
+  catch{if(!stopped){stopped=true;onFailure();}}
+  finally{clearTimer(deadline);pending=false;schedule();}
+ }
+ schedule();
+ return {stop(){stopped=true;clearTimer(timer);clearTimer(deadline);}};
+}
 export function createBuildWorker({store,services}){
  async function advance(id,generation){
   const claimed=await store.claim(id,generation);
@@ -39,15 +54,15 @@ export function createBuildWorker({store,services}){
   const job=claimed.job,cp=checkpointFor(job),files=copy(job.files),key=claimed.key;
   let status=job.status,event='',appliedOperation=null;
   const controller=new AbortController();
-  const monitor=setInterval(()=>store.internal(id).then(current=>{
-   if(current.generation!==generation || !activeBuildStatus(current.status))controller.abort(Object.assign(new Error('Build stopped.'),{status:423,code:'BUILD_INTERRUPTED'}));
-  }).catch(()=>controller.abort(Object.assign(new Error('Task storage could not be checked. Saved progress is kept. Resume when storage is available.'),{status:503,code:'GOVERNANCE_UNAVAILABLE'}))),1200);monitor.unref?.();
+  const monitor=createWorkerMonitor({read:()=>store.internal(id),check:current=>{
+   if(current.generation!==generation || !activeBuildStatus(current.status)){controller.abort(Object.assign(new Error('Build stopped.'),{status:423,code:'BUILD_INTERRUPTED'}));return false;}
+  },onFailure:()=>controller.abort(Object.assign(new Error('Task storage could not be checked. Saved progress is kept. Resume when storage is available.'),{status:503,code:'GOVERNANCE_UNAVAILABLE'}))});
   // Recheck persisted cancellation/fencing immediately before a billable service.
   const paidStep=async(kind,action,path='')=>{
    const live=await store.internal(id);if(controller.signal.aborted || live.generation!==generation || !activeBuildStatus(live.status))throw Object.assign(new Error('Build stopped.'),{status:423});
    const operation=await store.startOperation(id,generation,key,{kind,path});
    if(operation.reused){appliedOperation=operation.id;return operation.result;}
-   const current=await store.internal(id);if(current.generation!==generation || !activeBuildStatus(current.status))throw Object.assign(new Error('Build stopped.'),{status:423});
+   const current=await store.internal(id);if(controller.signal.aborted || current.generation!==generation || !activeBuildStatus(current.status))throw Object.assign(new Error('Build stopped.'),{status:423});
    try{
     const result=await action();
     await store.finishOperation(id,generation,key,operation.id,{result});appliedOperation=operation.id;return result;
@@ -148,7 +163,7 @@ export function createBuildWorker({store,services}){
    const result=await store.save(id,generation,key,{...job,files,checkpoint:cp,status:'needs_attention',message,
     events:[...(job.events || []),{at:Date.now(),message}].slice(-200)});
    return {continue:false,status:result.job.status};
-  }finally{clearInterval(monitor);}
+  }finally{monitor.stop();}
  }
  return {advance};
 }

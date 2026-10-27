@@ -31,26 +31,52 @@ export function newBackgroundIdentity(){
 }
 
 /** The browser observes a durable run; aborting a poll never stops the worker. */
-export function createBackgroundObserver({fetcher=fetch,headers=()=>({}),onJob,onError,interval=5000,setTimer=setTimeout,clearTimer=clearTimeout}){
- let timer,controller,selected=null,closed=false,serial=0;
+export function createBackgroundObserver({fetcher=fetch,headers=()=>({}),onJob,onError,interval=5000,timeout=15000,maxInterval=30000,setTimer=setTimeout,clearTimer=clearTimeout}){
+ let timer,flight=null,selected=null,closed=false,serial=0,failures=0;
+ const cancel=()=>{if(flight){flight.cancel();flight=null;}};
  async function refresh(){
-  if(!selected || closed)return;
-  const mine=selected,turn=++serial;
-  controller=new AbortController();
+  if(!selected || closed || flight)return;
+  const mine=selected,turn=++serial,controller=new AbortController();
+  let deadline,rejectCancelled;
+  const cancelled=new Promise((_,reject)=>{rejectCancelled=reject;});
+  const current={cancel(){controller.abort();rejectCancelled(Object.assign(new Error('Observation stopped'),{name:'AbortError'}));}};
+  flight=current;
+  const live=()=>selected===mine && !closed && turn===serial;
+  deadline=setTimer(()=>{controller.abort();rejectCancelled(Object.assign(new Error('Progress check timed out. Your cloud task may still be working.'),{code:'BUILD_OBSERVATION_TIMEOUT'}));},timeout);
   try{
-   const response=await fetcher(`/api/build/jobs/${encodeURIComponent(mine.id)}`,{headers:{...headers(),'x-build-token':mine.token},signal:controller.signal});
-   const result=await response.json();
-   if(!response.ok)throw Object.assign(new Error(result.error || 'Reconnecting to your background build…'),{status:response.status});
-   if(selected!==mine || closed || turn!==serial)return;
-   await onJob(result.job,mine);
-  }catch(error){if(error.name!=='AbortError' && selected===mine && !closed && turn===serial)onError?.(error,mine);}
-  finally{if(selected===mine && !closed && turn===serial){clearTimer(timer);timer=setTimer(refresh,interval);}}
+   // The deadline covers response headers AND the body. A late response is fenced,
+   // even when a test transport ignores abort. This endpoint only observes work.
+   const result=await Promise.race([cancelled,(async()=>{
+    const response=await fetcher(`/api/build/jobs/${encodeURIComponent(mine.id)}`,{headers:{...headers(),'x-build-token':mine.token},signal:controller.signal});
+    let body;try{body=await response.json();}catch{throw Object.assign(new Error('Progress could not be read. Reconnecting…'),{status:response.status});}
+    if(!response.ok)throw Object.assign(new Error('The saved cloud task could not be confirmed.'),{status:response.status});
+    if(!body.job || body.job.id!==mine.id)throw new Error('The progress response does not match the saved task.');
+    return body;
+   })()]);
+   clearTimer(deadline);
+   if(!live())return;
+   failures=0;await onJob(result.job,mine);
+  }catch(error){if(error.name!=='AbortError' && live()){failures=Math.min(failures+1,4);onError?.(error,mine);}}
+  finally{
+   clearTimer(deadline);if(flight===current)flight=null;
+   if(live()){clearTimer(timer);timer=setTimer(refresh,Math.min(maxInterval,interval*2**failures));}
+  }
  }
  return {
-  watch(identity){clearTimer(timer);controller?.abort();selected=identity;closed=false;refresh();},
-  refresh(){clearTimer(timer);controller?.abort();refresh();},
-  stop(){serial++;closed=true;selected=null;clearTimer(timer);controller?.abort();},
+  watch(identity){serial++;clearTimer(timer);cancel();selected=identity;closed=false;failures=0;void refresh();},
+  refresh(){clearTimer(timer);void refresh();},
+  stop(){serial++;closed=true;selected=null;clearTimer(timer);cancel();},
  };
+}
+
+/** Only a never-confirmed create can be retried, with its original identity/body. */
+export function canRetryBackgroundCreation(identity,error){
+ return error?.status===404 && identity?.revision===-1 && Boolean(identity.pendingRequest);
+}
+export function backgroundConnectionMessage(connection){
+ if(!connection || connection.state==='connected')return '';
+ const checked=connection.lastConfirmedAt ? ` Last confirmed ${new Date(connection.lastConfirmedAt).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}.` : '';
+ return (connection.state==='denied'?'Cloud access could not be confirmed. Check your access and use Reconnect.':connection.state==='missing'?'Saved cloud task not found. Use Reconnect to recheck; it will not create a replacement.':'Reconnecting. The cloud task may still be working.')+checked+' Device files and request history are kept.';
 }
 
 /** A real worker checkpoint, with compatibility for tasks started before this field existed. */

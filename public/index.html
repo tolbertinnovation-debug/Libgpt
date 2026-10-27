@@ -12,7 +12,7 @@
 <meta property="og:description" content="African-centred conversational AI by Tolbert Innovation Hub. Ask in Liberian English, by voice or text.">
 <meta property="og:image" content="logo.png">
 <meta property="og:type" content="website">
-<link rel="stylesheet" href="styles.css?v=phase2-stage6-reliability">
+<link rel="stylesheet" href="styles.css?v=phase2-stage7a">
 </head>
 <body>
 
@@ -316,7 +316,7 @@
         </div>
         <div class="build-pane" id="pane-changes" role="tabpanel" aria-labelledby="view-changes" hidden><div class="changes-head"><h3>Changes</h3><p>Compare the saved files with the start of this task.</p></div><div id="workspace-changes"></div></div>
       </div>
-      <div class="workspace-footer"><span id="workspace-file-count">0 files</span><span id="workspace-save-state">Saved on this device</span><button type="button" id="workspace-commands">Commands <kbd>⌘ K</kbd></button></div>
+      <div class="workspace-footer"><span id="workspace-file-count">0 files</span><span id="workspace-save-state" role="status" aria-live="polite" aria-atomic="true">Saved on this device</span><button type="button" id="workspace-reconnect" hidden>Reconnect</button><button type="button" id="workspace-commands">Commands <kbd>⌘ K</kbd></button></div>
 
       <!-- Where a build is opened to see whether it runs. Off screen rather
            than display:none, so it certainly executes, and sandboxed the same
@@ -822,6 +822,6 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<script type="module" src="app.js?v=phase2-stage6-reliability"></script>
+<script type="module" src="app.js?v=phase2-stage7a"></script>
 </body>
 </html>

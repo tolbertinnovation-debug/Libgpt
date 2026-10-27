@@ -26,7 +26,8 @@
       "codex/phase2-stage2-eligibility": false,
       "codex/phase2-stage3-readiness": false,
       "codex/phase2-stage5-mock-governance": false,
-      "codex/phase2-stage6-reliability-efficiency": false
+      "codex/phase2-stage6-reliability-efficiency": false,
+      "codex/phase2-stage7a-recovery": false
     }
   }
 }

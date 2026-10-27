@@ -198,7 +198,7 @@ function rememberIfPermanent(error) {
   const status = error?.status;
   if (status === 400 || status === 403 || status === 404) {
     searchRefused = error.message || 'This key cannot read the web.';
-    console.error('[search] switched off for this process:', error.detail || error.message);
+    console.error('[search] SEARCH_DISABLED');
   }
 }
 
@@ -948,7 +948,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
         if (controller.signal.aborted || answer || governanceError(error)) throw error;
 
         rememberIfPermanent(error);
-        console.error('[search] falling back to an ordinary answer:', error.message);
+        console.error('[search] SEARCH_FALLBACK');
         send('notice', { message: 'Web research could not finish. Answering from existing knowledge, without claiming current facts were checked.' });
 
         searched = false;
@@ -997,7 +997,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     // wearing the mark. It is rare now the tool is not optional, but "rare"
     // is not a reason to let the page claim something that did not happen.
     if (searched && !didSearch) {
-      console.error('[search] the model answered without searching:', asked.slice(0, 80));
+      console.error('[search] SEARCH_TOOL_NOT_USED');
     }
 
     // Still unfinished after all that. Say so, rather than leaving a sentence
