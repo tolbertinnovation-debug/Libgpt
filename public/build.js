@@ -570,10 +570,10 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
     }
     box.textContent = what;
   };
-  // Out through the sandbox wall as well as onto the page. The frame has no
-  // origin of its own, so postMessage is the only way anything gets out of it
-  // — which is the point — and it is how the build loop learns that what it
-  // wrote does not run. Without this, checking would mean asking the person.
+  // Relay frontend diagnostics to the parent. Opaque-origin isolation blocks
+  // parent DOM/storage access, but does not block outbound network requests.
+  // Project scripts share this frame and can forge or suppress these reports;
+  // they are useful diagnostics, never trusted execution attestations.
   var tell = function (what) {
     show(what);
     try { parent.postMessage({ grandpa: 'fault', checkId:checkId, what: String(what).slice(0, 400) }, '*'); }

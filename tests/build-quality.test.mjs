@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { projectIssues, previewDocument, resolveProjectPath, danglingLinks } from '../public/build.js';
+import {createPreviewDiagnostics} from '../public/build-preview.js';
 
 test('missing planned files are reported once and existing files remain valid', () => {
   const files = [{path:'index.html', body:'<h1>Shop</h1>'}];
@@ -45,6 +46,10 @@ async function checker() {
         fn({source:frameWindow,data:{grandpa:'fault',checkId:'stale',what:'Error from an older check'}});
         if (mode === 'load') fn({source:frameWindow,data:{grandpa:'ran',checkId}});
         if (mode === 'fault') fn({source:frameWindow,data:{grandpa:'fault',checkId,what:'Broken menu'}});
+        if (mode === 'flood') {
+          for (let i=0;i<10000;i++) fn({source:frameWindow,data:{grandpa:'fault',checkId,what:`Error ${i}`}});
+          fn({source:frameWindow,data:{grandpa:'ran',checkId}});
+        }
       }
     },
   };
@@ -52,10 +57,10 @@ async function checker() {
     addEventListener(type, fn) { listeners.add(fn); },
     removeEventListener(type, fn) { listeners.delete(fn); },
   };
-  const make = new Function('window','el','previewDocument','RUN_MS','sleep',
+  const make = new Function('window','el','previewDocument','RUN_MS','sleep','createPreviewDiagnostics',
     source.slice(from, to) + '; return runAndWatch;');
   return {
-    run: make(window, {checkFrame:frame}, (_files,_path,options) => {checkId=options.checkId;return '<html></html>';}, 5, () => new Promise(r=>setTimeout(r,1))),
+    run: make(window, {checkFrame:frame}, (_files,_path,options) => {checkId=options.checkId;return '<html></html>';}, 5, () => new Promise(r=>setTimeout(r,1)),createPreviewDiagnostics),
     listeners, frame, setMode(value) {mode=value;},
   };
 }
@@ -77,6 +82,13 @@ test('cancelling a check releases its listeners and running page', async () => {
   await assert.rejects(c.run([], 'index.html', 390, () => true), {name:'AbortError'});
   assert.equal(c.listeners.size, 0);
   assert.equal(c.frame.srcdoc, '');
+});
+test('a preview fault flood stays bounded, reports truncation and still unloads the frame', async () => {
+  const c = await checker(); c.setMode('flood');
+  const faults = await c.run([], 'index.html', 390);
+  assert.equal(faults.length,20);
+  assert.match(faults.at(-1),/message limit/);
+  assert.equal(c.frame.srcdoc,''); assert.equal(c.listeners.size,0);
 });
 
 test('relative and root asset paths resolve without leaving the project', () => {

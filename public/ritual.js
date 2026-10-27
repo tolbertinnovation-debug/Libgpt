@@ -1,5 +1,6 @@
 import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
+import {createPreviewDiagnostics} from './build-preview.js?v=phase2-stage2-preview';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
 //
@@ -738,29 +739,23 @@ function showCommands(){
  for(const button of el.sheetBody.querySelectorAll('[data-command]'))button.addEventListener('click',()=>{const id=button.dataset.command;closeSheet();$(id)?.click();});
 }
 
-/** Run the built project in the sandbox and collect what comes back. */
+/** Collect bounded, untrusted frontend diagnostics from the preview iframe. */
 async function runAndWatch(files, entryPath = '', width = 390, cancelled = () => false) {
-  const faults = [];
   const checkId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
-  let finished = false;
-  const heard = (event) => {
-    if (event.source !== el.checkFrame.contentWindow) return;
-    const data = event.data;
-    if(data?.checkId !== checkId) return;
-    if (data?.grandpa === 'fault' && data.what) faults.push(String(data.what).slice(0, 400));
-    if (data?.grandpa === 'ran') finished = true;
-  };
+  const diagnostics = createPreviewDiagnostics(el.checkFrame.contentWindow, checkId);
+  const heard = diagnostics.receive;
   window.addEventListener('message', heard);
   try {
     el.checkFrame.style.width = `${width}px`;
     el.checkFrame.srcdoc = previewDocument(files, entryPath, {checkId});
     const began = Date.now();
     const until = began + RUN_MS;
-    while (Date.now() < until && !(finished && Date.now() > began + 900)) {
+    while (Date.now() < until && !(diagnostics.finished && Date.now() > began + 900)) {
       if (cancelled()) throw new DOMException('Build stopped', 'AbortError');
       await sleep(120);
     }
-    if (!finished) faults.push('Preview check did not finish loading. Check startup scripts and required resources.');
+    const faults = diagnostics.faults;
+    if (!diagnostics.finished) faults.push('Preview check did not finish loading. Check startup scripts and required resources.');
     return [...new Set(faults)].map(fault => `${entryPath || 'index.html'} (${width}px): ${fault}`);
   } finally {
     window.removeEventListener('message', heard);
@@ -862,9 +857,9 @@ async function buildTheWholeThing(asked, resume=false, {automaticRelease=true}={
  * success while its pages pointed at files that were never written, three
  * times over.
  *
- * The looking is free: a static read of what the pages point at, and running
- * them in the off-screen sandbox. Nothing is sent anywhere and nothing is
- * paid for. Only the mending costs, so only the mending is asked for.
+ * These frontend checks make no model calls: they inspect source and open it
+ * in an off-screen iframe. Project resources can still request the network.
+ * AI repairs are a separate, explicitly requested and governed operation.
  */
 async function checkAfterSaving(turn) {
   const p = project();
