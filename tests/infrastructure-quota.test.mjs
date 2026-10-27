@@ -101,3 +101,31 @@ test('synchronous storage failures and forged internal error codes never expose 
  const c=createMockInfrastructureQuotaController({storage:{transaction(){throw error;}}});await assert.rejects(c.status(),e=>e.code==='INFRA_STORAGE' && !e.message.includes('credential'));
  const f=fixture({authorizeAdministrator(){throw error;}});await assert.rejects(f.approve(),e=>e.code==='INFRA_ADMIN' && !e.message.includes('credential'));
 });
+
+test('queued reservations snapshot source, identity and quote before caller mutation',async()=>{
+ const f=fixture();await f.approve();let entered,release;
+ const ready=new Promise(r=>entered=r),wait=new Promise(r=>release=r);
+ const blocker=f.storage.transaction(async()=>{entered();await wait;});await ready;
+ const input=f.args(),id=input.id,pending=f.c.reserve(input);
+ input.id=crypto.randomUUID();input.request.files[0].body='mutated after invocation';input.quote.components.cpu=0;
+ release();await blocker;const reserved=await pending;
+ assert.equal(reserved.id,id);assert.equal(reserved.reserved,3001);assert.equal(reserved.sourceHash,prepareExecutionRequest({files:[{path:'index.html',body:'<h1>Offline source</h1>'}],checks:['test']}).artifactHash);
+});
+test('price verification cannot admit expired quotes or approvals after an asynchronous delay',async()=>{
+ for(const approvalExpiry of [false,true]){
+  const f=fixture({verifyQuote:async()=>{f.advance(60001);return true;}});
+  await f.approve(approvalExpiry?{expiresAt:Date.UTC(2026,9,27,12)+40000}:{});
+  await assert.rejects(f.c.reserve(f.args()),{code:'INFRA_QUOTE'});
+  assert.equal(Object.keys(f.storage.snapshot().attempts).length,0);
+ }
+});
+test('queued administrator approval cannot become effective after it expires',async()=>{
+ const f=fixture();let release,entered;const wait=new Promise(r=>release=r),ready=new Promise(r=>entered=r);
+ const blocker=f.storage.transaction(async()=>{entered();await wait;});await ready;
+ const pending=f.approve();await Promise.resolve();f.advance(3600001);release();await blocker;
+ await assert.rejects(pending);assert.equal(f.storage.snapshot().approval,null);
+});
+test('ledger rejects a backwards clock without releasing liabilities or changing audit records',async()=>{
+ const f=fixture();await f.approve();const a=f.args();await f.c.reserve(a);const before=f.storage.snapshot();f.advance(-1000);
+ await assert.rejects(f.c.cancel(a.id,a.token));await assert.rejects(f.c.status());assert.deepEqual(f.storage.snapshot(),before);
+});

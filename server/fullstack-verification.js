@@ -56,10 +56,12 @@ export function verifyMockFullStackReport(contract,envelope,{key,now=Date.now()}
 export function createMockFullStackVerifier({storage,key,now=Date.now}={}){
  if(!storage?.transaction || !(typeof key==='string' || Buffer.isBuffer(key)) || Buffer.byteLength(key)<32)throw bad();
  const secret=Buffer.from(key);
- return Object.freeze({verify:(contract,report)=>storage.transaction(state=>{
+ return Object.freeze({verify:(inputContract,inputReport)=>{
+  const contract=structuredClone(inputContract),report=structuredClone(inputReport);
+  return storage.transaction(state=>{
   if(!exact(state,['version','consumed']) || state.version!==1 || !obj(state.consumed) || Object.keys(state.consumed).length>1000)throw bad();
   const result=verifyMockFullStackReport(contract,report,{key:secret,now:now()}),identity=hash(canonicalEvidence(report)),previous=state.consumed[contract.nonce];
   if(previous){if(previous!==identity)throw bad();return result;}
   if(Object.keys(state.consumed).length>=1000)throw bad();state.consumed[contract.nonce]=identity;return result;
- })});
+ });}});
 }

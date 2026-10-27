@@ -1,7 +1,7 @@
 import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
 import {restrictPreviewDocument} from './preview-policy.js';
-import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=phase2-stage3';
+import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=phase2-stage3-review';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
 //
@@ -1688,6 +1688,7 @@ export async function mount(options = {}) {
     else if (!el.menu.hidden) el.menu.hidden = true;
   });
 
+  let pendingPreviewScroll=null;
   const allowPreviewMessage=createPreviewMessageLimiter(el.previewFrame.contentWindow);
   window.addEventListener('message',event=>{
     if(!allowPreviewMessage(event)) return;
@@ -1695,21 +1696,24 @@ export async function mount(options = {}) {
     const file=p?.files.find(f=>f.path===data?.path);
     if(data?.grandpa==='navigate' && file && /\.html?$/i.test(file.path)){
       state.previewPath=file.path;
+      pendingPreviewScroll=data.hash?{path:file.path,hash:data.hash}:null;
       renderPreview();
-      if(data.hash){
-        el.previewFrame.addEventListener('load',()=>{
-          el.previewFrame.contentWindow.postMessage({grandpa:'scroll-to',hash:String(data.hash).slice(0,500)},'*');
-        },{once:true});
-      }
+      // Same-page navigation may not reload. One pending target and one fixed
+      // load listener prevent forged navigation floods accumulating callbacks.
+      if(pendingPreviewScroll)el.previewFrame.contentWindow.postMessage({grandpa:'scroll-to',hash:pendingPreviewScroll.hash},'*');
     }else if(data?.grandpa==='download-file' && file){downloadFile(file);}
     else if(data?.grandpa==='fault' && typeof data.what==='string'){deps.toast(data.what.slice(0,400));}
   });
 
   $('build-file-search')?.addEventListener('input',renderTree);
-  el.previewFrame.addEventListener('load',sendPreviewFocus);
+  el.previewFrame.addEventListener('load',()=>{
+    const pending=pendingPreviewScroll;pendingPreviewScroll=null;
+    if(pending && state.previewPath===pending.path)el.previewFrame.contentWindow.postMessage({grandpa:'scroll-to',hash:pending.hash},'*');
+    sendPreviewFocus();
+  });
   $('preview-page')?.addEventListener('change',event=>{state.followAgent=false;state.previewPath=event.target.value;renderPreview();});
   $('preview-restricted')?.addEventListener('change',event=>{state.restrictedPreview=event.target.checked;renderPreview();});
-  $('preview-unload')?.addEventListener('click',()=>{state.previewUnloaded=true;delete el.previewFrame.dataset.signature;renderPreview();});
+  $('preview-unload')?.addEventListener('click',()=>{pendingPreviewScroll=null;state.previewUnloaded=true;delete el.previewFrame.dataset.signature;renderPreview();});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)watchBackground();});
   document.addEventListener('keydown',event=>{if(state.mode!=='build' || !(event.ctrlKey || event.metaKey))return;if(event.key.toLowerCase()==='k'){event.preventDefault();showCommands();}if(event.key.toLowerCase()==='s'){event.preventDefault();persist().then(ok=>deps.toast(ok?'Project saved.':'Saving failed. Download your files.'));}});
   watchBackground();

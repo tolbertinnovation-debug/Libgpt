@@ -14,7 +14,7 @@ export function createPreviewDiagnostics(frame, checkId) {
   return Object.freeze({
     receive(event) {
       const data = event?.data;
-      if (event?.source !== frame || (event.origin !== undefined && event.origin !== 'null') || !data || typeof data !== 'object' || Array.isArray(data) || data.checkId !== checkId) return;
+      if (event?.source !== frame || event.origin !== 'null' || !data || typeof data !== 'object' || Array.isArray(data) || data.checkId !== checkId) return;
       if (data.grandpa === 'ran') { finished = true; return; }
       if (data.grandpa !== 'fault' || typeof data.what !== 'string' || !data.what) return;
       if (overflow) return;

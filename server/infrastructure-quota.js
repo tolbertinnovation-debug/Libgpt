@@ -25,15 +25,15 @@ function validate(s){
   if(pending(a))active++;
  }
  if(active>1)invalid();
- for(let i=0;i<s.audit.length;i++){const a=s.audit[i];if(!object(a) || a.sequence!==i+1 || !integer(a.at) || !['approved','revoked','reserved','claimed','cancelled','cancel_requested','unknown','cleanup_claimed','settled','overrun'].includes(a.event) || (a.id!==null && !uuid(a.id)))invalid();}
+ for(let i=0;i<s.audit.length;i++){const a=s.audit[i];if(!object(a) || a.sequence!==i+1 || (!integer(a.at) || (i>0 && a.at<s.audit[i-1].at)) || !['approved','revoked','reserved','claimed','cancelled','cancel_requested','unknown','cleanup_claimed','settled','overrun'].includes(a.event) || (a.id!==null && !uuid(a.id)))invalid();}
  if(s.approvals!==s.audit.filter(a=>a.event==='approved').length)invalid();
 }
 export function createMockInfrastructureQuotaController({storage,now=Date.now,authorizeAdministrator=()=>false,authorizeProject=()=>false,verifyQuote=()=>false,verifySettlement=()=>false}={}){
  if(!storage?.transaction)throw fail('Atomic infrastructure storage is required.','INFRA_STORAGE',503);
  const time=()=>{const t=now();if(!integer(t,0,8640000000000000-60000))throw fail('Infrastructure clock is invalid.');return t;};
- const tx=fn=>Promise.resolve().then(()=>storage.transaction(async s=>{validate(s);const value=await fn(s);validate(s);return value;})).catch(e=>{if(e?.[internal])throw e;throw fail('Infrastructure tracking is unavailable.','INFRA_STORAGE',503);});
+ const tx=fn=>Promise.resolve().then(()=>storage.transaction(async s=>{validate(s);if(s.audit.length && time()<s.audit.at(-1).at)throw fail('Infrastructure clock moved backwards.');const value=await fn(s);validate(s);if(s.audit.length && time()<s.audit.at(-1).at)throw fail('Infrastructure clock moved backwards.');return value;})).catch(e=>{if(e?.[internal])throw e;throw fail('Infrastructure tracking is unavailable.','INFRA_STORAGE',503);});
  const admin=async credential=>{try{return await authorizeAdministrator(credential)===true;}catch{return false;}};
- const audit=(s,event,id=null)=>{if(s.audit.length>=10000)throw fail('Infrastructure audit maintenance is required.');s.audit.push({sequence:s.audit.length+1,at:time(),event,id});};
+ const audit=(s,event,id=null)=>{if(s.audit.length>=10000)throw fail('Infrastructure audit maintenance is required.');const at=time();if(s.audit.length && at<s.audit.at(-1).at)throw fail('Infrastructure clock moved backwards.');s.audit.push({sequence:s.audit.length+1,at,event,id});};
  const view=a=>{const {ownerHash,key,...rest}=structuredClone(a);return {...rest,simulation:true,executed:false};};
  const owner=(s,id,token)=>{const a=s.attempts[id];if(!uuid(id) || !hex(token) || !a || a.ownerHash!==hash(token))throw fail('Infrastructure attempt is unavailable.','INFRA_OWNER',404);return a;};
  const binding=async(a,token)=>{const b=await authorizeProject({projectId:a.projectId,token,generation:a.generation,sourceHash:a.sourceHash});if(!object(b) || b.projectId!==a.projectId || b.ownerHash!==a.ownerHash || b.generation!==a.generation || b.sourceHash!==a.sourceHash)throw fail('Project authorization or source generation is stale.','INFRA_OWNER',403);};
@@ -44,11 +44,11 @@ export function createMockInfrastructureQuotaController({storage,now=Date.now,au
    const policy=structuredClone(p);
    if(!await admin(credential))throw fail('Administrator approval is required.','INFRA_ADMIN',403);
    if(!policyValid(policy) || policy.expiresAt<=time() || policy.expiresAt>time()+86400000)throw fail('Invalid offline approval.');
-   return tx(s=>{if(s.approvals>=100 || Object.values(s.attempts).some(pending))throw fail('Approval cannot change while liabilities are pending.');if(s.audit.some(a=>a.event==='approved' && a.id===policy.id))throw fail('Approval identities cannot be reused.');s.approval=policy;s.approvals++;audit(s,'approved',policy.id);return {simulation:true,enabled:false,approval:structuredClone(policy)};});
+   return tx(s=>{if(policy.expiresAt<=time())throw fail('Offline approval expired before admission.');if(s.approvals>=100 || Object.values(s.attempts).some(pending))throw fail('Approval cannot change while liabilities are pending.');if(s.audit.some(a=>a.event==='approved' && a.id===policy.id))throw fail('Approval identities cannot be reused.');s.approval=policy;s.approvals++;audit(s,'approved',policy.id);return {simulation:true,enabled:false,approval:structuredClone(policy)};});
   },
   revoke:async credential=>{if(!await admin(credential))throw fail('Administrator approval is required.','INFRA_ADMIN',403);return tx(s=>{if(s.approval){s.approval=null;audit(s,'revoked');}return {enabled:false,simulation:true};});},
-  reserve:input=>tx(async s=>{
-   const {id,projectId,token,generation,request,quote}=input || {};
+  reserve:input=>{const snapshot=structuredClone(input);return tx(async s=>{
+   const {id,projectId,token,generation,request,quote}=snapshot || {};
    if(!uuid(id) || !uuid(projectId) || !hex(token) || !integer(generation,1))throw fail('Invalid infrastructure identity.');
    const manifest=prepareExecutionRequest(request),sourceHash=manifest.artifactHash,ownerHash=hash(token);
    const identity={id,projectId,ownerHash,generation,sourceHash};await binding(identity,token);
@@ -56,8 +56,9 @@ export function createMockInfrastructureQuotaController({storage,now=Date.now,au
    const q=structuredClone(quote),quoteHash=quoteDigest(q,manifest.checks);
    const existing=s.attempts[id];
    if(existing){owner(s,id,token);if(existing.projectId!==projectId || existing.generation!==generation || existing.sourceHash!==sourceHash || existing.quoteHash!==quoteHash)throw fail('Attempt identity cannot change.');return view(existing);}
-   const p=s.approval,t=time();
-   if(s.paused || !p || p.expiresAt<=t || q.provider!==p.provider || q.priceVersion!==p.priceVersion || await verifyQuote(structuredClone(q))!==true)throw fail('Entitlement, quota, price or approval is unconfirmed.','INFRA_QUOTE');
+   const p=s.approval;
+   if(s.paused || !p || p.expiresAt<=time() || q.provider!==p.provider || q.priceVersion!==p.priceVersion || await verifyQuote(structuredClone(q))!==true)throw fail('Entitlement, quota, price or approval is unconfirmed.','INFRA_QUOTE');
+   const t=time();if(p.expiresAt<=t || q.expiresAt<=t)throw fail('Offline approval or price quote expired during verification.','INFRA_QUOTE');
    if(Object.keys(s.attempts).length>=100)throw fail('Infrastructure history requires maintenance.');
    const attempts=Object.values(s.attempts),project=attempts.filter(a=>a.projectId===projectId);
    if(project.some(a=>a.ownerHash!==ownerHash || a.generation>=generation))throw fail('An attempt already exists for this project generation.');
@@ -66,7 +67,7 @@ export function createMockInfrastructureQuotaController({storage,now=Date.now,au
    if(!integer(reserved,1,p.maxAttemptMicroUsd) || today.length>=p.dailyAttempts || spent+reserved>p.dailyMicroUsd)throw fail('Infrastructure allowance is exhausted. Progress is kept.','INFRA_QUOTA',429);
    const a={...identity,approvalId:p.id,quote:q,checks:manifest.checks,quoteHash,quoteExpiresAt:q.expiresAt,createdAt:t,expiresAt:Math.min(t+30000,q.expiresAt,p.expiresAt),day:day(t),reserved,actual:null,status:'reserved',key:null,cleanupAttempts:0};
    s.attempts[id]=a;audit(s,'reserved',id);return view(a);
-  }),
+  });},
   claim:(id,token)=>tx(async s=>{const a=owner(s,id,token);await binding(a,token);if(s.paused || a.status!=='reserved' || time()>=a.expiresAt || s.approval?.id!==a.approvalId || s.approval.expiresAt<=time())throw fail('Infrastructure attempt is not claimable.');a.status='running';a.key=crypto.randomUUID();audit(s,'claimed',id);return {attempt:view(a),key:a.key};}),
   cancel:(id,token)=>tx(s=>{const a=owner(s,id,token);if(!pending(a))return view(a);if(a.status==='reserved'){a.status='cancelled';a.actual=0;audit(s,'cancelled',id);}else if(a.status!=='cancel_requested'){a.status='cancel_requested';audit(s,'cancel_requested',id);}a.key=null;return view(a);}),
   recover:()=>tx(s=>{let count=0;for(const a of Object.values(s.attempts))if(pending(a) && !['unknown','cancel_requested'].includes(a.status) && time()>=a.expiresAt){if(a.status==='reserved'){a.status='cancelled';a.actual=0;audit(s,'cancelled',a.id);}else{a.status='unknown';audit(s,'unknown',a.id);}a.key=null;count++;}return {interrupted:count,executed:false};}),

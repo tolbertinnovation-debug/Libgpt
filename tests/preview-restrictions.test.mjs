@@ -15,11 +15,24 @@ test('visible frame origin/source, packet sizes and bounded work are checked bef
  for(let i=0;i<20;i++)assert.equal(allow(event),true);assert.equal(allow(event),false);t+=1000;assert.equal(allow(event),true);t-=2000;assert.equal(allow(event),false);
 });
 test('hidden diagnostics reject a matching window and nonce with a non-opaque origin',()=>{
- const frame={},d=createPreviewDiagnostics(frame,'check');d.receive({source:frame,origin:'https://attacker.invalid',data:{grandpa:'ran',checkId:'check'}});assert.equal(d.finished,false);
+ const frame={},d=createPreviewDiagnostics(frame,'check');for(const origin of ['https://attacker.invalid',undefined,'']){d.receive({source:frame,origin,data:{grandpa:'ran',checkId:'check'}});assert.equal(d.finished,false);}d.receive({source:frame,origin:'null',data:{grandpa:'ran',checkId:'check'}});assert.equal(d.finished,true);
 });
 test('background renders cannot reopen a preview after the user unloads it',async()=>{
  const source=await readFile(new URL('../public/ritual.js',import.meta.url),'utf8'),start=source.indexOf('function renderPreview()'),end=source.indexOf('\nfunction ensureView(',start);
  const el={previewFrame:{srcdoc:'old source'},previewNote:{}},state={previewUnloaded:true};
  const render=new Function('state','el',source.slice(start,end)+';return renderPreview;')(state,el);
  render();assert.equal(el.previewFrame.srcdoc,'');assert.match(el.previewNote.textContent,/unloaded/);render();assert.equal(el.previewFrame.srcdoc,'');
+});
+
+test('accepted same-page navigation floods retain one load listener and one pending scroll target',async()=>{
+ const source=await readFile(new URL('../public/ritual.js',import.meta.url),'utf8');
+ const start=source.indexOf('  let pendingPreviewScroll=null;'),end=source.indexOf("  $('preview-page')",start),listeners=[],messages=[];
+ const frame={contentWindow:{postMessage:p=>messages.push(p)},addEventListener:(type,fn)=>listeners.push({type,fn})};
+ let receive;const state={previewPath:''},el={previewFrame:frame},files=[{path:'index.html'}];
+ new Function('createPreviewMessageLimiter','el','window','project','state','renderPreview','$','renderTree','sendPreviewFocus','downloadFile','deps',source.slice(start,end))(
+  ()=>()=>true,el,{addEventListener:(type,fn)=>{receive=fn;}},()=>({files}),state,()=>{},()=>null,()=>{},()=>{},()=>{},{});
+ for(let i=0;i<10000;i++)receive({data:{grandpa:'navigate',path:'index.html',hash:'#section-'+i}});
+ assert.equal(listeners.filter(x=>x.type==='load').length,1);
+ listeners.find(x=>x.type==='load').fn();assert.equal(messages.at(-1).hash,'#section-9999');
+ const count=messages.length;listeners.find(x=>x.type==='load').fn();assert.equal(messages.length,count);
 });

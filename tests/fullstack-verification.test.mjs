@@ -38,3 +38,11 @@ test('atomic nonce consumption is idempotent across restarts and rejects a chang
  const make=()=>createMockFullStackVerifier({storage,key,now:()=>now});const results=await Promise.all([make().verify(f.c,f.report),make().verify(f.c,f.report)]);assert.equal(results[0].status,'mock_passed');assert.equal(Object.keys(state.consumed).length,1);
  f.payload.observations[0].actual.status=500;await assert.rejects(make().verify(f.c,f.sign(f.payload)));assert.equal(Object.keys(state.consumed).length,1);
 });
+
+test('queued verification snapshots contract and signed evidence before caller mutation',async()=>{
+ const f=fixture();let release;const wait=new Promise(r=>release=r);let state={version:1,consumed:{}};
+ const storage={async transaction(fn){await wait;const copy=structuredClone(state),value=fn(copy);state=copy;return value;}};
+ const verifier=createMockFullStackVerifier({storage,key,now:()=>now});const pending=verifier.verify(f.c,f.report),nonce=f.c.nonce;
+ f.c.nonce=hash('mutated');f.report.executed=true;f.report.observations[0].actual.status=500;release();
+ const result=await pending;assert.equal(result.status,'mock_passed');assert.equal(result.executed,false);assert.equal(Object.keys(state.consumed)[0],nonce);
+});

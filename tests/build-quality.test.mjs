@@ -45,12 +45,12 @@ async function checker() {
       if (!value) return;
       for (const fn of listeners) {
         fn({source:{}, data:{grandpa:'fault',what:'unrelated frame error'}});
-        fn({source:frameWindow,data:{grandpa:'fault',checkId:'stale',what:'Error from an older check'}});
-        if (mode === 'load') fn({source:frameWindow,data:{grandpa:'ran',checkId}});
-        if (mode === 'fault') fn({source:frameWindow,data:{grandpa:'fault',checkId,what:'Broken menu'}});
+        fn({source:frameWindow,origin:'null',data:{grandpa:'fault',checkId:'stale',what:'Error from an older check'}});
+        if (mode === 'load') fn({source:frameWindow,origin:'null',data:{grandpa:'ran',checkId}});
+        if (mode === 'fault') fn({source:frameWindow,origin:'null',data:{grandpa:'fault',checkId,what:'Broken menu'}});
         if (mode === 'flood') {
-          for (let i=0;i<10000;i++) fn({source:frameWindow,data:{grandpa:'fault',checkId,what:`Error ${i}`}});
-          fn({source:frameWindow,data:{grandpa:'ran',checkId}});
+          for (let i=0;i<10000;i++) fn({source:frameWindow,origin:'null',data:{grandpa:'fault',checkId,what:`Error ${i}`}});
+          fn({source:frameWindow,origin:'null',data:{grandpa:'ran',checkId}});
         }
       }
     },
