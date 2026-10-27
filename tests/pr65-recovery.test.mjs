@@ -71,7 +71,7 @@ test('an actual display-fingerprint collision cannot suppress a saved cloud sour
 });
 test('preview refresh compares exact source even when its fast signature collides',async()=>{
  const source=await readFile(new URL('../public/ritual.js',import.meta.url),'utf8'),start=source.indexOf('function renderPreview()'),end=source.indexOf('\nfunction ensureView(',start);
- const p={id:'preview',files:collisionB,team:{}},frame={dataset:{signature:`preview:${sourceFingerprint(collisionA)}:index.html`},sourceSnapshot:collisionA,classList:{toggle(){}},srcdoc:''};
+ const p={id:'preview',files:collisionB,team:{}},frame={dataset:{signature:`preview:${sourceFingerprint(collisionA)}:index.html:false`},sourceSnapshot:collisionA,setAttribute(){},removeAttribute(){},classList:{toggle(){}},srcdoc:''};
  const render=new Function('project','previewState','previewDocument','el','workingFile','state','remoteRunning','sourceFingerprint','sameProjectSource','$','escapeHtml','sendPreviewFocus',source.slice(start,end)+';return renderPreview;')(()=>p,previewState,previewDocument,{previewFrame:frame,previewNote:{}},()=>'',{followAgent:false,previewPath:'index.html',previewSize:'mobile'},()=>false,sourceFingerprint,sameProjectSource,()=>null,String,()=>{});
  render();assert.match(frame.srcdoc,/1kzxxuv/);assert.doesNotMatch(frame.srcdoc,/1orjelb/);assert.deepEqual(frame.sourceSnapshot,collisionB);
 });

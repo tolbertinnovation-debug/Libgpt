@@ -5,15 +5,15 @@ import {createPreviewDiagnostics} from '../public/build-preview.js';
 
 function fixture(id='current') {
   const frame = {}, diagnostics = createPreviewDiagnostics(frame,id);
-  return {frame,diagnostics,send(what,extra={}) { diagnostics.receive({source:frame,data:{grandpa:'fault',checkId:id,what,...extra}}); }};
+  return {frame,diagnostics,send(what,extra={}) { diagnostics.receive({source:frame,origin:'null',data:{grandpa:'fault',checkId:id,what,...extra}}); }};
 }
 
 test('preview diagnostics reject unrelated frames, stale IDs and malformed packets',()=>{
   const {frame,diagnostics,send}=fixture();
   for (const event of [null,{}, {source:{},data:{grandpa:'fault',checkId:'current',what:'Foreign'}},
-    {source:frame,data:{grandpa:'fault',checkId:'old',what:'Stale'}},
-    {source:frame,data:null}, {source:frame,data:[]},
-    {source:frame,data:{grandpa:'ran',checkId:'old'}}]) diagnostics.receive(event);
+    {source:frame,origin:'null',data:{grandpa:'fault',checkId:'old',what:'Stale'}},
+    {source:frame,origin:'null',data:null}, {source:frame,origin:'null',data:[]},
+    {source:frame,origin:'null',data:{grandpa:'ran',checkId:'old'}}]) diagnostics.receive(event);
   for (const what of [null,{},[],false,0,''])send(what);
   send('ignored',{grandpa:'unknown'});
   assert.deepEqual(diagnostics.faults,[]);assert.equal(diagnostics.finished,false);
@@ -55,7 +55,7 @@ test('each check owns its bounded state; diagnostic snapshots cannot mutate it',
 test('completion from the same frame remains untrusted and cannot erase earlier faults',()=>{
   const {frame,diagnostics,send}=fixture();send('Reported failure');
   // A project can manufacture this packet. Correlation is not attestation.
-  diagnostics.receive({source:frame,data:{grandpa:'ran',checkId:'current'}});
+  diagnostics.receive({source:frame,origin:'null',data:{grandpa:'ran',checkId:'current'}});
   assert.equal(diagnostics.finished,true);assert.deepEqual(diagnostics.faults,['Reported failure']);
   assert.equal(diagnostics.executed,undefined);assert.equal(diagnostics.verified,undefined);
 });

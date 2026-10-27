@@ -14,7 +14,7 @@ export function createPreviewDiagnostics(frame, checkId) {
   return Object.freeze({
     receive(event) {
       const data = event?.data;
-      if (event?.source !== frame || !data || typeof data !== 'object' || Array.isArray(data) || data.checkId !== checkId) return;
+      if (event?.source !== frame || event.origin !== 'null' || !data || typeof data !== 'object' || Array.isArray(data) || data.checkId !== checkId) return;
       if (data.grandpa === 'ran') { finished = true; return; }
       if (data.grandpa !== 'fault' || typeof data.what !== 'string' || !data.what) return;
       if (overflow) return;
@@ -26,6 +26,21 @@ export function createPreviewDiagnostics(frame, checkId) {
     get finished() { return finished; },
     get faults() { return [...faults]; },
   });
+}
+
+// Bound UI work from the visible opaque-origin frame, including navigation.
+export function createPreviewMessageLimiter(frame, now=Date.now) {
+  let start=now(),count=0;
+  return event=>{
+    const d=event?.data,t=now();
+    if(event?.source!==frame || event.origin!=='null' || !d || typeof d!=='object' || Array.isArray(d) || d.checkId || !Number.isFinite(t) || t<start)return false;
+    if(!['navigate','download-file','fault'].includes(d.grandpa))return false;
+    if(d.grandpa==='fault' ? typeof d.what!=='string' || !d.what || d.what.length>400 : typeof d.path!=='string' || !d.path || d.path.length>300)return false;
+    if(d.hash!==undefined && (typeof d.hash!=='string' || d.hash.length>500))return false;
+    if(t-start>=1000){start=t;count=0;}
+    if(count>=20)return false;
+    count++;return true;
+  };
 }
 
 // A srcdoc frame otherwise resolves a project's navigation against Grandpa AI.
