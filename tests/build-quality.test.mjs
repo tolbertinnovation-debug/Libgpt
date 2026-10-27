@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { projectIssues, previewDocument, resolveProjectPath, danglingLinks } from '../public/build.js';
+import {restrictPreviewDocument} from '../public/preview-policy.js';
 import {createPreviewDiagnostics} from '../public/build-preview.js';
 
 test('missing planned files are reported once and existing files remain valid', () => {
@@ -37,6 +38,7 @@ async function checker() {
   let checkId = '';
   const frame = {
     contentWindow: frameWindow, style: {},
+    getAttribute(){return 'allow-scripts allow-forms allow-modals';},setAttribute(){},removeAttribute(){},
     get srcdoc() { return document; },
     set srcdoc(value) {
       document = value;
@@ -57,10 +59,10 @@ async function checker() {
     addEventListener(type, fn) { listeners.add(fn); },
     removeEventListener(type, fn) { listeners.delete(fn); },
   };
-  const make = new Function('window','el','previewDocument','RUN_MS','sleep','createPreviewDiagnostics',
+  const make = new Function('window','el','previewDocument','RUN_MS','sleep','createPreviewDiagnostics','state','restrictPreviewDocument',
     source.slice(from, to) + '; return runAndWatch;');
   return {
-    run: make(window, {checkFrame:frame}, (_files,_path,options) => {checkId=options.checkId;return '<html></html>';}, 5, () => new Promise(r=>setTimeout(r,1)),createPreviewDiagnostics),
+    run: make(window, {checkFrame:frame}, (_files,_path,options) => {checkId=options.checkId;return '<html></html>';}, 5, () => new Promise(r=>setTimeout(r,1)),createPreviewDiagnostics,{},restrictPreviewDocument),
     listeners, frame, setMode(value) {mode=value;},
   };
 }

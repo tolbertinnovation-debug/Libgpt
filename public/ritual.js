@@ -1,6 +1,7 @@
 import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
-import {createPreviewDiagnostics} from './build-preview.js?v=phase2-stage2-preview';
+import {restrictPreviewDocument} from './preview-policy.js';
+import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=phase2-stage3';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
 //
@@ -318,17 +319,24 @@ function rememberLiveChange(p,before,after){
   p.liveChange={path:file.path,id,at:Date.now()};
 }
 function renderPreview() {
+  if(state.previewUnloaded){if(el.previewFrame.srcdoc)el.previewFrame.srcdoc='';el.previewNote.hidden=false;el.previewNote.textContent='Preview unloaded. Refresh to open it again.';return;}
   const p = project();
   const look = previewState(p.files);
-  el.previewNote.hidden = !(look.why || look.warn);
-  if (look.why || look.warn) el.previewNote.textContent = look.why || look.warn;
+  const restricted=state.restrictedPreview===true;
+  const notice=[look.why || look.warn,restricted?'Restricted preview blocks external resources, forms and popups. Page self-navigation can bypass resource restrictions. CPU/memory are not limited.':''].filter(Boolean).join(' ');
+  el.previewNote.hidden = !notice;
+  el.previewNote.textContent = notice;
+  el.previewFrame.setAttribute('sandbox',restricted?'allow-scripts':'allow-scripts allow-forms allow-modals allow-popups');
+  el.previewFrame.setAttribute('referrerpolicy',restricted?'no-referrer':'strict-origin-when-cross-origin');
+  if(restricted)el.previewFrame.setAttribute('allow',"camera 'none'; microphone 'none'; geolocation 'none'; payment 'none'; usb 'none'; display-capture 'none'");
+  else el.previewFrame.removeAttribute('allow');
   // srcdoc rather than a URL: the frame has no origin of its own, cannot reach
   // this page, and nothing is served anywhere to make it work.
   const active=workingFile(p.team);
   if(state.followAgent && remoteRunning(p) && /\.html?$/i.test(active) && p.files.some(file=>file.path===active))state.previewPath=active;
   const entry=p.files.some(f=>f.path===state.previewPath) ? state.previewPath : '';
-  const signature=`${p.id}:${sourceFingerprint(p.files)}:${entry}`;
-  if(el.previewFrame.dataset.signature!==signature || !sameProjectSource(el.previewFrame.sourceSnapshot,p.files)){el.previewFrame.srcdoc = look.can ? previewDocument(p.files,entry) : '';el.previewFrame.dataset.signature=signature;el.previewFrame.sourceSnapshot=structuredClone(p.files);}
+  const signature=`${p.id}:${sourceFingerprint(p.files)}:${entry}:${restricted}`;
+  if(el.previewFrame.dataset.signature!==signature || !sameProjectSource(el.previewFrame.sourceSnapshot,p.files)){const document=look.can ? previewDocument(p.files,entry) : '';el.previewFrame.srcdoc = restricted && document ? restrictPreviewDocument(document) : document;el.previewFrame.dataset.signature=signature;el.previewFrame.sourceSnapshot=structuredClone(p.files);}
   const select=$('preview-page');
   if(select){const pages=p.files.filter(file=>/\.html?$/i.test(file.path));select.innerHTML=pages.map(file=>`<option value="${escapeHtml(file.path)}">${escapeHtml(file.path)}</option>`).join('');select.value=entry || pages.find(file=>file.path==='index.html')?.path || pages[0]?.path || '';}
   el.previewFrame.classList.toggle('is-phone',state.previewSize==='mobile');
@@ -744,10 +752,14 @@ async function runAndWatch(files, entryPath = '', width = 390, cancelled = () =>
   const checkId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   const diagnostics = createPreviewDiagnostics(el.checkFrame.contentWindow, checkId);
   const heard = diagnostics.receive;
+  const restricted=state.restrictedPreview===true;
+  const previousSandbox=el.checkFrame.getAttribute('sandbox');
   window.addEventListener('message', heard);
   try {
+    el.checkFrame.setAttribute('sandbox',restricted?'allow-scripts':'allow-scripts allow-forms allow-modals');
     el.checkFrame.style.width = `${width}px`;
-    el.checkFrame.srcdoc = previewDocument(files, entryPath, {checkId});
+    const document=previewDocument(files, entryPath, {checkId});
+    el.checkFrame.srcdoc = restricted && document ? restrictPreviewDocument(document) : document;
     const began = Date.now();
     const until = began + RUN_MS;
     while (Date.now() < until && !(diagnostics.finished && Date.now() > began + 900)) {
@@ -760,6 +772,7 @@ async function runAndWatch(files, entryPath = '', width = 390, cancelled = () =>
   } finally {
     window.removeEventListener('message', heard);
     el.checkFrame.srcdoc = '';
+    if(previousSandbox===null)el.checkFrame.removeAttribute('sandbox');else el.checkFrame.setAttribute('sandbox',previousSandbox);
   }
 }
 
@@ -1544,7 +1557,7 @@ export async function mount(options = {}) {
     if(event.target.closest('#preview-follow')){state.followAgent=!state.followAgent;renderPreview();return;}
     if(event.target.closest('#agent-stop')){$('plan-stop')?.click();return;}
     if(event.target.closest('#agent-resume')){$('plan-resume')?.click();return;}
-    if(event.target.closest('#preview-refresh')){el.previewFrame.dataset.signature='';renderPreview();return;}
+    if(event.target.closest('#preview-refresh')){state.previewUnloaded=false;el.previewFrame.dataset.signature='';renderPreview();return;}
     if(event.target.closest('[data-team-plan]')){showProjectPlan();return;}
     if(event.target.closest('[data-team-architecture]')){showArchitecture();return;}
     if (event.target.closest('#plan-stop')) { stop(); return; }
@@ -1675,8 +1688,9 @@ export async function mount(options = {}) {
     else if (!el.menu.hidden) el.menu.hidden = true;
   });
 
+  const allowPreviewMessage=createPreviewMessageLimiter(el.previewFrame.contentWindow);
   window.addEventListener('message',event=>{
-    if(event.source!==el.previewFrame.contentWindow || event.data?.checkId) return;
+    if(!allowPreviewMessage(event)) return;
     const data=event.data,p=project();
     const file=p?.files.find(f=>f.path===data?.path);
     if(data?.grandpa==='navigate' && file && /\.html?$/i.test(file.path)){
@@ -1694,6 +1708,8 @@ export async function mount(options = {}) {
   $('build-file-search')?.addEventListener('input',renderTree);
   el.previewFrame.addEventListener('load',sendPreviewFocus);
   $('preview-page')?.addEventListener('change',event=>{state.followAgent=false;state.previewPath=event.target.value;renderPreview();});
+  $('preview-restricted')?.addEventListener('change',event=>{state.restrictedPreview=event.target.checked;renderPreview();});
+  $('preview-unload')?.addEventListener('click',()=>{state.previewUnloaded=true;delete el.previewFrame.dataset.signature;renderPreview();});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)watchBackground();});
   document.addEventListener('keydown',event=>{if(state.mode!=='build' || !(event.ctrlKey || event.metaKey))return;if(event.key.toLowerCase()==='k'){event.preventDefault();showCommands();}if(event.key.toLowerCase()==='s'){event.preventDefault();persist().then(ok=>deps.toast(ok?'Project saved.':'Saving failed. Download your files.'));}});
   watchBackground();

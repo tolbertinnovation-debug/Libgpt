@@ -3725,3 +3725,6 @@ body {
    listening-mode choice and Send button have nothing to do there. */
 .talk[data-mode="live"] .talk-input-mode,
 .talk[data-mode="live"] #talk-send { display: none; }
+.preview-safety {display:flex;align-items:center;justify-content:space-between;gap:.5rem;flex-wrap:wrap;padding:.4rem .65rem;border-bottom:1px solid var(--border);font-size:.72rem;}
+.preview-safety label {display:flex;align-items:center;gap:.35rem;min-width:0;}
+.preview-safety button {font:inherit;color:var(--text);background:var(--bg-raised);border:1px solid var(--border);border-radius:5px;padding:.4rem;}
