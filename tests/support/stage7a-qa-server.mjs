@@ -63,8 +63,8 @@ export function createQA({now=()=>performance.now()}={}){
    if(s.run!==run)return send(409,{error:'MOCK stale scenario action'});
    if(body.generation!==s.job.generation)return send(409,{error:'MOCK stale generation'});
    if(body.action==='resume' && s.job.operation?.status==='uncertain' && body.acknowledgeUncertain!==true)return send(409,{error:'MOCK uncertain retry needs acknowledgement'});
-   if(!['resume','revise','stop','cancel'].includes(body.action))return send(400,{error:'MOCK unknown action'});
-   s.job.status=['stop','cancel'].includes(body.action)?'stopped':'building';s.job.checkpoint.status=s.job.status;s.job.revision++;s.job.generation++;delete s.job.operation;delete s.job.checkpoint.blocker;
+   if(!['resume','revise','stop','pause','cancel'].includes(body.action))return send(400,{error:'MOCK unknown action'});
+   s.job.status=['stop','pause','cancel'].includes(body.action)?'stopped':'building';s.job.checkpoint.status=s.job.status;s.job.revision++;s.job.generation++;delete s.job.operation;delete s.job.checkpoint.blocker;
    if(body.action==='revise'){s.job.files=body.files;s.job.asked=body.asked;s.job.requestHistory=body.requestHistory;}
    if(s.mode==='lost_control'){run.trace.record({type:'transition',from:s.mode,to:'active'});s.mode='active';res.destroy();return;}
    return send(200,{job:s.job});

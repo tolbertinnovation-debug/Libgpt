@@ -29,6 +29,14 @@ test('manual launcher serves reviewed frontend and isolates synthetic API states
   const reload=await fetch(base+'/?key='+qa.token,{headers:{Cookie:cookie}});assert.equal(reload.headers.get('set-cookie'),null);
   assert.equal((await(await get('/api/build/jobs/qa-task')).json()).job.status,'building');
  });
+ await t.test('mobile Pause is accepted and preserves source through Resume and Cancel',async()=>{
+  await reset('active');const before=(await(await get('/api/build/jobs/qa-task')).json()).job;
+  let generation=before.generation;
+  for(const [action,status] of [['pause','stopped'],['resume','building'],['cancel','stopped']]){
+   const response=await post('/api/build/jobs/qa-task/control',{action,generation});assert.equal(response.status,200);
+   const {job}=await response.json();assert.equal(job.status,status);assert.equal(job.id,before.id);assert.deepEqual(job.files,before.files);assert.deepEqual(job.requestHistory,before.requestHistory);assert.equal(job.generation,generation+1);generation=job.generation;
+  }
+ });
  await t.test('403/404/429/503, malformed JSON and wrong task are explicit synthetic responses',async()=>{
   for(const status of [401,403,404,429,503]){await reset('http'+status);assert.equal((await get('/api/build/jobs/qa-task')).status,status);}
   await reset('malformed');await assert.rejects((await get('/api/build/jobs/qa-task')).json());
