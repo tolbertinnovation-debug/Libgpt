@@ -1581,7 +1581,7 @@ export async function mount(options = {}) {
     if(event.target.closest('[data-team-plan]')){showProjectPlan();return;}
     if(event.target.closest('[data-team-architecture]')){showArchitecture();return;}
     if (event.target.closest('#plan-stop')) { stop(); return; }
-    if (event.target.closest('#plan-resume')) {const p=project();if(p?.team)await buildTheWholeThing(p.team.asked,true);return;}
+    if (event.target.closest('#plan-resume')) {const p=project();if(p?.team){if(p.background && deps.backgroundAvailable)await startBackgroundBuild(p.team.asked,true);else await buildTheWholeThing(p.team.asked,true);}return;}
 
     const starter = event.target.closest('.build-starter');
     if (starter) { send(starter.textContent.trim()); return; }
