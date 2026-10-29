@@ -3749,3 +3749,28 @@ body {
 .file-progress code {overflow-wrap:anywhere;min-width:0;}
 .file-progress span {color:var(--text-soft);}
 @media(max-width:420px){.agent-strip {flex-wrap:wrap;}.agent-quick-action {margin-left:auto;}.agent-caption {min-width:0;}.agent-quick-action button {font-size:.75rem;}}
+
+/* Recovery information must remain readable on small screens, not ellipsized. */
+#workspace-save-state {white-space:normal;overflow:visible;text-overflow:clip;overflow-wrap:anywhere;line-height:1.4;min-width:0;}
+@media(max-width:600px){
+ .workspace-footer {flex-wrap:wrap;font-size:.75rem;align-items:flex-start;}
+ #workspace-save-state {flex:1 1 65%;}
+ .agent-caption {flex-wrap:wrap;gap:.2rem .5rem;}
+ .agent-caption>span {white-space:normal;overflow-wrap:anywhere;font-size:.75rem;}
+ .agent-details>summary {min-height:44px;}
+}
+.agent-quick-action button:focus-visible,.agent-details>summary:focus-visible {outline:2px solid var(--gold-deep);outline-offset:2px;}
+
+.workspace-footer #workspace-reconnect {font-size:.75rem;min-height:44px;min-width:44px;text-decoration:underline;white-space:normal;}
+
+/* Keep the mobile filename separate from actions; full text remains in the DOM. */
+@media(max-width:600px){
+ .agent-strip {display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;gap:.35rem .5rem;}
+ .agent-spark {grid-area:1/1;align-self:start;justify-self:start;margin-top:.15rem;}
+ .agent-caption {grid-area:1/1/2/3;display:block;padding-left:1.65rem;min-width:0;}
+ .agent-caption strong {display:block;}
+ .agent-caption>span {display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;white-space:normal;overflow-wrap:anywhere;line-height:1.4;margin-top:.2rem;}
+ .agent-details {grid-area:2/1;min-width:0;}
+ .agent-quick-action {grid-area:2/2;margin-left:0;justify-self:end;}
+ .tree-file.agent-editing:after {white-space:nowrap;flex-shrink:0;}
+}

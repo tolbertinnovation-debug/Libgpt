@@ -27,7 +27,7 @@ import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary, loadJournal } from './library.js';
 import { Dictation, canRecord } from './dictate.js';
 import { RecordedEar, canListenByRecording } from './hearing.js';
-import * as ritual from './ritual.js?v=phase2-stage6-reliability';
+import * as ritual from './ritual.js?v=phase2-stage7a-mobile-2';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 import { mountSupport } from './support.js?v=phase2-requests-review-2';
