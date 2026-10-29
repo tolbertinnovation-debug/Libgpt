@@ -19,6 +19,11 @@ function validateOperation(op){
  }else if(Object.hasOwn(op,'result') || Object.hasOwn(op,'resultHash'))throw fail('The saved AI operation receipt is inconsistent. Work is paused for recovery.');
 }
 export const activeBuildStatus=status=>['queued','planning','architecting','building','reviewing','repairing','security'].includes(status);
+/** A progress poll may skip the full snapshot only for an exact revision match on a task that is not stale. */
+export function unchangedBuildJob(brief,known,now=Date.now()){
+ if(!Number.isSafeInteger(known) || known<0 || brief.revision!==known || (activeBuildStatus(brief.status) && now-brief.updatedAt>90000))return null;
+ return {...brief,unchanged:true};
+}
 export function validateBuildIdentity(id,token) {
  if(!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/i.test(id || '') || !/^[a-f0-9]{64}$/i.test(token || ''))throw fail('This build could not be verified. Open it from your saved projects.',403);
 }
@@ -77,6 +82,13 @@ export function createBuildJobStore({connectionString,pool:suppliedPool,scope=go
    });
   },
   get:(id,token)=>{validateBuildIdentity(id,token);return transaction(async client=>snapshot(await rowFor(client,id,{token})));},
+  // Revision check for progress polling: reads no files, history or checkpoint.
+  peek:(id,token)=>{validateBuildIdentity(id,token);return transaction(async client=>{
+   const result=await client.query("SELECT id,token_hash,generation,revision,updated_at,work_key,state->>'status' AS status FROM public.grandpa_ai_build_jobs WHERE id=$1 AND scope=$2",[id,scope]);
+   const row=result.rows[0];
+   if(!row || row.token_hash!==hash(token))throw fail('This background build is unavailable. Your saved device files are kept.',404);
+   return {id:row.id,generation:row.generation,revision:row.revision,status:row.status,updatedAt:new Date(row.updated_at).getTime(),processing:Boolean(row.work_key)};
+  });},
   internal:id=>transaction(async client=>snapshot(await rowFor(client,id))),
   async attach(id,generation,workflowId){return transaction(async client=>{const row=await rowFor(client,id,{lock:true});if(row.generation!==generation)return snapshot(row);return write(client,row,{...row.state,workflowId},{key:row.work_key});});},
   async claim(id,generation){return transaction(async client=>{

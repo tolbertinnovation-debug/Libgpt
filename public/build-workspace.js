@@ -31,7 +31,7 @@ export function newBackgroundIdentity(){
 }
 
 /** The browser observes a durable run; aborting a poll never stops the worker. */
-export function createBackgroundObserver({fetcher=fetch,headers=()=>({}),onJob,onError,interval=5000,timeout=15000,maxInterval=30000,setTimer=setTimeout,clearTimer=clearTimeout}){
+export function createBackgroundObserver({fetcher=fetch,headers=()=>({}),knownRevision=()=>null,onJob,onError,interval=5000,timeout=15000,maxInterval=30000,setTimer=setTimeout,clearTimer=clearTimeout}){
  let timer,flight=null,selected=null,closed=false,serial=0,failures=0;
  const cancel=()=>{if(flight){flight.cancel();flight=null;}};
  async function refresh(){
@@ -47,10 +47,13 @@ export function createBackgroundObserver({fetcher=fetch,headers=()=>({}),onJob,o
    // The deadline covers response headers AND the body. A late response is fenced,
    // even when a test transport ignores abort. This endpoint only observes work.
    const result=await Promise.race([cancelled,(async()=>{
-    const response=await fetcher(`/api/build/jobs/${encodeURIComponent(mine.id)}`,{headers:{...headers(),'x-build-token':mine.token},signal:controller.signal});
+    // With a saved revision the server may answer "unchanged" instead of resending every file.
+    const known=knownRevision(mine),sent=Number.isSafeInteger(known) && known>=0 ? known : null;
+    const response=await fetcher(`/api/build/jobs/${encodeURIComponent(mine.id)}`,{headers:{...headers(),'x-build-token':mine.token,...(sent===null?{}:{'x-build-known-revision':String(sent)})},signal:controller.signal});
     let body;try{body=await response.json();}catch{throw Object.assign(new Error('Progress could not be read. Reconnecting…'),{status:response.status});}
     if(!response.ok)throw Object.assign(new Error('The saved cloud task could not be confirmed.'),{status:response.status});
     if(!body.job || body.job.id!==mine.id)throw new Error('The progress response does not match the saved task.');
+    if(body.job.unchanged===true && (sent===null || body.job.revision!==sent))throw new Error('The progress response does not match the saved task.');
     return body;
    })()]);
    clearTimer(deadline);

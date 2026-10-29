@@ -25,7 +25,7 @@ import {
 import {buildTaskLabel,buildTaskFacts} from './build-task-state.js?v=phase2-stage6-reliability';
 import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js?v=phase2-stage6-reliability';
 import { shrink } from './photo.js';
-import {backgroundActive,sameProjectSource,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile,canRetryBackgroundCreation,backgroundConnectionMessage} from './build-workspace.js?v=phase2-stage7a';
+import {backgroundActive,sameProjectSource,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile,canRetryBackgroundCreation,backgroundConnectionMessage} from './build-workspace.js?v=phase2-stage8-poll';
 import { renderMarkdown } from './markdown.js';
 
 const $ = (id) => document.getElementById(id);
@@ -678,7 +678,7 @@ async function applyBackgroundJob(p,job){
 function watchBackground(){
  const p=project();backgroundObserver?.stop();
  if(!p?.background || !deps.backgroundAvailable)return;
- backgroundObserver=createBackgroundObserver({headers:deps.headers,onJob:async job=>{await applyBackgroundJob(p,job);if(p===project())renderWorkspaceChanges();},onError:error=>{
+ backgroundObserver=createBackgroundObserver({headers:deps.headers,knownRevision:()=>p.background?.revision,onJob:async job=>{await applyBackgroundJob(p,job);if(p===project())renderWorkspaceChanges();},onError:error=>{
   if(p!==project())return;
   const prior=backgroundConnections.get(p);
   backgroundConnections.set(p,{state:[401,403].includes(error.status)?'denied':error.status===404?'missing':'reconnecting',lastConfirmedAt:prior?.lastConfirmedAt});
