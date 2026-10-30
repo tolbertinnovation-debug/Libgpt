@@ -37,6 +37,7 @@ button:disabled{opacity:.6;cursor:wait}
 .meter span{display:block;height:100%;background:var(--accent)}
 .meter span.full{background:var(--bad)}
 dl{display:grid;grid-template-columns:1fr auto;gap:6px 12px;margin:0}dt{color:var(--soft)}dd{margin:0;font-weight:600;text-align:right}
+.limits{display:grid;gap:10px}.limits label{display:grid;grid-template-columns:1fr 120px;align-items:center;gap:8px;font-weight:600;margin:0}.limits input{text-align:right}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -72,6 +73,23 @@ dl{display:grid;grid-template-columns:1fr auto;gap:6px 12px;margin:0}dt{color:va
     </section>
 
     <section class="card">
+      <h2 style="font-size:1.05rem;margin:0 0 4px">Daily limits</h2>
+      <p class="note" style="margin:0 0 12px">The most Grandpa AI may spend each day, in US dollars. Each feature's limit fits inside the total. Leave a feature empty for no separate limit; chat always shares the total.</p>
+      <form id="limits" class="limits">
+        <label>All features (total) <input id="limit-total" type="number" inputmode="decimal" min="0.05" max="10" step="0.05" required></label>
+        <label>Coding agent <input id="limit-build" type="number" inputmode="decimal" min="0" max="10" step="0.05" placeholder="No limit"></label>
+        <label>Pictures <input id="limit-images" type="number" inputmode="decimal" min="0" max="10" step="0.05" placeholder="No limit"></label>
+        <label>Documents <input id="limit-documents" type="number" inputmode="decimal" min="0" max="10" step="0.05" placeholder="No limit"></label>
+        <label>Voice <input id="limit-voice" type="number" inputmode="decimal" min="0" max="10" step="0.05" placeholder="No limit"></label>
+        <label>Live Talk <input id="limit-livetalk" type="number" inputmode="decimal" min="0" max="10" step="0.05" placeholder="No limit"></label>
+        <p class="note" id="limits-month"></p>
+        <div class="row"><button type="button" id="limits-two">Fill in the $2 a day plan</button></div>
+        <div class="row"><button class="primary" type="submit" id="limits-save">Save limits</button></div>
+      </form>
+      <p class="msg" id="limits-msg" role="status" hidden></p>
+    </section>
+
+    <section class="card">
       <h2 style="font-size:1.05rem;margin:0 0 12px">Right now</h2>
       <dl>
         <dt>Paid requests running</dt><dd id="active">–</dd>
@@ -83,6 +101,6 @@ dl{display:grid;grid-template-columns:1fr auto;gap:6px 12px;margin:0}dt{color:va
     </section>
   </div>
 </main>
-<script type="module" src="owner.js?v=owner-1"></script>
+<script type="module" src="owner.js?v=owner-3"></script>
 </body>
 </html>
