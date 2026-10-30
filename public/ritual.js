@@ -2,7 +2,8 @@ import {verificationStatusMarkup} from './build-verification.js';
 import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
 import {restrictPreviewDocument} from './preview-policy.js';
-import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=phase2-stage6-reliability';
+import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=phase2-stage9-preview';
+import {loadPreviewGuard,previewGuardReady} from './preview-guard.js';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
 //
@@ -320,12 +321,39 @@ function rememberLiveChange(p,before,after){
   }
   p.liveChange={path:file.path,id,at:Date.now()};
 }
+// Every app-initiated preview load goes through here. Any other load means the page
+// left its saved document (script redirect, outside form, reload): show the saved page again.
+const previewLoads={expected:false,since:0,document:'',left:[],notice:''};
+function setPreviewDocument(document){previewLoads.expected=true;previewLoads.since=Date.now();previewLoads.document=document;el.previewFrame.srcdoc=document;}
+function previewLeftPage(){
+ if(previewLoads.expected && Date.now()-previewLoads.since<10000){previewLoads.expected=false;return false;}
+ previewLoads.expected=false;
+ if(!previewLoads.document)return false;
+ const now=Date.now();previewLoads.left=[...previewLoads.left.filter(at=>now-at<10000),now];
+ if(previewLoads.left.length>3){
+  // A page that leaves on every load would otherwise reload forever.
+  previewLoads.notice='This website kept trying to leave the preview, so the preview was paused. Your files are unchanged. Refresh to open it again.';
+  state.previewUnloaded=true;delete el.previewFrame.dataset.signature;renderPreview();
+  return true;
+ }
+ previewLoads.notice='This website tried to leave its page (a redirect, an outside form or a reload), so the preview showed your saved page again. Outside links open in a new tab.';
+ setPreviewDocument(previewLoads.document);
+ el.previewNote.hidden=false;el.previewNote.textContent=previewLoads.notice;
+ return true;
+}
 function renderPreview() {
-  if(state.previewUnloaded){if(el.previewFrame.srcdoc)el.previewFrame.srcdoc='';el.previewNote.hidden=false;el.previewNote.textContent='Preview unloaded. Refresh to open it again.';return;}
+  if(state.previewUnloaded){if(el.previewFrame.srcdoc)setPreviewDocument('');el.previewNote.hidden=false;el.previewNote.textContent=previewLoads.notice || 'Preview unloaded. Refresh to open it again.';return;}
+  // Loop protection loads once (about 34 KB) before the first preview runs any project code.
+  if(!previewGuardReady()){
+   if(el.previewFrame.srcdoc)setPreviewDocument('');
+   el.previewNote.hidden=false;el.previewNote.textContent='Preparing a safe preview…';
+   loadPreviewGuard().then(()=>{if(state.view==='preview')renderPreview();},()=>{el.previewNote.textContent='The safe preview could not load. Check your connection and refresh to try again. Your files are kept.';});
+   return;
+  }
   const p = project();
   const look = previewState(p.files);
   const restricted=state.restrictedPreview===true;
-  const notice=[look.why || look.warn,restricted?'Restricted preview blocks external resources, forms and popups. Page self-navigation can bypass resource restrictions. CPU/memory are not limited.':''].filter(Boolean).join(' ');
+  const notice=[look.why || look.warn,previewLoads.notice,restricted?'Restricted preview blocks external resources, forms and popups. Page self-navigation can bypass resource restrictions. CPU/memory are not limited.':''].filter(Boolean).join(' ');
   el.previewNote.hidden = !notice;
   el.previewNote.textContent = notice;
   el.previewFrame.setAttribute('sandbox',restricted?'allow-scripts':'allow-scripts allow-forms allow-modals allow-popups');
@@ -338,7 +366,7 @@ function renderPreview() {
   if(state.followAgent && remoteRunning(p) && /\.html?$/i.test(active) && p.files.some(file=>file.path===active))state.previewPath=active;
   const entry=p.files.some(f=>f.path===state.previewPath) ? state.previewPath : '';
   const signature=`${p.id}:${sourceFingerprint(p.files)}:${entry}:${restricted}`;
-  if(el.previewFrame.dataset.signature!==signature || !sameProjectSource(el.previewFrame.sourceSnapshot,p.files)){const document=look.can ? previewDocument(p.files,entry) : '';el.previewFrame.srcdoc = restricted && document ? restrictPreviewDocument(document) : document;el.previewFrame.dataset.signature=signature;el.previewFrame.sourceSnapshot=structuredClone(p.files);}
+  if(el.previewFrame.dataset.signature!==signature || !sameProjectSource(el.previewFrame.sourceSnapshot,p.files)){previewLoads.notice='';const document=look.can ? previewDocument(p.files,entry) : '';setPreviewDocument(restricted && document ? restrictPreviewDocument(document) : document);el.previewFrame.dataset.signature=signature;el.previewFrame.sourceSnapshot=structuredClone(p.files);}
   const select=$('preview-page');
   if(select){const pages=p.files.filter(file=>/\.html?$/i.test(file.path));select.innerHTML=pages.map(file=>`<option value="${escapeHtml(file.path)}">${escapeHtml(file.path)}</option>`).join('');select.value=entry || pages.find(file=>file.path==='index.html')?.path || pages[0]?.path || '';}
   el.previewFrame.classList.toggle('is-phone',state.previewSize==='mobile');
@@ -772,6 +800,7 @@ function showCommands(){
 
 /** Collect bounded, untrusted frontend diagnostics from the preview iframe. */
 async function runAndWatch(files, entryPath = '', width = 390, cancelled = () => false) {
+  await loadPreviewGuard();
   const checkId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`;
   const diagnostics = createPreviewDiagnostics(el.checkFrame.contentWindow, checkId);
   const heard = diagnostics.receive;
@@ -1345,7 +1374,7 @@ export function restoreProjects(projects) {
   state.openPath='';
   // Backups can be restored from Ask before the Build workspace is mounted.
   if(el.previewFrame) {
-    el.previewFrame.srcdoc='';
+    setPreviewDocument('');
     ensureView('chat');
     if(state.currentId) render();
     watchBackground();
@@ -1583,7 +1612,7 @@ export async function mount(options = {}) {
     if(event.target.closest('#agent-pause')){if(remoteRunning(project()))await stopBackgroundBuild('pause');else stop();return;}
     if(event.target.closest('#agent-cancel')){if(remoteRunning(project()))await stopBackgroundBuild('cancel');else stop();return;}
     if(event.target.closest('#agent-resume')){$('plan-resume')?.click();return;}
-    if(event.target.closest('#preview-refresh')){state.previewUnloaded=false;el.previewFrame.dataset.signature='';renderPreview();return;}
+    if(event.target.closest('#preview-refresh')){state.previewUnloaded=false;previewLoads.notice='';previewLoads.left=[];el.previewFrame.dataset.signature='';renderPreview();return;}
     if(event.target.closest('[data-team-plan]')){showProjectPlan();return;}
     if(event.target.closest('[data-team-architecture]')){showArchitecture();return;}
     if (event.target.closest('#plan-stop')) { stop(); return; }
@@ -1733,6 +1762,7 @@ export async function mount(options = {}) {
 
   $('build-file-search')?.addEventListener('input',renderTree);
   el.previewFrame.addEventListener('load',()=>{
+    if(previewLeftPage()){pendingPreviewScroll=null;return;}
     const pending=pendingPreviewScroll;pendingPreviewScroll=null;
     if(pending && state.previewPath===pending.path)el.previewFrame.contentWindow.postMessage({grandpa:'scroll-to',hash:pending.hash},'*');
     sendPreviewFocus();

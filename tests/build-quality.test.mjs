@@ -59,10 +59,10 @@ async function checker() {
     addEventListener(type, fn) { listeners.add(fn); },
     removeEventListener(type, fn) { listeners.delete(fn); },
   };
-  const make = new Function('window','el','previewDocument','RUN_MS','sleep','createPreviewDiagnostics','state','restrictPreviewDocument',
+  const make = new Function('window','el','previewDocument','RUN_MS','sleep','createPreviewDiagnostics','state','restrictPreviewDocument','loadPreviewGuard',
     source.slice(from, to) + '; return runAndWatch;');
   return {
-    run: make(window, {checkFrame:frame}, (_files,_path,options) => {checkId=options.checkId;return '<html></html>';}, 5, () => new Promise(r=>setTimeout(r,1)),createPreviewDiagnostics,{},restrictPreviewDocument),
+    run: make(window, {checkFrame:frame}, (_files,_path,options) => {checkId=options.checkId;return '<html></html>';}, 5, () => new Promise(r=>setTimeout(r,1)),createPreviewDiagnostics,{},restrictPreviewDocument,async()=>true),
     listeners, frame, setMode(value) {mode=value;},
   };
 }

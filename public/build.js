@@ -28,6 +28,7 @@ import { highlightFile, languageOf } from './highlight.js';
 import { zip } from './zip.js';
 import { checkWebsiteDocument } from './site-checks.js';
 import { previewNavigation, previewAssetUrl } from './build-preview.js';
+import { guardDocumentScripts, previewGuardReady, LOOP_RUNTIME } from './preview-guard.js';
 
 const KEY = 'grandpa-ai:builds:v1';
 
@@ -557,6 +558,10 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
 <script>
 (function () {
   var checkId = ${JSON.stringify(checkId).replace(/</g,'\\u003c')};
+  // Project scripts run later in this frame. Removing this element hides the check ID
+  // from them, and the captured parent cannot be replaced by a page's own "parent".
+  var self = document.currentScript; if (self) self.remove();
+  var up = window.parent, post = function (message) { try { up.postMessage(message, '*'); } catch (e) { /* nobody there */ } };
   var show = function (what) {
     var box = document.getElementById('__grandpa_error');
     if (!box) {
@@ -572,12 +577,12 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
   };
   // Relay frontend diagnostics to the parent. Opaque-origin isolation blocks
   // parent DOM/storage access, but does not block outbound network requests.
-  // Project scripts share this frame and can forge or suppress these reports;
-  // they are useful diagnostics, never trusted execution attestations.
+  // Without the hidden check ID, project scripts cannot send a report the parent accepts,
+  // but they can still hide errors or alter what the page inspection sees. These remain
+  // diagnostics, never execution attestations; release approval comes from the server gates.
   var tell = function (what) {
     show(what);
-    try { parent.postMessage({ grandpa: 'fault', checkId:checkId, what: String(what).slice(0, 400) }, '*'); }
-    catch (e) { /* nothing out there listening */ }
+    post({ grandpa: 'fault', checkId:checkId, what: String(what).slice(0, 400) });
   };
   window.addEventListener('error', function (e) {
     var resource = e.target && e.target.getAttribute && (e.target.getAttribute('src') || e.target.getAttribute('href'));
@@ -598,7 +603,7 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
       var inspect = (${checkWebsiteDocument.toString()});
       inspect(document).forEach(tell);
     }
-    try { parent.postMessage({ grandpa: 'ran', checkId:checkId }, '*'); } catch (e) { /* nobody there */ }
+    post({ grandpa: 'ran', checkId:checkId });
   });
 }());
 </script>`;
@@ -619,7 +624,9 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
  });addEventListener('scroll',position,{passive:true});addEventListener('resize',position);
 })();
 <\/script>` : '';
-  const helpers = reporter + pointer + (navigation ? previewNavigation(files, page.path, { checkId }) : '');
+  // Loop checks go into the page's own scripts; the runtime goes first among the helpers.
+  html = guardDocumentScripts(html);
+  const helpers = (previewGuardReady() ? LOOP_RUNTIME : '') + reporter + pointer + (navigation ? previewNavigation(files, page.path, { checkId }) : '');
 
   // FIRST, not last. A project's own script runs as the parser reaches it, so
   // a reporter added at the end of the body is installed after the very

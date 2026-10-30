@@ -20,7 +20,7 @@ test('hidden diagnostics reject a matching window and nonce with a non-opaque or
 test('background renders cannot reopen a preview after the user unloads it',async()=>{
  const source=await readFile(new URL('../public/ritual.js',import.meta.url),'utf8'),start=source.indexOf('function renderPreview()'),end=source.indexOf('\nfunction ensureView(',start);
  const el={previewFrame:{srcdoc:'old source'},previewNote:{}},state={previewUnloaded:true};
- const render=new Function('state','el',source.slice(start,end)+';return renderPreview;')(state,el);
+ const render=new Function('state','el','setPreviewDocument','previewLoads',source.slice(start,end)+';return renderPreview;')(state,el,document=>{el.previewFrame.srcdoc=document;},{notice:''});
  render();assert.equal(el.previewFrame.srcdoc,'');assert.match(el.previewNote.textContent,/unloaded/);render();assert.equal(el.previewFrame.srcdoc,'');
 });
 
@@ -29,8 +29,8 @@ test('accepted same-page navigation floods retain one load listener and one pend
  const start=source.indexOf('  let pendingPreviewScroll=null;'),end=source.indexOf("  $('preview-page')",start),listeners=[],messages=[];
  const frame={contentWindow:{postMessage:p=>messages.push(p)},addEventListener:(type,fn)=>listeners.push({type,fn})};
  let receive;const state={previewPath:''},el={previewFrame:frame},files=[{path:'index.html'}];
- new Function('createPreviewMessageLimiter','el','window','project','state','renderPreview','$','renderTree','sendPreviewFocus','downloadFile','deps',source.slice(start,end))(
-  ()=>()=>true,el,{addEventListener:(type,fn)=>{receive=fn;}},()=>({files}),state,()=>{},()=>null,()=>{},()=>{},()=>{},{});
+ new Function('createPreviewMessageLimiter','el','window','project','state','renderPreview','$','renderTree','sendPreviewFocus','downloadFile','deps','previewLeftPage',source.slice(start,end))(
+  ()=>()=>true,el,{addEventListener:(type,fn)=>{receive=fn;}},()=>({files}),state,()=>{},()=>null,()=>{},()=>{},()=>{},{},()=>false);
  for(let i=0;i<10000;i++)receive({data:{grandpa:'navigate',path:'index.html',hash:'#section-'+i}});
  assert.equal(listeners.filter(x=>x.type==='load').length,1);
  listeners.find(x=>x.type==='load').fn();assert.equal(messages.at(-1).hash,'#section-9999');
