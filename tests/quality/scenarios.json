@@ -1,0 +1,739 @@
+[
+ {
+  "id": "greeting-1",
+  "area": "greeting",
+  "say": "Good morning Grandpa",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tier": "fast"
+  }
+ },
+ {
+  "id": "greeting-2",
+  "area": "greeting",
+  "say": "How the day?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tier": "fast"
+  }
+ },
+ {
+  "id": "greeting-3",
+  "area": "greeting",
+  "say": "Thank you old ma",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tier": "fast"
+  }
+ },
+ {
+  "id": "greeting-4",
+  "area": "greeting",
+  "say": "Hello",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tier": "fast"
+  }
+ },
+ {
+  "id": "school-1",
+  "area": "school",
+  "say": "Explain photosynthesis for my grade 6 class",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": ""
+  },
+  "persona": "homework"
+ },
+ {
+  "id": "school-2",
+  "area": "school",
+  "say": "Help me solve 3x + 7 = 22 step by step",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "low",
+   "tier": "deep"
+  }
+ },
+ {
+  "id": "school-3",
+  "area": "school",
+  "say": "What is the capital of Liberia?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "school-4",
+  "area": "school",
+  "say": "Teach me fractions with an example using kala",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "school-5",
+  "area": "school",
+  "say": "Why is the sky blue?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "school-6",
+  "area": "school",
+  "say": "Create a worksheet on fractions for grade 5",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tools": [
+    "create_document"
+   ]
+  }
+ },
+ {
+  "id": "farming-1",
+  "area": "farming",
+  "say": "How do I plant cassava in Bong County?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": ""
+  },
+  "persona": "farming"
+ },
+ {
+  "id": "farming-2",
+  "area": "farming",
+  "say": "When should I plant rice in Liberia?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "farming-3",
+  "area": "farming",
+  "say": "My pepper leaves are turning yellow, what should I do?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "farming-4",
+  "area": "farming",
+  "say": "How much fertilizer should I use for one acre of rice?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "low"
+  }
+ },
+ {
+  "id": "money-1",
+  "area": "money",
+  "say": "I sell cold water. If I buy 100 bags for 1500 LD and sell each for 25 LD, what is my profit?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "low"
+  }
+ },
+ {
+  "id": "money-2",
+  "area": "money",
+  "say": "Should I take a loan of 50000 LD at 10% a month for my shop?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "low"
+  }
+ },
+ {
+  "id": "money-3",
+  "area": "money",
+  "say": "Help me plan a small poultry business",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "low"
+  },
+  "persona": "business"
+ },
+ {
+  "id": "money-4",
+  "area": "money",
+  "say": "45000 x 12 ÷ 3",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "low",
+   "tier": "deep"
+  }
+ },
+ {
+  "id": "money-5",
+  "area": "money",
+  "say": "Compare two phones for me: one costs 120 USD with 2 years warranty, one 90 USD with none",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "low",
+   "tier": "deep"
+  }
+ },
+ {
+  "id": "money-6",
+  "area": "money",
+  "say": "Work out whether this loan is worth taking",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "low",
+   "tier": "deep"
+  }
+ },
+ {
+  "id": "money-7",
+  "area": "money",
+  "say": "Plan my week: I teach, farm on Saturday and go to church Sunday",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "low"
+  }
+ },
+ {
+  "id": "money-8",
+  "area": "money",
+  "say": "Is it better to rent or buy a keke?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "medium",
+   "tier": "deep"
+  },
+  "think": true
+ },
+ {
+  "id": "pictures-1",
+  "area": "pictures",
+  "say": "Create an image of a market woman in Monrovia",
+  "expect": {
+   "route": "image",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "pictures-2",
+  "area": "pictures",
+  "say": "Draw a picture of a cassava farm",
+  "expect": {
+   "route": "image",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "pictures-3",
+  "area": "pictures",
+  "say": "Send me a picture",
+  "expect": {
+   "route": "image",
+   "web": false,
+   "thinking": "",
+   "context": "rice"
+  },
+  "before": [
+   {
+    "role": "user",
+    "content": "How do farmers grow rice in Liberia?"
+   },
+   {
+    "role": "assistant",
+    "content": "In swamps and on uplands. Swamp rice is planted in nursery beds, then transplanted."
+   }
+  ]
+ },
+ {
+  "id": "pictures-4",
+  "area": "pictures",
+  "say": "Show me a photo of the rice",
+  "expect": {
+   "route": "image",
+   "web": false,
+   "thinking": "",
+   "context": "rice"
+  },
+  "before": [
+   {
+    "role": "user",
+    "content": "How do farmers grow rice in Liberia?"
+   },
+   {
+    "role": "assistant",
+    "content": "In swamps and on uplands. Swamp rice is planted in nursery beds, then transplanted."
+   }
+  ]
+ },
+ {
+  "id": "pictures-5",
+  "area": "pictures",
+  "say": "Send me a picture of it",
+  "expect": {
+   "route": "image",
+   "web": false,
+   "thinking": "",
+   "context": "palm"
+  },
+  "before": [
+   {
+    "role": "user",
+    "content": "Teach me how to cook palm butter soup"
+   },
+   {
+    "role": "assistant",
+    "content": "Boil the palm nuts, pound them, squeeze out the juice, then cook it with fish and pepper."
+   }
+  ]
+ },
+ {
+  "id": "pictures-6",
+  "area": "pictures",
+  "say": "Create an image of a goat",
+  "expect": {
+   "route": "image",
+   "web": false,
+   "thinking": "",
+   "context": "^$"
+  },
+  "before": [
+   {
+    "role": "user",
+    "content": "How do farmers grow rice in Liberia?"
+   },
+   {
+    "role": "assistant",
+    "content": "In swamps and on uplands. Swamp rice is planted in nursery beds, then transplanted."
+   }
+  ]
+ },
+ {
+  "id": "pictures-7",
+  "area": "pictures",
+  "say": "Can you describe this picture?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "pictures-8",
+  "area": "pictures",
+  "say": "What makes a good photo?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "pictures-9",
+  "area": "pictures",
+  "say": "Write me a prompt for an image generator",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "pictures-10",
+  "area": "pictures",
+  "say": "Send me one",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "prompt": [
+    "create_image tool"
+   ],
+   "tools": [
+    "create_image"
+   ]
+  },
+  "before": [
+   {
+    "role": "user",
+    "content": "How do farmers grow rice in Liberia?"
+   },
+   {
+    "role": "assistant",
+    "content": "In swamps and on uplands. Swamp rice is planted in nursery beds, then transplanted."
+   }
+  ]
+ },
+ {
+  "id": "pictures-11",
+  "area": "pictures",
+  "say": "Let me see how it looks",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tools": [
+    "create_image"
+   ]
+  },
+  "before": [
+   {
+    "role": "user",
+    "content": "Teach me how to cook palm butter soup"
+   },
+   {
+    "role": "assistant",
+    "content": "Boil the palm nuts, pound them, squeeze out the juice, then cook it with fish and pepper."
+   }
+  ]
+ },
+ {
+  "id": "documents-1",
+  "area": "documents",
+  "say": "Write a letter to my landlord asking for more time to pay rent",
+  "expect": {
+   "route": "document",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "documents-2",
+  "area": "documents",
+  "say": "Make my CV for a teaching job",
+  "expect": {
+   "route": "document",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "documents-3",
+  "area": "documents",
+  "say": "Write a business plan for my cookshop",
+  "expect": {
+   "route": "document",
+   "web": false,
+   "thinking": "low"
+  }
+ },
+ {
+  "id": "documents-4",
+  "area": "documents",
+  "say": "How do I write a good CV?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "documents-5",
+  "area": "documents",
+  "say": "Put all of that on paper for my farmers group",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tools": [
+    "create_document"
+   ]
+  },
+  "before": [
+   {
+    "role": "user",
+    "content": "How do farmers grow rice in Liberia?"
+   },
+   {
+    "role": "assistant",
+    "content": "In swamps and on uplands. Swamp rice is planted in nursery beds, then transplanted."
+   }
+  ]
+ },
+ {
+  "id": "web-1",
+  "area": "web",
+  "say": "What is the news in Liberia today?",
+  "expect": {
+   "route": "chat",
+   "web": true,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "web-2",
+  "area": "web",
+  "say": "What is the LD to US dollar rate today?",
+  "expect": {
+   "route": "chat",
+   "web": true,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "web-3",
+  "area": "web",
+  "say": "Who won the match last night?",
+  "expect": {
+   "route": "chat",
+   "web": true,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "web-4",
+  "area": "web",
+  "say": "What is the weather in Monrovia tomorrow?",
+  "expect": {
+   "route": "chat",
+   "web": true,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "web-5",
+  "area": "web",
+  "say": "Can you search and list the best scholarships available?",
+  "expect": {
+   "route": "chat",
+   "web": true,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "web-6",
+  "area": "web",
+  "say": "Who was the first president of Liberia?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tools": [
+    "search_web"
+   ]
+  }
+ },
+ {
+  "id": "memory-1",
+  "area": "memory",
+  "say": "My name is Samuel and I run a learning hub in Paynesville",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tools": [
+    "suggest_memory"
+   ]
+  }
+ },
+ {
+  "id": "memory-2",
+  "area": "memory",
+  "say": "Remember that I am diabetic",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tools": [
+    "suggest_memory"
+   ]
+  }
+ },
+ {
+  "id": "memory-3",
+  "area": "memory",
+  "say": "I am a teacher in Gbarnga",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tools": [
+    "suggest_memory"
+   ]
+  }
+ },
+ {
+  "id": "memory-4",
+  "area": "memory",
+  "say": "What is my name?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "culture-1",
+  "area": "culture",
+  "say": "Tell me a story about the spider and the tortoise",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tier": "deep"
+  }
+ },
+ {
+  "id": "culture-2",
+  "area": "culture",
+  "say": "Give me a Liberian proverb about patience",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tier": "deep"
+  }
+ },
+ {
+  "id": "culture-3",
+  "area": "culture",
+  "say": "Tell me about the history of the Kpelle people",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tier": "deep"
+  }
+ },
+ {
+  "id": "culture-4",
+  "area": "culture",
+  "say": "Tell me a story",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tier": "deep"
+  },
+  "persona": "culture"
+ },
+ {
+  "id": "language-1",
+  "area": "language",
+  "say": "How are you?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "prompt": [
+    "Kpelle"
+   ]
+  },
+  "language": "kpelle"
+ },
+ {
+  "id": "language-2",
+  "area": "language",
+  "say": "Wetin you say?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "prompt": [
+    "Liberian"
+   ]
+  }
+ },
+ {
+  "id": "unclear-1",
+  "area": "unclear",
+  "say": "Fix it",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "prompt": [
+    "clarifying question"
+   ]
+  }
+ },
+ {
+  "id": "unclear-2",
+  "area": "unclear",
+  "say": "Do the thing we talked about",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "prompt": [
+    "clarifying question"
+   ]
+  }
+ },
+ {
+  "id": "unclear-3",
+  "area": "unclear",
+  "say": "I want to start a business but I don't know what",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "prompt": [
+    "clarifying question"
+   ]
+  }
+ },
+ {
+  "id": "health-1",
+  "area": "health",
+  "say": "My child has a high fever, what do I do?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "health-2",
+  "area": "health",
+  "say": "How do I make palm butter soup?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": ""
+  }
+ },
+ {
+  "id": "voice-1",
+  "area": "voice",
+  "say": "Should I take a loan for my shop?",
+  "expect": {
+   "route": "chat",
+   "web": false,
+   "thinking": "",
+   "tools": []
+  },
+  "spoken": true
+ }
+]

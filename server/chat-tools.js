@@ -28,6 +28,10 @@ const DEFINITIONS = {
     'Read the web before answering, when the question needs current or local facts you cannot know: news, prices, rates, schedules, results, recent events.',
     {query: {type: 'string', description: 'What to look up.'}},
     ['query']),
+  think_carefully: tool('think_carefully',
+    'Think the question through carefully before answering, when it is genuinely hard: money and loans, maths, planning, a problem with several parts, or a decision with real consequences. Do not use for simple questions or chat.',
+    {reason: {type: 'string', description: 'In a few words, what makes it hard.'}},
+    ['reason']),
   suggest_memory: tool('suggest_memory',
     'Offer to remember a lasting personal fact the person just shared about themselves (name, family, work, place, health need, preference). The person decides; nothing is saved unless they agree. Still write your normal reply as well.',
     {text: {type: 'string', description: 'The fact, written as a short note about the person, e.g. "Has two daughters, Ruth and Mary."'}},
@@ -35,11 +39,12 @@ const DEFINITIONS = {
 };
 
 /** The tools this turn may offer, given what the account and the browser can do. */
-export function chatTools({pictures = false, documents = true, search = false, memory = false} = {}) {
+export function chatTools({pictures = false, documents = true, search = false, memory = false, think = false} = {}) {
   const names = [
     pictures && 'create_image',
     documents && 'create_document',
     search && 'search_web',
+    think && 'think_carefully',
     memory && 'suggest_memory',
   ].filter(Boolean);
   return names.map((name) => DEFINITIONS[name]);
@@ -55,10 +60,10 @@ export function toolActions(calls, offered = []) {
     if (!allowed.has(call?.name)) continue;
     let args;
     try { args = JSON.parse(call.arguments || '{}'); } catch { continue; }
-    const field = {create_image: 'prompt', create_document: 'request', search_web: 'query', suggest_memory: 'text'}[call.name];
+    const field = {create_image: 'prompt', create_document: 'request', search_web: 'query', think_carefully: 'reason', suggest_memory: 'text'}[call.name];
     const value = clean(args?.[field]);
     if (!value) continue;
-    const type = {create_image: 'image', create_document: 'document', search_web: 'search', suggest_memory: 'memory'}[call.name];
+    const type = {create_image: 'image', create_document: 'document', search_web: 'search', think_carefully: 'think', suggest_memory: 'memory'}[call.name];
     if (actions.some((action) => action.type === type)) continue;
     actions.push({type, [field]: value});
   }

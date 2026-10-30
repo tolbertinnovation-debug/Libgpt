@@ -124,7 +124,7 @@ test('/api/chat: Grandpa chooses a picture, offers a memory, reads the web, and 
   script = [toolCall('create_image', { prompt: 'Liberian farmers planting rice in a swamp' })];
   let got = await events({ messages: rice, research: 'off', memoryOffer: true });
   let sent = bodies.at(-1);
-  assert.deepEqual(names(sent.tools), ['create_image', 'create_document', 'suggest_memory']);
+  assert.deepEqual(names(sent.tools), ['create_image', 'create_document', 'think_carefully', 'suggest_memory']);
   assert.match(sent.messages[0].content, /create_image tool/);
   assert.match(sent.messages[0].content, /\[\[followups:/);
   assert.deepEqual(got.find(e => e.event === 'action')?.data, { type: 'image', prompt: 'Liberian farmers planting rice in a swamp' });

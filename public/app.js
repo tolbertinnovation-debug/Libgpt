@@ -33,6 +33,7 @@ import { readPaper } from './papers.js';
 import { mountSupport } from './support.js?v=phase2-requests-review-2';
 import { loadMemory, memoriesForQuestion, remember, saveMemory } from './memory.js';
 import { splitFollowups, visibleWhileStreaming } from './followups.js';
+import { cleanSummary, needsSummary, summaryRequest } from './chat-summary.js';
 import { LiveTalk, liveTalkSupported } from './live-talk.js';
 import {imageCard,mountImageComposer,safeChatImage,imagePrompt,imageLoadingMarkup} from './image-chat.js';
 
@@ -900,6 +901,7 @@ async function streamReply(chat, hooks = {}) {
   try {
     sending = await forSending(chat.messages);
     if (sending.dropped) target.closest('.ai-body')?.insertAdjacentHTML('afterbegin', trimmedNote(sending.dropped));
+    if (needsSummary(chat, sending.dropped)) await updateSummary(chat, controller.signal);
     const response = await fetch('/api/chat', {
       method: 'POST',
       headers: apiHeaders(),
@@ -907,6 +909,8 @@ async function streamReply(chat, hooks = {}) {
       body: JSON.stringify({
         messages: sending.list,
         memories: memoriesForQuestion(loadMemory(), sending.list.at(-1)?.content || ''),
+        // The start of a very long chat, summarised, when it had to be left out.
+        ...(sending.dropped && cleanSummary(chat.summary?.text) ? { summary: cleanSummary(chat.summary.text) } : {}),
         // Whether Grandpa may offer to remember something. He only offers; a tap saves it.
         memoryOffer: !hooks.spoken && loadMemory().enabled !== false,
         persona: chat.persona || state.prefs.persona,
@@ -974,6 +978,8 @@ async function streamReply(chat, hooks = {}) {
           searched = Boolean(payload.searched);
           if (searched) markLookedUp(target, true);
           else unmarkLookedUp(target);
+          // Thinking first takes a few seconds before the first word; say so.
+          if (payload.thought && !text) target.innerHTML = '<span class="thinking"><span></span><span></span><span></span></span> <span class="thinking-note">Thinking it through…</span>';
         } else if (event === 'sources' && Array.isArray(payload.items)) {
           sources = payload.items;
         } else if (event === 'action' && ['image', 'document', 'memory'].includes(payload.type)) {
@@ -1094,6 +1100,21 @@ async function streamReply(chat, hooks = {}) {
 
   hooks.onDone?.(text, failed || controller.signal.aborted);
   if (failed && trouble) throw new Error(trouble);
+}
+
+// Brings a long chat's running summary up to date. A failure only means older
+// details may be missed this time, so the question is sent regardless.
+async function updateSummary(chat, signal) {
+  const { upTo, body } = summaryRequest(chat);
+  if (!body.messages.length) return;
+  try {
+    const response = await fetch('/api/summary', { method: 'POST', headers: apiHeaders(), signal, body: JSON.stringify(body) });
+    if (!response.ok) return;
+    const summary = cleanSummary((await response.json().catch(() => ({}))).summary);
+    if (summary && state.chats.includes(chat)) { chat.summary = { upTo, text: summary, updatedAt: Date.now() }; persist(); }
+  } catch (error) {
+    if (error.name === 'AbortError') throw error;
+  }
 }
 
 async function nameConversation(chat) {

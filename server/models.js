@@ -151,8 +151,8 @@ const JUST_TALK = new RegExp(
   + 'hi|hey|hello|good (?:morning|afternoon|evening|day)|greetings'
   + '|how (?:are you|you doing|the body|di body)|how far'
   + '|thank(?:s| you)|ok(?:ay)?|alright|yes|no|sure|fine'
-  + '|bye|goodbye|good night|see you'
-  + ')\\b[\\s!.,?]*$',
+  + '|bye|goodbye|good night|see you|how (?:the|is the|is your) (?:day|morning|family)|wetin you say'
+  + ')\\b(?:[\\s,]+(?:grandpa|grandma|old ?(?:ma|pa|man)|pa|ma|papa|mama|my friend|sir|ma\'?am))?[\\s!.,?]*$',
   'i',
 );
 
@@ -200,6 +200,32 @@ export function tierFor(task, {
       return 'balanced';
   }
 }
+
+/**
+ * How hard the model should think before answering: '' (its normal answer),
+ * 'low' or 'medium'. Thinking is billed as written words, so it is spent only
+ * where it changes the answer: a question asked to be thought through, or one
+ * whose words say it is hard. Stories are deep for their writing, not their
+ * reasoning, and a spoken reply cannot wait while it thinks.
+ */
+export function thinkingFor(task, { persona = '', asked = '', think = false, spoken = false, seeing = false } = {}) {
+  if (spoken || task !== 'chat') return '';
+  if (think) return 'medium';
+  if (seeing || persona === 'culture') return '';
+  const question = String(asked || '').trim();
+  // Reasoning, not writing: a story or a translation is not improved by it.
+  if (NEEDS_REASONING.test(question) || /\d[\d,. ]*\s*[+\-x*/÷×%]\s*\d/.test(question)) return 'low';
+  return '';
+}
+
+// Questions whose answer depends on working something out. Anything these
+// words miss, he can still decide for himself with the think_carefully tool.
+const NEEDS_REASONING = new RegExp([
+  'solve', 'calculat', 'work out', 'step by step', 'show (?:me )?the working', 'prove\\b', 'equation', 'formula',
+  'percent', '\\d\\s*%', 'interest', 'loan', 'profit', 'loss', 'budget', 'how (?:much|many)\\b.{0,40}\\b(?:should (?:i|we)|do (?:i|we) need|will (?:i|we)|would (?:i|we)|need|cost)',
+  'compare', 'which is better', 'pros and cons', 'should i (?:take|buy|sell|borrow|lend|invest|choose|accept|pay|start|rent)', 'is it (?:worth|better)', 'worth taking', 'plan (?:my|for|a|the)',
+  'debug', 'troubleshoot', 'diagnos', 'analy[sz]e', 'evaluate', 'strategy', 'trade.?offs?', 'root cause',
+].map((word) => `\\b${word}`).join('|'), 'i');
 
 /** How hard is this question, as far as the words in it can tell. */
 function chatTier(asked, persona) {
