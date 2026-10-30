@@ -100,6 +100,9 @@ app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
 const hits = new Map();
 const WINDOW_MS = 60_000;
 
+// Chat can draw only with images on, a key, and (when hosted) an access code.
+const chatPicturesAvailable = () => config.imagesEnabled && Boolean(config.apiKey) && !(config.serverless && !config.accessCode);
+
 function rateLimit(req, res, next) {
   if (config.rateLimitPerMinute <= 0) return next();
 
@@ -303,7 +306,7 @@ app.get('/api/config', async (_req, res) => {
     ...publicCatalogue(),
     library: libraryCatalogue(),
     imagesEnabled: config.imagesEnabled,
-    chatImages: config.imagesEnabled && Boolean(config.apiKey) && !(config.serverless && !config.accessCode),
+    chatImages: chatPicturesAvailable(),
     realVoice: config.realVoice && Boolean(config.apiKey),
     // Two-way live audio. Off on a serverless host without an access code, for
     // the same reason pictures are: the hourly ceiling cannot hold there.
@@ -792,6 +795,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     register: req.body?.register,
     task: 'chat',
     searched: didSearch,
+    pictures: chatPicturesAvailable(),
     depth,
   }));
 

@@ -61,18 +61,30 @@ export function mountImageComposer({onGenerate,enabled=()=>true}) {
   }};
 }
 
-// Identify clear visual creation requests for direct image generation. Ambiguous requests
-// can always use the visible Create image control or the /image command.
+// Identify requests for a picture, however they are phrased, so the image is made
+// right in the chat instead of the model describing one. Questions about pictures,
+// requests for a written prompt and written work (stories, plans, sites) stay chat.
+const PICTURE=/\b(?:image|picture|pic|photo|photograph|illustration|drawing|painting|portrait|poster|logo|artwork|wallpaper|flag|map|diagram|chart|banner|flyer|cartoon|sketch|landscape|classroom|sunset|forest|skyline)s?\b/i;
+const CREATE=/\b(?:create|generate|draw|paint|illustrate|design|make|show|produce|render|sketch|imagine|give|get|want|need|send)\b/i;
+const VISUAL_VERB=/^(?:draw|paint|sketch|illustrate)\b(?!\s+(?:up|a conclusion|conclusions|attention|on|from|out)\b)/i;
+const WRITTEN=/\b(?:story|stori|poem|essay|lesson|quiz|code|website|app|plan|report|prompt|instructions|cv|resume|letter|email|document|description|caption)\b/i;
+const QUESTION=/^(?:how|why|what|when|where|who|which|is|are|does|do|did|should|explain|describe|tell me about|define)\b/i;
 export function imagePrompt(text) {
   if(typeof text!=='string') return null;
   const prompt=text.trim();
   if(/^\/image(?:\s|$)/i.test(prompt)) return prompt.replace(/^\/image\s*/i,'');
-  let request=prompt.replace(/^(?:please\s+|can you\s+|could you\s+|would you\s+|help me\s+)+/i,'');
-  request=request.replace(/^i (?:want|would like) to (?:see|view)\s+/i,'show ');
-  if(!/^(?:create|generate|draw|paint|illustrate|design|make|show)\b/i.test(request)) return null;
-  if(/\b(?:story|stori|poem|essay|lesson|quiz|code|website|app|plan|report|prompt|instructions|cv|resume)\b/i.test(request)) return null;
-  if(!/\b(?:image|picture|photo|photograph|illustration|painting|portrait|poster|logo|artwork|wallpaper|flag|map|diagram|chart|landscape|classroom|sunset|forest|skyline)\b/i.test(request)) return null;
-  return prompt;
+  let request=prompt.replace(/^(?:please\s+|pls\s+|can you\s+|could you\s+|would you\s+|will you\s+|help me\s+|i want you to\s+|kindly\s+)+/i,'');
+  request=request.replace(/^(?:can|could|may) i (?:get|have|see)\s+/i,'give me ').replace(/^i (?:want|would like|need) to (?:see|view)\s+/i,'show ');
+  if(QUESTION.test(request)) return null;
+  // "a picture of …", "an image showing …" with any asking word, or a picture word at the end ("Monrovia in 2050 image").
+  const picturePhrase=/\b(?:image|picture|pic|photo|photograph|illustration|drawing|painting|portrait|poster|logo|artwork|wallpaper|banner|flyer|cartoon|sketch)s?\s+(?:of|showing|for|about|with)\b/i.test(request);
+  const endsWithPicture=/\b(?:image|picture|pic|photo|drawing|painting|poster|logo)s?[.!]?$/i.test(request);
+  const verbFirst=CREATE.test(request.split(/\s+/).slice(0,4).join(' '));
+  if(WRITTEN.test(request) && !(picturePhrase && !/\bprompt\b/i.test(request))) return null;
+  if(VISUAL_VERB.test(request)) return prompt;
+  if(!PICTURE.test(request)) return null;
+  if(verbFirst || picturePhrase || endsWithPicture) return prompt;
+  return null;
 }
 
 export function imageLoadingMarkup() {

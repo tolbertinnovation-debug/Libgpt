@@ -341,9 +341,12 @@ const SPOKEN_PROMPT = `THIS IS A SPOKEN CONVERSATION. Your answer will be read a
 export const DEFAULT_PERSONA = 'general';
 export const DEFAULT_LANGUAGE = 'liberian-english';
 
+const PICTURES_PROMPT = `PICTURES
+Grandpa AI draws pictures itself, right here in the chat. If someone asks you for a picture, an image, a drawing or a poster, never write a prompt for another image tool. Say in one short sentence that they can type "Create an image of" followed by what they want, and the picture will appear here.`;
+
 export function buildSystemPrompt({
   persona, language, speaker, tone, userName, spoken, register, task,
-  searched = false, photo = false, depth = 'auto',
+  searched = false, photo = false, depth = 'auto', pictures = false,
 }) {
   const p = PERSONAS[persona] || PERSONAS[DEFAULT_PERSONA];
   const l = LANGUAGES[language] || LANGUAGES[DEFAULT_LANGUAGE];
@@ -378,6 +381,8 @@ export function buildSystemPrompt({
     parts.push(`THE PERSON YOU ARE TALKING TO\nTheir name is ${userName.trim()}. Use it now and then, the way an elder does — not in every sentence.`);
   }
   if (photo) parts.push(PHOTO_PROMPT);
+  // Pictures are made by the app itself; a written prompt for another tool is a dead end.
+  if (pictures) parts.push(PICTURES_PROMPT);
   // Last, so it is the rule closest to the answer.
   if (spoken) parts.push(SPOKEN_PROMPT);
   return parts.join('\n\n---\n\n');
