@@ -103,6 +103,8 @@ const quirks = new Map();
 // refused first request (and its round trip) on every cold start. Older models
 // keep max_tokens, and anything else is still learned from the refusal.
 export const tokenLimit = (model, value) => (/^(?:gpt-[5-9]|o\d)/i.test(String(model || '')) ? {max_completion_tokens: value} : {max_tokens: value});
+// Models that can be asked to think before answering, through reasoning_effort.
+export const canReason = (model) => /^(?:gpt-[5-9]|o\d)/i.test(String(model || '')) && !/-chat\b/i.test(String(model || ''));
 const SPENDING_LIMITS = new Set(['max_tokens', 'max_completion_tokens', 'max_output_tokens', 'max_tool_calls']);
 
 function applyQuirks(body) {
@@ -200,9 +202,11 @@ async function post(path, body, signal) {
  * its thought, "length" when it hit the token ceiling part-way through.
  */
 export async function* streamChat({
-  model, messages, maxTokens, temperature, signal, onFinish, onUsage, tools, onToolCalls,
+  model, messages, maxTokens, temperature, signal, onFinish, onUsage, tools, onToolCalls, reasoningEffort,
 }) {
   const offered = Array.isArray(tools) && tools.length ? tools : null;
+  // Thinking replaces the temperature: reasoning models refuse both together.
+  const effort = ['low', 'medium', 'high'].includes(reasoningEffort) && canReason(model || config.model) ? reasoningEffort : '';
   const response = await post('/chat/completions', {
     model: model || config.model,
     messages,
@@ -211,7 +215,7 @@ export async function* streamChat({
     // over whole, once, when the stream ends.
     ...(offered ? {tools: offered, tool_choice: 'auto', parallel_tool_calls: true} : {}),
     ...(onUsage ? {stream_options:{include_usage:true}} : {}),
-    temperature: temperature ?? 0.7,
+    ...(effort ? {reasoning_effort: effort} : {temperature: temperature ?? 0.7}),
     ...tokenLimit(model || config.model, maxTokens ?? 1400),
   }, signal);
 
