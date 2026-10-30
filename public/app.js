@@ -31,7 +31,8 @@ import * as ritual from './ritual.js?v=chat-layout-2';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 import { mountSupport } from './support.js?v=phase2-requests-review-2';
-import { loadMemory, memoriesForQuestion } from './memory.js';
+import { loadMemory, memoriesForQuestion, remember, saveMemory } from './memory.js';
+import { splitFollowups, visibleWhileStreaming } from './followups.js';
 import { LiveTalk, liveTalkSupported } from './live-talk.js';
 import {imageCard,mountImageComposer,safeChatImage,imagePrompt,imageLoadingMarkup} from './image-chat.js';
 
@@ -706,6 +707,23 @@ function sourceList(items) {
     .join('')}</div>`;
 }
 
+// Grandpa offers to remember; nothing is saved until the person taps Yes.
+function memoryOfferCard(text, index) {
+  return `<div class="memory-offer" role="group" aria-label="Remember this?">
+      <p><strong>Remember this?</strong> ${escapeHtml(text)}</p>
+      <div class="memory-offer-actions">
+        <button type="button" class="memory-offer-yes" data-offer-yes="${index}">Yes, remember</button>
+        <button type="button" class="memory-offer-no" data-offer-no="${index}">No thanks</button>
+      </div>
+    </div>`;
+}
+
+// Questions the person might ask next, one tap each.
+function followupChips(items) {
+  return `<div class="followups" aria-label="Ask next">${items.map((item) =>
+    `<button type="button" class="followup" data-followup="${escapeHtml(item)}">${escapeHtml(item)}</button>`).join('')}</div>`;
+}
+
 function renderThread() {
   const chat = currentChat();
   const hasMessages = Boolean(chat?.messages.length);
@@ -749,6 +767,8 @@ function renderThread() {
             ${documentCard(message.document,index)}
             ${message.taskBrief ? taskBriefCard(message.taskBrief,index,Boolean(message.documentQuestions)) : ''}
             ${sourceList(message.sources)}
+            ${message.memoryOffer ? memoryOfferCard(message.memoryOffer, index) : ''}
+            ${index === lastAiIndex() && Array.isArray(message.followups) && message.followups.length ? followupChips(message.followups) : ''}
             ${messageActions(index, message.content)}
           </div>
         </div>`;
@@ -872,6 +892,7 @@ async function streamReply(chat, hooks = {}) {
   let sawTheEnd = false;
   let searched = false;     // this answer was read off the web, not remembered
   let sources = [];         // and these are the pages it was read from
+  const actions = [];       // tools Grandpa chose: a picture, a document, a memory to offer
 
   // A long conversation is shortened rather than refused. What was left behind
   // is worth saying, because it is why he may not remember the beginning.
@@ -886,6 +907,8 @@ async function streamReply(chat, hooks = {}) {
       body: JSON.stringify({
         messages: sending.list,
         memories: memoriesForQuestion(loadMemory(), sending.list.at(-1)?.content || ''),
+        // Whether Grandpa may offer to remember something. He only offers; a tap saves it.
+        memoryOffer: !hooks.spoken && loadMemory().enabled !== false,
         persona: chat.persona || state.prefs.persona,
         language: state.prefs.language,
         model: state.prefs.model,
@@ -953,10 +976,12 @@ async function streamReply(chat, hooks = {}) {
           else unmarkLookedUp(target);
         } else if (event === 'sources' && Array.isArray(payload.items)) {
           sources = payload.items;
+        } else if (event === 'action' && ['image', 'document', 'memory'].includes(payload.type)) {
+          if (!actions.some((action) => action.type === payload.type)) actions.push(payload);
         } else if (event === 'delta' && payload.text) {
           const stick = nearBottom(el.thread);
           text += payload.text;
-          target.innerHTML = renderMarkdown(text);
+          target.innerHTML = renderMarkdown(visibleWhileStreaming(text));
           target.classList.add('cursor');
           if (stick) el.thread.scrollTop = el.thread.scrollHeight;
           hooks.onDelta?.(payload.text, text);
@@ -1019,10 +1044,22 @@ async function streamReply(chat, hooks = {}) {
     }
   }
 
+  const stopped = failed || controller.signal.aborted;
+  const chosen = stopped ? [] : actions;
+  const makeDocument = chosen.some((action) => action.type === 'document');
+  const picture = chosen.find((action) => action.type === 'image' && typeof action.prompt === 'string' && action.prompt.trim());
+  const offer = chosen.find((action) => action.type === 'memory' && typeof action.text === 'string' && action.text.trim());
+  const split = splitFollowups(text);
+  text = split.text;
+  // A document is its own turn; a "Sure, I'll write that" in front of it is noise.
+  if (makeDocument) { text = ''; target.closest('.turn')?.remove(); }
+
   if (text.trim()) {
     chat.messages.push({
       role: 'assistant', content: text, searched, sources, unfinished,
       ...(sending?.dropped ? { trimmed: sending.dropped } : {}),
+      ...(split.followups.length && !hooks.spoken && !stopped ? { followups: split.followups } : {}),
+      ...(offer && !hooks.spoken ? { memoryOffer: offer.text.trim().slice(0, 600) } : {}),
     });
     chat.updatedAt = Date.now();
     persist();
@@ -1044,6 +1081,16 @@ async function streamReply(chat, hooks = {}) {
   setThinkHarder(false);
 
   if (!chat.titled && chat.messages.length >= 2) nameConversation(chat);
+
+  // What Grandpa chose to make, carried out with the features the page already
+  // has, each under its own daily limit.
+  if (makeDocument && state.chats.includes(chat)) {
+    documentTarget = { chatId: chat.id, index: -1, mode: 'new' };
+    createChatDocument(chat).catch((error) => toast(error.message));
+  } else if (picture && state.chats.includes(chat)) {
+    imageComposer.generate({ prompt: picture.prompt.trim().slice(0, 600), fromChat: true })
+      .catch((error) => toast(error.message || 'Image creation failed.'));
+  }
 
   hooks.onDone?.(text, failed || controller.signal.aborted);
   if (failed && trouble) throw new Error(trouble);
@@ -1778,9 +1825,11 @@ const imageComposer=mountImageComposer({
     if(state.streaming || ritual.isBusy() || conversation.active) throw new Error('Finish the current conversation or build first.');
     speaker.stop();if(listening) stopListening();
     const chat=ensureChat();
-    options={...options,context:validImageDiscussion(options.context) || imageDiscussion(options.prompt,chat.messages)};
+    const {fromChat,...asked}=options;
+    options={...asked,context:validImageDiscussion(asked.context) || imageDiscussion(asked.prompt,chat.messages)};
     if(!chat.title) chat.title=options.prompt.slice(0,48);
-    chat.messages.push({role:'user',content:options.prompt});
+    // A picture Grandpa chose to draw follows his own reply, not words the person typed.
+    if(!fromChat) chat.messages.push({role:'user',content:options.prompt});
     chat.updatedAt=Date.now();persist();renderThread();renderSidebar();
     state.streaming=controller;setBusy(true);
     const pending=startAiTurn();pending.innerHTML=imageLoadingMarkup();
@@ -2870,6 +2919,18 @@ el.thread.addEventListener('click',event=>{
   if(button) support.feedback(currentChat()?.messages[Number(button.dataset.report)]?.content || '');
   const memory=event.target.closest('[data-memory]');
   if(memory) support.memories(currentChat()?.messages[Number(memory.dataset.memory)]?.content || '');
+  const followup=event.target.closest('[data-followup]');
+  if(followup && !state.streaming) send(followup.dataset.followup);
+  const yes=event.target.closest('[data-offer-yes]'),no=event.target.closest('[data-offer-no]');
+  if(yes || no) {
+    const chat=currentChat(),message=chat?.messages[Number((yes || no).dataset[yes ? 'offerYes' : 'offerNo'])];
+    if(!message?.memoryOffer) return;
+    if(yes) {
+      try {saveMemory(remember(loadMemory(),message.memoryOffer));toast('Saved to memory. You can change it in Settings.');}
+      catch(error) {toast(error.message);if(!/already saved/i.test(error.message)) return;}
+    }
+    delete message.memoryOffer;chat.updatedAt=Date.now();persist();renderThread();
+  }
 });
 
 // Two taps to delete, so a mis-tap on a shared phone cannot wipe the history.
