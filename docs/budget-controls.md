@@ -41,6 +41,14 @@ Pictures default to balanced (medium) quality. A medium picture fits the picture
 
 ## Operator controls
 
+**Owner Controls page:** open `https://libgrandpaai.com/owner.html` and enter `RITUAL_ADMIN_TOKEN`. It shows today's spending against each limit and has the emergency Pause/Resume button.
+- The password stays in the page's memory only: it is never stored, put in the URL or sent anywhere except in the admin header to this site.
+- It is cleared on Lock or when the page closes.
+- The page loads nothing from other sites, is hidden from search engines and refuses to run inside another site's frame.
+- It changes no limits.
+
+The routes underneath:
+
 All require `RITUAL_ADMIN_TOKEN` (32+ characters) in the `x-ritual-admin` header; the visitor access code never works here.
 
 - `GET /api/admin/budget` — limits, today's spend in total and per feature, active calls.
