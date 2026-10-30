@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {spendRows,errorText,usd} from '../public/owner.js';
+import {spendRows,errorText,usd,limitsRequest,TWO_DOLLAR_PLAN} from '../public/owner.js';
 
 const html=await readFile(new URL('../public/owner.html',import.meta.url),'utf8');
 const js=await readFile(new URL('../public/owner.js',import.meta.url),'utf8');
@@ -27,4 +27,12 @@ test('spending rows show the total first, then each capped or spending feature w
 
 test('refusals explain what to do without revealing anything',()=>{
  assert.match(errorText(403),/didn't work/);assert.match(errorText(429),/Wait a minute/);assert.match(errorText(503),/could not be reached/);
+});
+
+test('the $2 plan becomes one admin request, and impossible limits are explained instead of sent',()=>{
+ assert.deepEqual(limitsRequest(TWO_DOLLAR_PLAN),{limits:{dailyUsd:2,capabilityDailyUsd:{build:1,images:.4,voice:.3,livetalk:.1}}});
+ assert.match(limitsRequest({...TWO_DOLLAR_PLAN,build:3}).error,/cannot be more than the total/);
+ assert.match(limitsRequest({...TWO_DOLLAR_PLAN,total:25}).error,/between \$0.05 and \$10/);
+ assert.match(limitsRequest({...TWO_DOLLAR_PLAN,voice:-1}).error,/\$0 or more/);
+ assert.match(limitsRequest({...TWO_DOLLAR_PLAN,total:''}).error,/Set a total/);
 });

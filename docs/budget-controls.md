@@ -45,7 +45,7 @@ Pictures default to balanced (medium) quality. A medium picture fits the picture
 - The password stays in the page's memory only: it is never stored, put in the URL or sent anywhere except in the admin header to this site.
 - It is cleared on Lock or when the page closes.
 - The page loads nothing from other sites, is hidden from search engines and refuses to run inside another site's frame.
-- It changes no limits.
+- It can change the daily limits (total and per feature, up to $10 a day in the page); every change asks for confirmation and is recorded in the ledger's audit trail.
 
 The routes underneath:
 
