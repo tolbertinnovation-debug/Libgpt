@@ -771,6 +771,32 @@ body {
 }
 .sources a:hover, .sources a:focus-visible { background: var(--bg-hover); color: var(--text); }
 
+/* Questions to ask next, and Grandpa's offer to remember something: one tap
+   each, big enough for a thumb. */
+.followups { display: flex; flex-direction: column; align-items: flex-start; gap: .4rem; margin: .8rem 0 0; }
+.followup {
+  min-height: 44px; max-width: 100%;
+  padding: .45rem .85rem;
+  border: 1px solid var(--border); border-radius: 18px;
+  background: var(--bg-elevated, transparent); color: var(--text);
+  font: inherit; font-size: .9rem; text-align: left; cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.followup:hover, .followup:focus-visible { background: var(--bg-hover); }
+.memory-offer {
+  margin: .8rem 0 0; padding: .75rem .85rem;
+  border: 1px solid var(--border); border-radius: 12px;
+  font-size: .9rem;
+}
+.memory-offer p { margin: 0 0 .6rem; overflow-wrap: anywhere; }
+.memory-offer-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.memory-offer-actions button {
+  min-height: 44px; padding: .4rem .9rem; border-radius: 10px;
+  border: 1px solid var(--border); background: transparent; color: var(--text);
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.memory-offer-actions .memory-offer-yes { background: var(--accent, #1b2a63); border-color: var(--accent, #1b2a63); color: #fff; }
+
 /* Rendered markdown */
 .prose > :first-child { margin-top: 0; }
 .prose > :last-child { margin-bottom: 0; }

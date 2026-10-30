@@ -1,3 +1,4 @@
+import {genericImageRequest} from './image-context.js';
 import {escapeHtml} from './markdown.js';
 export const IMAGE_STYLES={natural:'As described',photo:'Realistic photo',illustration:'Illustration',watercolor:'Watercolor',poster:'Poster'};
 export function safeChatImage(value) {
@@ -76,6 +77,8 @@ export function imagePrompt(text) {
   let request=prompt.replace(/^(?:please\s+|pls\s+|can you\s+|could you\s+|would you\s+|will you\s+|help me\s+|i want you to\s+|kindly\s+)+/i,'');
   request=request.replace(/^(?:can|could|may) i (?:get|have|see)\s+/i,'give me ').replace(/^i (?:want|would like|need) to (?:see|view)\s+/i,'show ');
   if(QUESTION.test(request)) return null;
+  // "Send me a picture", "picture please": a picture of what was just discussed.
+  if(genericImageRequest(prompt)) return prompt;
   // "a picture of …", "an image showing …" with any asking word, or a picture word at the end ("Monrovia in 2050 image").
   const picturePhrase=/\b(?:image|picture|pic|photo|photograph|illustration|drawing|painting|portrait|poster|logo|artwork|wallpaper|banner|flyer|cartoon|sketch)s?\s+(?:of|showing|for|about|with)\b/i.test(request);
   const endsWithPicture=/\b(?:image|picture|pic|photo|drawing|painting|poster|logo)s?[.!]?$/i.test(request);

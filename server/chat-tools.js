@@ -1,0 +1,74 @@
+// Tools Grandpa may choose for himself in a written chat. The keyword routes in
+// the browser still catch the plain requests ("create an image of a goat")
+// before any paid call; these are for everything the words miss, so the model
+// that understands the conversation decides when a picture, a document, a web
+// search or a memory would help.
+//
+// None of these run on the server. Each becomes an `action` event the browser
+// carries out with the feature it already has, under that feature's own daily
+// limit. A memory is only ever suggested: nothing is saved without a tap.
+
+const TEXT_LIMIT = 600;
+
+const tool = (name, description, properties, required) => ({
+  type: 'function',
+  function: {name, description, parameters: {type: 'object', properties, required, additionalProperties: false}},
+});
+
+const DEFINITIONS = {
+  create_image: tool('create_image',
+    'Draw a picture in this chat. Use when the person asks to see, send, show or draw something, including short requests like "send me a picture" that depend on what you were just talking about. Do not use for questions about pictures.',
+    {prompt: {type: 'string', description: 'A complete, specific description of the picture to draw, written from the whole conversation (subject, setting, style). Never just "a picture".'}},
+    ['prompt']),
+  create_document: tool('create_document',
+    'Write a downloadable document (letter, report, CV, plan, essay, worksheet) when the person asks for one to keep, print or send. Not for ordinary answers.',
+    {request: {type: 'string', description: 'What the document should be and contain, in one or two sentences, using details from the conversation.'}},
+    ['request']),
+  search_web: tool('search_web',
+    'Read the web before answering, when the question needs current or local facts you cannot know: news, prices, rates, schedules, results, recent events.',
+    {query: {type: 'string', description: 'What to look up.'}},
+    ['query']),
+  suggest_memory: tool('suggest_memory',
+    'Offer to remember a lasting personal fact the person just shared about themselves (name, family, work, place, health need, preference). The person decides; nothing is saved unless they agree. Still write your normal reply as well.',
+    {text: {type: 'string', description: 'The fact, written as a short note about the person, e.g. "Has two daughters, Ruth and Mary."'}},
+    ['text']),
+};
+
+/** The tools this turn may offer, given what the account and the browser can do. */
+export function chatTools({pictures = false, documents = true, search = false, memory = false} = {}) {
+  const names = [
+    pictures && 'create_image',
+    documents && 'create_document',
+    search && 'search_web',
+    memory && 'suggest_memory',
+  ].filter(Boolean);
+  return names.map((name) => DEFINITIONS[name]);
+}
+
+const clean = (value) => (typeof value === 'string' ? value.replace(/[\u0000-\u001f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, TEXT_LIMIT) : '');
+
+/** Turns finished tool calls into the actions the browser carries out. Unknown or empty calls are dropped. */
+export function toolActions(calls, offered = []) {
+  const allowed = new Set(offered.map((entry) => entry.function.name));
+  const actions = [];
+  for (const call of Array.isArray(calls) ? calls : []) {
+    if (!allowed.has(call?.name)) continue;
+    let args;
+    try { args = JSON.parse(call.arguments || '{}'); } catch { continue; }
+    const field = {create_image: 'prompt', create_document: 'request', search_web: 'query', suggest_memory: 'text'}[call.name];
+    const value = clean(args?.[field]);
+    if (!value) continue;
+    const type = {create_image: 'image', create_document: 'document', search_web: 'search', suggest_memory: 'memory'}[call.name];
+    if (actions.some((action) => action.type === type)) continue;
+    actions.push({type, [field]: value});
+  }
+  return actions;
+}
+
+// Asked of every written answer: a clarifying question when the request is
+// genuinely unclear, and a few short follow-ups the person can tap.
+export const FOLLOWUPS_PROMPT = `GOOD ANSWERS
+If a request is genuinely unclear and a wrong guess would waste the person's time, ask one short clarifying question instead of guessing. Otherwise just answer.
+After an answer that invites more, end with one last line in exactly this form, with two or three short questions the person might ask you next, in their language and from their point of view:
+[[followups: first question | second question | third question]]
+Leave that line out after greetings, thanks, clarifying questions, and very short replies.`;

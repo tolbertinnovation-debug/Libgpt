@@ -56,6 +56,7 @@ import { KINDS, isKind, libraryCatalogue } from './structured.js';
 import {generateFreshStory,StoryGenerationError} from './stories.js';
 import {imageRequest} from './image-options.js';
 import { memoryContext } from '../public/memory.js';
+import { chatTools, toolActions, FOLLOWUPS_PROMPT } from './chat-tools.js';
 import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULES } from './realtime.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -795,9 +796,9 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     register: req.body?.register,
     task: 'chat',
     searched: didSearch,
-    pictures: chatPicturesAvailable(),
+    pictures: chatPicturesAvailable() && (spoken || carryingOn ? true : 'tool'),
     depth,
-  }));
+  }) + (spoken ? '' : `\n\n${FOLLOWUPS_PROMPT}`));
 
   // The question decides which model answers it. "Good morning" is not
   // worth the best model on the account; working out the interest on a loan
@@ -897,7 +898,16 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       send('delta', { text: delta });
     };
 
-    const runOnce = async (conversation, room = budget) => {
+    // Tools Grandpa may choose on a fresh written turn: never while building,
+    // speaking, or carrying on an answer already under way.
+    const offered = building || spoken || carryingOn ? [] : chatTools({
+      pictures: chatPicturesAvailable(),
+      search: Boolean(reader) && research !== 'off',
+      memory: req.body?.memoryOffer === true,
+    });
+    let actions = [];
+
+    const runOnce = async (conversation, room = budget, tools = []) => {
       stopped = '';
       for await (const delta of streamChat({
         model,
@@ -906,6 +916,8 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
         temperature,
         signal: controller.signal,
         onFinish: (reason) => { stopped = reason; },
+        tools,
+        onToolCalls: (calls) => { actions = toolActions(calls, tools); },
       })) take(delta);
     };
 
@@ -965,7 +977,36 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       }
     }
 
-    if (!searched) await runOnce(opening());
+    if (!searched) {
+      await runOnce(opening(), budget, offered);
+      const lookup = actions.find((action) => action.type === 'search');
+      if (lookup && !answer.trim() && reader && !controller.signal.aborted) {
+        // He chose to read the web first: the same turn, on the reading model.
+        actions = actions.filter((action) => action !== lookup);
+        searched = true;
+        model = reader;
+        system = promptFor(true);
+        send('start', { model, spoken, searched, dropped, saw: Boolean(photo), thought: think });
+        try {
+          await runSearch(opening());
+        } catch (error) {
+          if (controller.signal.aborted || answer || governanceError(error)) throw error;
+          rememberIfPermanent(error);
+          send('notice', { message: 'Web research could not finish. Answering from existing knowledge, without claiming current facts were checked.' });
+          searched = false;
+          model = await pickModel(req.body?.model, 'chat', routing);
+          system = promptFor(false);
+          send('start', { model, spoken, searched, dropped, saw: Boolean(photo), thought: think });
+          await runOnce(opening());
+        }
+      } else {
+        actions = actions.filter((action) => action !== lookup);
+        // Only a memory to offer and nothing said: answer the person too.
+        if (!answer.trim() && actions.length && actions.every((action) => action.type === 'memory') && !controller.signal.aborted) {
+          await runOnce(opening());
+        }
+      }
+    }
 
     // An answer that ran out of room is not an answer — it is half a sentence
     // that a reader has to guess the end of. So it is picked up and finished.
@@ -996,6 +1037,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     // Where he read it. Sent before "done" so the browser has them by the time
     // it files the answer away.
     if (sources.length) send('sources', { items: sources });
+    for (const action of actions) send('action', action);
 
     // A turn that was sent to search but never searched has no business
     // wearing the mark. It is rare now the tool is not optional, but "rare"

@@ -217,3 +217,20 @@ test('picture requests are recognised however they are phrased; written work and
   for(const prompt of ['How do I draw a map?','What is a good picture size for Instagram?','Write a prompt for an image of Monrovia','Draw up a business plan','Tell me about the history of Monrovia','Show me how to save money','Describe this picture'])
     assert.equal(imagePrompt(prompt),null,prompt);
 });
+
+test('a picture request after a conversation is drawn from that conversation, not at random',async()=>{
+  const {imageDiscussion,refersToDiscussion}=await import('../public/image-context.js');
+  const {imageRequest}=await import('../server/image-options.js');
+  const messages=[{role:'user',content:'Teach me how to cook rice'},{role:'assistant',content:'Yes, Samuel. I go show you simple white rice first. Wash the rice, boil the water, cover the pot.'}];
+  for(const prompt of ['Send me a picture','send me photo','Send me a photo of the rice','Give me a picture','Can I see a picture?','I want a picture','picture please']){
+    assert.notEqual(imagePrompt(prompt),null,prompt);
+    const context=imageDiscussion(prompt,messages);
+    assert.match(context,/cook rice/,prompt);
+    const request=imageRequest({prompt,context});
+    assert.match(request.renderPrompt,/earlier discussion/,prompt);assert.match(request.renderPrompt,/cook rice/,prompt);
+  }
+  // A new, fully described subject stands alone, and a bare request with no conversation asks for a subject.
+  assert.equal(refersToDiscussion('Create an image of a red car'),false);
+  assert.equal(imageRequest({prompt:'Create an image of a red car',context:'user: Teach me how to cook rice'}).renderPrompt,'Create an image of a red car');
+  assert.throws(()=>imageRequest({prompt:'Send me a picture'}),/which subject/);
+});

@@ -18,10 +18,8 @@ export function spendRows(status) {
 
 // The suggested $2 plan: half for building websites, the rest shared out. Chat and
 // research draw only on the total. Code testing stays off ($0) until approved.
-// Samuel's $2 plan: coding, pictures and documents have their own limits; voice and
-// chat spend only within the total (an empty field). Code testing stays off ($0).
-export const TWO_DOLLAR_PLAN = Object.freeze({total: 2, build: 1, images: 0.8, documents: 0.3, voice: '', livetalk: 0.1});
-const LIMIT_FIELDS = ['build', 'images', 'documents', 'voice', 'livetalk'];
+// Every paid feature has a limit the owner sets; none is unlimited. Code testing stays off ($0).
+const LIMIT_FIELDS = ['chat', 'research', 'build', 'images', 'documents', 'library', 'voice', 'livetalk'];
 export const MAX_DAILY_USD = 10;
 
 /** Checks the form values and builds the admin request, or explains what to fix. */
@@ -30,10 +28,8 @@ export function limitsRequest(values) {
   if (!Number.isFinite(total) || total < 0.05 || total > MAX_DAILY_USD) return {error: `Set a total between $0.05 and $${MAX_DAILY_USD} a day.`};
   const capabilityDailyUsd = {};
   for (const name of LIMIT_FIELDS) {
-    // Empty = no separate limit for this feature; it shares the daily total.
-    if (values[name] === '' || values[name] == null) { capabilityDailyUsd[name] = 'none'; continue; }
-    const value = Number(values[name]);
-    if (!Number.isFinite(value) || value < 0) return {error: `Set ${LABELS[name]} to $0 or more, or leave it empty for no separate limit.`};
+    const value = values[name] === '' || values[name] == null ? NaN : Number(values[name]);
+    if (!Number.isFinite(value) || value < 0) return {error: `Enter an amount for ${LABELS[name]} ($0 or more).`};
     if (value > total) return {error: `${LABELS[name]} cannot be more than the total of $${total.toFixed(2)}.`};
     capabilityDailyUsd[name] = Math.round(value * 100) / 100;
   }
@@ -89,7 +85,8 @@ function render(status) {
 
 function fillLimits(values) {
   $('limit-total').value = Number(values.total ?? 0).toFixed(2);
-  for (const name of LIMIT_FIELDS) { const value = values[name]; $(`limit-${name}`).value = value === '' || value == null ? '' : Number(value).toFixed(2); }
+  // A feature with no limit saved yet shows empty, so the owner must choose one before saving.
+  for (const name of LIMIT_FIELDS) { const value = values[name]; $(`limit-${name}`).value = value == null ? '' : Number(value).toFixed(2); }
   monthNote();
 }
 function monthNote() {
@@ -148,7 +145,7 @@ else if (typeof document !== 'undefined' && $('unlock')) {
   $('refresh').addEventListener('click', refresh);
   $('limits').addEventListener('input', () => { $('limits').dataset.dirty = '1'; monthNote(); });
   $('limits').addEventListener('submit', saveLimits);
-  $('limits-two').addEventListener('click', () => { $('limits').dataset.dirty = '1'; fillLimits(TWO_DOLLAR_PLAN); show('limits-msg', 'Filled in. Check the amounts, then tap Save limits.', ''); });
+
   $('lock').addEventListener('click', () => lock());
   addEventListener('pagehide', () => lock());
 }

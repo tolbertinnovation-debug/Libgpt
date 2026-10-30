@@ -200,12 +200,16 @@ async function post(path, body, signal) {
  * its thought, "length" when it hit the token ceiling part-way through.
  */
 export async function* streamChat({
-  model, messages, maxTokens, temperature, signal, onFinish, onUsage,
+  model, messages, maxTokens, temperature, signal, onFinish, onUsage, tools, onToolCalls,
 }) {
+  const offered = Array.isArray(tools) && tools.length ? tools : null;
   const response = await post('/chat/completions', {
     model: model || config.model,
     messages,
     stream: true,
+    // Tools the model may choose. Its calls arrive in pieces and are handed
+    // over whole, once, when the stream ends.
+    ...(offered ? {tools: offered, tool_choice: 'auto', parallel_tool_calls: true} : {}),
     ...(onUsage ? {stream_options:{include_usage:true}} : {}),
     temperature: temperature ?? 0.7,
     ...tokenLimit(model || config.model, maxTokens ?? 1400),
@@ -214,6 +218,7 @@ export async function* streamChat({
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  const calls = [];
 
   try {
     while (true) {
@@ -239,6 +244,14 @@ export async function* streamChat({
             const choice = chunk.choices?.[0];
             const delta = choice?.delta?.content;
             if (delta) yield delta;
+            if (offered) {
+              for (const part of choice?.delta?.tool_calls || []) {
+                const at = Number.isInteger(part.index) ? part.index : calls.length;
+                const call = calls[at] ||= {name: '', arguments: ''};
+                if (part.function?.name) call.name += part.function.name;
+                if (part.function?.arguments) call.arguments += part.function.arguments;
+              }
+            }
 
             // Why the model stopped. "length" means it ran out of room
             // mid-thought rather than finishing — the caller has to know,
@@ -250,6 +263,7 @@ export async function* streamChat({
         }
       }
     }
+    if (offered && calls.length) onToolCalls?.(calls.filter(Boolean));
   } finally {
     reader.cancel().catch(() => {});
   }

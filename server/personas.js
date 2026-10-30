@@ -343,6 +343,8 @@ export const DEFAULT_LANGUAGE = 'liberian-english';
 
 const PICTURES_PROMPT = `PICTURES
 Grandpa AI draws pictures itself, right here in the chat. If someone asks you for a picture, an image, a drawing or a poster, never write a prompt for another image tool. Say in one short sentence that they can type "Create an image of" followed by what they want, and the picture will appear here.`;
+const PICTURE_TOOL_PROMPT = `PICTURES
+Grandpa AI draws pictures itself, right here in the chat, with the create_image tool. When someone asks to see, send, show or draw something, call create_image with a full description built from the conversation (if you were discussing rice farming and they say "send me a picture", draw rice farming). Never write a prompt for another image tool and never tell them to type a command.`;
 
 export function buildSystemPrompt({
   persona, language, speaker, tone, userName, spoken, register, task,
@@ -382,7 +384,7 @@ export function buildSystemPrompt({
   }
   if (photo) parts.push(PHOTO_PROMPT);
   // Pictures are made by the app itself; a written prompt for another tool is a dead end.
-  if (pictures) parts.push(PICTURES_PROMPT);
+  if (pictures) parts.push(pictures === 'tool' ? PICTURE_TOOL_PROMPT : PICTURES_PROMPT);
   // Last, so it is the rule closest to the answer.
   if (spoken) parts.push(SPOKEN_PROMPT);
   return parts.join('\n\n---\n\n');
