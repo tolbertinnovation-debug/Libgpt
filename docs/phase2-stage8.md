@@ -39,7 +39,7 @@ The ledger adds a few hundred input tokens to a replan only when the project alr
 
 ### Verification
 
-- `tests/stage8-requirements.test.mjs` (10 tests): ledger validation/limits/de-duplication, legacy seeding, tolerant matching, retired list validation, unchanged first-build request, one repair then keep/retire, automatic carry after a failed repair, and full build → change → replan through the real worker and PGlite store (ledger passed to the planner, retirement recorded) plus legacy seeding on revise.
+- `tests/stage8-requirements.test.mjs` (11 tests): ledger validation/limits/de-duplication, legacy seeding, tolerant matching, retired list validation, unchanged first-build request, one repair then keep/retire, automatic carry after a failed repair, and full build → change → replan through the real worker and PGlite store (ledger passed to the planner, retirement recorded) plus legacy seeding on revise.
 - Chromium: the Project plan sheet lists replaced requirements with reasons; an injected `<script>` in a requirement rendered as text.
 
 ## Browser and server orchestration
@@ -48,6 +48,6 @@ Production already routes every build, resume and change through the server work
 
 ## Overall verification
 
-- Full suite: 723 passed, 0 failed (708 before Stage 8 + 15 new).
+- Full suite: 724 passed, 0 failed (708 before Stage 8 + 16 new).
 - Stage 7A QA harness in Chromium at 320/390/392/1440 px: same results as the merged PR #71, including its one known observation (Chromium resends a request whose connection drops before any response; the duplicated Stop is harmless because Stop is idempotent).
 - No paid or live-model calls were made.

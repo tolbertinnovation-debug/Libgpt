@@ -152,7 +152,7 @@ export async function generateTeamPlan({asked,model,complete,signal,requirements
     try{
       let plan=normalizeTeamPlan(parseTeamJson(raw));if(!plan.requirements.length)throw new TypeError('Record at least one concrete acceptance requirement.');
       const missing=missingRequirements(requirements,plan);
-      if(missing.length && attempt===0)throw new TypeError(`Earlier requirements were left out without a reason: ${missing.join(' | ')}. Keep each verbatim in requirements or list it in retired with the change that replaced it`);
+      if(missing.length && attempt===0)throw new TypeError(`Earlier requirements were left out without a reason: ${missing.join(' | ').slice(0,4000)}. Keep each verbatim in requirements or list it in retired with the change that replaced it`);
       if(missing.length)plan=carryMissingRequirements(requirements,plan);
       return plan;
     }catch(error){

@@ -45,7 +45,8 @@ export function carryMissingRequirements(ledger,plan){
 }
 /** After an accepted plan, its requirements become the active list; retired ones keep their reasons. */
 export function nextRequirementLedger(ledger,plan,at=Date.now()){
- const earlier=new Set((ledger?.active || []).map(requirementKey));
- const retired=(plan.retired || []).filter(item=>earlier.has(requirementKey(item.requirement))).map(item=>({requirement:item.requirement,reason:item.reason,at}));
- return normalizeRequirementLedger({version:1,active:[...new Map(plan.requirements.map(item=>[requirementKey(item),item])).values()],retired:[...(ledger?.retired || []),...retired].slice(-REQUIREMENT_LIMITS.retired)});
+ const earlier=new Set((ledger?.active || []).map(requirementKey)),active=new Map(plan.requirements.map(item=>[requirementKey(item),item]));
+ // Only an earlier requirement the plan really left out counts as retired.
+ const retired=(plan.retired || []).filter(item=>earlier.has(requirementKey(item.requirement)) && !active.has(requirementKey(item.requirement))).map(item=>({requirement:item.requirement,reason:item.reason,at}));
+ return normalizeRequirementLedger({version:1,active:[...active.values()],retired:[...(ledger?.retired || []),...retired].slice(-REQUIREMENT_LIMITS.retired)});
 }

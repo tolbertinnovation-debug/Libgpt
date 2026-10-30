@@ -37,6 +37,11 @@ test('matching tolerates copy differences, and retiring needs an explicit entry'
  assert.deepEqual(next,{version:1,active:['Show course fees','Use a red theme'],retired:[{requirement:'Use a blue theme',reason:'Change 1 asked for red',at:9}]});
 });
 
+test('a requirement both kept and retired stays active and is not recorded as retired',()=>{
+ const next=nextRequirementLedger(ledger(['Show fees']),{requirements:['Show fees'],retired:[{requirement:'Show fees',reason:'confused planner'}]},1);
+ assert.deepEqual(next,ledger(['Show fees']));
+});
+
 test('plans accept a bounded retired list',()=>{
  assert.deepEqual(normalizeTeamPlan(planWith(['Red theme'],{retired:[{requirement:'Blue theme',reason:'Changed to red'}]})).retired,[{requirement:'Blue theme',reason:'Changed to red'}]);
  assert.equal('retired' in normalizeTeamPlan(planWith(['Red theme'])),false);
