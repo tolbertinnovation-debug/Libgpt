@@ -3774,3 +3774,34 @@ body {
  .agent-quick-action {grid-area:2/2;margin-left:0;justify-self:end;}
  .tree-file.agent-editing:after {white-space:nowrap;flex-shrink:0;}
 }
+
+/* ---- phone Build layout ---------------------------------------------------
+   Preview takes the whole screen with one slim bar; Chat shows the conversation,
+   the progress strip and the message box. Rarely used controls sit behind ⋯. */
+.preview-exit, .preview-more { display: none; }
+@media (max-width: 899px) {
+  .app[data-mode="build"][data-build-view="preview"] .topbar,
+  .app[data-mode="build"][data-build-view="preview"] .build-bar,
+  .app[data-mode="build"][data-build-view="preview"] #build-plan,
+  .app[data-mode="build"][data-build-view="preview"] #build-verification,
+  .app[data-mode="build"][data-build-view="preview"] .workspace-footer,
+  .app[data-mode="build"][data-build-view="preview"] .composer-zone { display: none !important; }
+  .app[data-mode="build"][data-build-view="chat"] #build-verification { display: none; }
+  .app[data-mode="build"] .workspace-footer.is-quiet { display: none; }
+  .preview-tools { gap: 6px; padding: 6px 8px; }
+  .preview-tools .preview-exit, .preview-tools .preview-more { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; min-width: 44px; padding: 0 12px; font-weight: 600; font-size: .85rem; color: var(--text); }
+  .preview-tools select { max-width: none; min-height: 44px; }
+  .preview-tools #preview-refresh { min-height: 44px; min-width: 44px; }
+  #pane-preview:not(.options-open) .preview-devices,
+  #pane-preview:not(.options-open) .preview-live-bar,
+  #pane-preview:not(.options-open) .preview-safety { display: none; }
+}
+
+/* ---- voice screen: just the circle, Mute and Done ------------------------- */
+.talk-tools #talk-send:disabled { display: none; }
+.talk-tools:not(:has(#talk-send:not(:disabled))) { margin: 0; }
+.talk-options { flex-shrink: 0; text-align: center; margin: .25rem 0 .5rem; color: var(--text-soft); font-size: .85rem; }
+.talk-options summary { display: inline-flex; align-items: center; min-height: 44px; padding: 0 1rem; cursor: pointer; list-style: none; text-decoration: underline; text-underline-offset: 3px; }
+.talk-options summary::-webkit-details-marker { display: none; }
+.talk-options[open] { display: grid; justify-items: center; gap: .6rem; }
+.talk-options .talk-foot { margin: 0; max-width: 34rem; }

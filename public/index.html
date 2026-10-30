@@ -12,7 +12,7 @@
 <meta property="og:description" content="African-centred conversational AI by Tolbert Innovation Hub. Ask in Liberian English, by voice or text.">
 <meta property="og:image" content="logo.png">
 <meta property="og:type" content="website">
-<link rel="stylesheet" href="styles.css?v=phase2-stage9-preview">
+<link rel="stylesheet" href="styles.css?v=chat-layout-1">
 </head>
 <body>
 
@@ -307,7 +307,7 @@
 
         <!-- Seeing it run -->
         <div class="build-pane" id="pane-preview" role="tabpanel" aria-labelledby="view-preview" hidden>
-          <div class="preview-tools"><label class="sr-only" for="preview-page">Preview page</label><select id="preview-page" aria-label="Preview page"></select><div class="preview-devices" role="group" aria-label="Preview size"><button type="button" data-preview-size="mobile" aria-pressed="false">Phone</button><button type="button" data-preview-size="desktop" aria-pressed="true">Desktop</button></div><button type="button" id="preview-refresh" aria-label="Reload website preview">↻</button></div>
+          <div class="preview-tools"><button type="button" class="preview-exit" id="preview-exit" aria-label="Back to the build chat">← Chat</button><label class="sr-only" for="preview-page">Preview page</label><select id="preview-page" aria-label="Preview page"></select><div class="preview-devices" role="group" aria-label="Preview size"><button type="button" data-preview-size="mobile" aria-pressed="false">Phone</button><button type="button" data-preview-size="desktop" aria-pressed="true">Desktop</button></div><button type="button" id="preview-refresh" aria-label="Reload website preview">↻</button><button type="button" class="preview-more" id="preview-more" aria-expanded="false" aria-controls="pane-preview" aria-label="More preview options">⋯</button></div>
           <div class="preview-live-bar"><span id="preview-live" role="status">Saved preview</span><button id="preview-follow" type="button" aria-pressed="true">Follow agent</button></div>
           <div class="preview-safety"><label><input type="checkbox" id="preview-restricted"> Restrict external resources</label><button id="preview-unload" type="button">Unload preview</button></div>
           <div class="preview-note" id="preview-note" hidden></div>
@@ -797,9 +797,8 @@
     <p class="talk-said" id="talk-said" aria-live="polite" aria-atomic="false"></p>
   </div>
 
+  <!-- Like a phone call: the circle, Mute and Done. Send now appears only when it can be used. -->
   <div class="talk-tools">
-    <label class="talk-input-mode">Listening mode <select id="talk-input-mode"><option value="auto">Auto pause</option><option value="manual">Tap Send</option></select></label>
-    <button class="hearth-btn" id="talk-captions" type="button" aria-pressed="true" aria-controls="talk-said">Hide captions</button>
     <button class="hearth-btn" id="talk-send" type="button" disabled>Send now</button>
   </div>
   <div class="talk-controls">
@@ -817,11 +816,16 @@
     </button>
   </div>
 
-  <p class="talk-foot">The voice is AI generated. Live Talk sends your voice directly to OpenAI. Your words and Grandpa’s replies are saved as text in this browser. Tap Done to return to the chat.</p>
+  <details class="talk-options">
+    <summary>Voice options</summary>
+    <label class="talk-input-mode">Listening mode <select id="talk-input-mode"><option value="auto">Auto pause</option><option value="manual">Tap Send</option></select></label>
+    <button class="hearth-btn" id="talk-captions" type="button" aria-pressed="true" aria-controls="talk-said">Hide captions</button>
+    <p class="talk-foot">AI-generated voice. Your speech is turned into text to answer you, and the conversation is saved as text in this browser.</p>
+  </details>
 </div>
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<script type="module" src="app.js?v=phase2-stage9-preview"></script>
+<script type="module" src="app.js?v=chat-layout-1"></script>
 </body>
 </html>

@@ -27,7 +27,8 @@ import { Ear } from './ear.js';
 /** How long a silence means "I have finished talking". */
 export const PATIENCE = [
   { id: 'quick', label: 'Quick', ms: 900, blurb: 'Answers the moment you stop' },
-  { id: 'normal', label: 'Normal', ms: 1600, blurb: 'A short pause, in case there is more' },
+  // Close to how quickly ChatGPT voice answers; Patient keeps room for a slow speaker.
+  { id: 'normal', label: 'Normal', ms: 1200, blurb: 'A short pause, in case there is more' },
   { id: 'patient', label: 'Patient', ms: 2800, blurb: 'Room to think in the middle of a sentence' },
 ];
 

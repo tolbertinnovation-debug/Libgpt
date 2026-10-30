@@ -27,7 +27,7 @@ import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary, loadJournal } from './library.js';
 import { Dictation, canRecord } from './dictate.js';
 import { RecordedEar, canListenByRecording } from './hearing.js';
-import * as ritual from './ritual.js?v=phase2-stage9-preview';
+import * as ritual from './ritual.js?v=chat-layout-1';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 import { mountSupport } from './support.js?v=phase2-requests-review-2';
@@ -2104,7 +2104,7 @@ const conversation = new VoiceConversation({
 
   onReady: () => {
     el.talkState.textContent = 'Listening…';
-    el.talkHint.textContent = conversation.ear?.manual ? 'Speak, then tap Send now. The microphone closes while Grandpa replies.' : 'Just talk. Grandpa answers when you pause, or tap Send now.';
+    el.talkHint.textContent = conversation.ear?.manual ? 'Speak, then tap Send now. The microphone closes while Grandpa replies.' : 'Just talk. Grandpa answers as soon as you pause. Tap the circle to interrupt him.';
     el.talkSend.disabled = !conversation.ear?.endpoints;
   },
   onTranscribing: () => { el.talkState.textContent = 'Understanding your recording…'; el.talkHint.textContent = 'Your microphone is off while the recording is processed.'; el.talkSend.disabled = true; },
@@ -2965,10 +2965,24 @@ window.addEventListener('resize', closeGlossary);
 el.thread.addEventListener('scroll', closeGlossary, { passive: true });
 
 /* ---- Chips and the two hearth buttons ---- */
+// Everything the chips offer happens in the chat itself. The Library stays in the menu.
+const CHIP_REQUESTS = Object.freeze({
+  story: 'Tell me a short Liberian folktale with a lesson at the end.',
+  wisdom: 'Share a Liberian proverb and explain the wisdom in it for today.',
+  history: 'Tell me an interesting true story from Liberian history.',
+});
 el.chipRow.addEventListener('click', event => {
   const chip=event.target.closest('[data-chip]');
-  if(chip?.dataset.chip==='image') {speaker.stop();imageComposer.open({prompt:el.input.value.trim()});return;}
-  if (chip && ['story','wisdom','history'].includes(chip.dataset.chip)) openLibrary(chip.dataset.chip);
+  if(!chip) return;
+  if(chip.dataset.chip==='image') {
+    const subject=el.input.value.trim();
+    // With words already typed, draw them now; otherwise start the request for the person to finish.
+    if(subject && !/^create an image of\s*$/i.test(subject)) {send(imagePrompt(subject)!==null ? subject : `Create an image of ${subject}`);return;}
+    el.input.value='Create an image of ';autoGrow();updateSendState();el.input.focus();
+    el.input.setSelectionRange(el.input.value.length,el.input.value.length);
+    return;
+  }
+  if(CHIP_REQUESTS[chip.dataset.chip]) send(CHIP_REQUESTS[chip.dataset.chip]);
 });
 
 /* ---- The Library ---- */

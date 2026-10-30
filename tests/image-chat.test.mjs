@@ -210,3 +210,10 @@ test('the image API refuses an empty-subject command before billing and forwards
   assert.equal(success.statusCode,200);assert.equal(calls,1);assert.match(prompt,/Liberia flag/);assert.equal(success.body.image,image);
 });
 
+
+test('picture requests are recognised however they are phrased; written work and questions stay in chat',()=>{
+  for(const prompt of ['I want an image of Monrovia in the future','Give me a picture of a cassava farm','Monrovia in the future image','make picture for me of Monrovia in 2050','Can I get a photo of a sunset over Monrovia','show me a picture of Monrovia in 2050','Draw Monrovia in the future','Make a poster for my business plan launch','I need a logo for my bakery','Paint Robertsport beach at sunset'])
+    assert.notEqual(imagePrompt(prompt),null,prompt);
+  for(const prompt of ['How do I draw a map?','What is a good picture size for Instagram?','Write a prompt for an image of Monrovia','Draw up a business plan','Tell me about the history of Monrovia','Show me how to save money','Describe this picture'])
+    assert.equal(imagePrompt(prompt),null,prompt);
+});

@@ -378,6 +378,8 @@ function renderPreview() {
 function ensureView(view) {
   if(window.matchMedia('(min-width: 900px)').matches && view==='chat')view='files';
   state.view = view;
+  // Lets the phone layout give Preview the whole screen and Chat only the conversation.
+  const app=el.build.closest('.app');if(app)app.dataset.buildView=view;
   for (const button of el.build.querySelectorAll('.build-view')) {
     const on = button.dataset.view === view;
     button.classList.toggle('is-on', on);
@@ -669,6 +671,8 @@ function renderWorkspaceChanges(){
  const connectionMessage=backgroundConnectionMessage(backgroundConnections.get(p));
  const progress=$('workspace-progress-state');if(progress)progress.textContent=connectionMessage?'Status unconfirmed':progress.dataset.taskLabel;
  const reconnect=$('workspace-reconnect');if(reconnect){reconnect.hidden=!connectionMessage;reconnect.textContent=p.background?.revision===-1 && p.background.pendingRequest?'Retry saved submission':'Reconnect';}
+ // On a phone the footer only appears when it has something to act on.
+ $('workspace-save-state')?.parentElement?.classList?.toggle('is-quiet',!connectionMessage && !p.backgroundConflict && !p.backgroundLocalSaveFailed);
  if($('workspace-save-state'))$('workspace-save-state').textContent=connectionMessage || (p.backgroundConflict?'Local edits kept · cloud source differs':p.backgroundLocalSaveFailed?'Cloud saved · device storage full':remoteRunning(p)?'Cloud task running · files sync automatically':p.background?'Cloud checkpoint · saved on this device':'Saved on this device');
  const node=$('workspace-changes');if(!node)return;
  node.innerHTML=changes.length?changes.map(change=>`<details class="file-change"><summary><span class="change-kind is-${change.kind}">${change.kind==='added'?'A':change.kind==='deleted'?'D':'M'}</span><strong>${escapeHtml(change.path)}</strong><span class="change-stats">+${change.added.length} −${change.removed.length}</span></summary><div class="change-code" aria-label="Changes in ${escapeHtml(change.path)}"><div class="diff-location">From line ${change.line}</div>${change.removed.slice(0,400).map(line=>`<pre class="diff-removed">− ${escapeHtml(line)}</pre>`).join('')}${change.added.slice(0,400).map(line=>`<pre class="diff-added">+ ${escapeHtml(line)}</pre>`).join('')}${change.removed.length>400 || change.added.length>400?'<p class="diff-location">Showing the first 400 changed lines. Open Files for the complete source.</p>':''}</div></details>`).join(''):'<div class="workspace-empty"><strong>No changes yet</strong><p>New and edited files will appear here as the agent saves them.</p></div>';
@@ -1768,6 +1772,8 @@ export async function mount(options = {}) {
     sendPreviewFocus();
   });
   $('preview-page')?.addEventListener('change',event=>{state.followAgent=false;state.previewPath=event.target.value;renderPreview();});
+  $('preview-exit')?.addEventListener('click',()=>ensureView('chat'));
+  $('preview-more')?.addEventListener('click',event=>{const open=$('pane-preview').classList.toggle('options-open');event.currentTarget.setAttribute('aria-expanded',String(open));});
   $('preview-restricted')?.addEventListener('change',event=>{state.restrictedPreview=event.target.checked;renderPreview();});
   $('preview-unload')?.addEventListener('click',()=>{pendingPreviewScroll=null;state.previewUnloaded=true;delete el.previewFrame.dataset.signature;renderPreview();});
   document.addEventListener('visibilitychange',()=>{if(!document.hidden)watchBackground();});
