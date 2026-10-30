@@ -30,10 +30,11 @@ import { RecordedEar, canListenByRecording } from './hearing.js';
 import * as ritual from './ritual.js?v=chat-layout-2';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
-import { mountSupport } from './support.js?v=phase2-requests-review-2';
+import { mountSupport } from './support.js?v=phase3-sync-1';
 import { loadMemory, memoriesForQuestion, remember, saveMemory } from './memory.js';
 import { splitFollowups, visibleWhileStreaming } from './followups.js';
 import { cleanSummary, needsSummary, summaryRequest } from './chat-summary.js';
+import { loadSync, saveSync, syncOnce, newSyncCode, readSyncCode, syncKeys } from './sync.js';
 import { LiveTalk, liveTalkSupported } from './live-talk.js';
 import {imageCard,mountImageComposer,safeChatImage,imagePrompt,imageLoadingMarkup} from './image-chat.js';
 
@@ -1099,6 +1100,7 @@ async function streamReply(chat, hooks = {}) {
   }
 
   hooks.onDone?.(text, failed || controller.signal.aborted);
+  if (!failed) scheduleSync();
   if (failed && trouble) throw new Error(trouble);
 }
 
@@ -2922,6 +2924,43 @@ el.setExport.addEventListener('click', () => {
   toast('Downloaded.');
 });
 
+/* ---- chats in step across devices ---------------------------------------
+   Sealed in this browser with a key from the sync code; see sync.js. Runs on
+   opening, when the page comes back into view, and shortly after each answer. */
+async function syncApi(method, id, body) {
+  const response = await fetch(`/api/sync/${id}`, { method, headers: apiHeaders(), ...(body ? { body: JSON.stringify(body) } : {}) });
+  const result = await response.json().catch(() => ({}));
+  if (response.status === 409) return { conflict: true, current: result.current };
+  if (!response.ok) throw new Error(result.error || `Sync could not finish (${response.status}).`);
+  return result;
+}
+let syncing = null, syncTimer = null;
+function runSync({ quiet = true, code, join = false } = {}) {
+  const saved = code ? { code, version: 0, lastIds: [], deleted: [] } : loadSync();
+  if (!saved || !state.catalogue?.sync) return Promise.resolve(null);
+  if (state.streaming || ritual.isBusy()) return quiet ? Promise.resolve(null) : Promise.reject(new Error('Finish the current answer or build first, then sync.'));
+  if (syncing) return syncing;
+  syncing = (async () => {
+    try {
+      const result = await syncOnce({ ...saved, join, chats: state.chats, memories: loadMemory().items, api: syncApi });
+      // A copy this device already has, unchanged, stays as it is here (with its pictures).
+      const mine = new Map(state.chats.map((chat) => [chat.id, chat]));
+      state.chats = result.chats.map((chat) => { const local = mine.get(chat.id); return local && (local.updatedAt || 0) >= (chat.updatedAt || 0) ? local : chat; });
+      saveMemory({ ...loadMemory(), items: result.memories });
+      saveSync({ code: saved.code, version: result.version, lastIds: result.lastIds, deleted: result.deleted, syncedAt: Date.now() });
+      if (state.currentId && !state.chats.some((chat) => chat.id === state.currentId)) setCurrent(null);
+      persist(); renderSidebar(); if (!state.streaming) renderThread();
+      return result;
+    } catch (error) {
+      if (!quiet) throw error;
+      return null;
+    } finally { syncing = null; }
+  })();
+  return syncing;
+}
+const scheduleSync = (delay = 4000) => { clearTimeout(syncTimer); syncTimer = setTimeout(() => runSync(), delay); };
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') scheduleSync(800); });
+
 const support = mountSupport({
   snapshot:()=>({chats:state.chats,projects:ritual.backupProjects(),journal:loadJournal(),memories:loadMemory().items}),
   busy:()=>Boolean(state.streaming || ritual.isBusy() || conversation.active || listening || dictation.recording || transcribing),
@@ -2931,7 +2970,17 @@ const support = mountSupport({
     await ritual.restoreProjects(prepared.projects);
     renderThread();renderSidebar();
   },
+  sync:{
+    available:()=>Boolean(state.catalogue?.sync),
+    status:()=>loadSync(),
+    async create(){const code=newSyncCode();await runSync({quiet:false,code});return code;},
+    async join(typed){const code=readSyncCode(typed);if(!code) throw new Error('That sync code is not complete. It has 26 letters and numbers.');await runSync({quiet:false,code,join:true});return code;},
+    now:()=>runSync({quiet:false}),
+    stop(){saveSync(null);},
+    async erase(){const saved=loadSync();if(!saved) return;const {id}=await syncKeys(saved.code);await syncApi('DELETE',id);saveSync(null);},
+  },
 });
+document.getElementById('settings-sync')?.addEventListener('click',()=>{closeSettings();support.sync();});
 document.getElementById('settings-memory').addEventListener('click',()=>{closeSettings();support.memories();});
 document.getElementById('settings-backup').addEventListener('click',()=>{closeSettings();support.backup();});
 document.getElementById('settings-report').addEventListener('click',()=>{closeSettings();support.feedback();});
@@ -3658,6 +3707,7 @@ async function boot() {
     const response = await fetch('/api/config');
     const config = await response.json();
     state.catalogue = config;
+    scheduleSync(1500);
     // Recording support depends on the deployment config, which was unknown
     // during the first capability check. Re-enable voice after it arrives.
     canTalk = conversation.supported;

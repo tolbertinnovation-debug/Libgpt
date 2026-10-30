@@ -9,7 +9,7 @@ const download = (name,body,type) => {
   link.href=url;link.download=name;document.body.append(link);link.click();link.remove();
   setTimeout(()=>URL.revokeObjectURL(url),1_000);
 };
-export function mountSupport({snapshot,restored,busy,area}) {
+export function mountSupport({snapshot,restored,busy,area,sync:syncing}) {
   const modal=document.getElementById('support-modal');
   const title=document.getElementById('support-title');
   const body=document.getElementById('support-body');
@@ -35,6 +35,37 @@ export function mountSupport({snapshot,restored,busy,area}) {
       else if(!event.shiftKey && (document.activeElement===last || !modal.contains(document.activeElement))) {event.preventDefault();first?.focus();}
     }
   },true);
+  // Phone and laptop with the same chats: one device makes a code, the other types it in.
+  const when = time => time ? new Date(time).toLocaleString([], {dateStyle:'medium',timeStyle:'short'}) : 'not yet';
+  const sync = (shownCode='') => {
+    if(!syncing?.available()) {open('Sync across devices','<p class="settings-note">Sync is not set up on this site yet.</p>');return;}
+    const saved=syncing.status();
+    if(!saved) {
+      open('Sync across devices',`<p class="settings-note">See the same chats and saved memories on your phone and your laptop. Your chats are locked with a private sync code before they leave this device; nobody can read them without it, including the people who run this site.</p>
+        <div class="setting-actions"><button class="setting-btn" data-sync-create type="button">Turn on sync</button></div>
+        <p class="settings-label" style="margin-top:1rem">Already turned it on on another device?</p>
+        <form data-sync-join class="sync-join"><label class="settings-note" for="sync-code">Type the sync code shown there</label>
+          <input id="sync-code" class="sync-code-input" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="40" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX-XX" required>
+          <div class="setting-actions"><button class="setting-btn" type="submit">Join sync</button></div></form>`);
+      return;
+    }
+    open('Sync across devices',`<p class="settings-note">Sync is on. Your chats and saved memories update on every device that uses this code. Last synced: ${escapeHtml(when(saved.syncedAt))}.</p>
+      ${shownCode ? `<p class="settings-label">Your sync code</p><p class="sync-code" data-sync-code>${escapeHtml(shownCode)}</p>
+      <p class="settings-note"><strong>Write it down or copy it somewhere safe.</strong> Type it on your other phone or laptop under Settings, Sync across devices. Anyone with this code can open your synced chats, so share it with nobody else.</p>
+      <div class="setting-actions"><button class="setting-btn" data-sync-copy type="button">Copy code</button></div>`
+        : `<div class="setting-actions"><button class="setting-btn" data-sync-show type="button">Show sync code</button></div>`}
+      <div class="setting-actions"><button class="setting-btn" data-sync-now type="button">Sync now</button><button class="setting-btn" data-sync-stop type="button">Turn off on this device</button></div>
+      <p class="settings-note">Pictures and PDFs may stay on the device they were made on when there are too many to send. Builds and journal entries stay on each device; use Backup and restore for those.</p>
+      <div class="setting-actions"><button class="setting-btn" data-sync-erase type="button">Delete the synced copy</button></div>`);
+  };
+  let confirmErase=false;
+  body.addEventListener('submit',async event=>{
+    const form=event.target.closest('[data-sync-join]');
+    if(!form) return;
+    event.preventDefault();
+    try {say('Joining sync…');const code=await syncing.join(form.querySelector('input').value);sync();say(`Joined. Chats from your other devices are here now (code ending ${code.replace(/-/g,'').slice(-4)}).`);}
+    catch(error) {say(error.message || 'Sync could not finish.');}
+  });
   const backup = () => {
     open('Keep your work',`<p class="settings-note">Save a JSON backup of your conversations, saved memories, journal entries, project files, and build history. You can restore it on another device. It contains your messages and attachments; keep it somewhere safe.</p>
       <div class="setting-actions"><button class="setting-btn" data-backup-download type="button">Create backup</button><button class="setting-btn" data-backup-import type="button">Restore backup</button></div>
@@ -122,6 +153,17 @@ export function mountSupport({snapshot,restored,busy,area}) {
         await commitRestoreDurable(prepared);await restored(prepared);pending=null;
         open('Backup restored',`<p class="settings-note">Added ${prepared.addedChats} conversations and ${prepared.addedProjects} builds, ${prepared.addedJournal} journal entries, and ${prepared.addedMemories} saved memories. Kept your existing work; skipped ${prepared.skipped} items already present.</p>`);
       }
+      if(event.target.closest('[data-sync-create]')) {say('Turning on sync…');const code=await syncing.create();sync(code);say('Sync is on. Now type this code on your other device.');}
+      if(event.target.closest('[data-sync-show]')) sync(syncing.status()?.code || '');
+      if(event.target.closest('[data-sync-copy]')) {
+        try {await navigator.clipboard.writeText(syncing.status()?.code || '');say('Code copied.');} catch {say('This browser could not copy. Write the code down instead.');}
+      }
+      if(event.target.closest('[data-sync-now]')) {say('Syncing…');const result=await syncing.now();sync();say(result ? `Synced ${result.chats.length} conversations.${result.lightened ? ' Some older pictures stayed on the device they were made on.' : ''}` : 'Nothing to sync right now.');}
+      if(event.target.closest('[data-sync-stop]')) {syncing.stop();sync();say('Sync is off on this device. Your chats stay here. Type the code again to turn it back on.');}
+      if(event.target.closest('[data-sync-erase]')) {
+        if(!confirmErase) {confirmErase=true;event.target.closest('[data-sync-erase]').textContent='Tap again to delete';say('This deletes the synced copy for every device. Each device keeps its own chats.');}
+        else {confirmErase=false;await syncing.erase();sync();say('The synced copy is deleted. Each device still has its own chats.');}
+      }
       if(event.target.closest('[data-report-copy]')) {
         try {await navigator.clipboard.writeText(report);} catch {throw new Error('This browser could not copy the report. Download it, or select and copy the report text.');}
         say('Copied. You can paste this report into a message to the team.');
@@ -143,5 +185,5 @@ export function mountSupport({snapshot,restored,busy,area}) {
     } catch(error) {if(version===generation) say(error.message);}
     finally {importing=false;}
   });
-  return {backup,feedback,memories};
+  return {backup,feedback,memories,sync};
 }

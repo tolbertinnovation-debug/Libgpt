@@ -773,6 +773,11 @@ body {
 
 .thinking-note { color: var(--text-faint); font-size: .9rem; }
 
+/* Sync across devices */
+.sync-code { font: 600 1.15rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; overflow-wrap: anywhere; padding: .6rem .75rem; border: 1px dashed var(--border); border-radius: 10px; margin: .3rem 0 .6rem; user-select: all; }
+.sync-join { display: grid; gap: .4rem; }
+.sync-code-input { font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; text-transform: uppercase; min-height: 44px; padding: .5rem .7rem; border: 1px solid var(--border); border-radius: 10px; background: transparent; color: var(--text); width: 100%; box-sizing: border-box; }
+
 /* Questions to ask next, and Grandpa's offer to remember something: one tap
    each, big enough for a thumb. */
 .followups { display: flex; flex-direction: column; align-items: flex-start; gap: .4rem; margin: .8rem 0 0; }

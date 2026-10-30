@@ -60,6 +60,7 @@ import { memoryContext } from '../public/memory.js';
 import { chatTools, toolActions, FOLLOWUPS_PROMPT } from './chat-tools.js';
 import { cleanSummary } from '../public/chat-summary.js';
 import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULES } from './realtime.js';
+import { createMemorySyncStore, createPostgresSyncStore, validSyncId } from './sync-store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -93,7 +94,10 @@ app.disable('x-powered-by');
 // of somebody's homework is bigger than that on its own once it is base64, so
 // there is room for one — and only one, since the picture ceiling below is
 // well under what this allows.
-app.use(express.json({ limit: '2mb' }));
+const smallBodies = express.json({ limit: '2mb' });
+// Synced chats travel sealed in one piece; the host accepts up to 4.5 MB a request.
+const syncBodies = express.json({ limit: '4400kb' });
+app.use((req, res, next) => (req.path.startsWith('/api/sync/') ? syncBodies : smallBodies)(req, res, next));
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
 
 // ---- simple per-IP rate limit -------------------------------------------
@@ -315,6 +319,7 @@ app.get('/api/config', async (_req, res) => {
     // the same reason pictures are: the hourly ceiling cannot hold there.
     liveTalk: liveTalkReady(),
     liveTalkMinutes: config.liveTalkMinutes,
+    sync: Boolean(syncStore),
     voices: OPENAI_VOICES,
     defaultVoice: DEFAULT_OPENAI_VOICE,
     voiceFrom: 'openai',
@@ -1485,6 +1490,36 @@ function pictureBudgetLeft() {
   while (pictureTimes.length && pictureTimes[0] < cutoff) pictureTimes.shift();
   return Math.max(0, config.imagesPerHour - pictureTimes.length);
 }
+
+// ---- keeping chats in step across devices --------------------------------
+// The browser seals everything with a key from the person's sync code before
+// it leaves the device; this stores the sealed blob and a version number.
+// Serverless instances share nothing in memory, so there it needs the database.
+const syncStore = governanceConnection ? createPostgresSyncStore({ connectionString: governanceConnection })
+  : (config.serverless ? null : createMemorySyncStore());
+const syncReady = (req, res) => {
+  if (!syncStore) { res.status(503).json({ error: 'Sync needs the app database, which is not set up on this host.' }); return false; }
+  if (!validSyncId(req.params.id)) { res.status(400).json({ error: 'Invalid sync code.' }); return false; }
+  res.setHeader('Cache-Control', 'no-store');
+  return true;
+};
+const syncFailed = (res, error) => {
+  if (error.status === 409) { res.status(409).json({ error: error.message, current: error.current }); return; }
+  if (!error.status) console.error('[sync]', error.message);
+  res.status(error.status || 500).json({ error: error.status ? error.message : 'Sync could not finish. Your chats are still saved on this device.' });
+};
+app.get('/api/sync/:id', rateLimit, requireAccess, async (req, res) => {
+  if (!syncReady(req, res)) return;
+  try { res.json((await syncStore.get(req.params.id)) || { version: 0, data: '' }); } catch (error) { syncFailed(res, error); }
+});
+app.put('/api/sync/:id', rateLimit, requireAccess, async (req, res) => {
+  if (!syncReady(req, res)) return;
+  try { res.json(await syncStore.put(req.params.id, req.body?.baseVersion, req.body?.data)); } catch (error) { syncFailed(res, error); }
+});
+app.delete('/api/sync/:id', rateLimit, requireAccess, async (req, res) => {
+  if (!syncReady(req, res)) return;
+  try { await syncStore.remove(req.params.id); res.json({ removed: true }); } catch (error) { syncFailed(res, error); }
+});
 
 // ---- Live Talk ------------------------------------------------------------
 // One short-lived key per conversation. Counted across the deployment per
