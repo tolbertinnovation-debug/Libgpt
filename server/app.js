@@ -42,7 +42,7 @@ import {createPostgresGovernanceStorage} from './governance-postgres.js';
 import {AGENT_TEXT_RATES,APPROVED_MODELS,BUDGET_POLICY,REALTIME_MICRO_USD_PER_MINUTE,SPEECH_MICRO_USD_PER_CHAR,TRANSCRIBE_MICRO_USD_PER_SECOND,imageMicroUsd} from './agent-costs.js';
 import {sourceEvidence} from './source-evidence.js';
 import {buildJobStore} from './background-store.js';
-import {activeBuildStatus,requireBuildGeneration} from './build-jobs.js';
+import {activeBuildStatus,requireBuildGeneration,unchangedBuildJob} from './build-jobs.js';
 import {cleanBuildCheckpoint} from './build-worker.js';
 import {assertAgentData} from './agent-runtime.js';
 import {start,getRun} from 'workflow/api';
@@ -1716,8 +1716,8 @@ app.post('/api/album', rateLimit, requireAccess, runtime.governed('images','gene
 const runInRole=(role,operation,action)=>runtime.withScope(role,operation,action);
 export const buildAgentServices={
  assertActive:()=>governance.assertActive(),
- plan:(asked,files,signal)=>runInRole('orchestrator','plan',async()=>generateTeamPlan({asked:files.length?`${asked}\n\nExisting project paths (preserve working features and include needed pages in the plan): ${files.map(file=>file.path).join(', ')}`:asked,
-  model:await pickModel(undefined,'story'),complete,signal})),
+ plan:(asked,files,signal,requirements=null)=>runInRole('orchestrator','plan',async()=>generateTeamPlan({asked:files.length?`${asked}\n\nExisting project paths (preserve working features and include needed pages in the plan): ${files.map(file=>file.path).join(', ')}`:asked,
+  model:await pickModel(undefined,'story'),complete,signal,requirements})),
  architecture:(asked,plan,signal)=>runInRole('architect','architecture',async()=>generateArchitecture({asked,plan,model:await pickModel(undefined,'story'),complete,signal})),
  generate:(agent,instruction,files,signal,plan,targetPath)=>runInRole(agent,'generate',async()=>{
   const context=targetPath ? generationContext(files,{targetPath,plan,instruction}) : fitProject(files,90000);
@@ -1768,7 +1768,13 @@ app.post('/api/build/jobs',rateLimit,requireAccess,requireBackground,async(req,r
 });
 app.get('/api/build/jobs/:id',rateLimit,requireAccess,requireBackground,async(req,res)=>{
  try{
-  const token=req.get('x-build-token'),job=await buildJobStore.get(req.params.id,token);
+  const token=req.get('x-build-token'),known=Number(req.get('x-build-known-revision') ?? NaN);
+  if(Number.isSafeInteger(known) && known>=0){
+   // Unchanged since the browser's copy: confirm without resending files. Stale active tasks take the full check below.
+   const unchanged=unchangedBuildJob(await buildJobStore.peek(req.params.id,token),known);
+   if(unchanged)return res.json({job:unchanged});
+  }
+  const job=await buildJobStore.get(req.params.id,token);
   if(activeBuildStatus(job.status) && Date.now()-job.updatedAt>90000){
    let failed=!job.workflowId;
    if(job.workflowId)try{failed=['failed','cancelled'].includes(await getRun(job.workflowId).status);}catch{}

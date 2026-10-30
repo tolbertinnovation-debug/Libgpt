@@ -52,5 +52,5 @@ document.addEventListener('click',event=>{
 },true);
 document.addEventListener('submit',()=>trace('action',{action:'submit'}),true);
 await import('/app.js');
-const ritual=await import('/ritual.js?v=phase2-stage7a-mobile-2');
+const ritual=await import('/ritual.js?v=phase2-stage8-r2');
 let attempts=0;const ready=setInterval(()=>{if(!document.querySelector('#modes').hidden){clearInterval(ready);ritual.setMode('build');trace('boot');}else if(++attempts>100){clearInterval(ready);fail('browser_error');}},100);

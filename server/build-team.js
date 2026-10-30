@@ -1,12 +1,13 @@
 import {teamPathConflicts} from '../public/build-team.js';
 import { danglingLinks, projectIssues } from '../public/build.js';
 import { charterText, normalizeStack } from './agent-charters.js';
+import { requirementPrompt, missingRequirements, carryMissingRequirements } from './build-requirements.js';
 
 export const TEAM_AGENTS = Object.freeze(['design', 'pages', 'interactions', 'content', 'backend', 'cloud']);
 const LEGACY_TEAM_AGENTS = ['design', 'pages', 'interactions', 'content'];
 export const TEAM_PLAN_PROMPT = `${charterText('supervisor')}
 You are the Orchestrator, Head of Engineering for Ritual Coding. You take the user's goal, define acceptance criteria, assign work and track progress. You cannot approve a release. The Architect, independent Reviewer, Security, QA/DevOps and Approver perform separate checks after the builders.
-Return only JSON: {"title":"short project name","summary":"what the user will receive","runtime":"static","stack":{"frontend":"HTML, CSS and JavaScript","backend":"none","database":"none","infrastructure":"static hosting","languages":["HTML","CSS","JavaScript"]},"pages":[{"path":"index.html","title":"Home"}],"requirements":["specific acceptance criteria"],"contract":"detailed shared implementation agreement","tasks":[{"agent":"design","instruction":"design and assets","files":["assets/styles.css"]},{"agent":"pages","instruction":"frontend pages and layout","files":["index.html"]},{"agent":"interactions","instruction":"frontend behaviour","files":["assets/app.js"]},{"agent":"content","instruction":"content and materials","files":["README.md"]},{"agent":"backend","instruction":"no backend requested","files":[]},{"agent":"cloud","instruction":"no cloud configuration requested","files":[]}]}.
+Return only JSON: {"title":"short project name","summary":"what the user will receive","runtime":"static","stack":{"frontend":"HTML, CSS and JavaScript","backend":"none","database":"none","infrastructure":"static hosting","languages":["HTML","CSS","JavaScript"]},"pages":[{"path":"index.html","title":"Home"}],"requirements":["specific acceptance criteria"],"retired":[],"contract":"detailed shared implementation agreement","tasks":[{"agent":"design","instruction":"design and assets","files":["assets/styles.css"]},{"agent":"pages","instruction":"frontend pages and layout","files":["index.html"]},{"agent":"interactions","instruction":"frontend behaviour","files":["assets/app.js"]},{"agent":"content","instruction":"content and materials","files":["README.md"]},{"agent":"backend","instruction":"no backend requested","files":[]},{"agent":"cloud","instruction":"no cloud configuration requested","files":[]}]}.
 List exactly these six distinct builders, but give work only to the ones this request needs: each call costs money and the budget is small. pages always owns 1–12 files; any other builder may own zero files when it is not needed (for example a one-page change needs only pages, a small site usually pages and design). Never split a file across builders just to involve more of them. 72 files total maximum. Every HTML page belongs to pages. Include index.html. Normally provide several meaningful linked pages; respect explicit single-page requests. No duplicate ownership or traversal paths.
 ONE PROMPT, A COMPLETE WEBSITE: even a one-line brief must produce a finished, professional site the person could launch, never a starter or a questionnaire. Infer the pages a real organisation of that kind needs (typically 4–8, e.g. home, about, services or products, a detail page, pricing or menu, FAQ, contact), the audience, tone and primary call to action. State the choices you made in the summary so the user can change them.
 STACK: choose the best technology for this project and record it in stack. Static sites use exactly HTML, CSS and JavaScript (plus SVG/JSON/Markdown). For fullstack choose the backend language and framework that best fits the brief — e.g. TypeScript/Node.js, Python/FastAPI or Django, Go, Rust, Java/Kotlin, C#/.NET, PHP or Ruby — with a fitting database (e.g. PostgreSQL, SQLite) and infrastructure (e.g. Docker, Terraform, CI). Browser pages are always HTML, CSS and JavaScript. Give backend and cloud files the real extensions of the chosen languages and include their tests and dependency manifests.
@@ -74,8 +75,10 @@ export function normalizeTeamPlan(raw) {
   for (const [path] of owned) if (/\.html?$/i.test(path) && !listed.has(path)) throw new TypeError(`The navigation omits ${path}.`);
   if (raw.requirements != null && (!Array.isArray(raw.requirements) || raw.requirements.length > 40)) throw new TypeError('Invalid project requirements.');
   const requirements = (raw.requirements || []).map(value => string(value, 'project requirement', 1000));
+  if (raw.retired != null && (!Array.isArray(raw.retired) || raw.retired.length > 40)) throw new TypeError('Invalid retired requirements.');
+  const retired = (raw.retired || []).map(item => ({requirement:string(item?.requirement, 'retired requirement', 1000), reason:string(item?.reason, 'retirement reason', 500)}));
   const stack = normalizeStack(raw.stack, raw.runtime);
-  return {title, summary, pages, contract, requirements, tasks, ...(raw.runtime == null ? {} : {runtime:raw.runtime}), ...(stack ? {stack} : {})};
+  return {title, summary, pages, contract, requirements, tasks, ...(retired.length ? {retired} : {}), ...(raw.runtime == null ? {} : {runtime:raw.runtime}), ...(stack ? {stack} : {})};
 }
 
 export function workerInstruction(plan, agent, brief = '', targetPath = '') {
@@ -139,13 +142,20 @@ export function parseTeamJson(raw) {
   const clean=raw.trim().replace(/^```(?:json)?\s*\n?/i,'').replace(/\n?```\s*$/,'');
   try{return JSON.parse(clean);}catch{throw new TypeError('The supervisor response was incomplete or was not valid JSON.');}
 }
-export async function generateTeamPlan({asked,model,complete,signal}) {
-  const messages=[{role:'system',content:TEAM_PLAN_PROMPT},{role:'user',content:asked}];
+export async function generateTeamPlan({asked,model,complete,signal,requirements=null}) {
+  const carried=requirementPrompt(requirements);
+  const messages=[{role:'system',content:TEAM_PLAN_PROMPT},{role:'user',content:carried?`${asked}\n\n${carried}`:asked}];
   let invalid='';
   for(let attempt=0;attempt<2;attempt++){
     if(signal?.aborted)throw new DOMException('Planning stopped','AbortError');
     const raw=await complete({model,messages,maxTokens:16000,temperature:0.3,json:true,signal});
-    try{const plan=normalizeTeamPlan(parseTeamJson(raw));if(!plan.requirements.length)throw new TypeError('Record at least one concrete acceptance requirement.');return plan;}catch(error){
+    try{
+      let plan=normalizeTeamPlan(parseTeamJson(raw));if(!plan.requirements.length)throw new TypeError('Record at least one concrete acceptance requirement.');
+      const missing=missingRequirements(requirements,plan);
+      if(missing.length && attempt===0)throw new TypeError(`Earlier requirements were left out without a reason: ${missing.join(' | ').slice(0,4000)}. Keep each verbatim in requirements or list it in retired with the change that replaced it`);
+      if(missing.length)plan=carryMissingRequirements(requirements,plan);
+      return plan;
+    }catch(error){
       invalid=error.message;
       if(attempt===0)messages.push({role:'assistant',content:String(raw || '').slice(0,64000)},
         {role:'user',content:`Repair your plan. Validation failed: ${invalid}. Return only the complete JSON object in the required schema. Include all six distinct builder tasks with unique file ownership and index.html in the pages list. Keep the user's original request and real details. Do not return code files yet.`});
