@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {spendRows,errorText,usd,limitsRequest,TWO_DOLLAR_PLAN} from '../public/owner.js';
+import {spendRows,errorText,usd,limitsRequest} from '../public/owner.js';
 
 const html=await readFile(new URL('../public/owner.html',import.meta.url),'utf8');
 const js=await readFile(new URL('../public/owner.js',import.meta.url),'utf8');
@@ -29,10 +29,13 @@ test('refusals explain what to do without revealing anything',()=>{
  assert.match(errorText(403),/didn't work/);assert.match(errorText(429),/Wait a minute/);assert.match(errorText(503),/could not be reached/);
 });
 
-test('the $2 plan becomes one admin request, and impossible limits are explained instead of sent',()=>{
- assert.deepEqual(limitsRequest(TWO_DOLLAR_PLAN),{limits:{dailyUsd:2,capabilityDailyUsd:{build:1,images:.8,documents:.3,voice:'none',livetalk:.1}}});
- assert.match(limitsRequest({...TWO_DOLLAR_PLAN,build:3}).error,/cannot be more than the total/);
- assert.match(limitsRequest({...TWO_DOLLAR_PLAN,total:25}).error,/between \$0.05 and \$10/);
- assert.match(limitsRequest({...TWO_DOLLAR_PLAN,voice:-1}).error,/\$0 or more/);
- assert.match(limitsRequest({...TWO_DOLLAR_PLAN,total:''}).error,/Set a total/);
+test('every feature needs an amount the owner chose; nothing can be left unlimited',()=>{
+ const values={total:2,chat:.3,research:.2,build:1,images:.8,documents:.8,library:.2,voice:.6,livetalk:.5};
+ assert.deepEqual(limitsRequest(values),{limits:{dailyUsd:2,capabilityDailyUsd:{chat:.3,research:.2,build:1,images:.8,documents:.8,library:.2,voice:.6,livetalk:.5}}});
+ assert.match(limitsRequest({...values,voice:''}).error,/Enter an amount for Voice/);
+ assert.match(limitsRequest({...values,chat:undefined}).error,/Enter an amount for Chat/);
+ assert.match(limitsRequest({...values,build:3}).error,/cannot be more than the total/);
+ assert.match(limitsRequest({...values,total:25}).error,/between \$0.05 and \$10/);
+ assert.match(limitsRequest({...values,voice:-1}).error,/\$0 or more/);
+ assert.ok(Object.values(limitsRequest(values).limits.capabilityDailyUsd).every(Number.isFinite));
 });

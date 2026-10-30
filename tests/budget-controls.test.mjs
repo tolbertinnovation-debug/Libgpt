@@ -144,11 +144,9 @@ test('verified prices and the approved model list stay consistent', () => {
   assert.ok(imageMicroUsd({quality:'high',model:'gpt-image-2.5-flare'})>BUDGET_POLICY.capabilityDailyUsd.images*1_000_000);
 });
 
-test('an owner can remove a feature allowance so it shares only the daily total; code testing stays at $0',async t=>{
-  const {governance}=await ledger(t);
-  await governance.configure({limits:{dailyUsd:2,capabilityDailyUsd:{voice:'none',images:.8,execution:'none'}}});
-  const status=await governance.status();
-  assert.equal('voice' in status.limits.capabilityDailyUsd,false);assert.equal(status.limits.capabilityDailyUsd.images,.8);
-  const job=await governance.begin({role:'voice',operation:'speak',fixedMicroUsd:300000});await job.release({chargedMicroUsd:300000});
-  await assert.rejects(governance.begin({role:'execution',operation:'run',fixedMicroUsd:1}),{code:'GOVERNANCE_BUDGET'});
+test('no feature allowance can be removed: every limit stays a number the owner set',async t=>{
+  const {governance}=await ledger(t);const before=await governance.status();
+  for(const value of ['none',null,undefined,'',Infinity])
+    await assert.rejects(governance.configure({limits:{capabilityDailyUsd:{voice:value}}}),{code:'INVALID_LIMIT'});
+  assert.deepEqual((await governance.status()).limits,before.limits);
 });

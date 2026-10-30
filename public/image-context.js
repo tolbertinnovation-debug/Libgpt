@@ -3,11 +3,15 @@
 export const IMAGE_CONTEXT_CHARS=6000;
 export function genericImageRequest(prompt) {
   if(typeof prompt!=='string') return false;
-  const text=prompt.trim().replace(/^(?:create an image:\s*)+/i,'').replace(/^please\s+/i,'');
-  return /^(?:create|generate|make|draw|paint|show)(?:\s+(?:me|us))?\s+(?:(?:an?|the|another|new)\s+)?(?:image|picture|photo|photograph|illustration|painting|artwork|map|flag)(?:\s+please)?[.!?]*$/i.test(text);
+  const text=prompt.trim().replace(/^(?:create an image:\s*)+/i,'').replace(/^(?:please|pls|kindly|can you|could you|i want you to)\s+/i,'')
+    .replace(/^(?:can|could|may) i (?:see|get|have)\s+/i,'show me ').replace(/^i (?:want|need|would like)\s+/i,'give me ');
+  return /^(?:(?:create|generate|make|draw|paint|show|send|give|get|take)(?:\s+(?:me|us))?\s+)?(?:(?:an?|the|another|new|one)\s+)?(?:image|picture|pic|photo|photograph|illustration|painting|artwork|map|flag)s?(?:\s+(?:please|for me))?[.!?]*$/i.test(text);
 }
+// A short request naming "the …" ("a photo of the rice") also means the thing just discussed.
 export function refersToDiscussion(prompt) {
-  return genericImageRequest(prompt) || typeof prompt==='string' && /\b(?:it|this|that|them|these|those|above|earlier|discussed|discussing|same|another|previous)\b/i.test(prompt);
+  if(typeof prompt!=='string') return false;
+  return genericImageRequest(prompt) || /\b(?:it|this|that|them|these|those|above|earlier|discussed|discussing|same|another|previous)\b/i.test(prompt)
+    || (/\bthe\b/i.test(prompt) && prompt.trim().split(/\s+/).length<=10);
 }
 export function imageDiscussion(prompt,messages=[]) {
   if(!refersToDiscussion(prompt)) return '';
