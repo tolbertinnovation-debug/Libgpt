@@ -87,7 +87,7 @@ test('chat streams complete input, research sources, continuations and honest fa
     const r=await post({...question(content),research:'off',depth:'thorough'});
     assert.equal(r.status,200);
     assert.equal(requests[0].body.messages.at(-1).content,content);
-    assert.equal(requests[0].body.max_tokens,12_000);
+    assert.equal(requests[0].body.max_completion_tokens,12_000);assert.equal('max_tokens' in requests[0].body,false);
     requests=[];
     const tooBig=await post(question('x'.repeat(QUESTION_CHARS+1)));
     assert.equal(tooBig.status,413);assert.equal(requests.length,0);
@@ -135,7 +135,7 @@ test('chat streams complete input, research sources, continuations and honest fa
     requests=[];
     await post({...question('Build a site using the current API documentation'),mode:'build'});
     assert.ok(requests[0].url.endsWith('/chat/completions'));
-    assert.equal(requests[0].body.max_tokens,12_000);
+    assert.equal(requests[0].body.max_completion_tokens,12_000);assert.equal('max_tokens' in requests[0].body,false);
     assert.match(requests[0].body.messages[0].content,/WHAT TO BUILD WITH/);
   });
   await t.test('research off bypasses search; factual research mode searches ordinary lessons',async()=>{
