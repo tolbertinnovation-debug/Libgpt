@@ -3141,18 +3141,8 @@ body.is-talking { overflow: hidden; }
 .sheet-go:hover { background: var(--gold-deep); }
 .sheet-danger { color: var(--red); }
 
-/* ---- bigger screens ------------------------------------------------------
-   Chat beside the work, rather than instead of it. The view buttons then only
-   switch the right-hand column, which is why Talk hides itself here. */
+/* ---- bigger screens: the file list keeps room for the editor ---- */
 @media (min-width: 900px) {
-  .build-body { flex-direction: row; }
-  #pane-chat {
-    display: flex;
-    flex: 0 0 40%;
-    max-width: 480px;
-    border-right: 1px solid var(--border);
-  }
-  #view-chat { display: none; }
   .build-tree { max-height: 30%; }
 }
 
@@ -3670,8 +3660,7 @@ body {
  .build-bar {grid-template-columns:minmax(150px,1fr) auto auto;padding:.6rem 1rem;}
  .build-views {grid-row:1;grid-column:2;width:auto;min-width:270px;}
  #build-menu-btn {grid-column:3;}
- #view-chat {display:none;}.build-views {grid-template-columns:repeat(3,minmax(0,1fr));}
- #pane-chat {flex:0 0 30%;max-width:390px;min-width:270px;}
+ .build-views {grid-template-columns:repeat(4,minmax(0,1fr));min-width:360px;}
  .build-plan {padding:.65rem 1rem;}
  .task-details>ol,.activity-details>ol {right:auto;width:min(500px,calc(100% - 2rem));}
  .build-pane#pane-files.is-on {display:grid;grid-template-areas:'take take' 'filter editor' 'tree editor';grid-template-columns:175px minmax(0,1fr);grid-template-rows:auto auto minmax(0,1fr);}
@@ -3775,17 +3764,17 @@ body {
  .tree-file.agent-editing:after {white-space:nowrap;flex-shrink:0;}
 }
 
-/* ---- phone Build layout ---------------------------------------------------
+/* ---- focused Build layout (every screen) -----------------------------------
    Preview takes the whole screen with one slim bar; Chat shows the conversation,
    the progress strip and the message box. Rarely used controls sit behind ⋯. */
-.preview-exit, .preview-more { display: none; }
-@media (max-width: 899px) {
+@media all {
   .app[data-mode="build"][data-build-view="preview"] .topbar,
   .app[data-mode="build"][data-build-view="preview"] .build-bar,
   .app[data-mode="build"][data-build-view="preview"] #build-plan,
   .app[data-mode="build"][data-build-view="preview"] #build-verification,
   .app[data-mode="build"][data-build-view="preview"] .workspace-footer,
-  .app[data-mode="build"][data-build-view="preview"] .composer-zone { display: none !important; }
+  .app[data-mode="build"][data-build-view="preview"] .composer-zone,
+  .app[data-mode="build"][data-build-view="preview"] .sidebar { display: none !important; }
   .app[data-mode="build"][data-build-view="chat"] #build-verification { display: none; }
   .app[data-mode="build"] .workspace-footer.is-quiet { display: none; }
   .preview-tools { gap: 6px; padding: 6px 8px; }
@@ -3805,3 +3794,7 @@ body {
 .talk-options summary::-webkit-details-marker { display: none; }
 .talk-options[open] { display: grid; justify-items: center; gap: .6rem; }
 .talk-options .talk-foot { margin: 0; max-width: 34rem; }
+
+@media (min-width: 900px) {
+  #build-thread, #build-empty { width: 100%; max-width: var(--measure, 760px); margin-left: auto; margin-right: auto; }
+}

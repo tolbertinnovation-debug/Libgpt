@@ -376,9 +376,8 @@ function renderPreview() {
 }
 
 function ensureView(view) {
-  if(window.matchMedia('(min-width: 900px)').matches && view==='chat')view='files';
   state.view = view;
-  // Lets the phone layout give Preview the whole screen and Chat only the conversation.
+  // One view at a time on every screen: Preview gets the whole screen, Chat only the conversation.
   const app=el.build.closest('.app');if(app)app.dataset.buildView=view;
   for (const button of el.build.querySelectorAll('.build-view')) {
     const on = button.dataset.view === view;
@@ -389,13 +388,6 @@ function ensureView(view) {
     const on = pane.id === `pane-${view}`;
     pane.classList.toggle('is-on', on);
     pane.hidden = !on;
-  }
-  // On a wide screen the chat is always beside the work, so its button does
-  // nothing and the other two only move the right-hand column.
-  if (window.matchMedia('(min-width: 900px)').matches) {
-    const chat = $('pane-chat');
-    chat.hidden = false;
-    chat.classList.add('is-on');
   }
   if (view === 'preview') renderPreview();
   if (view === 'files') renderEditor();
