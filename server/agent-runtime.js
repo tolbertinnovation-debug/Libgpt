@@ -69,7 +69,7 @@ export function createAgentRuntime({governance,complete,streamChat,streamSearch,
     const current=scope.getStore();
     const job=await ticket(role,operation,options,current?.actor);
     let outcome='failed',usage,charged;
-    try {const result=await complete({...options,maxAttempts:1,onUsage:value=>{usage=value;options.onUsage?.(value);},signal:combine(options.signal,job.signal)});await job.check();outcome='completed';return result;}
+    try {const result=await complete({...options,onUsage:value=>{usage=value;options.onUsage?.(value);},signal:combine(options.signal,job.signal)});await job.check();outcome='completed';return result;}
     catch(error){if(!usage && refused(error))charged=0;throw error;}
     finally {await job.release({outcome,usage,chargedMicroUsd:charged});}
   }
@@ -105,7 +105,7 @@ export function createAgentRuntime({governance,complete,streamChat,streamSearch,
     streamChat:async function*(options){
       const c=scope.getStore();if(!c){if(strict)ungoverned();yield*streamChat(options);return;}
       const job=await ticket(c.role,c.operation,options,c.actor);let outcome='failed',usage,charged,delivered=0;
-      try{for await(const part of streamChat({...options,maxAttempts:1,onUsage:value=>{usage=value;options.onUsage?.(value);},signal:combine(options.signal,job.signal)})){if(job.signal.aborted)throw job.signal.reason;delivered+=String(part || '').length;yield part;}await job.check();outcome='completed';}
+      try{for await(const part of streamChat({...options,onUsage:value=>{usage=value;options.onUsage?.(value);},signal:combine(options.signal,job.signal)})){if(job.signal.aborted)throw job.signal.reason;delivered+=String(part || '').length;yield part;}await job.check();outcome='completed';}
       catch(error){if(!usage)charged=delivered===0 && refused(error)?0:partialCharge(options.model,options,delivered);throw error;}
       finally {
         // A consumer that stops reading early (Stop pressed) ends here without an error.
@@ -137,7 +137,7 @@ export function createAgentRuntime({governance,complete,streamChat,streamSearch,
         await refusedJob?.release({outcome:'failed',chargedMicroUsd:0});
       };
       try{
-        for await(const part of streamSearch({...options,maxTokens,maxToolCalls,maxAttempts:1,
+        for await(const part of streamSearch({...options,maxTokens,maxToolCalls,
           signal:combine(options.signal,job.signal),beforeAttempt,onAttemptRefused,
           onUsage:value=>{usage=value;},onSearchSummary:count=>{if(Number.isSafeInteger(count) && count===calls)completeCalls=count;},onSearchCall:id=>{
             if(id!==undefined && ids.has(id))return;if(id!==undefined)ids.add(id);

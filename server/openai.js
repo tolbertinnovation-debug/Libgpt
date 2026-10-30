@@ -99,6 +99,11 @@ async function toError(response, asked = '', path = '') {
 // named setting is renamed or dropped. What each model refused is remembered,
 // so the round trip is paid once rather than on every message.
 const quirks = new Map();
+// Newer families only accept max_completion_tokens; naming it up front saves the
+// refused first request (and its round trip) on every cold start. Older models
+// keep max_tokens, and anything else is still learned from the refusal.
+export const tokenLimit = (model, value) => (/^(?:gpt-[5-9]|o\d)/i.test(String(model || '')) ? {max_completion_tokens: value} : {max_tokens: value});
+const SPENDING_LIMITS = new Set(['max_tokens', 'max_completion_tokens', 'max_output_tokens', 'max_tool_calls']);
 
 function applyQuirks(body) {
   const known = quirks.get(body?.model);
@@ -135,6 +140,8 @@ function adapt(body, detail, model) {
   if (!(key in body)) return null;
 
   const instead = (detail.match(/use '([^']+)' instead/i) || [])[1];
+  // A spending limit may be renamed to the model's own name for it, never dropped.
+  if (SPENDING_LIMITS.has(key) && !SPENDING_LIMITS.has(instead)) return null;
   const next = { ...body };
   if (instead && !(instead in next)) next[instead] = next[key];
   delete next[key];
@@ -143,7 +150,7 @@ function adapt(body, detail, model) {
   return next;
 }
 
-async function post(path, body, signal, maxAttempts = 3) {
+async function post(path, body, signal) {
   // body.model is what every one of these calls names.
   const asked = typeof body?.model === 'string' ? body.model : '';
 
@@ -159,7 +166,10 @@ async function post(path, body, signal, maxAttempts = 3) {
   let attempt = path === '/responses' ? body : applyQuirks(body);
 
   // At most three tries: a model may refuse two settings in turn, and one
-  // spare beyond that is the end of it. Anything else is a real error.
+  // spare beyond that is the end of it. Anything else is a real error. A 400
+  // naming a setting is refused before any work, so it is never billed; that is
+  // why these retries are allowed even where a paid call gets one attempt.
+  // Research requests are never adapted: their limits are safety boundaries.
   for (let tries = 0; ; tries += 1) {
     const response = await fetch(`${config.baseUrl}${path}`, {
       method: 'POST',
@@ -174,7 +184,7 @@ async function post(path, body, signal, maxAttempts = 3) {
     if (response.ok) return response;
 
     const error = await toError(response, asked, path);
-    const adapted = response.status === 400 && tries < Math.min(3,maxAttempts)-1
+    const adapted = response.status === 400 && path !== '/responses' && tries < 2
       ? adapt(attempt, error.detail || '', asked)
       : null;
     if (!adapted) throw error;
@@ -190,7 +200,7 @@ async function post(path, body, signal, maxAttempts = 3) {
  * its thought, "length" when it hit the token ceiling part-way through.
  */
 export async function* streamChat({
-  model, messages, maxTokens, temperature, signal, onFinish, maxAttempts, onUsage,
+  model, messages, maxTokens, temperature, signal, onFinish, onUsage,
 }) {
   const response = await post('/chat/completions', {
     model: model || config.model,
@@ -198,8 +208,8 @@ export async function* streamChat({
     stream: true,
     ...(onUsage ? {stream_options:{include_usage:true}} : {}),
     temperature: temperature ?? 0.7,
-    max_tokens: maxTokens ?? 1400,
-  }, signal, maxAttempts);
+    ...tokenLimit(model || config.model, maxTokens ?? 1400),
+  }, signal);
 
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -312,7 +322,7 @@ export async function* streamSearch({
     const leaseSignal=await beforeAttempt?.();
     const requestSignal=leaseSignal ? (signal ? AbortSignal.any([signal,leaseSignal]) : leaseSignal) : signal;
     requestSignal?.throwIfAborted();
-    try{return await post('/responses',body,requestSignal,1);}
+    try{return await post('/responses',body,requestSignal);}
     catch(error){
       if([400,401,403,404,409,413,415,422,429].includes(error.status) && !error.code?.startsWith('GOVERNANCE_'))
         await onAttemptRefused?.(error);
@@ -605,17 +615,17 @@ export async function transcribe({ audio, type = 'audio/webm', prompt = '', sign
  * validate what comes back.
  */
 export async function complete({
-  model, messages, maxTokens = 30, temperature = 0.3, json = false, signal, maxAttempts, onUsage,
+  model, messages, maxTokens = 30, temperature = 0.3, json = false, signal, onUsage,
 }) {
   const body = {
     model: model || config.titleModel,
     messages,
     temperature,
-    max_tokens: maxTokens,
+    ...tokenLimit(model || config.titleModel, maxTokens),
   };
   if (json) body.response_format = { type: 'json_object' };
 
-  const response = await post('/chat/completions', body, signal, maxAttempts);
+  const response = await post('/chat/completions', body, signal);
   const parsed = await response.json();
   if (parsed.usage) onUsage?.(parsed.usage);
   return parsed.choices?.[0]?.message?.content?.trim() || '';
