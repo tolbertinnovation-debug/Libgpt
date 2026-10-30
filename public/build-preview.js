@@ -47,8 +47,10 @@ export function createPreviewMessageLimiter(frame, now=Date.now) {
 // Route saved local files through the parent, without granting same-origin access.
 // Keep this installer self-contained; its source is embedded into the sandbox.
 export function installPreviewNavigation({pagePath, paths, checkId = ''}) {
-  const known = new Set(paths);
-  const send = message => parent.postMessage({...message, checkId}, '*');
+  const known = new Set(paths), up = parent;
+  // Same protection as the reporter: page scripts cannot read checkId or swap the target.
+  document.currentScript?.remove();
+  const send = message => up.postMessage({...message, checkId}, '*');
   const resolve = reference => {
     const raw = String(reference || '').trim().replace(/\\/g, '/');
     const match = raw.match(/^([^?#]*)(\?[^#]*)?(#.*)?$/);
