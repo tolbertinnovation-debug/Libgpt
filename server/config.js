@@ -99,10 +99,13 @@ export const config = {
   // Live Talk: a two-way audio conversation through OpenAI's Realtime API.
   // Audio is priced far above text, so each conversation has a length limit and
   // the whole deployment has an hourly number of conversations.
-  // Off unless the operator switches it on. A session's real usage is reported
-  // only to the browser, so it can be reserved at a worst case but never
-  // settled against actual cost (see docs/natural-voice.md).
-  liveTalk: /^(1|true|yes|on)$/i.test(process.env.ENABLE_LIVE_TALK?.trim() || ''),
+  // On since the owner approved it (Phase 3); ENABLE_LIVE_TALK=false switches
+  // it off. It is still offered only when the account lists a realtime model,
+  // and each session reserves its worst-case cost from the Live Talk daily
+  // limit set on Owner Controls ($0 switches it off there). A session's real
+  // usage is reported only to the browser, so it is reserved at a worst case
+  // and never settled lower (see docs/natural-voice.md).
+  liveTalk: !/^(0|false|no|off)$/i.test(process.env.ENABLE_LIVE_TALK?.trim() || 'true'),
   realtimeModel: process.env.OPENAI_REALTIME_MODEL?.trim() || '',
   liveTalkMinutes: Math.min(30, Math.max(1, int(process.env.LIVE_TALK_MINUTES, 2))),
   liveTalkSessionsPerHour: int(process.env.LIVE_TALK_SESSIONS_PER_HOUR, 20),
