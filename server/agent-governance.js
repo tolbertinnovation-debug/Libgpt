@@ -11,9 +11,13 @@ const ROLES = Object.freeze({
   // The rest of the app: every paid feature outside Build answers to the same ledger.
   chat: ['generate'], research: ['search'], documents: ['generate'], library: ['generate'],
   images: ['generate'], voice: ['speak', 'transcribe'], livetalk: ['session'],
+  // Running generated code in an isolated sandbox (Milestone C). Off until an admin sets its allowance.
+  execution: ['run'],
 });
 // Each role spends from one capability's daily allowance. Every Build role is "build".
-export const CAPABILITIES = Object.freeze(['build', 'chat', 'research', 'documents', 'library', 'images', 'voice', 'livetalk']);
+export const CAPABILITIES = Object.freeze(['build', 'chat', 'research', 'documents', 'library', 'images', 'voice', 'livetalk', 'execution']);
+// These start at $0: with no stored allowance every call is refused, never uncapped.
+const ZERO_UNLESS_SET = new Set(['execution']);
 export const capabilityOf = role => (CAPABILITIES.includes(role) && role !== 'build' ? role : 'build');
 const DEFAULTS = Object.freeze({dailyUsd: 5, callsPerMinute: 20, concurrency: 4,
   maxCostPerMillionTokens: 100, maxInputChars: 180000, maxOutputTokens: 32000,
@@ -24,7 +28,7 @@ const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 // screens and worker already look for ("spending cap", "rate limit",
 // "concurrency") so a denial is never retried as if it were a glitch.
 const CAPABILITY_WORDS = {build: 'coding', chat: 'chat', research: 'research', documents: 'document', library: 'Library',
-  images: 'picture', voice: 'voice', livetalk: 'Live Talk'};
+  images: 'picture', voice: 'voice', livetalk: 'Live Talk', execution: 'code-testing'};
 export function denialMessage(code, capability) {
   if (code === 'GOVERNANCE_BUDGET') return capability && capability !== 'total'
     ? `Today's ${CAPABILITY_WORDS[capability] || capability} spending cap has been reached, so this feature is paused until midnight UTC. Other features, your saved chats and your downloads still work.`
@@ -256,11 +260,14 @@ export function createAgentGovernance({directory, serverless = false, storage, l
       const reserved = fixed ? fixedMicroUsd : Math.ceil(validPricing ? (inputChars + 1024 + messageCount * 64) * rates.input + maxTokens * rates.output : (inputChars + maxTokens) * rates.input);
       if (!denial && (!Number.isSafeInteger(reserved) || state.reservedMicroUsd + reserved > Math.floor(state.limits.dailyUsd * 1000000)))
         denial = Object.assign(failure(denialMessage('GOVERNANCE_BUDGET', 'total'), 'GOVERNANCE_BUDGET', 429), {capability: 'total'});
-      const capLimit = state.limits.capabilityDailyUsd?.[capability];
+      const capLimit = state.limits.capabilityDailyUsd?.[capability] ?? (ZERO_UNLESS_SET.has(capability) ? 0 : undefined);
       if (!denial && Number.isFinite(capLimit) && (state.capabilityMicroUsd[capability] || 0) + reserved > Math.floor(capLimit * 1000000))
         denial = Object.assign(failure(denialMessage('GOVERNANCE_BUDGET', capability), 'GOVERNANCE_BUDGET', 429), {capability});
       if (!denial && state.calls.length >= state.limits.callsPerMinute)
         denial = failure(denialMessage('GOVERNANCE_RATE'), 'GOVERNANCE_RATE', 429);
+      // One sandbox at a time across every instance, inside the overall limit.
+      if (!denial && capability === 'execution' && Object.values(state.active).some(item => item.capability === 'execution'))
+        denial = failure(denialMessage('GOVERNANCE_CONCURRENCY'), 'GOVERNANCE_CONCURRENCY', 429);
       if (!denial && Object.keys(state.active).length >= state.limits.concurrency)
         denial = failure(denialMessage('GOVERNANCE_CONCURRENCY'), 'GOVERNANCE_CONCURRENCY', 429);
       if (denial) {await save(state, 'denied', {...meta, capability, reason: denial.code}); denial.persistAudit = true; throw denial;}

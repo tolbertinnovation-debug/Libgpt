@@ -100,3 +100,14 @@ export function textMicroUsd(model, usage, rates = AGENT_TEXT_RATES) {
   if (!rate || !Number.isSafeInteger(input) || !Number.isSafeInteger(output) || input < 0 || output < 0) return undefined;
   return Math.ceil(input * rate.input + output * rate.output);
 }
+
+// VERIFIED 30 Oct 2026, https://vercel.com/docs/vercel-sandbox/pricing (Pro, iad1):
+// $0.128 per active CPU-hour, $0.0212 per provisioned GB-hour, $0.60 per million
+// creations. Hobby includes a monthly quota and pauses instead of billing.
+export const SANDBOX_RATES = Object.freeze({cpuHourUsd: .128, memoryGbHourUsd: .0212, creationUsd: .6 / 1_000_000});
+export const SANDBOX_PROFILE = Object.freeze({vcpus: 2, memoryGb: 4, timeoutMs: 180_000});
+/** Worst case for one run: every vCPU busy for the whole timeout. Charged in full, never refunded. */
+export function sandboxRunMicroUsd({vcpus, memoryGb, timeoutMs} = SANDBOX_PROFILE) {
+  const hours = timeoutMs / 3_600_000;
+  return Math.ceil((vcpus * hours * SANDBOX_RATES.cpuHourUsd + memoryGb * hours * SANDBOX_RATES.memoryGbHourUsd + SANDBOX_RATES.creationUsd) * 1_000_000);
+}

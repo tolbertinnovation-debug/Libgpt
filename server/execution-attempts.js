@@ -8,7 +8,7 @@ const clone=value=>structuredClone(value);
 const digest=value=>crypto.createHash('sha256').update(String(value)).digest('hex');
 const fail=(message,code='EXECUTION_CONFLICT',status=409)=>Object.assign(new Error(message),{code,status});
 const held=a=>!['mock_passed','failed','cancelled'].includes(a.status);
-const cleanText=value=>String(value).replace(/postgres(?:ql)?:\/\/[^\s]+/gi,'[redacted database URL]').replace(/Bearer\s+[\w.+/=-]+/gi,'Bearer [redacted]').replace(/sk-[\w-]+/g,'[redacted]').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'').replace(/[\x00-\x08\x0b-\x1f\x7f]/g,'');
+export const cleanText=value=>String(value).replace(/postgres(?:ql)?:\/\/[^\s]+/gi,'[redacted database URL]').replace(/Bearer\s+[\w.+/=-]+/gi,'Bearer [redacted]').replace(/sk-[\w-]+/g,'[redacted]').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g,'').replace(/[\x00-\x08\x0b-\x1f\x7f]/g,'');
 const snapshot=a=>{const {tokenHash,key,...value}=clone(a);return {...value,executed:false,simulation:true};};
 export const freshExecutionState=()=>({version:1,attempts:{},days:{}});
 const integer=(n,min=0,max=Number.MAX_SAFE_INTEGER)=>Number.isSafeInteger(n) && n>=min && n<=max;
