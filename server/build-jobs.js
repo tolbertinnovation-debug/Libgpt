@@ -4,6 +4,7 @@ import {postgresTransaction} from './postgres-transaction.js';
 import pg from 'pg';
 import {postgresPoolOptions} from './postgres-options.js';
 import {buildBlocker} from '../public/build-task-state.js';
+import {requirementLedgerFor} from './build-requirements.js';
 import {attachDatabasePool} from '@vercel/functions';
 import {governanceScope} from './governance-postgres.js';
 
@@ -148,6 +149,8 @@ export function createBuildJobStore({connectionString,pool:suppliedPool,scope=go
      if(!history || old.origin!==history.origin || old.entries.some((entry,index)=>JSON.stringify(entry)!==JSON.stringify(history.entries[index])))throw fail('Saved request history must be preserved when changing a task.',400);
     }else if(history && history.entries[0].text!==state.asked.trim())throw fail('Keep the original saved brief when recording legacy task history.',400);
     delete row.state.operation;delete state.operation;
+    // Carry accepted requirements into the replan; legacy tasks seed them from the current plan.
+    const ledger=requirementLedgerFor(state);if(ledger)state.requirementLedger=ledger;
     state.previousCheckpoint=state.checkpoint || null;
     Object.assign(state,{asked:options.asked.trim(),files:options.files,checkpoint:options.checkpoint || null,requestHistory:history,status:'queued',message:'Requested changes saved. Continuing from the current source.',workflowId:null});
    }

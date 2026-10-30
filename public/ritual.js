@@ -623,6 +623,7 @@ function showProjectPlan(){
   ${history?`<p class="sheet-note"><strong>Saved request history</strong></p>${history.origin==='legacy'?'<p>The first entry is the saved brief from before request history was available.</p>':''}${list(history.entries.map(entry=>`${entry.sequence}. ${entry.kind==='brief'?'Starting brief':'Requested change'}: ${entry.text}`))}<p class="sheet-note">Recorded requests are project instructions, not test results or release approval.</p>`:''}
   <p class="sheet-note"><strong>${escapeHtml(plan.title)}</strong></p><p>${escapeHtml(plan.summary)}</p>
   <p class="sheet-note"><strong>Requirements to verify</strong></p>${facts.requirements.length?list(facts.requirements):'<p>No separate acceptance criteria were recorded.</p>'}
+  ${plan.retired?.length?`<p class="sheet-note"><strong>Requirements replaced by your later changes</strong></p>${list(plan.retired.map(item=>`${item.requirement} — ${item.reason}`))}`:''}
   <p class="sheet-note">${facts.savedFiles} of ${facts.plannedFiles} planned files are present. ${facts.activeBuilders} builders have file assignments.</p>
   <p class="sheet-note"><strong>File ownership and progress</strong></p>${list(plan.tasks.filter(task=>task.files.length).flatMap(task=>task.files.map(path=>`${task.agent}: ${path} — ${p.files.some(file=>file.path===path && file.body.trim())?'source present':'not saved'}`)))}
   <p class="sheet-note"><strong>Architecture test plan (not execution results)</strong></p>${cp.architecture?.testPlan?.length?list(cp.architecture.testPlan):'<p>No architecture test plan recorded yet.</p>'}
@@ -678,7 +679,12 @@ async function applyBackgroundJob(p,job){
 function watchBackground(){
  const p=project();backgroundObserver?.stop();
  if(!p?.background || !deps.backgroundAvailable)return;
- backgroundObserver=createBackgroundObserver({headers:deps.headers,knownRevision:()=>p.background?.revision,onJob:async job=>{await applyBackgroundJob(p,job);if(p===project())renderWorkspaceChanges();},onError:error=>{
+ // After any doubt (an error or an "unchanged" reply that disagrees), the next check fetches the full task.
+ let fullRefresh=false;
+ backgroundObserver=createBackgroundObserver({headers:deps.headers,knownRevision:()=>fullRefresh?null:p.background?.revision,onJob:async job=>{
+  if(job.unchanged && job.status!==p.background?.status){fullRefresh=true;throw new Error('The progress response does not match the saved task.');}
+  await applyBackgroundJob(p,job);if(!job.unchanged)fullRefresh=false;if(p===project())renderWorkspaceChanges();},onError:error=>{
+  fullRefresh=true;
   if(p!==project())return;
   const prior=backgroundConnections.get(p);
   backgroundConnections.set(p,{state:[401,403].includes(error.status)?'denied':error.status===404?'missing':'reconnecting',lastConfirmedAt:prior?.lastConfirmedAt});

@@ -6,6 +6,7 @@ import {assertAgentData} from './agent-runtime.js';
 import {buildJobStore} from './background-store.js';
 import {activeBuildStatus} from './build-jobs.js';
 import {buildBlocker} from '../public/build-task-state.js';
+import {requirementLedgerFor,carryMissingRequirements,nextRequirementLedger} from './build-requirements.js';
 
 const copy=value=>structuredClone(value);
 const safeMessage=error=>error?.code==='BUILD_PATH_CONFLICT' ? error.message.slice(0,600) : [401,403,413,423,429,503].includes(error?.status)
@@ -80,8 +81,11 @@ export function createBuildWorker({store,services}){
    await services.assertActive();assertAgentData({asked:job.asked,files,checkpoint:cp});assertTeamFiles(files,cp.plan);
    if(!cp.plan){
     setRole('supervisor','working');await announce('Planning the project and assigning files.','planning');
-    cp.plan=normalizeTeamPlan(await paidStep('plan',()=>services.plan(job.asked,files,controller.signal)));
+    const ledger=requirementLedgerFor(job);
+    cp.plan=normalizeTeamPlan(await paidStep('plan',()=>services.plan(job.asked,files,controller.signal,ledger)));
     assertTeamFiles(files,cp.plan);
+    // A reused receipt may predate the ledger: keep anything the plan neither kept nor retired.
+    cp.plan=carryMissingRequirements(ledger,cp.plan);job.requirementLedger=nextRequirementLedger(ledger,cp.plan);
     cp.phase='architecture';setRole('supervisor','waiting');status='architecting';event='Project plan saved.';
    } else if(!cp.architecture){
     setRole('architect','working');await announce('Recording architecture and implementation contracts.','architecting');

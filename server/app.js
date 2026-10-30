@@ -1716,8 +1716,8 @@ app.post('/api/album', rateLimit, requireAccess, runtime.governed('images','gene
 const runInRole=(role,operation,action)=>runtime.withScope(role,operation,action);
 export const buildAgentServices={
  assertActive:()=>governance.assertActive(),
- plan:(asked,files,signal)=>runInRole('orchestrator','plan',async()=>generateTeamPlan({asked:files.length?`${asked}\n\nExisting project paths (preserve working features and include needed pages in the plan): ${files.map(file=>file.path).join(', ')}`:asked,
-  model:await pickModel(undefined,'story'),complete,signal})),
+ plan:(asked,files,signal,requirements=null)=>runInRole('orchestrator','plan',async()=>generateTeamPlan({asked:files.length?`${asked}\n\nExisting project paths (preserve working features and include needed pages in the plan): ${files.map(file=>file.path).join(', ')}`:asked,
+  model:await pickModel(undefined,'story'),complete,signal,requirements})),
  architecture:(asked,plan,signal)=>runInRole('architect','architecture',async()=>generateArchitecture({asked,plan,model:await pickModel(undefined,'story'),complete,signal})),
  generate:(agent,instruction,files,signal,plan,targetPath)=>runInRole(agent,'generate',async()=>{
   const context=targetPath ? generationContext(files,{targetPath,plan,instruction}) : fitProject(files,90000);
