@@ -30,7 +30,7 @@ test('refusals explain what to do without revealing anything',()=>{
 });
 
 test('the $2 plan becomes one admin request, and impossible limits are explained instead of sent',()=>{
- assert.deepEqual(limitsRequest(TWO_DOLLAR_PLAN),{limits:{dailyUsd:2,capabilityDailyUsd:{build:1,images:.4,voice:.3,livetalk:.1}}});
+ assert.deepEqual(limitsRequest(TWO_DOLLAR_PLAN),{limits:{dailyUsd:2,capabilityDailyUsd:{build:1,images:.8,documents:.3,voice:'none',livetalk:.1}}});
  assert.match(limitsRequest({...TWO_DOLLAR_PLAN,build:3}).error,/cannot be more than the total/);
  assert.match(limitsRequest({...TWO_DOLLAR_PLAN,total:25}).error,/between \$0.05 and \$10/);
  assert.match(limitsRequest({...TWO_DOLLAR_PLAN,voice:-1}).error,/\$0 or more/);

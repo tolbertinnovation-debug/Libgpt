@@ -45,7 +45,7 @@ Pictures default to balanced (medium) quality. A medium picture fits the picture
 - The password stays in the page's memory only: it is never stored, put in the URL or sent anywhere except in the admin header to this site.
 - It is cleared on Lock or when the page closes.
 - The page loads nothing from other sites, is hidden from search engines and refuses to run inside another site's frame.
-- It can change the daily limits (total and per feature, up to $10 a day in the page); every change asks for confirmation and is recorded in the ledger's audit trail.
+- It can change the daily limits (total and per feature, up to $10 a day in the page). An empty feature field removes that feature's own limit, so it spends only within the total (`"none"` in `capabilityDailyUsd`; `null` is still refused so a bad number can never remove a limit, and code testing stays at $0). Every change asks for confirmation and is recorded in the ledger's audit trail.
 
 The routes underneath:
 

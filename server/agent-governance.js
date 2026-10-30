@@ -48,6 +48,10 @@ function normalizeLimits(input = {}, previous = DEFAULTS) {
     // Patch the latest locked ledger; omitted allowances must survive.
     result.capabilityDailyUsd = {...result.capabilityDailyUsd};
     for (const [name, value] of Object.entries(caps)) {
+      // The word 'none' (never null, which a bad number can turn into) removes a feature's
+      // own allowance: it then spends only within the daily total. Code testing cannot be
+      // uncapped this way; without an allowance it stays at $0.
+      if (value === 'none' && CAPABILITIES.includes(name)) { delete result.capabilityDailyUsd[name]; continue; }
       if (!CAPABILITIES.includes(name) || !Number.isFinite(value) || value < 0 || value > 10000)
         throw failure('Invalid capability limit.', 'INVALID_LIMIT', 400);
       result.capabilityDailyUsd[name] = value;
