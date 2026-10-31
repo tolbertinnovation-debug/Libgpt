@@ -1,5 +1,18 @@
 # Meta Llama: all text chat (for now), everyday chat, or backup
 
+## OpenAI switched off (for now)
+At the owner's request, OpenAI is off on the live host. `config.openaiOff`
+defaults to on wherever `VERCEL` is set, and `OPENAI_OFF=false` switches
+OpenAI back on. While it is off:
+- the server holds no OpenAI key, so every OpenAI feature turns itself off;
+- any request to OpenAI is refused before it is sent;
+- chat, chat titles and long-chat summaries run on Meta Llama only, with no
+  OpenAI fallback. If Llama fails, the chat says "Grandpa could not answer just
+  now. Please try again in a moment.";
+- reading aloud uses the phone's own free voice;
+- pictures, photo and PDF reading, Live Talk, OpenAI dictation, web research,
+  documents, Library stories and Build are paused.
+
 ## Modes (`LLAMA_MODE`)
 - **`all`** (the default, owner's choice, to save OpenAI credit). Every text
   chat turn goes to Llama, including hard questions, stories and questions that

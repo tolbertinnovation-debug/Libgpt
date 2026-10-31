@@ -89,7 +89,9 @@ export async function* streamLlama({ config = llamaConfig(), messages, maxTokens
 //   everyday  everyday chat only; OpenAI keeps tools, research, thinking, stories
 //   backup    only when OpenAI cannot answer
 // LLAMA_FIRST=false is the older way of saying "backup".
-export function llamaMode(env = process.env) {
+export function llamaMode(env = process.env, { openaiOff = false } = {}) {
+  // With OpenAI switched off, Llama is the only brain.
+  if (openaiOff) return 'all';
   if (/^(0|false|no|off)$/i.test(env.LLAMA_FIRST?.trim() || '')) return 'backup';
   const mode = env.LLAMA_MODE?.trim().toLowerCase();
   return ['all', 'everyday', 'backup'].includes(mode) ? mode : 'all';
@@ -100,8 +102,8 @@ export function llamaMode(env = process.env) {
 // documents, memory), research, careful thinking and the long creative pieces.
 const NEEDS_OPENAI = /\b(?:picture|image|photo|draw|drawing|paint|poster|logo|document|letter|cv|résumé|resume|report|essay|worksheet|business plan|remember|search|look up|latest|news|today)\b/i;
 
-export function everydayForLlama({ question = '', building = false, searched = false, photo = false, document = false, thinking = '', tier = '', carryingOn = false, env = process.env } = {}) {
-  const mode = llamaMode(env);
+export function everydayForLlama({ question = '', building = false, searched = false, photo = false, document = false, thinking = '', tier = '', carryingOn = false, env = process.env, openaiOff = false } = {}) {
+  const mode = llamaMode(env, { openaiOff });
   if (mode === 'backup' || building || photo || document) return false;
   if (mode === 'all') return true;
   if (searched || thinking || carryingOn || tier === 'deep') return false;

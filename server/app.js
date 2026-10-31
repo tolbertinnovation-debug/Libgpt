@@ -296,7 +296,9 @@ app.get('/api/config', async (_req, res) => {
     : resolveTiers(models.map((m) => m.id), config.modelPins);
 
   res.json({
-    ready: Boolean(config.apiKey),
+    // Chat works with OpenAI, or with Meta Llama alone while OpenAI is switched off.
+    ready: Boolean(config.apiKey) || llamaConfig().ready,
+    openaiOff: config.openaiOff,
     requiresCode: Boolean(config.accessCode),
     // Which round of the code this is. A browser holding a different one is
     // asked for the code again, even though the code itself has not changed.
@@ -342,7 +344,7 @@ app.get('/api/config', async (_req, res) => {
     // True only where the switch is on AND something on this account can
     // actually look. A camera button that leads to "I cannot see pictures" is
     // worse than no camera button.
-    vision: config.vision && Boolean(tiers.seeing),
+    vision: config.vision && Boolean(config.apiKey) && Boolean(tiers.seeing),
     // Ritual Coding needs nothing beyond the key the rest of the app uses.
     building: config.building && Boolean(config.apiKey),
     backgroundBuilds: Boolean(buildJobStore && process.env.VERCEL_DEPLOYMENT_ID),
@@ -781,7 +783,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
   // Research can accompany a photo or a build when the question needs it.
   // With Llama answering all text chat, web research (an OpenAI tool) is not
   // used; Grandpa answers from what he knows and says so where it matters.
-  const llamaAll = llamaConfig().ready && llamaMode() === 'all' && !building && !photo && !document;
+  const llamaAll = llamaConfig().ready && llamaMode(process.env, { openaiOff: config.openaiOff }) === 'all' && !building && !photo && !document;
   let searched = !building && Boolean(reader) && !llamaAll
     && !carryingOn
     && (req.body?.search === true || (research !== 'off' && needsLookingUp(routedQuestion, new Date(), research === 'always')));
@@ -1046,7 +1048,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       // answer (not set up, its allowance spent, an error), OpenAI does.
       let answeredByLlama = false;
       if (llamaConfig().ready && everydayForLlama({ question: routedQuestion, building, searched, photo: Boolean(photo), document: Boolean(document),
-        thinking, tier: tierFor('chat', routing), carryingOn })) {
+        thinking, tier: tierFor('chat', routing), carryingOn, openaiOff: config.openaiOff })) {
         try {
           send('start', { model: llamaConfig().model, spoken, searched: false, dropped, saw: false, thought: false });
           await runBackup(opening());
@@ -1056,6 +1058,8 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
         } catch (error) {
           if (controller.signal.aborted || answer.trim()) throw error;
           console.error('[chat] LLAMA_FIRST_FALLBACK', error?.code || error?.status || error?.message);
+          // OpenAI is switched off: nothing to fall back to.
+          if (config.openaiOff) throw governanceError(error) ? error : new OpenAIError('Grandpa could not answer just now. Please try again in a moment.', 503, 'llama_unavailable');
           send('start', { model, spoken, searched, dropped, saw: Boolean(photo), thought: think });
         }
       }
@@ -1177,7 +1181,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
 // Short text jobs (titles, summaries) go to Llama while it is answering chat,
 // charged to its allowance; if it cannot, OpenAI does them as before.
 async function shortText({ messages, maxTokens, openai }) {
-  if (llamaConfig().ready && llamaMode() !== 'backup') {
+  if (llamaConfig().ready && llamaMode(process.env, { openaiOff: config.openaiOff }) !== 'backup') {
     try {
       const inputChars = JSON.stringify(messages).length;
       return await runtime.meter('backup', 'generate', llamaMicroUsd(inputChars, maxTokens * 4),

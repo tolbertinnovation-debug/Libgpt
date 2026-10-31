@@ -156,6 +156,7 @@ async function post(path, body, signal) {
   // body.model is what every one of these calls names.
   const asked = typeof body?.model === 'string' ? body.model : '';
 
+  if (config.openaiOff) throw new OpenAIError('This feature uses OpenAI, which is switched off for now.', 503, 'openai_off');
   if (!config.apiKey) {
     throw new OpenAIError(
       'No OpenAI API key is configured. Copy .env.example to .env and set OPENAI_API_KEY.',
