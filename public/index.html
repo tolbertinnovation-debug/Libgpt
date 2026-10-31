@@ -12,7 +12,7 @@
 <meta property="og:description" content="African-centred conversational AI by Tolbert Innovation Hub. Ask in Liberian English, by voice or text.">
 <meta property="og:image" content="logo.png">
 <meta property="og:type" content="website">
-<link rel="stylesheet" href="styles.css?v=phase3-1">
+<link rel="stylesheet" href="styles.css?v=voices-1">
 </head>
 <body>
 
@@ -573,10 +573,19 @@
         <input type="checkbox" id="settings-autospeak">
         <span class="toggle-track" aria-hidden="true"></span>
       </label>
+<label class="setting-row setting-toggle" for="settings-casting">
+        <span><strong>Different voices for different topics</strong><small>A woman's voice for cooking, a teacher for homework, a storyteller for folktales</small></span>
+        <input type="checkbox" id="settings-casting">
+        <span class="toggle-track" aria-hidden="true"></span>
+      </label>
 <label class="setting-row" for="settings-openai-voice">
-        <span><strong>OpenAI voice</strong><small>Cedar or Marin — natural, clear AI generated speech</small></span>
+        <span><strong id="settings-openai-voice-title">Main voice</strong><small id="settings-openai-voice-hint">Used for everything when different voices are off</small></span>
         <select id="settings-openai-voice"></select>
       </label>
+<details class="settings-cast" id="settings-cast-box">
+        <summary><span><strong>Who speaks for each topic</strong><small>Choose the voice for each part, and hear it</small></span></summary>
+        <div id="settings-cast" class="settings-cast-list"></div>
+      </details>
 <label class="setting-row" for="settings-rate">
         <span><strong>Speaking speed</strong><small id="settings-rate-value">Normal</small></span>
         <input type="range" id="settings-rate" min="0.75" max="1.5" step="0.05" value="0.95">
@@ -827,6 +836,6 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<script type="module" src="app.js?v=phase3-1"></script>
+<script type="module" src="app.js?v=voices-1"></script>
 </body>
 </html>

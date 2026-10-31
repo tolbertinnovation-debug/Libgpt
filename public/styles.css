@@ -773,6 +773,18 @@ body {
 
 .thinking-note { color: var(--text-faint); font-size: .9rem; }
 
+/* Who speaks for each topic */
+.settings-cast { margin: .2rem 0 .4rem; }
+.settings-cast > summary { cursor: pointer; list-style: none; padding: .55rem 0; }
+.settings-cast > summary::-webkit-details-marker { display: none; }
+.settings-cast > summary small { display: block; color: var(--text-faint); font-size: .8rem; }
+.settings-cast-list { display: grid; gap: .5rem; padding: .2rem 0 .4rem; }
+.cast-row { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: .5rem; }
+.cast-row strong { display: block; font-size: .92rem; }
+.cast-row small { display: block; color: var(--text-faint); font-size: .78rem; }
+.cast-row select { min-height: 44px; max-width: 9.5rem; font: inherit; font-size: .88rem; }
+.cast-play { min-width: 44px; min-height: 44px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: var(--text); font: inherit; cursor: pointer; }
+
 /* Sync across devices */
 .sync-code { font: 600 1.15rem/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .04em; overflow-wrap: anywhere; padding: .6rem .75rem; border: 1px dashed var(--border); border-radius: 10px; margin: .3rem 0 .6rem; user-select: all; }
 .sync-join { display: grid; gap: .4rem; }

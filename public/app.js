@@ -36,6 +36,8 @@ import { splitFollowups, visibleWhileStreaming } from './followups.js';
 import { cleanSummary, needsSummary, summaryRequest } from './chat-summary.js';
 import { loadSync, saveSync, syncOnce, newSyncCode, readSyncCode, syncKeys } from './sync.js';
 import { LiveTalk, liveTalkSupported } from './live-talk.js';
+import { CAST, CAST_ROLES, castFor, realtimeVoice } from './voice-cast.js';
+import { OPENAI_VOICES } from './voice-settings.js';
 import {imageCard,mountImageComposer,safeChatImage,imagePrompt,imageLoadingMarkup} from './image-chat.js';
 
 /* ========================================================================
@@ -873,6 +875,7 @@ document.addEventListener('ritual:busy', (event) => {
  * looking. `spoken` also tells the server to answer the way people talk.
  */
 async function streamReply(chat, hooks = {}) {
+  if (hooks.spoken) currentCast = castFor({ question: chat.messages.findLast((m) => m.role === 'user')?.content || '', persona: chat.persona || state.prefs.persona }, state.prefs);
   const controller = new AbortController();
   const cancel = () => controller.abort();
   if (hooks.signal?.aborted) throw new DOMException('Cancelled', 'AbortError');
@@ -1076,7 +1079,9 @@ async function streamReply(chat, hooks = {}) {
     // Read it out for anyone who reads slowly — but never over an aborted
     // reply, and never in a spoken conversation, which is already saying it
     // sentence by sentence as it arrives.
-    if (state.prefs.autoSpeak && !failed && !hooks.spoken && !controller.signal.aborted) speak(text);
+    if (state.prefs.autoSpeak && !failed && !hooks.spoken && !controller.signal.aborted) {
+      speak(text, null, { question: chat.messages.findLast((m) => m.role === 'user')?.content || '', persona: chat.persona || state.prefs.persona, searched });
+    }
   } else if (!failed) {
     // Aborted before any text arrived — drop the empty turn.
     target.closest('.turn')?.remove();
@@ -1372,8 +1377,12 @@ const deviceVoice = new Speaker();
 // intercept it.
 const room = new Room((message) => toast(message));
 
+// The part of the cast speaking now (see voice-cast.js), chosen per answer.
+let currentCast = null;
+const castNow = () => currentCast || castFor({}, state.prefs);
 const speaker = new VoiceOut({
   device: deviceVoice,
+  cast: castNow,
   room,
   // Off when the deployment has no key for it, or when the user has asked for
   // the phone's voice instead.
@@ -1388,7 +1397,8 @@ const speaker = new VoiceOut({
   const speaking = speechState !== 'idle';
   el.speakingBar.hidden = !speaking;
   el.speakingBar.classList.toggle('is-paused', speechState === 'paused');
-  el.speakingText.textContent = speechState === 'paused' ? 'Paused' : 'Reading aloud…';
+  const who = state.prefs.voiceCasting !== 'one' && speaker.mode === 'real' ? `${castNow().label} is speaking…` : 'Reading aloud…';
+  el.speakingText.textContent = speechState === 'paused' ? 'Paused' : who;
   el.speakToggle.textContent = speechState === 'paused' ? 'Continue' : 'Pause';
 
   // Keep every Listen button — in the thread and in the Library — in step
@@ -1408,7 +1418,12 @@ const READING = '.msg-action.is-on, .lib-read.is-on';
 const clearSpeakingMarks = () =>
   document.querySelectorAll(READING).forEach((b) => b.classList.remove('is-on'));
 
-function speak(text, button) {
+/**
+ * Read text aloud. `context` says what it answers ({question, persona,
+ * searched, kind}) so the right part of the cast speaks it, in the right mood.
+ */
+function speak(text, button, context = {}) {
+  currentCast = castFor({ ...context, answer: text }, state.prefs);
   speaker.unlock();
   if (!speaker.supported) {
     toast('This browser cannot read answers aloud.');
@@ -2266,7 +2281,7 @@ const live = new LiveTalk({
         speaker: state.prefs.speaker,
         tone: state.prefs.tone,
         userName: state.prefs.userName,
-        voice: state.prefs.openaiVoice || 'cedar',
+        ...(() => { const cast = castFor({ persona: chat?.persona || state.prefs.persona }, state.prefs); return { voice: realtimeVoice(cast.voice), role: cast.role }; })(),
         accent: state.prefs.accent,
         speed: state.prefs.voiceRate,
         memories: memoriesForQuestion(loadMemory(), recent.filter((m) => m.role === 'user').at(-1)?.content || ''),
@@ -2472,6 +2487,7 @@ function renderSettings() {
   el.setDepth.value = answerDepth(prefs.answerDepth);
   el.setResearch.value = researchMode(prefs.research);
   el.setAutoSpeak.checked = prefs.autoSpeak;
+  renderCastSettings();
   el.setRate.value = prefs.voiceRate;
   el.setRateValue.textContent = RATE_WORDS.find(([limit]) => prefs.voiceRate < limit)[1];
   el.setPitch.value = prefs.voicePitch;
@@ -2668,6 +2684,62 @@ el.setTheme.addEventListener('change', () => {
   state.prefs.theme = choice === 'system' ? null : choice;
   applyTheme(state.prefs.theme);
   savePreferences();
+});
+
+// ---- voice casting: who speaks for each topic ----------------------------
+const CAST_SAMPLES = {
+  grandpa: 'Good day, my friend. One hand cannot tie a bundle. Ask me anything you like.',
+  auntie: 'Wash the rice well, my dear, then let the palm butter cook slowly. Taste it before you add the pepper.',
+  nurse: 'Give the child plenty of clean water and rest. If the fever does not go down by tomorrow, take them to the clinic.',
+  teacher: 'A fraction is a part of a whole. If you cut a cassava into four pieces, one piece is one quarter.',
+  mentor: 'Buy one hundred bags for one thousand five hundred dollars, sell each for twenty-five, and you make one thousand dollars profit.',
+  farmer: 'Plant your rice when the first steady rains come, and keep the swamp water at ankle height.',
+  storyteller: 'Long, long ago, when animals could talk, Spider had a plan to keep all the wisdom of the world for himself...',
+  newsreader: 'Here is the latest. The exchange rate today is one hundred and ninety Liberian dollars to one US dollar.',
+};
+function renderCastSettings() {
+  const casting = state.prefs.voiceCasting !== 'one';
+  $('settings-casting').checked = casting;
+  $('settings-openai-voice-hint').textContent = casting ? 'Grandpa\'s own voice; each topic below has its own' : 'Used for everything';
+  $('settings-cast-box').hidden = !casting;
+  const chosen = state.prefs.castVoices || {};
+  $('settings-cast').replaceChildren(...CAST_ROLES.filter((role) => role !== 'grandpa').map((role) => {
+    const row = document.createElement('div');
+    row.className = 'cast-row';
+    const words = document.createElement('span');
+    words.innerHTML = `<strong>${escapeHtml(CAST[role].label)}</strong><small>${escapeHtml(CAST[role].topic)}</small>`;
+    const select = document.createElement('select');
+    select.dataset.castRole = role;
+    select.setAttribute('aria-label', `Voice for ${CAST[role].label}`);
+    for (const voice of OPENAI_VOICES) select.add(new Option(`${voice.label} (${voice.gender})`, voice.id));
+    select.value = OPENAI_VOICES.some((v) => v.id === chosen[role]) ? chosen[role] : CAST[role].voice;
+    const play = document.createElement('button');
+    play.type = 'button'; play.className = 'cast-play'; play.dataset.castPlay = role; play.textContent = '▶';
+    play.setAttribute('aria-label', `Hear the ${CAST[role].label} voice`);
+    row.append(words, select, play);
+    return row;
+  }));
+}
+$('settings-casting').addEventListener('change', (event) => {
+  state.prefs.voiceCasting = event.target.checked ? 'auto' : 'one';
+  savePreferences(); renderCastSettings();
+  toast(event.target.checked ? 'Grandpa will pick a voice for each topic.' : 'One voice for everything.');
+});
+$('settings-cast').addEventListener('change', (event) => {
+  const select = event.target.closest('[data-cast-role]');
+  if (!select) return;
+  state.prefs.castVoices = { ...(state.prefs.castVoices || {}), [select.dataset.castRole]: select.value };
+  savePreferences();
+});
+$('settings-cast').addEventListener('click', (event) => {
+  const play = event.target.closest('[data-cast-play]');
+  if (!play) return;
+  const role = play.dataset.castPlay;
+  speaker.stop(); clearSpeakingMarks();
+  const voice = state.prefs.castVoices?.[role] || CAST[role].voice;
+  currentCast = { role, voice: OPENAI_VOICES.some((v) => v.id === voice) ? voice : CAST[role].voice, mood: 'steady', label: CAST[role].label };
+  speaker.unlock();
+  speaker.speak(CAST_SAMPLES[role], { voice: chosenVoice(), rate: state.prefs.voiceRate, pitch: state.prefs.voicePitch });
 });
 
 el.setAutoSpeak.addEventListener('change', () => {
@@ -3170,7 +3242,7 @@ function openLibrary(tab = 'story') {
       onSaved: (entry) => { sounds.reply(); toast(`Kept in your journal: ${entry.title}`); },
       onError: message => toast(message),
       onExplore: (kind,title) => { closeLibrary(); send(`Search authoritative sources about ${title}. Explain this ${kind} topic more fully and verify the important facts, with links.`); },
-      onSpeak: (text, button) => speak(text, button),
+      onSpeak: (text, button) => speak(text, button, { question: String(text || '').slice(0, 400) }),
       onSpeakStop: () => {
         speaker.stop();
         clearSpeakingMarks();
@@ -3472,7 +3544,9 @@ el.thread.addEventListener('click', async (event) => {
 
   const listen = event.target.closest('[data-speak]');
   if (listen && chat) {
-    speak(chat.messages[Number(listen.dataset.speak)]?.content || '', listen);
+    const index = Number(listen.dataset.speak), message = chat.messages[index];
+    speak(message?.content || '', listen, { question: chat.messages.slice(0, index).findLast((m) => m.role === 'user')?.content || '',
+      persona: chat.persona || state.prefs.persona, searched: Boolean(message?.searched) });
     return;
   }
 

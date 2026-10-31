@@ -36,7 +36,7 @@ test('legacy models upgrade and supported TTS snapshots remain configurable', ()
 });
 
 test('only quality voices are accepted with clean delivery and bounded speed', () => {
-  assert.deepEqual(OPENAI_VOICES.map(v=>v.id),['cedar','marin']);
+  assert.deepEqual(OPENAI_VOICES.map(v=>v.id),['cedar','marin','coral','sage','shimmer','ash','ballad','verse','onyx']);
   assert.equal(speechOptions().voice,'cedar');assert.equal(speechOptions({voice:'Marin'}).voice,'marin');
   assert.equal(speechOptions({speed:99}).speed,1.5);assert.equal(speechOptions({speed:0}).speed,0.75);
   assert.equal(speechOptions({speed:'fast'}).speed,1);
