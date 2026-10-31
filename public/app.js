@@ -7,7 +7,7 @@ import { chatContext } from './chat-context.js';
 import {imageDiscussion,validImageDiscussion,imageRequestLabel} from './image-context.js';
 import { renderMarkdown, escapeHtml } from './markdown.js';
 import { conversationWindow, answerDepth, researchMode } from './knowledge.js';
-import { groupByDate, loadChats, loadPrefs, newId, savePrefs, saveChats } from './storage.js';
+import { groupByDate, loadChats, loadPrefs, newId, savePrefs, saveChats } from './storage.js?v=autospeak-1';
 import {
   DEFAULT_DICTATION, DICTATION_ACCENTS, FALLBACK_DICTATION,
   Speaker, SentenceStream, englishVoices, loadVoices, pickDefaultVoice, stripMarkdown,
