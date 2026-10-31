@@ -126,6 +126,7 @@ export class VoiceOut {
    * @param {() => boolean} deps.wanted  is the real voice asked for right now?
    * @param {() => string} deps.speaker  which elder is talking
    * @param {() => object} [deps.cast]   the part of the cast for this answer: {voice, role, mood}
+   * @param {object} [deps.guard]        a SpeakerGuard that keeps the phone speaker from buzzing
    * @param {() => object} deps.headers  headers for a request that spends money
    * @param {(message: string) => void} deps.onNotice
    * @param {(state: string) => void} onStateChange
@@ -172,6 +173,8 @@ export class VoiceOut {
    * silence, which buys the right to play everything after it.
    */
   unlock() {
+    // Every tap is a chance to let the speaker guard run (see speaker-guard.js).
+    this.guard?.unlock();
     if (this.unlocked || typeof Audio === 'undefined') return;
     this.unlocked = true;
     try {
@@ -413,7 +416,8 @@ export class VoiceOut {
     const audio = reuse ? held.audio : new Audio(item.url);
     this.audio = audio;
 
-    // Play clean speech without synthetic room effects.
+    // Clean speech, kept within what a phone speaker can play without buzzing.
+    this.guard?.attach(audio);
 
     audio.onended = () => {
       if (token !== this.token || this.audio !== audio) return;

@@ -43,14 +43,18 @@ const TOPICS = [
   ['mentor', /\b(?:business|shop|market(?:ing)?|sell|selling|profit|loan|interest|money|budget|savings?|invest\w*|price|customer|capital|susu|bank|salary|job|cv|interview)\b/i],
   ['farmer', /\b(?:farm|farming|farmer|plant|planting|crop|harvest|seed|soil|fertili[sz]er|rice field|swamp|cassava|pepper|cocoa|coffee|rubber|palm|chicken|poultry|goat|pig|livestock|garden)\b/i],
   ['storyteller', /\b(?:story|stories|stori|folktale|folk tale|tale|proverbs?|wisdom|legend|myth|riddle|history|historical|ancestors?|once upon)\b/i],
-  ['newsreader', /\b(?:news|today'?s|this week|latest|headline|election|president|government|weather|exchange rate|current)\b/i],
+  ['newsreader', /\b(?:news|today'?s|this week|latest|headline|election|weather|exchange rate)\b/i],
 ];
 const PERSONA_ROLE = { homework: 'teacher', business: 'mentor', farming: 'farmer', culture: 'storyteller' };
 
 /** Which part of the cast should speak this answer. */
+// History belongs to the storyteller, even when it mentions a president.
+const HISTORY = /\b(?:history|historical|first president|past presidents?|independence|civil war|world war|colon(?:y|ial|ists?)|founded|founding|kingdom|empire|ancient|centur(?:y|ies)|coup|treaty|origins? of|(?:in|since|from|around|by|during|before|after) 1[5-9]\d{2}|1[5-9]\d0s)\b/i;
+
 export function castRole({ question = '', answer = '', persona = '', searched = false, kind = '' } = {}) {
   if (kind === 'story') return 'storyteller';
   const asked = String(question || '');
+  if (HISTORY.test(asked)) return 'storyteller';
   for (const [role, pattern] of TOPICS) if (pattern.test(asked)) return role;
   if (searched) return 'newsreader';
   if (PERSONA_ROLE[persona]) return PERSONA_ROLE[persona];
