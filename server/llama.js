@@ -83,3 +83,16 @@ export async function* streamLlama({ config = llamaConfig(), messages, maxTokens
     reader.cancel().catch(() => {});
   }
 }
+
+// Everyday chat goes to Llama first to save OpenAI credit (owner's choice,
+// LLAMA_FIRST=false turns it off). OpenAI keeps whatever Llama cannot do as
+// well or at all: pictures, documents and memory (its tools), photos and PDFs,
+// web research, building, careful thinking and the long creative pieces.
+const NEEDS_OPENAI = /\b(?:picture|image|photo|draw|drawing|paint|poster|logo|document|letter|cv|résumé|resume|report|essay|worksheet|business plan|remember|search|look up|latest|news|today)\b/i;
+
+export function everydayForLlama({ question = '', building = false, searched = false, photo = false, document = false, thinking = '', tier = '', carryingOn = false, env = process.env } = {}) {
+  if (/^(0|false|no|off)$/i.test(env.LLAMA_FIRST?.trim() || '')) return false;
+  if (building || searched || photo || document || thinking || carryingOn) return false;
+  if (tier === 'deep') return false;
+  return !NEEDS_OPENAI.test(String(question || ''));
+}

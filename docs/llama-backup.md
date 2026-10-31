@@ -1,3 +1,29 @@
+# Meta Llama: everyday chat first, and backup
+
+## Everyday chat first (to save OpenAI credit)
+The owner's OpenAI credit was running low, so everyday chat now goes to Llama
+first (`everydayForLlama` in `server/llama.js`).
+
+**What stays with OpenAI:**
+- anything that mentions pictures, documents, letters, CVs, memory, news or
+  searching;
+- photos and PDFs;
+- web research;
+- careful thinking;
+- the long creative pieces;
+- "continue";
+- Build.
+
+**When OpenAI answers instead:** if Llama can't answer, for example because
+it isn't set up, its allowance is used up, or it returns an error.
+
+**Turning it off:** `LLAMA_FIRST=false` turns this off, and so does a $0
+amount for Meta Llama on Owner Controls.
+
+The same change turns two voice features off by default for everyone, once:
+reading answers aloud and the advanced voice. Both are still one tap away in
+Settings, and switching them back on sticks.
+
 # Meta Llama as Grandpa's backup
 
 OpenAI stays Grandpa's main model. When it cannot answer a chat message, Meta's

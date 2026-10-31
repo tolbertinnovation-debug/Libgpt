@@ -3,7 +3,7 @@
 // cookies or the URL, and it is cleared on Lock or when the page closes.
 const $ = id => document.getElementById(id);
 const LABELS = {build: 'Coding agent', chat: 'Chat', research: 'Research', documents: 'Documents', library: 'Library',
-  images: 'Pictures', voice: 'Voice', livetalk: 'Live Talk', execution: 'Code testing', backup: 'Backup (Meta Llama)'};
+  images: 'Pictures', voice: 'Voice', livetalk: 'Live Talk', execution: 'Code testing', backup: 'Meta Llama'};
 let token = '', timer = null;
 
 export const usd = value => `$${(Number(value) || 0).toFixed(value > 0 && value < 0.01 ? 4 : 2)}`;

@@ -32,11 +32,13 @@ export function migrateVoicePrefs(value) {
     if (!prefs.openaiVoice || prefs.openaiVoice === 'cedar') prefs.openaiVoice = 'ballad';
     prefs.grandpaVoice = 'ballad-1';
   }
-  // Once: the owner turned "Read answers aloud" on for everyone. Anyone who
-  // switches it off after this keeps it off.
-  if (prefs.autoSpeakDefault !== 'on-1') {
-    prefs.autoSpeak = true;
-    prefs.autoSpeakDefault = 'on-1';
+  // Once, to save OpenAI credit (owner's choice): reading answers aloud and the
+  // advanced voice start off for everyone. Either can be switched back on in
+  // Settings, and that choice then sticks.
+  if (prefs.autoSpeakDefault !== 'off-2') {
+    prefs.autoSpeak = false;
+    prefs.voiceEngine = 'standard';
+    prefs.autoSpeakDefault = 'off-2';
   }
   prefs.openaiVoice = openaiVoice(prefs.openaiVoice);
   // Cloud speech always plays without artificial reverberation.
