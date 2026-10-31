@@ -87,4 +87,4 @@ export const HISTORY_PROMPT = `HISTORY
 This question is about history. Make the answer concrete: name the specific people (with their titles or roles), the places, and the dates; give a short timeline of the key events in order when it helps; and include at least one specific example. Say plainly where a date or fact is uncertain or disputed, and never invent names, titles or dates.
 Instead of the [[followups: ...]] line, end with one last line in exactly this form, offering two to four things you could add next, written as short phrases in the person's language, for example:
 [[offers: A timeline of the key dates | The names of the main people and places | A specific example | Their titles and roles]]
-Fit the offers to this topic, and leave out anything you have already covered in full.`;
+Fit the offers to this topic, and leave out anything you have already covered in full. Do not write a lead-in such as "If you want, I can tell you:" and do not list the offers in the answer: the app shows the heading and turns that line into buttons.`;

@@ -32,7 +32,7 @@ import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 import { mountSupport } from './support.js?v=phase3-sync-1';
 import { loadMemory, memoriesForQuestion, remember, saveMemory } from './memory.js';
-import { splitFollowups, visibleWhileStreaming, offerRequest } from './followups.js';
+import { splitFollowups, visibleWhileStreaming, offerRequest } from './followups.js?v=history-2';
 import { cleanSummary, needsSummary, summaryRequest } from './chat-summary.js';
 import { loadSync, saveSync, syncOnce, newSyncCode, readSyncCode, syncKeys } from './sync.js';
 import { LiveTalk, liveTalkSupported } from './live-talk.js';
@@ -732,6 +732,14 @@ function followupChips(items, offers = false) {
     + '</div>';
 }
 
+// What an answer shows: its saved follow-ups, or ones read from its text when it
+// was saved before Grandpa's lead-in lines were understood.
+function shown(message) {
+  if (Array.isArray(message.followups) && message.followups.length) return { text: message.content, followups: message.followups, offers: message.offers === true };
+  if (message.document || message.image) return { text: message.content, followups: [], offers: false };
+  return splitFollowups(message.content);
+}
+
 function renderThread() {
   const chat = currentChat();
   const hasMessages = Boolean(chat?.messages.length);
@@ -770,13 +778,13 @@ function renderThread() {
           <div class="ai-body">
             ${message.trimmed ? trimmedNote(message.trimmed) : ''}
             ${message.searched ? lookedUp() : ''}
-            <div class="prose">${message.document ? 'Your document is ready. Read it below, choose a template, or download a copy.' : renderMarkdown(message.content)}</div>
+            <div class="prose">${message.document ? 'Your document is ready. Read it below, choose a template, or download a copy.' : renderMarkdown(shown(message).text)}</div>
             ${imageCard(message.image,index)}
             ${documentCard(message.document,index)}
             ${message.taskBrief ? taskBriefCard(message.taskBrief,index,Boolean(message.documentQuestions)) : ''}
             ${sourceList(message.sources)}
             ${message.memoryOffer ? memoryOfferCard(message.memoryOffer, index) : ''}
-            ${index === lastAiIndex() && Array.isArray(message.followups) && message.followups.length ? followupChips(message.followups, message.offers === true) : ''}
+            ${index === lastAiIndex() && shown(message).followups.length ? followupChips(shown(message).followups, shown(message).offers) : ''}
             ${messageActions(index, message.content)}
           </div>
         </div>`;
