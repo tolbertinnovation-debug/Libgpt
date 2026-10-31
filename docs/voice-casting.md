@@ -14,6 +14,14 @@ was asked. The parts and their default voices are set in `public/voice-cast.js`:
 | Storyteller | Stories, proverbs and history | Verse (man) |
 | News reader | News and research | Sage (woman) |
 
+## Calm on purpose
+The first version gave each part strong acting directions: lively, cheerful,
+building suspense, a different colour for each character. On a phone speaker
+that made some voices strained and harsh. The owner reported a sound that hurt
+their ears. Each part now has only a light touch of manner. Every request also
+asks for a steady, comfortable volume and pitch: no shouting, nothing shrill,
+squeaky, breathy or crackling, and no acting. Live Talk has the same rule.
+
 ## How Grandpa chooses
 - **The part.** It is chosen from the question. If the question says little, it
   is chosen from the conversation's role (homework, business, farming,

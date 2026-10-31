@@ -1,38 +1,39 @@
 // Who speaks. Grandpa AI has a small cast of voices and picks the one that
 // suits what was asked: a warm auntie for cooking, a patient teacher for
-// homework, a storyteller for folktales. Each part has its own way of speaking,
-// and the mood of the answer (comforting, cheerful, step by step) shapes the
-// delivery on top. People can switch casting off or give any part a different
+// homework, a storyteller for folktales. Each part has a light touch of manner,
+// and the mood of the answer (comforting, step by step) shapes it a little.
+// Kept deliberately calm: strong acting instructions made the voices strained
+// and harsh on a phone speaker. People can switch casting off or give any part a different
 // voice in Settings. Shared by the browser (choosing) and the server (turning a
 // part and a mood into speaking instructions).
 import { OPENAI_VOICES, REALTIME_VOICES, DEFAULT_OPENAI_VOICE } from './voice-settings.js';
 
 export const CAST = {
   grandpa: { label: 'Grandpa', topic: 'Everyday questions', voice: 'ballad',
-    style: 'You are Grandpa, a wise, warm Liberian elder: unhurried, kind and assured, with a smile in the voice.' },
+    style: 'You are Grandpa, a calm, kind Liberian elder speaking quietly and naturally.' },
   auntie: { label: 'Auntie', topic: 'Cooking and food', voice: 'coral',
-    style: 'You are a warm, lively Liberian auntie in her kitchen: cheerful, encouraging and practical, as if cooking beside the listener.' },
+    style: 'You are a kind, warm Liberian auntie calmly explaining how to cook.' },
   nurse: { label: 'Nurse', topic: 'Health and care', voice: 'shimmer',
-    style: 'You are a caring community nurse: gentle, calm and reassuring, clear about anything urgent without causing alarm.' },
+    style: 'You are a calm, caring nurse speaking gently and clearly.' },
   teacher: { label: 'Teacher', topic: 'School and homework', voice: 'marin',
-    style: 'You are a patient, encouraging teacher: clear and well paced, stressing key words so a student can follow and remember.' },
+    style: 'You are a patient teacher speaking clearly and calmly, at an easy pace.' },
   mentor: { label: 'Business mentor', topic: 'Money and business', voice: 'ash',
-    style: 'You are a confident business mentor: direct, practical and upbeat, saying numbers slowly and clearly.' },
+    style: 'You are a calm, practical business adviser; say numbers slowly and clearly.' },
   farmer: { label: 'Farmer', topic: 'Farming', voice: 'onyx',
-    style: 'You are an experienced farmer: steady, grounded and plain-spoken, like advice given in the field.' },
+    style: 'You are an experienced farmer, plain-spoken and steady.' },
   storyteller: { label: 'Storyteller', topic: 'Stories, proverbs and history', voice: 'verse',
-    style: 'You are a gifted storyteller at an evening gathering: expressive and engaging, building suspense, giving each character a slightly different colour, with natural pauses for effect.' },
+    style: 'You are telling a story to a few listeners: warm and natural, with gentle pauses, never acting out voices.' },
   newsreader: { label: 'News reader', topic: 'News and research', voice: 'sage',
-    style: 'You are a trusted radio news reader: crisp, neutral and well paced, with clear emphasis on names, dates and figures.' },
+    style: 'You are a calm news reader, clear and neutral, saying names, dates and figures plainly.' },
 };
 export const CAST_ROLES = Object.keys(CAST);
 
 export const MOODS = {
   steady: '',
-  comfort: 'The listener may be sad, worried or unwell: speak softly and slowly, with compassion.',
-  cheerful: 'This is good news or light-hearted: let warmth and a little joy come through.',
+  comfort: 'The listener may be sad or worried: speak gently and a little more slowly.',
+  cheerful: 'Let a little warmth come through, without getting louder.',
   steps: 'These are instructions: pause briefly between steps and say numbers and quantities clearly.',
-  urgent: 'This may be urgent: speak calmly but firmly, making the most important action unmistakable.',
+  urgent: 'This may be urgent: stay calm and clear, make the important action plain, and never raise your voice.',
 };
 
 const TOPICS = [

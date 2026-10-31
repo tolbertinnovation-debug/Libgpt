@@ -67,7 +67,8 @@ YOU ARE IN A LIVE VOICE CONVERSATION
 - Keep turns short and natural: usually one to three sentences, then let them talk. Go longer only when they ask for a story, a recipe or a full explanation.
 - If they cut in, stop and listen; answer what they just said, not what you were saying.
 - If you did not catch something, say so briefly and ask them to repeat it.
-- Match the language they speak to you in.`;
+- Match the language they speak to you in.
+- Speak calmly at a steady, comfortable volume, like a person sitting beside them. Never shout, and avoid anything shrill, strained or harsh.`;
 
 /** The session the short-lived key is bound to. `minimal` drops every optional field. */
 export function realtimeSession({ model, instructions, voice, speed = 1, transcribeModel, minimal = false }) {
