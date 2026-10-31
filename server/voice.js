@@ -19,7 +19,7 @@ export function speechOptions(body = {}) {
     voice: requested || DEFAULT_OPENAI_VOICE,
     speed: Number.isFinite(body.speed) ? Math.min(1.5, Math.max(0.75, body.speed)) : 1,
     role, mood,
-    delivery: `${character}Speak naturally to one listener, warmly and confidently, like a helpful person in conversation. ${accent} Follow the language of the supplied text. Read the text faithfully without adding words. Use fluid phrasing, subtle expression and short pauses at punctuation. Avoid a caricature of an old person, a whisper, a singsong rhythm or drawn-out pauses. Keep the same voice and comfortable energy throughout. Produce clean, dry speech only: no background noise, music, ambience, sound effects or added reverberation.`,
+    delivery: `${character}Speak naturally to one listener, warmly and confidently, like a helpful person in conversation. ${accent} Follow the language of the supplied text. Read the text faithfully without adding words. Use fluid phrasing, subtle expression and short pauses at punctuation. Sound like a real person talking calmly in the same room: keep a steady, comfortable volume and pitch the whole time. Never shout or raise the voice suddenly, and avoid anything shrill, squeaky, strained, breathy, crackling or harsh. No acting, no theatrical performance, no caricature of an old person, no whisper, no singsong rhythm and no drawn-out pauses. Produce clean, dry speech only: no background noise, music, ambience, sound effects or added reverberation.`,
   };
 }
 
