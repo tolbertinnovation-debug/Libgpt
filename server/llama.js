@@ -1,29 +1,38 @@
-// Meta's Llama API as Grandpa's backup brain. OpenAI stays the main model; when
-// it fails (an outage, a quota, a refused key) or today's Chat limit is spent,
-// Llama answers that one chat turn instead, so Grandpa never just stops.
-//
-// The Llama API speaks the same chat-completions format as OpenAI at its
-// "compat" address. The key is read from LLAMA_API_KEY on the server and never
-// reaches a browser. Every backup turn is charged to its own daily allowance,
-// "backup", which starts at $0 until the owner sets it on Owner Controls.
+// Meta's Model API (dev.meta.ai) as Grandpa's brain while OpenAI is off, and
+// as backup otherwise. It speaks the same chat-completions format as OpenAI at
+// https://api.meta.ai/v1. Muse Spark answers everyday chat; Muse Wonder, Meta's
+// strongest model, takes the questions that need careful thinking. The key is
+// read on the server (META_API_KEY, MODEL_API_KEY or the older LLAMA_API_KEY)
+// and never reaches a browser. Every turn is charged to the owner's "Meta"
+// allowance ("backup" in the ledger), which starts at $0.
 
 export const LLAMA_DEFAULTS = Object.freeze({
-  baseUrl: 'https://api.llama.com/compat/v1',
-  model: 'Llama-4-Maverick-17B-128E-Instruct-FP8',
+  baseUrl: 'https://api.meta.ai/v1',
+  model: 'muse-spark-1.3',
+  deepModel: 'muse-wonder-1.0',
 });
 
-// USD per million tokens, kept ABOVE Meta's published Maverick prices
-// (about $0.22 in / $0.85 out, not yet confirmed from Meta's own page) so the
-// ledger can only over-count. Tokens are estimated at four characters each.
-export const LLAMA_RATES = Object.freeze({ input: 1, output: 3 });
+// USD per million tokens, kept ABOVE Meta's published prices (read 2026-10-31
+// from dev.meta.ai/docs/pricing-rate-limits: Spark 1.3 $1.25 in / $4.25 out,
+// Wonder 1.0 $4 / $20) so the ledger can only over-count. Unknown models are
+// charged at the Wonder ceiling. Tokens are estimated at four characters each.
+export const LLAMA_RATES = Object.freeze({
+  'muse-spark-1.3': Object.freeze({ input: 1.5, output: 5 }),
+  'muse-spark-1.2': Object.freeze({ input: 1.5, output: 5 }),
+  'muse-wonder-1.0': Object.freeze({ input: 5, output: 25 }),
+});
+const CEILING = Object.freeze({ input: 5, output: 25 });
 const CHARS_PER_TOKEN = 4;
-export const llamaMicroUsd = (inputChars, outputChars) =>
-  Math.ceil((inputChars / CHARS_PER_TOKEN) * LLAMA_RATES.input + (outputChars / CHARS_PER_TOKEN) * LLAMA_RATES.output);
+export const llamaMicroUsd = (inputChars, outputChars, model = LLAMA_DEFAULTS.model) => {
+  const rate = LLAMA_RATES[model] || CEILING;
+  return Math.ceil((inputChars / CHARS_PER_TOKEN) * rate.input + (outputChars / CHARS_PER_TOKEN) * rate.output);
+};
 
 export function llamaConfig(env = process.env) {
-  const key = env.LLAMA_API_KEY?.trim() || '';
-  const baseUrl = (env.LLAMA_BASE_URL?.trim() || LLAMA_DEFAULTS.baseUrl).replace(/\/+$/, '');
-  return { key, baseUrl, model: env.LLAMA_MODEL?.trim() || LLAMA_DEFAULTS.model, ready: Boolean(key) && /^https:\/\//.test(baseUrl) };
+  const key = (env.META_API_KEY || env.MODEL_API_KEY || env.LLAMA_API_KEY || '').trim();
+  const baseUrl = (env.META_BASE_URL?.trim() || env.LLAMA_BASE_URL?.trim() || LLAMA_DEFAULTS.baseUrl).replace(/\/+$/, '');
+  return { key, baseUrl, model: env.META_MODEL?.trim() || env.LLAMA_MODEL?.trim() || LLAMA_DEFAULTS.model,
+    deepModel: env.META_DEEP_MODEL?.trim() || LLAMA_DEFAULTS.deepModel, ready: Boolean(key) && /^https:\/\//.test(baseUrl) };
 }
 
 /** Text only: pictures and PDF pages stay with OpenAI, which can read them. */
@@ -44,12 +53,14 @@ export function backupWorthy(error) {
 }
 
 /** Stream one Llama answer. Yields text; `onFinish` gets the stop reason. */
-export async function* streamLlama({ config = llamaConfig(), messages, maxTokens = 1400, temperature = 0.7, signal, onFinish, fetcher = fetch }) {
+export async function* streamLlama({ config = llamaConfig(), model, messages, maxTokens = 1400, temperature, signal, onFinish, fetcher = fetch }) {
   if (!config.ready) throw Object.assign(new Error('The Meta Llama backup is not set up.'), { status: 503 });
   const response = await fetcher(`${config.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.key}` },
-    body: JSON.stringify({ model: config.model, messages: textOnly(messages), stream: true, temperature, max_tokens: maxTokens }),
+    // Muse Spark does best at its default temperature, so none is sent unless asked.
+    body: JSON.stringify({ model: model || config.model, messages: textOnly(messages), stream: true, max_completion_tokens: maxTokens,
+      ...(Number.isFinite(temperature) ? { temperature } : {}) }),
     signal,
   });
   if (!response.ok) {

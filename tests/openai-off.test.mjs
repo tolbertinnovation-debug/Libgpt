@@ -24,10 +24,12 @@ test('with OpenAI off: chat runs on Llama, no OpenAI request is ever made, and O
     LLAMA_API_KEY: 'llama-test-key', LLAMA_BASE_URL: 'https://llama.test/compat/v1' });
   let llamaUp = true;
   const openaiRequests = [];
+  const metaModels = [];
   const original = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
     const target = String(url);
     if (target.startsWith('https://llama.test/')) {
+      metaModels.push(JSON.parse(options.body).model);
       if (!llamaUp) return Response.json({ error: { message: 'overloaded' } }, { status: 503 });
       return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Llama here.' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
     }
@@ -59,6 +61,10 @@ test('with OpenAI off: chat runs on Llama, no OpenAI request is ever made, and O
   assert.notEqual(picture.status, 200);
   const speech = await post('/api/speak', { text: 'Hello' });
   assert.equal(speech.status, 503);
+
+  assert.equal(metaModels[0], 'muse-spark-1.3', 'everyday chat on Muse Spark');
+  await (await post('/api/chat', { messages: [{ role: 'user', content: 'Should I take a loan of 50000 LD at 10% a month?' }], research: 'off' })).text();
+  assert.equal(metaModels.at(-1), 'muse-wonder-1.0', 'questions that need careful thinking go to Muse Wonder');
 
   llamaUp = false;
   const failed = await (await post('/api/chat', { messages: [{ role: 'user', content: 'Hello again' }], research: 'off' })).text();

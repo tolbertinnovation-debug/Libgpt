@@ -965,19 +965,22 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     // Meta's Llama, when OpenAI cannot answer this turn (see llama.js). Charged
     // to the owner's "backup" allowance, settled from the words actually sent.
     let usedBackup = false;
+    // Muse Wonder, Meta's strongest model, for questions that need careful thinking; Muse Spark otherwise.
+    const metaModel = () => (thinking ? llamaConfig().deepModel : llamaConfig().model);
     const runBackup = async (conversation, room = budget) => {
       const llama = llamaConfig();
+      const chosen = metaModel();
       const inputChars = JSON.stringify(conversation).length;
-      await runtime.meter('backup', 'generate', llamaMicroUsd(inputChars, room * 4), async (signal) => {
+      await runtime.meter('backup', 'generate', llamaMicroUsd(inputChars, room * 4, chosen), async (signal) => {
         stopped = '';
         let outputChars = 0;
-        for await (const delta of streamLlama({ config: llama, messages: conversation, maxTokens: room, temperature: temperature ?? 0.7,
+        for await (const delta of streamLlama({ config: llama, model: chosen, messages: conversation, maxTokens: room,
           signal: AbortSignal.any([controller.signal, signal]), onFinish: (reason) => { stopped = reason; } })) {
           outputChars += delta.length;
           take(delta);
         }
         return { inputChars, outputChars };
-      }, { settle: (result) => llamaMicroUsd(result.inputChars, result.outputChars) });
+      }, { settle: (result) => llamaMicroUsd(result.inputChars, result.outputChars, chosen) });
     };
     // Hands a failed first attempt to the backup when it is set up and the
     // failure is OpenAI's (not the request's). True when the backup answered.
@@ -986,10 +989,10 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       try {
         console.error('[chat] BACKUP_LLAMA', error?.code || error?.status || error?.message);
         send('notice', { message: 'OpenAI could not answer just now, so Meta\'s Llama is answering this one.' });
-        send('start', { model: llamaConfig().model, spoken, searched: false, dropped, saw: false, thought: false, backup: true });
+        send('start', { model: metaModel(), spoken, searched: false, dropped, saw: false, thought: false, backup: true });
         await runBackup(opening());
         usedBackup = true;
-        model = llamaConfig().model;
+        model = metaModel();
         return true;
       } catch (backupError) {
         if (controller.signal.aborted || answer.trim()) throw backupError;
@@ -1050,11 +1053,11 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       if (llamaConfig().ready && everydayForLlama({ question: routedQuestion, building, searched, photo: Boolean(photo), document: Boolean(document),
         thinking, tier: tierFor('chat', routing), carryingOn, openaiOff: config.openaiOff })) {
         try {
-          send('start', { model: llamaConfig().model, spoken, searched: false, dropped, saw: false, thought: false });
+          send('start', { model: metaModel(), spoken, searched: false, dropped, saw: false, thought: Boolean(thinking) });
           await runBackup(opening());
           usedBackup = true;
           answeredByLlama = true;
-          model = llamaConfig().model;
+          model = metaModel();
         } catch (error) {
           if (controller.signal.aborted || answer.trim()) throw error;
           console.error('[chat] LLAMA_FIRST_FALLBACK', error?.code || error?.status || error?.message);

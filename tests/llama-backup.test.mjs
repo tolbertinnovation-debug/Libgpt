@@ -10,7 +10,10 @@ test('the backup is set up only with a key, on an https address, with Meta\'s de
   assert.equal(llamaConfig({}).ready, false);
   const ready = llamaConfig({ LLAMA_API_KEY: ' key ' });
   assert.deepEqual([ready.ready, ready.key, ready.baseUrl, ready.model], [true, 'key', LLAMA_DEFAULTS.baseUrl, LLAMA_DEFAULTS.model]);
-  assert.equal(LLAMA_DEFAULTS.baseUrl, 'https://api.llama.com/compat/v1');
+  assert.equal(LLAMA_DEFAULTS.baseUrl, 'https://api.meta.ai/v1');
+  assert.deepEqual([LLAMA_DEFAULTS.model, LLAMA_DEFAULTS.deepModel], ['muse-spark-1.3', 'muse-wonder-1.0']);
+  // The key may be saved under any of Meta's names.
+  for (const name of ['META_API_KEY', 'MODEL_API_KEY', 'LLAMA_API_KEY']) assert.equal(llamaConfig({ [name]: 'k' }).ready, true, name);
   assert.equal(llamaConfig({ LLAMA_API_KEY: 'k', LLAMA_BASE_URL: 'http://insecure.example/v1' }).ready, false);
   assert.equal(llamaConfig({ LLAMA_API_KEY: 'k', LLAMA_MODEL: 'Llama-3.3-70B-Instruct', LLAMA_BASE_URL: 'https://x.test/v1/' }).baseUrl, 'https://x.test/v1');
   assert.ok(CAPABILITIES.includes('backup'));
@@ -30,8 +33,11 @@ test('pictures and PDFs stay with OpenAI; Llama gets the words; costs are over-c
   assert.deepEqual(textOnly([{ role: 'system', content: 'Be kind.' },
     { role: 'user', content: [{ type: 'text', text: 'What is this?' }, { type: 'image_url', image_url: { url: 'data:image/png;base64,AAA' } }] }]),
   [{ role: 'system', content: 'Be kind.' }, { role: 'user', content: 'What is this?' }]);
-  // 4,000 characters in and 2,000 out: 1,000 tokens at $1/M plus 500 at $3/M = $0.0025.
-  assert.equal(llamaMicroUsd(4000, 2000), 2500);
+  // 4,000 characters in and 2,000 out on Muse Spark: 1,000 tokens at $1.50/M plus 500 at $5/M = $0.004
+  // (above Meta's $1.25 / $4.25). Muse Wonder, and any model not on the list, at $5 / $25.
+  assert.equal(llamaMicroUsd(4000, 2000), 4000);
+  assert.equal(llamaMicroUsd(4000, 2000, 'muse-wonder-1.0'), 17500);
+  assert.equal(llamaMicroUsd(4000, 2000, 'something-new'), 17500);
 });
 
 test('streamLlama sends an OpenAI-shaped request with the server-side key and streams the answer', async () => {
@@ -43,10 +49,11 @@ test('streamLlama sends an OpenAI-shaped request with the server-side key and st
   for await (const part of streamLlama({ config: llamaConfig({ LLAMA_API_KEY: 'secret' }), messages: [{ role: 'user', content: 'First president?' }], maxTokens: 300, fetcher, onFinish: r => { finished = r; } })) parts.push(part);
   assert.equal(parts.join(''), 'Joseph Jenkins Roberts.');
   assert.equal(finished, 'stop');
-  assert.equal(sent.url, 'https://api.llama.com/compat/v1/chat/completions');
+  assert.equal(sent.url, 'https://api.meta.ai/v1/chat/completions');
   assert.equal(sent.options.headers.Authorization, 'Bearer secret');
   const body = JSON.parse(sent.options.body);
-  assert.deepEqual([body.model, body.stream, body.max_tokens], [LLAMA_DEFAULTS.model, true, 300]);
+  assert.deepEqual([body.model, body.stream, body.max_completion_tokens], [LLAMA_DEFAULTS.model, true, 300]);
+  assert.equal('temperature' in body, false, 'Muse Spark does best at its default temperature');
   await assert.rejects(async () => { for await (const _ of streamLlama({ config: llamaConfig({ LLAMA_API_KEY: 'k' }), messages: [], fetcher: async () => Response.json({ error: { message: 'Bad key' } }, { status: 401 }) })) { /* drain */ } }, { status: 401, message: 'Bad key' });
   await assert.rejects(async () => { for await (const _ of streamLlama({ config: llamaConfig({}), messages: [] })) { /* drain */ } }, /not set up/);
 });
