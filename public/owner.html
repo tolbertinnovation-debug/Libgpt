@@ -85,6 +85,8 @@ dl{display:grid;grid-template-columns:1fr auto;gap:6px 12px;margin:0}dt{color:va
         <label>Library <input id="limit-library" type="number" inputmode="decimal" min="0" max="10" step="0.05" required></label>
         <label>Voice <input id="limit-voice" type="number" inputmode="decimal" min="0" max="10" step="0.05" required></label>
         <label>Live Talk <input id="limit-livetalk" type="number" inputmode="decimal" min="0" max="10" step="0.05" required></label>
+        <label>Backup (Meta Llama) <input id="limit-backup" type="number" inputmode="decimal" min="0" max="10" step="0.05" required></label>
+        <p class="note" style="margin:0">Backup answers chat when OpenAI fails or today's Chat limit is reached. $0 keeps it off.</p>
         <p class="note" id="limits-month"></p>
         <div class="row"><button class="primary" type="submit" id="limits-save">Save limits</button></div>
       </form>
@@ -103,6 +105,6 @@ dl{display:grid;grid-template-columns:1fr auto;gap:6px 12px;margin:0}dt{color:va
     </section>
   </div>
 </main>
-<script type="module" src="owner.js?v=owner-4"></script>
+<script type="module" src="owner.js?v=owner-5"></script>
 </body>
 </html>
