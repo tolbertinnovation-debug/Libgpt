@@ -22,7 +22,7 @@ export const CAST = {
   farmer: { label: 'Farmer', topic: 'Farming', voice: 'onyx',
     style: 'You are an experienced farmer, plain-spoken and steady.' },
   storyteller: { label: 'Storyteller', topic: 'Stories, proverbs and history', voice: 'verse',
-    style: 'You are telling a story to a few listeners: warm and natural, with gentle pauses, never acting out voices.' },
+    style: 'You are telling a story to a few listeners: warm and natural, with gentle pauses, in one natural voice throughout.' },
   newsreader: { label: 'News reader', topic: 'News and research', voice: 'sage',
     style: 'You are a calm news reader, clear and neutral, saying names, dates and figures plainly.' },
 };
@@ -31,9 +31,9 @@ export const CAST_ROLES = Object.keys(CAST);
 export const MOODS = {
   steady: '',
   comfort: 'The listener may be sad or worried: speak gently and a little more slowly.',
-  cheerful: 'Let a little warmth come through, without getting louder.',
+  cheerful: 'Let a little warmth come through, at the same gentle volume.',
   steps: 'These are instructions: pause briefly between steps and say numbers and quantities clearly.',
-  urgent: 'This may be urgent: stay calm and clear, make the important action plain, and never raise your voice.',
+  urgent: 'This may be urgent: stay calm, clear and even, and make the important action plain.',
 };
 
 const TOPICS = [

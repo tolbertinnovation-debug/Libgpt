@@ -39,6 +39,19 @@ or where Web Audio is missing, audio plays as before rather than going silent.
 History questions are now read by the Storyteller. "President" no longer sends
 them to the News reader.
 
+## Cleaner audio (second fix for the buzz)
+The buzz was still there with the speaker guard, so it was likely inside the
+audio itself. Two changes:
+- **Positive instructions only.** The speaking instructions no longer name
+  unwanted sounds (background noise, music, crackling, shrill, and so on).
+  A speech model given such words can produce them. Instructions now describe
+  only the sound wanted: a calm person beside the listener in a quiet room,
+  with a steady volume and an even pitch.
+- **Better formats.** Browsers that can play it (Android and modern browsers)
+  now get Opus, which is clearer than MP3 at the same size. Settings → **Best
+  sound** asks for uncompressed WAV, which has no compression artefacts at all
+  but uses more data. Other browsers keep MP3. All formats cost the same.
+
 ## How Grandpa chooses
 - **The part.** It is chosen from the question. If the question says little, it
   is chosen from the conversation's role (homework, business, farming,

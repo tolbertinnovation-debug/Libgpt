@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { migrateVoicePrefs, OPENAI_VOICES } from '../public/voice-settings.js';
-import { speechModel, speechOptions } from '../server/voice.js';
+import { speechModel, speechOptions, SPEECH_FORMATS } from '../server/voice.js';
 import { VoiceOut, piecesFor } from '../public/realvoice.js';
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
@@ -45,7 +45,11 @@ test('only quality voices are accepted with clean delivery and bounded speed', (
   assert.equal(speechOptions({speed:99}).speed,1.5);assert.equal(speechOptions({speed:0}).speed,0.75);
   assert.equal(speechOptions({speed:'fast'}).speed,1);
   assert.throws(()=>speechOptions({voice:'Samuel'}),/old voices have been replaced/);
-  assert.match(speechOptions().delivery,/no background noise/);
+  assert.match(speechOptions().delivery,/quiet room/);
+  // Positive wording only: naming unwanted sounds can make a speech model produce them.
+  assert.doesNotMatch(speechOptions({role:'storyteller',mood:'urgent'}).delivery,/noise|crackl|music|ambien|reverb|shout|shrill|squeak|whisper|harsh/i);
+  assert.equal(speechOptions().format,'mp3');assert.equal(speechOptions({format:'opus'}).format,'opus');
+  assert.equal(speechOptions({format:'wav'}).format,'wav');assert.equal(speechOptions({format:'flac; rm -rf'}).format,'mp3');
   assert.match(speechOptions({accent:'off'}).delivery,/neutral English/);
   assert.match(speechOptions().delivery,/Follow the language/);
 });
@@ -55,8 +59,8 @@ test('actual speak endpoint forwards the new voice and refuses old voices before
   const start=source.indexOf('const spokenChars = []');const end=source.indexOf('// ---- the Cultural Album',start);
   let handler;const calls=[];const config={realVoice:true,apiKey:'test-placeholder',voiceCharsPerHour:60000};
   const metered=[];const runtime={governed:()=>()=>{},meter:async(role,operation,microUsd,action)=>{metered.push({role,operation,microUsd});return action(new AbortController().signal);}};
-  new Function('app','rateLimit','requireAccess','config','speechOptions','speakAloud','OpenAIError','runtime','SPEECH_MICRO_USD_PER_CHAR','governanceError',source.slice(start,end))(
-    {post(_path,...handlers){handler=handlers.at(-1);}},()=>{},()=>{},config,speechOptions,async args=>{calls.push(args);return Buffer.from('mock audio');},class extends Error {},runtime,30,()=>false);
+  new Function('app','rateLimit','requireAccess','config','speechOptions','speakAloud','OpenAIError','runtime','SPEECH_MICRO_USD_PER_CHAR','governanceError','SPEECH_FORMATS',source.slice(start,end))(
+    {post(_path,...handlers){handler=handlers.at(-1);}},()=>{},()=>{},config,speechOptions,async args=>{calls.push(args);return Buffer.from('mock audio');},class extends Error {},runtime,30,()=>false,SPEECH_FORMATS);
   const invoke=async body=>{const res={headers:{},statusCode:200,on(){},status(n){this.statusCode=n;return this;},json(v){this.body=v;},setHeader(k,v){this.headers[k]=v;},send(v){this.audio=v;}};await handler({body},res);return res;};
   let res=await invoke({text:'Hello, my people.',voice:'marin',speed:1.05});
   assert.equal(res.statusCode,200);assert.equal(calls[0].voice,'marin');assert.equal(calls[0].speed,1.05);
@@ -65,6 +69,11 @@ test('actual speak endpoint forwards the new voice and refuses old voices before
   res=await invoke({text:'Hello',voice:'Sarah'});assert.equal(res.statusCode,400);assert.equal(calls.length,1);assert.equal(metered.length,1);
   config.apiKey='';res=await invoke({text:'Hello'});assert.equal(res.statusCode,503);assert.equal(calls.length,1);
   config.realVoice=false;res=await invoke({text:'Hello'});assert.equal(res.statusCode,503);
+  // The browser may ask for opus (clearer at the same size) or wav (uncompressed).
+  Object.assign(config,{realVoice:true,apiKey:'test-placeholder'});
+  res=await invoke({text:'Clearer.',voice:'marin',format:'opus'});
+  assert.equal(res.headers['Content-Type'],'audio/ogg');assert.equal(calls.at(-1).format,'opus');
+  res=await invoke({text:'Clearest.',voice:'marin',format:'wav'});assert.equal(res.headers['Content-Type'],'audio/wav');
 });
 
 test('OpenAI speech request includes instructions, model, voice and original text', async () => {

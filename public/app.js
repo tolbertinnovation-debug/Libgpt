@@ -15,7 +15,7 @@ import {
 import {
   DEFAULT_PATIENCE, PATIENCE, SpeechRecognitionAPI, VoiceConversation, patienceMs,
 } from './converse.js';
-import { VoiceOut } from './realvoice.js?v=voice-guard-1';
+import { VoiceOut } from './realvoice.js?v=voice-format-1';
 import {
   DEFAULT_LOUDNESS, DEFAULT_ROOM, LOUDNESS, ROOMS, Room, isLoudness, isRoom,
 } from './room.js';
@@ -36,7 +36,7 @@ import { splitFollowups, visibleWhileStreaming, offerRequest } from './followups
 import { cleanSummary, needsSummary, summaryRequest } from './chat-summary.js';
 import { loadSync, saveSync, syncOnce, newSyncCode, readSyncCode, syncKeys } from './sync.js';
 import { LiveTalk, liveTalkSupported } from './live-talk.js';
-import { CAST, CAST_ROLES, castFor, realtimeVoice } from './voice-cast.js?v=voice-guard-1';
+import { CAST, CAST_ROLES, castFor, realtimeVoice } from './voice-cast.js?v=voice-format-1';
 import { SpeakerGuard } from './speaker-guard.js';
 import { OPENAI_VOICES, DEFAULT_OPENAI_VOICE } from './voice-settings.js';
 import {imageCard,mountImageComposer,safeChatImage,imagePrompt,imageLoadingMarkup} from './image-chat.js';
@@ -1390,6 +1390,15 @@ const deviceVoice = new Speaker();
 // intercept it.
 const room = new Room((message) => toast(message));
 
+// Which audio format to ask for. Opus is clearer than mp3 at the same size and
+// plays on Android and modern browsers; "Best sound" asks for uncompressed wav,
+// which removes compression artefacts entirely at the cost of more data.
+function speechFormat() {
+  if (state.prefs.voiceQuality === 'best') return 'wav';
+  try { if (typeof Audio !== 'undefined' && new Audio().canPlayType('audio/ogg; codecs=opus')) return 'opus'; } catch { /* mp3 then */ }
+  return 'mp3';
+}
+
 // The part of the cast speaking now (see voice-cast.js), chosen per answer.
 let currentCast = null;
 const castNow = () => currentCast || castFor({}, state.prefs);
@@ -1397,6 +1406,7 @@ const speaker = new VoiceOut({
   device: deviceVoice,
   cast: castNow,
   guard: new SpeakerGuard(),
+  format: speechFormat,
   room,
   // Off when the deployment has no key for it, or when the user has asked for
   // the phone's voice instead.
@@ -2713,6 +2723,7 @@ const CAST_SAMPLES = {
 };
 function renderCastSettings() {
   const casting = state.prefs.voiceCasting !== 'one';
+  $('settings-voice-quality').checked = state.prefs.voiceQuality === 'best';
   $('settings-casting').checked = casting;
   $('settings-openai-voice-hint').textContent = casting ? 'Grandpa\'s own voice; each topic below has its own' : 'Used for everything';
   $('settings-cast-box').hidden = !casting;
@@ -2734,6 +2745,12 @@ function renderCastSettings() {
     return row;
   }));
 }
+$('settings-voice-quality').addEventListener('change', (event) => {
+  state.prefs.voiceQuality = event.target.checked ? 'best' : 'standard';
+  savePreferences();
+  speaker.stop();
+  toast(event.target.checked ? 'Best sound on: clearer voice, uses more data.' : 'Standard sound.');
+});
 $('settings-casting').addEventListener('change', (event) => {
   state.prefs.voiceCasting = event.target.checked ? 'auto' : 'one';
   savePreferences(); renderCastSettings();

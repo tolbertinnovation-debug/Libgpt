@@ -9,8 +9,8 @@ export function speechOptions(body = {}) {
     throw error;
   }
   const accent = body.accent === 'off' ? 'Use clear, neutral English pronunciation.'
-    : body.accent === 'full' ? 'Use a natural Liberian English cadence with clear pronunciation; never exaggerate the accent.'
-    : 'Use a gentle Liberian English cadence. Keep every word easy to understand; never exaggerate the accent.';
+    : body.accent === 'full' ? 'Use a natural Liberian English cadence with clear pronunciation, kept light.'
+    : 'Use a gentle, light Liberian English cadence, keeping every word easy to understand.';
   // The part of the cast speaking and the mood of the answer, from fixed lists only.
   const role = Object.hasOwn(CAST, body.role) ? body.role : '';
   const mood = Object.hasOwn(MOODS, body.mood) ? body.mood : '';
@@ -19,9 +19,16 @@ export function speechOptions(body = {}) {
     voice: requested || DEFAULT_OPENAI_VOICE,
     speed: Number.isFinite(body.speed) ? Math.min(1.5, Math.max(0.75, body.speed)) : 1,
     role, mood,
-    delivery: `${character}Speak naturally to one listener, warmly and confidently, like a helpful person in conversation. ${accent} Follow the language of the supplied text. Read the text faithfully without adding words. Use fluid phrasing, subtle expression and short pauses at punctuation. Sound like a real person talking calmly in the same room: keep a steady, comfortable volume and pitch the whole time. Never shout or raise the voice suddenly, and avoid anything shrill, squeaky, strained, breathy, crackling or harsh. No acting, no theatrical performance, no caricature of an old person, no whisper, no singsong rhythm and no drawn-out pauses. Produce clean, dry speech only: no background noise, music, ambience, sound effects or added reverberation.`,
+    format: SPEECH_FORMATS[body.format] ? body.format : 'mp3',
+    // Positive wording only. Naming unwanted sounds ("no background noise,
+    // crackling, music…") can lead a speech model to produce them; the owner
+    // heard a buzz under every voice while it did.
+    delivery: `${character}Speak naturally to one listener, like a calm, friendly person sitting beside them in a quiet room. ${accent} Follow the language of the supplied text and read it faithfully without adding words. Keep a steady, comfortable volume and an even pitch, with relaxed, fluid phrasing and short natural pauses at punctuation. Plain, clear, close-up speech.`,
   };
 }
+
+/** Audio formats the speech service returns, and how each is served. */
+export const SPEECH_FORMATS = Object.freeze({ mp3: 'audio/mpeg', opus: 'audio/ogg', aac: 'audio/aac', wav: 'audio/wav' });
 
 export function speechModel(value) {
   const model = typeof value === 'string' ? value.trim() : '';
