@@ -15,7 +15,7 @@ import { fileURLToPath } from 'node:url';
 import express from 'express';
 
 import { FALLBACK_MODELS, config, isChatModel, sortModels } from './config.js';
-import { OPENAI_VOICES, DEFAULT_OPENAI_VOICE, speechOptions } from './voice.js';
+import { OPENAI_VOICES, DEFAULT_OPENAI_VOICE, SPEECH_FORMATS, speechOptions } from './voice.js';
 import { canSee, resolveTiers, thinkingFor, tierFor } from './models.js';
 import {
   OpenAIError, complete as providerComplete, generateImage, listModels, speakAloud, streamChat as providerStreamChat,
@@ -1462,7 +1462,7 @@ app.post('/api/speak', rateLimit, requireAccess, runtime.governed('voice','speak
     const audio = await runtime.meter('voice', 'speak', text.length * SPEECH_MICRO_USD_PER_CHAR,
       (signal) => speakAloud({ text, ...options, signal: AbortSignal.any([controller.signal, signal]) }));
 
-    res.setHeader('Content-Type', 'audio/mpeg');
+    res.setHeader('Content-Type', SPEECH_FORMATS[options.format] || 'audio/mpeg');
     res.setHeader('Cache-Control', 'no-store');
     res.send(audio);
   } catch (error) {

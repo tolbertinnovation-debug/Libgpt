@@ -528,14 +528,14 @@ export async function generateImage({ prompt, size = '1024x1024', quality = 'med
  * Returns the audio as bytes, for the server to hand on; the browser never
  * talks to OpenAI directly.
  */
-export async function speakAloud({ text, voice = 'ballad', delivery = '', speed, signal }) {
+export async function speakAloud({ text, voice = 'ballad', delivery = '', speed, format = 'mp3', signal }) {
   const body = {
     model: config.voiceModel,
     voice,
     input: text,
-    // mp3 plays everywhere. Opus is smaller but Safari will not take it in an
-    // ogg container, and half this audience is on a borrowed phone.
-    response_format: 'mp3',
+    // mp3 plays everywhere; the browser asks for opus (clearer at the same
+    // size) or wav (uncompressed) when it can play them.
+    response_format: ['mp3', 'opus', 'aac', 'wav'].includes(format) ? format : 'mp3',
   };
   if (delivery && /gpt-/i.test(config.voiceModel)) body.instructions = delivery;
   if (speed) body.speed = speed;

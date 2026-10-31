@@ -127,6 +127,7 @@ export class VoiceOut {
    * @param {() => string} deps.speaker  which elder is talking
    * @param {() => object} [deps.cast]   the part of the cast for this answer: {voice, role, mood}
    * @param {object} [deps.guard]        a SpeakerGuard that keeps the phone speaker from buzzing
+   * @param {() => string} [deps.format] the audio format to ask for: mp3, opus or wav
    * @param {() => object} deps.headers  headers for a request that spends money
    * @param {(message: string) => void} deps.onNotice
    * @param {(state: string) => void} onStateChange
@@ -229,6 +230,7 @@ export class VoiceOut {
       this.cloudVoice = cast.voice || this.voice?.() || 'ballad';
       this.cloudRole = cast.role || '';
       this.cloudMood = cast.mood || '';
+      this.cloudFormat = this.format?.() || 'mp3';
       this.cloudAccent = this.accent?.() ?? DEFAULT_ACCENT;
     }
     if (fresh) this.token += 1;
@@ -305,6 +307,7 @@ export class VoiceOut {
           voice: this.cloudVoice,
           ...(this.cloudRole ? { role: this.cloudRole } : {}),
           ...(this.cloudMood ? { mood: this.cloudMood } : {}),
+          ...(this.cloudFormat && this.cloudFormat !== 'mp3' ? { format: this.cloudFormat } : {}),
           accent: this.cloudAccent,
           speed: this.settings.rate,
         }),
