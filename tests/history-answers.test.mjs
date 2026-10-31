@@ -25,6 +25,25 @@ test('"If you want, I can give you:" offers are split off, hidden while streamin
   assert.equal(offerRequest('A timeline of the key dates.'), 'A timeline of the key dates, please.');
 });
 
+test('Grandpa\'s own "If you want, I can also tell you:" never leaves an answer without buttons', () => {
+  const base = 'The first president of Liberia was Joseph Jenkins Roberts.';
+  // Lead-in written above the hidden line: the duplicate heading goes.
+  const both = splitFollowups(`${base}\n\nIf you want, I can also tell you:\n[[offers: A timeline | The names | A specific example]]`);
+  assert.deepEqual(both, { text: base, followups: ['A timeline', 'The names', 'A specific example'], offers: true });
+  // Offers written as a plain list under it: they become the buttons.
+  const listed = splitFollowups(`${base}\n\n**If you want, I can also tell you:**\n- A timeline of his presidency\n- **The names** of his cabinet\n1. How independence was declared.`);
+  assert.deepEqual(listed, { text: base, followups: ['A timeline of his presidency', 'The names of his cabinet', 'How independence was declared'], offers: true });
+  // A lead-in with nothing after it (what the owner saw): standard history offers.
+  const dangling = splitFollowups(`${base}\n\nIf you want, I can also tell you:`);
+  assert.equal(dangling.text, base);
+  assert.equal(dangling.offers, true);
+  assert.deepEqual(dangling.followups, ['A timeline of the key dates', 'The names of the main people and places', 'A specific example', 'Their titles and roles']);
+  // Ordinary endings and ordinary lists are left alone.
+  assert.equal(splitFollowups(`${base}\n\nIf you want more, just ask.`).offers, false);
+  assert.equal(splitFollowups(`${base}\n\nHe served two terms:\n- 1848–1856\n- 1872–1876`).offers, false);
+  assert.match(HISTORY_PROMPT, /Do not write a lead-in/);
+});
+
 test('/api/chat asks history answers for names, places, titles, dates and offers; others keep follow-ups', async (t) => {
   await isolatedLedger(t);
   delete process.env.OPENAI_BASE_URL; delete process.env.APP_MODELS;
