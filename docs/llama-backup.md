@@ -1,4 +1,23 @@
-# Meta Llama: everyday chat first, and backup
+# Meta Llama: all text chat (for now), everyday chat, or backup
+
+## Modes (`LLAMA_MODE`)
+- **`all`** (the default, owner's choice, to save OpenAI credit). Every text
+  chat turn goes to Llama, including hard questions, stories and questions that
+  would have been researched. Web research is an OpenAI tool, so it isn't used;
+  Grandpa answers from what he knows. Chat titles and long-chat summaries also
+  go to Llama. When Llama answers, Grandpa points people to "Create an image
+  of…" rather than a picture tool.
+- **`everyday`.** OpenAI keeps its tools (pictures, documents, memory),
+  research, careful thinking and stories.
+- **`backup`** (or `LLAMA_FIRST=false`). Llama only stands in when OpenAI
+  cannot answer.
+
+**What always stays with OpenAI:** photos and PDF pages (Llama reads text
+only), making pictures, spoken voice, turning speech into text, documents,
+Library stories and Build.
+
+**When OpenAI answers instead:** whenever Llama fails, or the owner's Meta
+Llama amount is used up.
 
 ## Everyday chat first (to save OpenAI credit)
 The owner's OpenAI credit was running low, so everyday chat now goes to Llama

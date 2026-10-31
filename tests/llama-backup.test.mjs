@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { backupWorthy, everydayForLlama, llamaConfig, llamaMicroUsd, streamLlama, textOnly, LLAMA_DEFAULTS } from '../server/llama.js';
+import { backupWorthy, everydayForLlama, llamaConfig, llamaMicroUsd, llamaMode, streamLlama, textOnly, LLAMA_DEFAULTS } from '../server/llama.js';
 import { CAPABILITIES } from '../server/agent-governance.js';
 import { isolatedLedger } from './support/ledger.mjs';
 
@@ -79,7 +79,7 @@ test('/api/chat: OpenAI down → Llama answers within the owner\'s backup allowa
   const previous = { apiKey: config.apiKey, baseUrl: config.baseUrl, accessCode: config.accessCode, rateLimitPerMinute: config.rateLimitPerMinute };
   Object.assign(config, { apiKey: 'test-only-not-real', baseUrl: 'https://api.openai.com/v1', accessCode: '', rateLimitPerMinute: 0 });
   const server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
-  t.after(() => { globalThis.fetch = original; Object.assign(config, previous); server.closeAllConnections(); server.close(); delete process.env.LLAMA_API_KEY; delete process.env.LLAMA_BASE_URL; delete process.env.LLAMA_FIRST; });
+  t.after(() => { globalThis.fetch = original; Object.assign(config, previous); server.closeAllConnections(); server.close(); delete process.env.LLAMA_API_KEY; delete process.env.LLAMA_BASE_URL; delete process.env.LLAMA_FIRST; delete process.env.LLAMA_MODE; });
   const base = `http://127.0.0.1:${server.address().port}`;
   const ask = async () => (await original(`${base}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages: [{ role: 'user', content: 'Hello Grandpa, how is the day?' }], research: 'off' }) })).text();
@@ -117,8 +117,9 @@ test('/api/chat: OpenAI down → Llama answers within the owner\'s backup allowa
   assert.match(text, /OpenAI says hello\./);
   assert.equal(llamaCalls.length, 1);
 
-  // Llama first for everyday chat (the default when the key is set): OpenAI is not asked at all.
+  // Llama first for everyday chat: OpenAI is not asked at all.
   delete process.env.LLAMA_FIRST;
+  process.env.LLAMA_MODE = 'everyday';
   const openaiCalls = () => openaiChat;
   text = await ask();
   assert.match(text, /Llama says hello\./);
@@ -130,16 +131,34 @@ test('/api/chat: OpenAI down → Llama answers within the owner\'s backup allowa
     body: JSON.stringify({ messages: [{ role: 'user', content: 'Write a letter to my landlord' }], research: 'off' }) })).text();
   assert.equal(llamaCalls.length, 2);
   assert.ok(openaiCalls() > before);
+  // "all" (the default for now): even a letter request is Llama's, and so is the title.
+  delete process.env.LLAMA_MODE;
+  await (await original(`${base}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages: [{ role: 'user', content: 'Write a letter to my landlord' }], research: 'off' }) })).text();
+  assert.equal(llamaCalls.length, 3);
+  const titled = await (await original(`${base}/api/title`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text: 'How do I plant rice?' }) })).json();
+  assert.equal(titled.title, 'Llama says hello');
+  assert.equal(llamaCalls.length, 4);
   // Llama's allowance used up: OpenAI answers instead, no error.
   await original(`${base}/api/admin/budget`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-ritual-admin': admin },
     body: JSON.stringify({ limits: { dailyUsd: 5, capabilityDailyUsd: { chat: 1, backup: 0 } } }) });
   text = await ask();
   assert.match(text, /OpenAI says hello\./);
-  assert.equal(llamaCalls.length, 2);
+  assert.equal(llamaCalls.length, 4);
 });
 
-test('everyday chat goes to Llama; pictures, documents, research, photos, thinking and stories stay with OpenAI', () => {
-  const everyday = (question, extra = {}) => everydayForLlama({ question, env: {}, ...extra });
+test('Llama modes: "all" takes every text turn; "everyday" leaves tools, research, thinking and stories; "backup" only stands in', () => {
+  assert.equal(llamaMode({}), 'all', 'all text chat, for now, to save OpenAI credit');
+  assert.equal(llamaMode({ LLAMA_MODE: 'everyday' }), 'everyday');
+  assert.equal(llamaMode({ LLAMA_MODE: 'backup' }), 'backup');
+  assert.equal(llamaMode({ LLAMA_FIRST: 'false' }), 'backup');
+  const all = (question, extra = {}) => everydayForLlama({ question, env: {}, ...extra });
+  for (const q of ['Write a letter to my landlord', 'What is the news today?', 'Tell me a story']) assert.equal(all(q, { thinking: 'low', tier: 'deep', searched: true }), true, q);
+  assert.equal(all('What is this?', { photo: true }), false, 'photos stay with OpenAI: Llama reads text only');
+  assert.equal(all('Hello', { document: true }), false);
+  assert.equal(all('Hello', { building: true }), false);
+  assert.equal(everydayForLlama({ question: 'Hello', env: { LLAMA_MODE: 'backup' } }), false);
+  const everyday = (question, extra = {}) => everydayForLlama({ question, env: { LLAMA_MODE: 'everyday' }, ...extra });
   assert.equal(everyday('How do I plant cassava?'), true);
   assert.equal(everyday('Good morning Grandpa'), true);
   for (const q of ['Send me a picture of rice', 'Write a letter to my landlord', 'Make my CV', 'What is the news today?', 'Remember that I am diabetic'])
