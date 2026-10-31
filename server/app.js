@@ -57,7 +57,7 @@ import { KINDS, isKind, libraryCatalogue } from './structured.js';
 import {generateFreshStory,StoryGenerationError} from './stories.js';
 import {imageRequest} from './image-options.js';
 import { memoryContext } from '../public/memory.js';
-import { chatTools, toolActions, FOLLOWUPS_PROMPT } from './chat-tools.js';
+import { chatTools, toolActions, FOLLOWUPS_PROMPT, HISTORY_PROMPT, isHistoryQuestion } from './chat-tools.js';
 import { cleanSummary } from '../public/chat-summary.js';
 import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULES } from './realtime.js';
 import { createMemorySyncStore, createPostgresSyncStore, validSyncId } from './sync-store.js';
@@ -805,7 +805,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     searched: didSearch,
     pictures: chatPicturesAvailable() && (spoken || carryingOn ? true : 'tool'),
     depth,
-  }) + (spoken ? '' : `\n\n${FOLLOWUPS_PROMPT}`));
+  }) + (spoken ? '' : `\n\n${FOLLOWUPS_PROMPT}${isHistoryQuestion(routedQuestion) ? `\n\n${HISTORY_PROMPT}` : ''}`));
 
   // The question decides which model answers it. "Good morning" is not
   // worth the best model on the account; working out the interest on a loan

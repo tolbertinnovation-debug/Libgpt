@@ -32,7 +32,7 @@ import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 import { mountSupport } from './support.js?v=phase3-sync-1';
 import { loadMemory, memoriesForQuestion, remember, saveMemory } from './memory.js';
-import { splitFollowups, visibleWhileStreaming } from './followups.js';
+import { splitFollowups, visibleWhileStreaming, offerRequest } from './followups.js';
 import { cleanSummary, needsSummary, summaryRequest } from './chat-summary.js';
 import { loadSync, saveSync, syncOnce, newSyncCode, readSyncCode, syncKeys } from './sync.js';
 import { LiveTalk, liveTalkSupported } from './live-talk.js';
@@ -722,10 +722,14 @@ function memoryOfferCard(text, index) {
     </div>`;
 }
 
-// Questions the person might ask next, one tap each.
-function followupChips(items) {
-  return `<div class="followups" aria-label="Ask next">${items.map((item) =>
-    `<button type="button" class="followup" data-followup="${escapeHtml(item)}">${escapeHtml(item)}</button>`).join('')}</div>`;
+// Questions the person might ask next, one tap each. After a history answer
+// they are offers instead: "If you want, I can give you:" a timeline, names...
+function followupChips(items, offers = false) {
+  const ask = (item) => (offers ? offerRequest(item) : item);
+  return `<div class="followups${offers ? ' is-offers' : ''}" aria-label="${offers ? 'More I can give you' : 'Ask next'}">`
+    + (offers ? '<p class="followups-lead">If you want, I can give you:</p>' : '')
+    + items.map((item) => `<button type="button" class="followup" data-followup="${escapeHtml(ask(item))}">${escapeHtml(item)}</button>`).join('')
+    + '</div>';
 }
 
 function renderThread() {
@@ -772,7 +776,7 @@ function renderThread() {
             ${message.taskBrief ? taskBriefCard(message.taskBrief,index,Boolean(message.documentQuestions)) : ''}
             ${sourceList(message.sources)}
             ${message.memoryOffer ? memoryOfferCard(message.memoryOffer, index) : ''}
-            ${index === lastAiIndex() && Array.isArray(message.followups) && message.followups.length ? followupChips(message.followups) : ''}
+            ${index === lastAiIndex() && Array.isArray(message.followups) && message.followups.length ? followupChips(message.followups, message.offers === true) : ''}
             ${messageActions(index, message.content)}
           </div>
         </div>`;
@@ -1068,7 +1072,7 @@ async function streamReply(chat, hooks = {}) {
     chat.messages.push({
       role: 'assistant', content: text, searched, sources, unfinished,
       ...(sending?.dropped ? { trimmed: sending.dropped } : {}),
-      ...(split.followups.length && !hooks.spoken && !stopped ? { followups: split.followups } : {}),
+      ...(split.followups.length && !hooks.spoken && !stopped ? { followups: split.followups, ...(split.offers ? { offers: true } : {}) } : {}),
       ...(offer && !hooks.spoken ? { memoryOffer: offer.text.trim().slice(0, 600) } : {}),
     });
     chat.updatedAt = Date.now();
