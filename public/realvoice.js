@@ -223,7 +223,7 @@ export class VoiceOut {
       this.settings = { ...settings };
       // One voice and manner for a whole answer, chosen when it starts.
       const cast = this.cast?.() || {};
-      this.cloudVoice = cast.voice || this.voice?.() || 'cedar';
+      this.cloudVoice = cast.voice || this.voice?.() || 'ballad';
       this.cloudRole = cast.role || '';
       this.cloudMood = cast.mood || '';
       this.cloudAccent = this.accent?.() ?? DEFAULT_ACCENT;

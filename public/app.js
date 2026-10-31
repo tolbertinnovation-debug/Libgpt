@@ -37,7 +37,7 @@ import { cleanSummary, needsSummary, summaryRequest } from './chat-summary.js';
 import { loadSync, saveSync, syncOnce, newSyncCode, readSyncCode, syncKeys } from './sync.js';
 import { LiveTalk, liveTalkSupported } from './live-talk.js';
 import { CAST, CAST_ROLES, castFor, realtimeVoice } from './voice-cast.js';
-import { OPENAI_VOICES } from './voice-settings.js';
+import { OPENAI_VOICES, DEFAULT_OPENAI_VOICE } from './voice-settings.js';
 import {imageCard,mountImageComposer,safeChatImage,imagePrompt,imageLoadingMarkup} from './image-chat.js';
 
 /* ========================================================================
@@ -1389,7 +1389,7 @@ const speaker = new VoiceOut({
   wanted: () => Boolean(state.catalogue.realVoice)
     && state.prefs.realVoice !== false,
   speaker: () => state.prefs.speaker,
-  voice: () => state.prefs.openaiVoice || 'cedar',
+  voice: () => state.prefs.openaiVoice || DEFAULT_OPENAI_VOICE,
   accent: () => state.prefs.accent,
   headers: apiHeaders,
   onNotice: (message) => { toast(message); if (!el.talk.hidden) el.talkHint.textContent = message; },
@@ -3792,7 +3792,7 @@ async function boot() {
     for (const voice of config.voices || []) {
       voiceSelect.add(new Option(`${voice.label} — ${voice.hint}`, voice.id));
     }
-    voiceSelect.value = state.prefs.openaiVoice || config.defaultVoice || 'cedar';
+    voiceSelect.value = state.prefs.openaiVoice || config.defaultVoice || DEFAULT_OPENAI_VOICE;
     voiceSelect.disabled = !config.realVoice;
     voiceSelect.addEventListener('change', () => {
       speaker.stop();

@@ -9,13 +9,17 @@ const tick = () => new Promise(resolve => setImmediate(resolve));
 test('old voice preferences reset once while unrelated preferences survive', () => {
   const old = { userName:'Samuel', theme:'dark', language:'liberian-english', voiceURI:'robot', room:'radio', loudness:'full', voiceRate:0.8, realVoice:false };
   const migrated = migrateVoicePrefs(old);
-  assert.equal(migrated.openaiVoice,'cedar');assert.equal(migrated.room,'none');assert.equal(migrated.loudness,'normal');
+  assert.equal(migrated.openaiVoice,'ballad');assert.equal(migrated.room,'none');assert.equal(migrated.loudness,'normal');
   assert.equal(migrated.voiceRate,1);assert.equal(migrated.realVoice,true);assert.equal(migrated.sound,false);
   assert.equal(migrated.userName,'Samuel');assert.equal(migrated.theme,'dark');assert.equal(old.room,'radio');
   const chosen = { ...migrated, openaiVoice:'marin', voiceRate:1.15, realVoice:false };
   assert.deepEqual(migrateVoicePrefs(chosen),chosen);
-  assert.equal(migrateVoicePrefs({...chosen,openaiVoice:'Sarah',room:'hut'}).openaiVoice,'cedar');
-  assert.equal(migrateVoicePrefs(null).openaiVoice,'cedar');
+  assert.equal(migrateVoicePrefs({...chosen,openaiVoice:'Sarah',room:'hut'}).openaiVoice,'ballad');
+  assert.equal(migrateVoicePrefs(null).openaiVoice,'ballad');
+  // Grandpa's voice moved from Cedar to Ballad once; a voice picked afterwards, Cedar included, stays.
+  assert.equal(migrateVoicePrefs({voiceSettingsVersion:2,openaiVoice:'cedar'}).openaiVoice,'ballad');
+  assert.equal(migrateVoicePrefs({voiceSettingsVersion:2,openaiVoice:'marin'}).openaiVoice,'marin');
+  assert.equal(migrateVoicePrefs({voiceSettingsVersion:2,openaiVoice:'cedar',grandpaVoice:'ballad-1'}).openaiVoice,'cedar');
 });
 
 test('storage clears the obsolete selection without deleting work', async t => {
@@ -24,10 +28,10 @@ test('storage clears the obsolete selection without deleting work', async t => {
   globalThis.localStorage = {getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v),removeItem:k=>values.delete(k)};
   t.after(()=>globalThis.localStorage=old);
   const {loadPrefs}=await import('../public/storage.js');
-  assert.equal(loadPrefs().openaiVoice,'cedar');assert.equal(values.has('grandpa-team-voice'),false);
+  assert.equal(loadPrefs().openaiVoice,'ballad');assert.equal(values.has('grandpa-team-voice'),false);
   assert.equal(values.get('grandpa-ai:chats:v1'),'["keep"]');
   globalThis.localStorage={getItem(){throw Error('blocked');},setItem(){throw Error('blocked');},removeItem(){throw Error('blocked');}};
-  assert.equal(loadPrefs().openaiVoice,'cedar');
+  assert.equal(loadPrefs().openaiVoice,'ballad');
 });
 
 test('legacy models upgrade and supported TTS snapshots remain configurable', () => {
@@ -37,7 +41,7 @@ test('legacy models upgrade and supported TTS snapshots remain configurable', ()
 
 test('only quality voices are accepted with clean delivery and bounded speed', () => {
   assert.deepEqual(OPENAI_VOICES.map(v=>v.id),['cedar','marin','coral','sage','shimmer','ash','ballad','verse','onyx']);
-  assert.equal(speechOptions().voice,'cedar');assert.equal(speechOptions({voice:'Marin'}).voice,'marin');
+  assert.equal(speechOptions().voice,'ballad');assert.equal(speechOptions({voice:'Marin'}).voice,'marin');
   assert.equal(speechOptions({speed:99}).speed,1.5);assert.equal(speechOptions({speed:0}).speed,0.75);
   assert.equal(speechOptions({speed:'fast'}).speed,1);
   assert.throws(()=>speechOptions({voice:'Samuel'}),/old voices have been replaced/);

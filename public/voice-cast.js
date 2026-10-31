@@ -8,7 +8,7 @@
 import { OPENAI_VOICES, REALTIME_VOICES, DEFAULT_OPENAI_VOICE } from './voice-settings.js';
 
 export const CAST = {
-  grandpa: { label: 'Grandpa', topic: 'Everyday questions', voice: 'cedar',
+  grandpa: { label: 'Grandpa', topic: 'Everyday questions', voice: 'ballad',
     style: 'You are Grandpa, a wise, warm Liberian elder: unhurried, kind and assured, with a smile in the voice.' },
   auntie: { label: 'Auntie', topic: 'Cooking and food', voice: 'coral',
     style: 'You are a warm, lively Liberian auntie in her kitchen: cheerful, encouraging and practical, as if cooking beside the listener.' },
@@ -20,7 +20,7 @@ export const CAST = {
     style: 'You are a confident business mentor: direct, practical and upbeat, saying numbers slowly and clearly.' },
   farmer: { label: 'Farmer', topic: 'Farming', voice: 'onyx',
     style: 'You are an experienced farmer: steady, grounded and plain-spoken, like advice given in the field.' },
-  storyteller: { label: 'Storyteller', topic: 'Stories, proverbs and history', voice: 'ballad',
+  storyteller: { label: 'Storyteller', topic: 'Stories, proverbs and history', voice: 'verse',
     style: 'You are a gifted storyteller at an evening gathering: expressive and engaging, building suspense, giving each character a slightly different colour, with natural pauses for effect.' },
   newsreader: { label: 'News reader', topic: 'News and research', voice: 'sage',
     style: 'You are a trusted radio news reader: crisp, neutral and well paced, with clear emphasis on names, dates and figures.' },
@@ -86,7 +86,7 @@ export function castFor(context = {}, prefs = {}) {
   return { role, voice, mood: castMood(context), label: CAST[role].label };
 }
 
-/** Live Talk can only use some voices; the rest fall back to Cedar there. */
+/** Live Talk can only use some voices; the rest fall back to Grandpa's voice there. */
 export const realtimeVoice = voice => (REALTIME_VOICES.includes(voice) ? voice : DEFAULT_OPENAI_VOICE);
 
 /** Speaking instructions for a part and a mood (unknown ids are ignored). */

@@ -5,13 +5,13 @@ was asked. The parts and their default voices are set in `public/voice-cast.js`:
 
 | Part | Topics | Default voice |
 |---|---|---|
-| Grandpa | Everyday questions | the main voice (Cedar unless changed) |
+| Grandpa | Everyday questions | the main voice (Ballad unless changed) |
 | Auntie | Cooking and food | Coral (woman) |
 | Nurse | Health and care | Shimmer (woman) |
 | Teacher | School and homework | Marin (woman) |
 | Business mentor | Money and business | Ash (man) |
 | Farmer | Farming | Onyx (man) |
-| Storyteller | Stories, proverbs and history | Ballad (man) |
+| Storyteller | Stories, proverbs and history | Verse (man) |
 | News reader | News and research | Sage (woman) |
 
 ## How Grandpa chooses
@@ -37,13 +37,14 @@ was asked. The parts and their default voices are set in `public/voice-cast.js`:
   - the Talk conversation, which is cast from the spoken question;
   - Library stories and recipes;
   - Live Talk, which is cast from the conversation's role and can only use the
-    realtime voices. Onyx falls back to Cedar there.
+    realtime voices. Onyx falls back to Ballad there.
 
 ## The person stays in control (Settings → Voice & listening)
 - **Different voices for different topics:** on by default. Switched off, one
   voice reads everything in Grandpa's manner.
 - **Main voice:** Grandpa's own voice, and the only voice used when casting is
-  off.
+  off. The owner chose Ballad over Cedar; a saved Cedar moved to Ballad once,
+  and any voice picked afterwards stays.
 - **Who speaks for each topic:** choose any of the nine voices for each part,
   and press ▶ to hear a sample.
 - The speaking bar says who is talking, for example "Auntie is speaking…".
