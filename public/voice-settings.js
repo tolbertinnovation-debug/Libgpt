@@ -32,6 +32,12 @@ export function migrateVoicePrefs(value) {
     if (!prefs.openaiVoice || prefs.openaiVoice === 'cedar') prefs.openaiVoice = 'ballad';
     prefs.grandpaVoice = 'ballad-1';
   }
+  // Once: the owner turned "Read answers aloud" on for everyone. Anyone who
+  // switches it off after this keeps it off.
+  if (prefs.autoSpeakDefault !== 'on-1') {
+    prefs.autoSpeak = true;
+    prefs.autoSpeakDefault = 'on-1';
+  }
   prefs.openaiVoice = openaiVoice(prefs.openaiVoice);
   // Cloud speech always plays without artificial reverberation.
   prefs.room = 'none';
