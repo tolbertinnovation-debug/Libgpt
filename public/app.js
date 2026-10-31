@@ -15,7 +15,7 @@ import {
 import {
   DEFAULT_PATIENCE, PATIENCE, SpeechRecognitionAPI, VoiceConversation, patienceMs,
 } from './converse.js';
-import { VoiceOut } from './realvoice.js';
+import { VoiceOut } from './realvoice.js?v=voice-guard-1';
 import {
   DEFAULT_LOUDNESS, DEFAULT_ROOM, LOUDNESS, ROOMS, Room, isLoudness, isRoom,
 } from './room.js';
@@ -36,7 +36,8 @@ import { splitFollowups, visibleWhileStreaming, offerRequest } from './followups
 import { cleanSummary, needsSummary, summaryRequest } from './chat-summary.js';
 import { loadSync, saveSync, syncOnce, newSyncCode, readSyncCode, syncKeys } from './sync.js';
 import { LiveTalk, liveTalkSupported } from './live-talk.js';
-import { CAST, CAST_ROLES, castFor, realtimeVoice } from './voice-cast.js';
+import { CAST, CAST_ROLES, castFor, realtimeVoice } from './voice-cast.js?v=voice-guard-1';
+import { SpeakerGuard } from './speaker-guard.js';
 import { OPENAI_VOICES, DEFAULT_OPENAI_VOICE } from './voice-settings.js';
 import {imageCard,mountImageComposer,safeChatImage,imagePrompt,imageLoadingMarkup} from './image-chat.js';
 
@@ -1395,6 +1396,7 @@ const castNow = () => currentCast || castFor({}, state.prefs);
 const speaker = new VoiceOut({
   device: deviceVoice,
   cast: castNow,
+  guard: new SpeakerGuard(),
   room,
   // Off when the deployment has no key for it, or when the user has asked for
   // the phone's voice instead.

@@ -22,6 +22,23 @@ their ears. Each part now has only a light touch of manner. Every request also
 asks for a steady, comfortable volume and pitch: no shouting, nothing shrill,
 squeaky, breathy or crackling, and no acting. Live Talk has the same rule.
 
+## Speaker guard
+The owner heard a buzz under every voice, like a vibrating speaker. The AI
+voice arrives loud and carries deep tones that a phone speaker cannot
+reproduce, and the app was playing it raw. `public/speaker-guard.js` now
+routes each answer through a short Web Audio chain:
+- a steep cut below 130 Hz (two high-pass filters in a row);
+- a gentle −3 dB softening above 7.5 kHz;
+- about 3 dB of headroom;
+- a limiter, so no peak can overdrive the speaker.
+
+Measured in Chromium: rumble at 50 Hz drops about 30 dB and at 80 Hz about
+12 dB. The voice band loses only the 3 dB of headroom. Before the first tap,
+or where Web Audio is missing, audio plays as before rather than going silent.
+
+History questions are now read by the Storyteller. "President" no longer sends
+them to the News reader.
+
 ## How Grandpa chooses
 - **The part.** It is chosen from the question. If the question says little, it
   is chosen from the conversation's role (homework, business, farming,
