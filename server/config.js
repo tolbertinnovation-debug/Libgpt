@@ -10,7 +10,14 @@ const int = (value, fallback) => {
 
 export const config = {
   port: int(process.env.PORT, 3000),
-  apiKey: process.env.OPENAI_API_KEY?.trim() || '',
+  // OpenAI switched off (owner's choice, for now): the server behaves as if it
+  // had no OpenAI key, so every OpenAI feature turns itself off and nothing can
+  // call OpenAI. Chat runs on Meta Llama. On by default on the live host
+  // (Vercel); OPENAI_OFF=false turns OpenAI back on.
+  openaiOff: process.env.OPENAI_OFF?.trim()
+    ? !/^(0|false|no|off)$/i.test(process.env.OPENAI_OFF.trim())
+    : Boolean(process.env.VERCEL),
+  apiKey: '',
   baseUrl: (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, ''),
   model: modelId(process.env.OPENAI_MODEL, 'gpt-4o-mini'),
   titleModel: modelId(process.env.OPENAI_TITLE_MODEL, modelId(process.env.OPENAI_MODEL, 'gpt-4o-mini')),
@@ -151,6 +158,8 @@ export const config = {
       || (process.env.VERCEL || process.env.NODE_ENV === 'production' ? 'true' : 'false'),
   ),
 };
+// The key is only used while OpenAI is switched on.
+config.apiKey = config.openaiOff ? '' : (process.env.OPENAI_API_KEY?.trim() || '');
 
 // Models offered in the UI picker. The account still has to have access to
 // whichever one is chosen; the server reports the API's error if it does not.
