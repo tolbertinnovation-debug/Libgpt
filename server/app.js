@@ -62,7 +62,7 @@ import { cleanSummary } from '../public/chat-summary.js';
 import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULES, realtimeSpeak, pcmToWav, advancedSpeechMicroUsd } from './realtime.js';
 import { realtimeVoice } from '../public/voice-cast.js';
 import { createMemorySyncStore, createPostgresSyncStore, validSyncId } from './sync-store.js';
-import { backupWorthy, everydayForLlama, llamaConfig, llamaMicroUsd, streamLlama } from './llama.js';
+import { backupWorthy, completeLlama, everydayForLlama, llamaConfig, llamaMicroUsd, llamaMode, streamLlama } from './llama.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -779,7 +779,10 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
   // below, and then every one of these has to change with it.
   //
   // Research can accompany a photo or a build when the question needs it.
-  let searched = !building && Boolean(reader)
+  // With Llama answering all text chat, web research (an OpenAI tool) is not
+  // used; Grandpa answers from what he knows and says so where it matters.
+  const llamaAll = llamaConfig().ready && llamaMode() === 'all' && !building && !photo && !document;
+  let searched = !building && Boolean(reader) && !llamaAll
     && !carryingOn
     && (req.body?.search === true || (research !== 'off' && needsLookingUp(routedQuestion, new Date(), research === 'always')));
   const buildingPrompt = () => [
@@ -809,7 +812,8 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     register: req.body?.register,
     task: 'chat',
     searched: didSearch,
-    pictures: chatPicturesAvailable() && (spoken || carryingOn ? true : 'tool'),
+    // Llama has no picture tool, so with it answering people are told how to ask for one.
+    pictures: chatPicturesAvailable() && (spoken || carryingOn || llamaAll ? true : 'tool'),
     depth,
   }) + (spoken ? '' : `\n\n${FOLLOWUPS_PROMPT}${isHistoryQuestion(routedQuestion) ? `\n\n${HISTORY_PROMPT}` : ''}`));
 
@@ -1170,6 +1174,23 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
   }
 });
 
+// Short text jobs (titles, summaries) go to Llama while it is answering chat,
+// charged to its allowance; if it cannot, OpenAI does them as before.
+async function shortText({ messages, maxTokens, openai }) {
+  if (llamaConfig().ready && llamaMode() !== 'backup') {
+    try {
+      const inputChars = JSON.stringify(messages).length;
+      return await runtime.meter('backup', 'generate', llamaMicroUsd(inputChars, maxTokens * 4),
+        (signal) => completeLlama({ messages, maxTokens, signal }),
+        { settle: (text) => llamaMicroUsd(inputChars, String(text || '').length) });
+    } catch (error) {
+      if (error?.name === 'AbortError') throw error;
+      console.error('[llama] SHORT_TEXT_FALLBACK', error?.code || error?.status || error?.message);
+    }
+  }
+  return openai();
+}
+
 // ---- conversation titles ------------------------------------------------
 app.post('/api/title', rateLimit, requireAccess, runtime.governed('chat','generate'), async (req, res) => {
   const text = typeof req.body?.text === 'string' ? req.body.text.slice(0, 1_000) : '';
@@ -1179,17 +1200,16 @@ app.post('/api/title', rateLimit, requireAccess, runtime.governed('chat','genera
   }
 
   try {
-    const title = await complete({
-      model: await pickModel(req.body?.model, 'title'),
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Name this conversation in 2 to 5 words. Plain words, no quotes, no punctuation at the end, no "chat" or "conversation" in the name. Reply with the name only.',
-        },
-        { role: 'user', content: text },
-      ],
-    });
+    const messages = [
+      {
+        role: 'system',
+        content:
+          'Name this conversation in 2 to 5 words. Plain words, no quotes, no punctuation at the end, no "chat" or "conversation" in the name. Reply with the name only.',
+      },
+      { role: 'user', content: text },
+    ];
+    const title = await shortText({ messages, maxTokens: 30,
+      openai: async () => complete({ model: await pickModel(req.body?.model, 'title'), messages }) });
     res.json({ title: title.replace(/^["'\s]+|["'.\s]+$/g, '').slice(0, 60) });
   } catch (error) {
     // A missing title is cosmetic — never fail the chat over it.
@@ -1221,14 +1241,12 @@ app.post('/api/summary', rateLimit, requireAccess, runtime.governed('chat','gene
   }
   if (!lines.length) { res.status(400).json({ error: 'Nothing to summarise.' }); return; }
   try {
-    const summary = await complete({
-      model: await pickModel(req.body?.model, 'title'),
-      maxTokens: 500,
-      messages: [
-        { role: 'system', content: SUMMARY_PROMPT },
-        { role: 'user', content: `SUMMARY SO FAR\n${previous || '(none yet)'}\n\nNEW MESSAGES\n${lines.join('\n\n')}` },
-      ],
-    });
+    const messages = [
+      { role: 'system', content: SUMMARY_PROMPT },
+      { role: 'user', content: `SUMMARY SO FAR\n${previous || '(none yet)'}\n\nNEW MESSAGES\n${lines.join('\n\n')}` },
+    ];
+    const summary = await shortText({ messages, maxTokens: 500,
+      openai: async () => complete({ model: await pickModel(req.body?.model, 'title'), maxTokens: 500, messages }) });
     const clean = cleanSummary(summary);
     if (!clean) { res.status(502).json({ error: 'No summary came back.' }); return; }
     res.json({ summary: clean });
