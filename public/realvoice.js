@@ -128,6 +128,7 @@ export class VoiceOut {
    * @param {() => object} [deps.cast]   the part of the cast for this answer: {voice, role, mood}
    * @param {object} [deps.guard]        a SpeakerGuard that keeps the phone speaker from buzzing
    * @param {() => string} [deps.format] the audio format to ask for: mp3, opus or wav
+   * @param {() => string} [deps.engine] 'advanced' for OpenAI's advanced (realtime) voice, else standard
    * @param {() => object} deps.headers  headers for a request that spends money
    * @param {(message: string) => void} deps.onNotice
    * @param {(state: string) => void} onStateChange
@@ -231,6 +232,7 @@ export class VoiceOut {
       this.cloudRole = cast.role || '';
       this.cloudMood = cast.mood || '';
       this.cloudFormat = this.format?.() || 'mp3';
+      this.cloudEngine = this.engine?.() || 'standard';
       this.cloudAccent = this.accent?.() ?? DEFAULT_ACCENT;
     }
     if (fresh) this.token += 1;
@@ -308,6 +310,7 @@ export class VoiceOut {
           ...(this.cloudRole ? { role: this.cloudRole } : {}),
           ...(this.cloudMood ? { mood: this.cloudMood } : {}),
           ...(this.cloudFormat && this.cloudFormat !== 'mp3' ? { format: this.cloudFormat } : {}),
+          ...(this.cloudEngine === 'advanced' ? { engine: 'advanced' } : {}),
           accent: this.cloudAccent,
           speed: this.settings.rate,
         }),

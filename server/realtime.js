@@ -117,3 +117,73 @@ export async function createRealtimeSecret(options, { signal, fetcher = fetch } 
   }
   throw lastError;
 }
+
+// ---- the advanced voice, for reading answers aloud -------------------------
+// The same realtime model as Live Talk (OpenAI's advanced voice), used to read
+// a piece of text word for word. The server holds one short WebSocket per
+// piece: instructions in, raw 24 kHz audio out, wrapped as WAV, so there is no
+// compression in the way. Anything that goes wrong is thrown, and the caller
+// falls back to the standard voice.
+const READ_ALOUD = (delivery = '') => 'You are a voice that reads text aloud for a listener. '
+  + 'Read the text you are given exactly as written, word for word, from the first word to the last, and nothing else: '
+  + 'no greeting, no answer, no comment, no added or skipped words. '
+  + delivery;
+
+export async function realtimeSpeak({ model, text, voice, speed = 1, delivery = '', signal, WebSocketImpl = globalThis.WebSocket, timeoutMs = 25_000 } = {}) {
+  if (!WebSocketImpl) throw new OpenAIError('The advanced voice is not available on this server.', 503);
+  const url = `${config.baseUrl.replace(/^http/, 'ws')}/realtime?model=${encodeURIComponent(model)}`;
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let finished = false;
+    // The key travels as a subprotocol, from this server only; the browser never sees it.
+    const socket = new WebSocketImpl(url, ['realtime', `openai-insecure-api-key.${config.apiKey}`]);
+    const finish = (error, value) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      signal?.removeEventListener?.('abort', onAbort);
+      try { socket.close(); } catch { /* already closed */ }
+      if (error) reject(error); else resolve(value);
+    };
+    const timer = setTimeout(() => finish(new OpenAIError('The advanced voice took too long.', 504)), timeoutMs);
+    const onAbort = () => finish(Object.assign(new Error('Stopped'), { name: 'AbortError' }));
+    if (signal?.aborted) return onAbort();
+    signal?.addEventListener?.('abort', onAbort);
+    const send = (value) => socket.send(JSON.stringify(value));
+    socket.onopen = () => {
+      send({ type: 'session.update', session: { type: 'realtime', output_modalities: ['audio'], instructions: READ_ALOUD(delivery),
+        audio: { output: { voice, format: { type: 'audio/pcm', rate: 24000 }, ...(speed && speed !== 1 ? { speed } : {}) } } } });
+      send({ type: 'conversation.item.create', item: { type: 'message', role: 'user', content: [{ type: 'input_text', text: `Read this aloud:\n\n${text}` }] } });
+      send({ type: 'response.create' });
+    };
+    socket.onmessage = (event) => {
+      let message;
+      try { message = JSON.parse(typeof event.data === 'string' ? event.data : Buffer.from(event.data).toString()); } catch { return; }
+      if (message.type === 'response.output_audio.delta' || message.type === 'response.audio.delta') {
+        if (typeof message.delta === 'string') chunks.push(Buffer.from(message.delta, 'base64'));
+      } else if (message.type === 'response.done') {
+        const status = message.response?.status;
+        if (status && status !== 'completed') return finish(new OpenAIError(message.response?.status_details?.error?.message || `The advanced voice stopped (${status}).`, 502));
+        if (!chunks.length) return finish(new OpenAIError('The advanced voice returned no audio.', 502));
+        finish(null, { pcm: Buffer.concat(chunks), usage: message.response?.usage || null });
+      } else if (message.type === 'error') {
+        finish(new OpenAIError(message.error?.message || 'The advanced voice refused the request.', 502, message.error?.code || ''));
+      }
+    };
+    socket.onerror = () => finish(new OpenAIError('The advanced voice could not connect.', 502));
+    socket.onclose = () => finish(new OpenAIError('The advanced voice closed before it finished.', 502));
+  });
+}
+
+/** Raw 16-bit mono PCM as a playable WAV file. */
+export function pcmToWav(pcm, rate = 24000) {
+  const header = Buffer.alloc(44);
+  header.write('RIFF', 0); header.writeUInt32LE(36 + pcm.length, 4); header.write('WAVE', 8);
+  header.write('fmt ', 12); header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(rate, 24); header.writeUInt32LE(rate * 2, 28); header.writeUInt16LE(2, 32); header.writeUInt16LE(16, 34);
+  header.write('data', 36); header.writeUInt32LE(pcm.length, 40);
+  return Buffer.concat([header, pcm]);
+}
+
+/** Worst-case cost of reading `chars` characters: about 14 spoken characters a second, plus a margin. */
+export const advancedSpeechMicroUsd = (chars, perMinute) => Math.ceil(Math.max(chars, 30) / (14 * 60) * perMinute * 1.25);

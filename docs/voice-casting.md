@@ -52,6 +52,23 @@ audio itself. Two changes:
   sound** asks for uncompressed WAV, which has no compression artefacts at all
   but uses more data. Other browsers keep MP3. All formats cost the same.
 
+## The advanced voice (owner's request)
+Answers are now read by OpenAI's advanced voice: the realtime model behind
+ChatGPT voice and Live Talk. It is on by default wherever Live Talk is
+available. Settings → **Advanced voice** switches back to the standard voice.
+- **How it works.** For each piece of an answer, the server opens one short
+  WebSocket to the realtime model (`realtimeSpeak` in `server/realtime.js`). It
+  asks the model to read the text word for word, receives raw 24 kHz audio and
+  sends it as WAV, uncompressed. The API key stays on the server.
+- **Voice and manner.** The cast voice and its calm manner are kept. Voices the
+  realtime model lacks (Onyx) use Grandpa's voice instead.
+- **If anything fails** (no realtime model, a refusal, no audio, a timeout, or a
+  server without WebSocket), the standard voice reads that piece. Speech never
+  goes silent.
+- **Cost.** About $0.04 a minute on the mini realtime model, roughly 2–3 times
+  the standard voice. It is reserved per piece at its worst case and counts
+  against the Voice limit on Owner Controls.
+
 ## How Grandpa chooses
 - **The part.** It is chosen from the question. If the question says little, it
   is chosen from the conversation's role (homework, business, farming,

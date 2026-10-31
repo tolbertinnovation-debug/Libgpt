@@ -59,7 +59,8 @@ import {imageRequest} from './image-options.js';
 import { memoryContext } from '../public/memory.js';
 import { chatTools, toolActions, FOLLOWUPS_PROMPT, HISTORY_PROMPT, isHistoryQuestion } from './chat-tools.js';
 import { cleanSummary } from '../public/chat-summary.js';
-import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULES } from './realtime.js';
+import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULES, realtimeSpeak, pcmToWav, advancedSpeechMicroUsd } from './realtime.js';
+import { realtimeVoice } from '../public/voice-cast.js';
 import { createMemorySyncStore, createPostgresSyncStore, validSyncId } from './sync-store.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -320,6 +321,8 @@ app.get('/api/config', async (_req, res) => {
     liveTalk: liveTalkReady(),
     liveTalkMinutes: config.liveTalkMinutes,
     sync: Boolean(syncStore),
+    // The advanced voice reads answers when Live Talk's realtime model is available.
+    advancedVoice: liveTalkReady(),
     voices: OPENAI_VOICES,
     defaultVoice: DEFAULT_OPENAI_VOICE,
     voiceFrom: 'openai',
@@ -1418,6 +1421,27 @@ app.post('/api/structured', rateLimit, requireAccess, runtime.governed('library'
 // US cent, which is the same order as the answer itself — so this is not
 // fenced off the way pictures are, but it does get a ceiling of its own, and
 // the browser is told when it runs out rather than falling quiet.
+// The advanced voice (the realtime model behind Live Talk) reading an answer
+// aloud. Returns WAV audio, or null when the standard voice should speak it
+// instead: not asked for, no realtime model on the account, or it failed.
+async function speakAdvanced({ text, options, body, signal }) {
+  if (body?.engine !== 'advanced' || !config.liveTalk) return null;
+  await accountModels();
+  const model = pickRealtimeModel(modelCache.all || [], config.realtimeModel);
+  if (!model) return null;
+  const perMinute = /mini/.test(model) ? REALTIME_MICRO_USD_PER_MINUTE.mini : REALTIME_MICRO_USD_PER_MINUTE.full;
+  try {
+    const { pcm } = await runtime.meter('voice', 'speak', advancedSpeechMicroUsd(text.length, perMinute),
+      (metered) => realtimeSpeak({ model, text, voice: realtimeVoice(options.voice), speed: options.speed,
+        delivery: options.delivery, signal: AbortSignal.any([signal, metered]) }));
+    return pcmToWav(pcm);
+  } catch (error) {
+    if (signal.aborted || error?.name === 'AbortError' || governanceError(error)) throw error;
+    console.error('[speak] ADVANCED_VOICE_FALLBACK', error?.message || error);
+    return null;
+  }
+}
+
 const spokenChars = [];
 
 function voiceBudgetLeft() {
@@ -1459,10 +1483,20 @@ app.post('/api/speak', rateLimit, requireAccess, runtime.governed('voice','speak
     // Counted before the call, so two requests together cannot both slip past.
     spokenChars.push({ at: Date.now(), n: text.length });
 
+    const advanced = await speakAdvanced({ text, options, body: req.body, signal: controller.signal });
+    if (advanced) {
+      res.setHeader('Content-Type', 'audio/wav');
+      res.setHeader('X-Voice-Engine', 'advanced');
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(advanced);
+      return;
+    }
+
     const audio = await runtime.meter('voice', 'speak', text.length * SPEECH_MICRO_USD_PER_CHAR,
       (signal) => speakAloud({ text, ...options, signal: AbortSignal.any([controller.signal, signal]) }));
 
     res.setHeader('Content-Type', SPEECH_FORMATS[options.format] || 'audio/mpeg');
+    res.setHeader('X-Voice-Engine', 'standard');
     res.setHeader('Cache-Control', 'no-store');
     res.send(audio);
   } catch (error) {
