@@ -1,6 +1,8 @@
 import { config } from './config.js';
 import { limitMessage, safeDiagnostic } from './openai-failure.js';
 import {RESEARCH_MAX_TOOL_CALLS} from './agent-costs.js';
+import { llamaConfig } from './llama.js';
+import { metaImage } from './meta-media.js';
 
 export class OpenAIError extends Error {
   constructor(message, status, code) {
@@ -152,10 +154,69 @@ function adapt(body, detail, model) {
   return next;
 }
 
+// ---- Meta in OpenAI's place ----------------------------------------------
+// While OpenAI is switched off and a Meta key is set, every chat-completions
+// request (chat, Build, documents, stories, plans, reviews) and every picture
+// goes to Meta's Model API instead, which speaks the same format. Spoken voice,
+// Live Talk and web search have no Meta equivalent and stay off.
+export const metaBridge = () => {
+  if (!config.openaiOff) return null;
+  const meta = llamaConfig();
+  return meta.ready ? meta : null;
+};
+
+/** The OpenAI request rewritten for Meta: Muse model, Meta's token field, no PDF parts. */
+export function forMeta(body, meta) {
+  const next = { ...body };
+  // Careful thinking goes to Muse Wonder; everything else to Muse Spark.
+  next.model = next.reasoning_effort ? meta.deepModel : meta.model;
+  if ('max_tokens' in next) {
+    if (!('max_completion_tokens' in next)) next.max_completion_tokens = next.max_tokens;
+    delete next.max_tokens;
+  }
+  // Thinking replaces the temperature, as with OpenAI's reasoning models.
+  if (next.reasoning_effort) delete next.temperature;
+  if (Array.isArray(next.messages)) {
+    next.messages = next.messages.map((message) => {
+      if (!Array.isArray(message.content)) return message;
+      const parts = message.content.filter((part) => part?.type === 'text' || (part?.type === 'image_url' && message.role === 'user'));
+      if (parts.length === message.content.length) return message;
+      return { ...message, content: parts.length ? parts : '(an attachment Meta cannot read)' };
+    });
+  }
+  return next;
+}
+
+async function postMeta(path, body, signal, meta) {
+  if (path !== '/chat/completions') {
+    throw new OpenAIError('This feature has no Meta version yet, and OpenAI is switched off for now.', 503, 'openai_off');
+  }
+  const send = (payload) => fetch(`${meta.baseUrl}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${meta.key}` },
+    body: JSON.stringify(payload),
+    signal,
+  });
+  let attempt = forMeta(body, meta);
+  let response = await send(attempt);
+  // A 400 is refused before any work. Try once more with only the plainest
+  // fields, in case Meta turned down one of the optional ones.
+  if (response.status === 400 && (attempt.stream_options || attempt.parallel_tool_calls !== undefined || attempt.temperature !== undefined)) {
+    const { stream_options: _s, parallel_tool_calls: _p, temperature: _t, ...plain } = attempt;
+    attempt = plain;
+    response = await send(attempt);
+  }
+  if (response.ok) return response;
+  const detail = await response.json().catch(() => ({}));
+  throw new OpenAIError(detail?.error?.message || detail?.detail || `Meta answered ${response.status}.`, response.status, 'meta_error');
+}
+
 async function post(path, body, signal) {
   // body.model is what every one of these calls names.
   const asked = typeof body?.model === 'string' ? body.model : '';
 
+  const meta = metaBridge();
+  if (meta) return postMeta(path, body, signal, meta);
   if (config.openaiOff) throw new OpenAIError('This feature uses OpenAI, which is switched off for now.', 503, 'openai_off');
   if (!config.apiKey) {
     throw new OpenAIError(
@@ -499,6 +560,8 @@ export async function listModels({ signal } = {}) {
 
 /** Generate one GPT Image asset; bytes stay behind the server API. */
 export async function generateImage({ prompt, size = '1024x1024', quality = 'medium', format = 'png', signal, onUsage }) {
+  const meta = metaBridge();
+  if (meta) return metaImage({ config: meta, prompt, size, signal });
   const model = config.imageModel;
   const outputFormat=['png','jpeg','webp'].includes(format) ? format : 'png';
   const body={model,prompt,n:1,size,quality,output_format:outputFormat};

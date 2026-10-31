@@ -59,16 +59,22 @@ export function backupWorthy(error) {
 }
 
 /** Stream one Llama answer. Yields text; `onFinish` gets the stop reason. */
-export async function* streamLlama({ config = llamaConfig(), model, messages, maxTokens = 1400, temperature, images = false, signal, onFinish, fetcher = fetch }) {
+export async function* streamLlama({ config = llamaConfig(), model, messages, maxTokens = 1400, temperature, images = false, tools = [], onToolCalls, signal, onFinish, fetcher = fetch }) {
   if (!config.ready) throw Object.assign(new Error('The Meta Llama backup is not set up.'), { status: 503 });
-  const response = await fetcher(`${config.baseUrl}/chat/completions`, {
+  // Grandpa's tools (pictures, documents, memory, thinking), in the same format OpenAI uses.
+  const offered = Array.isArray(tools) && tools.length ? tools : null;
+  const send = (withTools) => fetcher(`${config.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.key}` },
     // Muse Spark does best at its default temperature, so none is sent unless asked.
     body: JSON.stringify({ model: model || config.model, messages: textOnly(messages, { images }), stream: true, max_completion_tokens: maxTokens,
+      ...(withTools ? { tools: offered, tool_choice: 'auto' } : {}),
       ...(Number.isFinite(temperature) ? { temperature } : {}) }),
     signal,
   });
+  let response = await send(Boolean(offered));
+  // Refused before any work: answer without the tools rather than not at all.
+  if (offered && response.status === 400) response = await send(false);
   if (!response.ok) {
     const detail = await response.json().catch(() => ({}));
     throw Object.assign(new Error(detail?.error?.message || detail?.detail || `The Meta Llama backup answered ${response.status}.`), { status: response.status });
@@ -76,6 +82,7 @@ export async function* streamLlama({ config = llamaConfig(), model, messages, ma
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  const calls = [];
   try {
     while (true) {
       const { done, value } = await reader.read();
@@ -91,11 +98,20 @@ export async function* streamLlama({ config = llamaConfig(), model, messages, ma
           try {
             const choice = JSON.parse(payload).choices?.[0];
             if (choice?.delta?.content) yield choice.delta.content;
+            if (offered) {
+              for (const part of choice?.delta?.tool_calls || []) {
+                const at = Number.isInteger(part.index) ? part.index : calls.length;
+                const call = calls[at] ||= { name: '', arguments: '' };
+                if (part.function?.name) call.name += part.function.name;
+                if (part.function?.arguments) call.arguments += part.function.arguments;
+              }
+            }
             if (choice?.finish_reason) onFinish?.(choice.finish_reason);
           } catch { /* a partial frame */ }
         }
       }
     }
+    if (offered && calls.length) onToolCalls?.(calls.filter(Boolean));
   } finally {
     reader.cancel().catch(() => {});
   }

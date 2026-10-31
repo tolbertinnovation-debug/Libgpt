@@ -33,6 +33,24 @@ run on Meta. Formats were verified at dev.meta.ai/docs.
   - Liberian place and food names are sent as keywords.
   - It reserves $0.216 an hour from the Voice limit (Meta charges $0.18).
 
+## Everything on Meta while OpenAI is off
+
+`server/openai.js` hands its work to Meta whenever OpenAI is switched off and a Meta key is set
+(`metaBridge()` / `forMeta()`). That covers every feature that used OpenAI's chat format: Build and
+its engineering team, documents, Library stories and wisdom, plans, reviews, titles and summaries.
+Models: Muse Spark, or Muse Wonder when the request asks for careful thinking (`reasoning_effort`).
+`max_tokens` becomes `max_completion_tokens`, and PDF page parts are left out. Pictures from
+`/api/picture` and `/api/album` use Muse Image.
+
+In chat, Grandpa's tools (draw a picture, write a document, offer a memory, think carefully) are
+offered to Muse Spark in the same format. If Meta turns the tools down, he answers without them.
+
+Each feature keeps its own owner-set limit (Build, Documents, Library, Pictures, ...). Chat stays
+on the Meta Llama limit.
+
+Still off, because Meta has no equivalent: spoken voice (the browser's own voice reads aloud),
+Live Talk, the advanced voice, and live web research.
+
 ## OpenAI switched off (for now)
 At the owner's request, OpenAI is off on the live host. `config.openaiOff`
 defaults to on wherever `VERCEL` is set, and `OPENAI_OFF=false` switches

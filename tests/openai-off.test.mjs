@@ -50,9 +50,10 @@ test('with OpenAI off: chat runs on Llama, no OpenAI request is ever made, and O
   const site = await (await original(`${base}/api/config`)).json();
   assert.equal(site.ready, true, 'chat is ready on Llama alone');
   assert.equal(site.openaiOff, true);
-  for (const feature of ['realVoice', 'liveTalk', 'advancedVoice', 'building', 'liveNews']) assert.equal(site[feature], false, feature);
+  for (const feature of ['realVoice', 'liveTalk', 'advancedVoice', 'liveNews']) assert.equal(site[feature], false, feature);
   // Meta does pictures, photo reading and voice typing (WAV) while OpenAI is off.
-  for (const feature of ['chatImages', 'dictation', 'vision']) assert.equal(site[feature], true, feature);
+  // Build and every other text feature run on Meta too.
+  for (const feature of ['chatImages', 'dictation', 'vision', 'building']) assert.equal(site[feature], true, feature);
   assert.equal(site.dictationFormat, 'wav');
 
   const chat = await (await post('/api/chat', { messages: [{ role: 'user', content: 'Write a letter to my landlord, and what is the news today?' }], research: 'auto' })).text();
