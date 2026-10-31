@@ -36,8 +36,8 @@ test('tool calls become browser actions; unoffered, broken and empty calls are d
 
 test('follow-up questions are split off the answer and never flash while streaming', () => {
   const answer = 'Rice grows best in wet fields.\n[[followups: How long does rice take? | Can I grow it at home? | Which kind is best?]]';
-  assert.deepEqual(splitFollowups(answer), { text: 'Rice grows best in wet fields.', followups: ['How long does rice take?', 'Can I grow it at home?', 'Which kind is best?'] });
-  assert.deepEqual(splitFollowups('Hello there!'), { text: 'Hello there!', followups: [] });
+  assert.deepEqual(splitFollowups(answer), { text: 'Rice grows best in wet fields.', followups: ['How long does rice take?', 'Can I grow it at home?', 'Which kind is best?'], offers: false });
+  assert.deepEqual(splitFollowups('Hello there!'), { text: 'Hello there!', followups: [], offers: false });
   assert.equal(splitFollowups('A\n[[followups: a | b | c | d | e]]').followups.length, 3);
   for (const partial of ['Answer.\n[', 'Answer.\n[[', 'Answer.\n[[follo', 'Answer.\n[[followups: How long']) assert.equal(visibleWhileStreaming(partial), 'Answer.');
   assert.equal(visibleWhileStreaming('Use list[0] and [a link](x)'), 'Use list[0] and [a link](x)');

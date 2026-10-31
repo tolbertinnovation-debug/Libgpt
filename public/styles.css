@@ -802,6 +802,7 @@ body {
   overflow-wrap: anywhere;
 }
 .followup:hover, .followup:focus-visible { background: var(--bg-hover); }
+.followups-lead { margin: 0 0 .1rem; color: var(--text-soft); font-size: .9rem; font-weight: 600; }
 .memory-offer {
   margin: .8rem 0 0; padding: .75rem .85rem;
   border: 1px solid var(--border); border-radius: 12px;

@@ -92,7 +92,10 @@
   "expect": {
    "route": "chat",
    "web": false,
-   "thinking": ""
+   "thinking": "",
+   "prompt": [
+    "^(?![\\s\\S]*This question is about history)"
+   ]
   }
  },
  {
@@ -623,7 +626,11 @@
    "route": "chat",
    "web": false,
    "thinking": "",
-   "tier": "deep"
+   "tier": "deep",
+   "prompt": [
+    "This question is about history",
+    "\\[\\[offers:"
+   ]
   }
  },
  {

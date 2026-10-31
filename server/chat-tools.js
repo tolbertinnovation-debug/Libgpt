@@ -77,3 +77,14 @@ If a request is genuinely unclear and a wrong guess would waste the person's tim
 After an answer that invites more, end with one last line in exactly this form, with two or three short questions the person might ask you next, in their language and from their point of view:
 [[followups: first question | second question | third question]]
 Leave that line out after greetings, thanks, clarifying questions, and very short replies.`;
+
+// History asked about: concrete names, places, titles and dates, then an offer
+// of more ("If you want, I can give you:") instead of follow-up questions.
+const HISTORY = /\b(?:history|historical|historian|histories|civil war|world war|war of|wars?\b.*\b(?:start|end|began|fought)|independence|founded|founding|coloni[sz]\w*|colony|empire|kingdom|dynasty|reign|ruled|ancient|centur(?:y|ies)|revolution|coup|massacre|treaty|slave trade|abolition|first president|past presidents?|origins? of|who were the|(?:in|since|from|around|by|during|before|after) 1[5-9][0-9]{2}|1[5-9][0-9]0s)\b/i;
+export const isHistoryQuestion = question => HISTORY.test(String(question || '').slice(0, 2000));
+
+export const HISTORY_PROMPT = `HISTORY
+This question is about history. Make the answer concrete: name the specific people (with their titles or roles), the places, and the dates; give a short timeline of the key events in order when it helps; and include at least one specific example. Say plainly where a date or fact is uncertain or disputed, and never invent names, titles or dates.
+Instead of the [[followups: ...]] line, end with one last line in exactly this form, offering two to four things you could add next, written as short phrases in the person's language, for example:
+[[offers: A timeline of the key dates | The names of the main people and places | A specific example | Their titles and roles]]
+Fit the offers to this topic, and leave out anything you have already covered in full.`;

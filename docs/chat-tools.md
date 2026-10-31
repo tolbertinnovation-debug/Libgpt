@@ -55,3 +55,20 @@ what the patterns miss, such as "send me one" after a talk about rice farming.
   - the follow-up line;
   - the real `/api/chat` route for pictures, memory offers, web search and
     spoken turns.
+
+## History answers: specific details and "If you want, I can give you:"
+- **What counts as a history question.** It is recognised by words such as
+  history, civil war, independence, founded, colony, kingdom, first president,
+  coup, treaty, origins of, or a year written as "in 1847" or "the 1980s".
+- **What the answer must contain.** These questions get an extra rule: name the
+  specific people with their titles or roles, the places and the dates; add a
+  short timeline when it helps; and give at least one specific example. The
+  answer must also say where a fact is uncertain and never invent names, titles
+  or dates.
+- **How it ends.** Instead of follow-up questions, the answer ends with
+  `[[offers: …]]`, two to four things Grandpa can add. The chat shows them
+  under "If you want, I can give you:". Tapping one asks for it, for example
+  "A timeline of the key dates, please."
+- **Spoken replies** get neither offers nor follow-ups.
+- **Tests:** `tests/history-answers.test.mjs`, plus the history question in the
+  quality set.
