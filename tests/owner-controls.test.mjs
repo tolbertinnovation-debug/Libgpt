@@ -32,7 +32,7 @@ test('refusals explain what to do without revealing anything',()=>{
 test('every feature needs an amount the owner chose; nothing can be left unlimited',()=>{
  const values={total:2,chat:.3,research:.2,build:1,images:.8,documents:.8,library:.2,voice:.6,livetalk:.5,backup:.2};
  assert.deepEqual(limitsRequest(values),{limits:{dailyUsd:2,capabilityDailyUsd:{chat:.3,research:.2,build:1,images:.8,documents:.8,library:.2,voice:.6,livetalk:.5,backup:.2}}});
- assert.match(limitsRequest({...values,backup:''}).error,/Enter an amount for Backup \(Meta Llama\)/);
+ assert.match(limitsRequest({...values,backup:''}).error,/Enter an amount for Meta Llama/);
  assert.match(limitsRequest({...values,voice:''}).error,/Enter an amount for Voice/);
  assert.match(limitsRequest({...values,chat:undefined}).error,/Enter an amount for Chat/);
  assert.match(limitsRequest({...values,build:3}).error,/cannot be more than the total/);

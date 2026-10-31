@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { backupWorthy, llamaConfig, llamaMicroUsd, streamLlama, textOnly, LLAMA_DEFAULTS } from '../server/llama.js';
+import { backupWorthy, everydayForLlama, llamaConfig, llamaMicroUsd, streamLlama, textOnly, LLAMA_DEFAULTS } from '../server/llama.js';
 import { CAPABILITIES } from '../server/agent-governance.js';
 import { isolatedLedger } from './support/ledger.mjs';
 
@@ -56,8 +56,9 @@ test('/api/chat: OpenAI down → Llama answers within the owner\'s backup allowa
   const admin = 'admin-token-for-tests-only-0123456789abcdef';
   delete process.env.OPENAI_BASE_URL;
   Object.assign(process.env, { OPENAI_API_KEY: 'test-only-not-real', ACCESS_CODE: '', RATE_LIMIT_PER_MINUTE: '0', RITUAL_ADMIN_TOKEN: admin,
-    LLAMA_API_KEY: 'llama-test-key', LLAMA_BASE_URL: 'https://llama.test/compat/v1' });
+    LLAMA_API_KEY: 'llama-test-key', LLAMA_BASE_URL: 'https://llama.test/compat/v1', LLAMA_FIRST: 'false' });
   let openai = 'down';
+  let openaiChat = 0;
   const llamaCalls = [];
   const original = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
@@ -68,6 +69,7 @@ test('/api/chat: OpenAI down → Llama answers within the owner\'s backup allowa
     }
     if (!target.startsWith('https://api.openai.com/')) return original(url, options);
     if (target.endsWith('/models')) return Response.json({ data: ['gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-4.1-mini'].map(id => ({ id })) });
+    if (target.endsWith('/chat/completions') && JSON.parse(options.body).stream) openaiChat += 1;
     if (openai === 'down') return Response.json({ error: { message: 'The server had an error' } }, { status: 503 });
     if (openai === 'bad') return Response.json({ error: { message: 'Invalid value for messages' } }, { status: 400 });
     return new Response(sse([{ choices: [{ delta: { content: 'OpenAI says hello.' }, finish_reason: 'stop' }] }]));
@@ -77,7 +79,7 @@ test('/api/chat: OpenAI down → Llama answers within the owner\'s backup allowa
   const previous = { apiKey: config.apiKey, baseUrl: config.baseUrl, accessCode: config.accessCode, rateLimitPerMinute: config.rateLimitPerMinute };
   Object.assign(config, { apiKey: 'test-only-not-real', baseUrl: 'https://api.openai.com/v1', accessCode: '', rateLimitPerMinute: 0 });
   const server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
-  t.after(() => { globalThis.fetch = original; Object.assign(config, previous); server.closeAllConnections(); server.close(); delete process.env.LLAMA_API_KEY; delete process.env.LLAMA_BASE_URL; });
+  t.after(() => { globalThis.fetch = original; Object.assign(config, previous); server.closeAllConnections(); server.close(); delete process.env.LLAMA_API_KEY; delete process.env.LLAMA_BASE_URL; delete process.env.LLAMA_FIRST; });
   const base = `http://127.0.0.1:${server.address().port}`;
   const ask = async () => (await original(`${base}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages: [{ role: 'user', content: 'Hello Grandpa, how is the day?' }], research: 'off' }) })).text();
@@ -114,4 +116,38 @@ test('/api/chat: OpenAI down → Llama answers within the owner\'s backup allowa
   text = await ask();
   assert.match(text, /OpenAI says hello\./);
   assert.equal(llamaCalls.length, 1);
+
+  // Llama first for everyday chat (the default when the key is set): OpenAI is not asked at all.
+  delete process.env.LLAMA_FIRST;
+  const openaiCalls = () => openaiChat;
+  text = await ask();
+  assert.match(text, /Llama says hello\./);
+  assert.doesNotMatch(text, /could not answer/, 'no apology: Llama is simply answering');
+  assert.equal(llamaCalls.length, 2);
+  // Pictures, documents, research and hard questions stay with OpenAI.
+  const before = openaiCalls();
+  await (await original(`${base}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ messages: [{ role: 'user', content: 'Write a letter to my landlord' }], research: 'off' }) })).text();
+  assert.equal(llamaCalls.length, 2);
+  assert.ok(openaiCalls() > before);
+  // Llama's allowance used up: OpenAI answers instead, no error.
+  await original(`${base}/api/admin/budget`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-ritual-admin': admin },
+    body: JSON.stringify({ limits: { dailyUsd: 5, capabilityDailyUsd: { chat: 1, backup: 0 } } }) });
+  text = await ask();
+  assert.match(text, /OpenAI says hello\./);
+  assert.equal(llamaCalls.length, 2);
+});
+
+test('everyday chat goes to Llama; pictures, documents, research, photos, thinking and stories stay with OpenAI', () => {
+  const everyday = (question, extra = {}) => everydayForLlama({ question, env: {}, ...extra });
+  assert.equal(everyday('How do I plant cassava?'), true);
+  assert.equal(everyday('Good morning Grandpa'), true);
+  for (const q of ['Send me a picture of rice', 'Write a letter to my landlord', 'Make my CV', 'What is the news today?', 'Remember that I am diabetic'])
+    assert.equal(everyday(q), false, q);
+  assert.equal(everyday('Hello', { photo: true }), false);
+  assert.equal(everyday('Hello', { searched: true }), false);
+  assert.equal(everyday('Hello', { thinking: 'low' }), false);
+  assert.equal(everyday('Tell me a story', { tier: 'deep' }), false);
+  assert.equal(everyday('Hello', { building: true }), false);
+  assert.equal(everydayForLlama({ question: 'Hello', env: { LLAMA_FIRST: 'false' } }), false, 'the owner can turn it off');
 });

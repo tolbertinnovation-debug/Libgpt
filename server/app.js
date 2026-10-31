@@ -62,7 +62,7 @@ import { cleanSummary } from '../public/chat-summary.js';
 import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULES, realtimeSpeak, pcmToWav, advancedSpeechMicroUsd } from './realtime.js';
 import { realtimeVoice } from '../public/voice-cast.js';
 import { createMemorySyncStore, createPostgresSyncStore, validSyncId } from './sync-store.js';
-import { backupWorthy, llamaConfig, llamaMicroUsd, streamLlama } from './llama.js';
+import { backupWorthy, everydayForLlama, llamaConfig, llamaMicroUsd, streamLlama } from './llama.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -1038,8 +1038,27 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     }
 
     if (!searched) {
-      try { await runOnce(opening(), budget, offered); }
-      catch (error) { if (!(await tryBackup(error))) throw error; actions = []; }
+      // Everyday chat: Llama first, to save OpenAI credit. If Llama cannot
+      // answer (not set up, its allowance spent, an error), OpenAI does.
+      let answeredByLlama = false;
+      if (llamaConfig().ready && everydayForLlama({ question: routedQuestion, building, searched, photo: Boolean(photo), document: Boolean(document),
+        thinking, tier: tierFor('chat', routing), carryingOn })) {
+        try {
+          send('start', { model: llamaConfig().model, spoken, searched: false, dropped, saw: false, thought: false });
+          await runBackup(opening());
+          usedBackup = true;
+          answeredByLlama = true;
+          model = llamaConfig().model;
+        } catch (error) {
+          if (controller.signal.aborted || answer.trim()) throw error;
+          console.error('[chat] LLAMA_FIRST_FALLBACK', error?.code || error?.status || error?.message);
+          send('start', { model, spoken, searched, dropped, saw: Boolean(photo), thought: think });
+        }
+      }
+      if (!answeredByLlama) {
+        try { await runOnce(opening(), budget, offered); }
+        catch (error) { if (!(await tryBackup(error))) throw error; actions = []; }
+      }
       const lookup = actions.find((action) => action.type === 'search');
       if (lookup && !answer.trim() && reader && !controller.signal.aborted) {
         // He chose to read the web first: the same turn, on the reading model.

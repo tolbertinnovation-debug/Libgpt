@@ -30,7 +30,7 @@ const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 // screens and worker already look for ("spending cap", "rate limit",
 // "concurrency") so a denial is never retried as if it were a glitch.
 const CAPABILITY_WORDS = {build: 'coding', chat: 'chat', research: 'research', documents: 'document', library: 'Library',
-  images: 'picture', voice: 'voice', livetalk: 'Live Talk', execution: 'code-testing', backup: 'backup (Meta Llama)'};
+  images: 'picture', voice: 'voice', livetalk: 'Live Talk', execution: 'code-testing', backup: 'Meta Llama'};
 export function denialMessage(code, capability) {
   if (code === 'GOVERNANCE_BUDGET') return capability && capability !== 'total'
     ? `Today's ${CAPABILITY_WORDS[capability] || capability} spending cap has been reached, so this feature is paused until midnight UTC. Other features, your saved chats and your downloads still work.`

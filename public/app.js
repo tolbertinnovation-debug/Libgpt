@@ -7,7 +7,7 @@ import { chatContext } from './chat-context.js';
 import {imageDiscussion,validImageDiscussion,imageRequestLabel} from './image-context.js';
 import { renderMarkdown, escapeHtml } from './markdown.js';
 import { conversationWindow, answerDepth, researchMode } from './knowledge.js';
-import { groupByDate, loadChats, loadPrefs, newId, savePrefs, saveChats } from './storage.js?v=autospeak-1';
+import { groupByDate, loadChats, loadPrefs, newId, savePrefs, saveChats } from './storage.js?v=save-credit-1';
 import {
   DEFAULT_DICTATION, DICTATION_ACCENTS, FALLBACK_DICTATION,
   Speaker, SentenceStream, englishVoices, loadVoices, pickDefaultVoice, stripMarkdown,
@@ -86,7 +86,7 @@ const state = {
     research: 'auto',
     theme: null,        // 'light' | 'dark' | null = follow the phone
     textSize: 'md',     // 'sm' | 'md' | 'lg'
-    autoSpeak: true,
+    autoSpeak: false,  // on in Settings; off by default to save voice spending
     voiceRate: 1,
     voicePitch: 1,      // only used by the phone fallback
     voiceURI: '',        // '' = let the app pick the closest accent
@@ -1408,7 +1408,7 @@ const speaker = new VoiceOut({
   guard: new SpeakerGuard(),
   format: speechFormat,
   // OpenAI's advanced voice (the realtime model) when the site has it and it is not switched off.
-  engine: () => (state.catalogue?.advancedVoice && state.prefs.voiceEngine !== 'standard' ? 'advanced' : 'standard'),
+  engine: () => (state.catalogue?.advancedVoice && state.prefs.voiceEngine === 'advanced' ? 'advanced' : 'standard'),
   room,
   // Off when the deployment has no key for it, or when the user has asked for
   // the phone's voice instead.
@@ -2726,7 +2726,7 @@ const CAST_SAMPLES = {
 function renderCastSettings() {
   const casting = state.prefs.voiceCasting !== 'one';
   $('settings-voice-quality').checked = state.prefs.voiceQuality === 'best';
-  $('settings-advanced-voice').checked = state.prefs.voiceEngine !== 'standard';
+  $('settings-advanced-voice').checked = state.prefs.voiceEngine === 'advanced';
   $('settings-advanced-voice-row').hidden = !state.catalogue?.advancedVoice;
   $('settings-casting').checked = casting;
   $('settings-openai-voice-hint').textContent = casting ? 'Grandpa\'s own voice; each topic below has its own' : 'Used for everything';
