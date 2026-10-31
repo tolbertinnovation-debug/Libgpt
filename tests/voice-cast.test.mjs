@@ -12,7 +12,7 @@ test('every part of the cast has a real voice and its own way of speaking', () =
   }
   assert.equal(OPENAI_VOICES.find(v => v.id === CAST.auntie.voice).gender, 'woman', 'cooking is a woman\'s voice');
   assert.ok(REALTIME_VOICES.every(id => OPENAI_VOICES.some(v => v.id === id)));
-  assert.equal(realtimeVoice('onyx'), 'cedar');
+  assert.equal(realtimeVoice('onyx'), 'ballad');
   assert.equal(realtimeVoice('coral'), 'coral');
 });
 
@@ -32,6 +32,7 @@ test('the question decides who speaks', () => {
   assert.equal(castRole({ question: 'Hello', searched: true }), 'newsreader');
   assert.equal(castRole({ question: 'and then?', answer: 'Add the palm butter to the pot and stir the soup.' }), 'auntie');
   assert.equal(castRole({ kind: 'story', question: 'cook' }), 'storyteller');
+  assert.equal(CAST.grandpa.voice, 'ballad'); assert.equal(CAST.storyteller.voice, 'verse');
 });
 
 test('the mood shapes the delivery: comfort, urgent, steps, cheerful', () => {
@@ -52,7 +53,7 @@ test('people stay in control: casting off, a chosen voice per part, Grandpa uses
   const off = castFor(cooking, { voiceCasting: 'one', openaiVoice: 'sage' });
   assert.equal(off.role, 'grandpa'); assert.equal(off.voice, 'sage');
   assert.equal(castFor({ question: 'Hello' }, { openaiVoice: 'ash' }).voice, 'ash');
-  assert.equal(castFor({ question: 'Hello' }, { openaiVoice: 'nonsense' }).voice, 'cedar');
+  assert.equal(castFor({ question: 'Hello' }, { openaiVoice: 'nonsense' }).voice, 'ballad');
 });
 
 test('the server turns a part and a mood into speaking instructions, from fixed lists only', () => {

@@ -12,9 +12,10 @@ export const OPENAI_VOICES = [
   { id: 'verse', label: 'Verse', hint: 'Man · bright and versatile', gender: 'man' },
   { id: 'onyx', label: 'Onyx', hint: 'Man · deep and steady', gender: 'man' },
 ];
-// Voices Live Talk (the realtime API) can use; the others fall back to Cedar there.
+// Voices Live Talk (the realtime API) can use; the others fall back to Grandpa's voice there.
 export const REALTIME_VOICES = ['cedar', 'marin', 'coral', 'sage', 'shimmer', 'ash', 'ballad', 'verse'];
-export const DEFAULT_OPENAI_VOICE = 'cedar';
+// Grandpa's voice: Ballad, chosen by the owner over Cedar.
+export const DEFAULT_OPENAI_VOICE = 'ballad';
 export const VOICE_SETTINGS_VERSION = 2;
 export function openaiVoice(value) {
   return OPENAI_VOICES.some(v => v.id === value) ? value : DEFAULT_OPENAI_VOICE;
@@ -24,6 +25,12 @@ export function migrateVoicePrefs(value) {
   if (prefs.voiceSettingsVersion !== VOICE_SETTINGS_VERSION) {
     Object.assign(prefs, { voiceSettingsVersion: VOICE_SETTINGS_VERSION, openaiVoice: DEFAULT_OPENAI_VOICE,
       realVoice: true, voiceRate: 1, voicePitch: 1, voiceURI: '', room: 'none', loudness: 'normal', sound: false });
+  }
+  // Once: Grandpa's voice changed from Cedar to Ballad, so a saved Cedar (the old
+  // default) moves with it. A voice picked after this stays as picked.
+  if (prefs.grandpaVoice !== 'ballad-1') {
+    if (!prefs.openaiVoice || prefs.openaiVoice === 'cedar') prefs.openaiVoice = 'ballad';
+    prefs.grandpaVoice = 'ballad-1';
   }
   prefs.openaiVoice = openaiVoice(prefs.openaiVoice);
   // Cloud speech always plays without artificial reverberation.
