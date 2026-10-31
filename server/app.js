@@ -113,6 +113,8 @@ const WINDOW_MS = 60_000;
 // Chat can draw only with images on, a key, and (when hosted) an access code.
 // Meta does pictures, photo reading and voice typing whenever OpenAI is not available.
 const metaMedia = () => !config.apiKey && llamaConfig().ready;
+// Text features (Build, documents, stories, plans) run on OpenAI, or on Meta while OpenAI is off.
+const brainReady = () => Boolean(config.apiKey) || metaMedia();
 const chatPicturesAvailable = () => config.imagesEnabled && (Boolean(config.apiKey) || metaMedia()) && !(config.serverless && !config.accessCode);
 
 function rateLimit(req, res, next) {
@@ -351,12 +353,12 @@ app.get('/api/config', async (_req, res) => {
     // worse than no camera button.
     vision: config.vision && ((Boolean(config.apiKey) && Boolean(tiers.seeing)) || metaMedia()),
     // Ritual Coding needs nothing beyond the key the rest of the app uses.
-    building: config.building && Boolean(config.apiKey),
+    building: config.building && brainReady(),
     backgroundBuilds: Boolean(buildJobStore && process.env.VERCEL_DEPLOYMENT_ID),
     // Whether a build may draw pictures for the pages it makes. Off unless
     // pictures are switched on AND the hourly limit can actually be held to,
     // so the model is never told it can do something that will be refused.
-    buildPictures: config.building && config.imagesEnabled && Boolean(config.apiKey)
+    buildPictures: config.building && config.imagesEnabled && brainReady()
       && !(config.serverless && !config.accessCode),
     // And the GitHub connection inside it is a separate matter: a deployment
     // with no GitHub app configured shows what to set rather than a switch
@@ -482,7 +484,7 @@ app.post('/api/github/disconnect', (req, res) => {
 
 
 const releaseGate=createReleaseGate({runQa:fn=>runtime.action('qa','checks',async()=>fn()),complete:options=>{const prompt=options.messages?.[0]?.content || '';const role=prompt.includes('independent Security agent')?'security':prompt.includes('independent Approver agent')?'approver':'reviewer';return runtime.callAs(role,role==='security'?'security':role==='approver'?'approval':'review',options);},chooseModel:()=>pickModel(undefined,'story'),
-  secret:()=>config.apiKey?crypto.createHmac('sha256',config.apiKey).update('ritual-release-approval-v1').digest('hex'):''});
+  secret:()=>(config.apiKey||llamaConfig().key)?crypto.createHmac('sha256',config.apiKey||llamaConfig().key).update('ritual-release-approval-v1').digest('hex'):''});
 const publisher = createPublisher({
   request:github.githubRequest, identify:github.whoami, seal:github.seal, unseal:github.unseal,
   verifyApproval:(token,files)=>releaseGate.verify(token,files)?{artifactHash:artifactHash(files)}:false,
@@ -490,7 +492,7 @@ const publisher = createPublisher({
 });
 
 app.post('/api/build/connection', rateLimit, requireAccess, runtime.middleware('orchestrator','plan'), async (_req, res) => {
-  if (!config.building || !config.apiKey) return res.status(503).json({error:'Live generation needs OPENAI_API_KEY configured on this host.'});
+  if (!config.building || !brainReady()) return res.status(503).json({error:'Live generation needs OPENAI_API_KEY configured on this host.'});
   const controller = new AbortController();
   const timeout = setTimeout(()=>controller.abort(),20_000);
   try {
@@ -821,8 +823,8 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     register: req.body?.register,
     task: 'chat',
     searched: didSearch,
-    // Llama has no picture tool, so with it answering people are told how to ask for one.
-    pictures: chatPicturesAvailable() && (spoken || carryingOn || llamaAll ? true : 'tool'),
+    // Meta's Muse models take the same tools, so he chooses pictures himself either way.
+    pictures: chatPicturesAvailable() && (spoken || carryingOn ? true : 'tool'),
     depth,
   }) + (spoken ? '' : `\n\n${FOLLOWUPS_PROMPT}${isHistoryQuestion(routedQuestion) ? `\n\n${HISTORY_PROMPT}` : ''}`));
 
@@ -974,7 +976,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     let usedBackup = false;
     // Muse Wonder, Meta's strongest model, for questions that need careful thinking; Muse Spark otherwise.
     const metaModel = () => (thinking ? llamaConfig().deepModel : llamaConfig().model);
-    const runBackup = async (conversation, room = budget) => {
+    const runBackup = async (conversation, room = budget, tools = []) => {
       const llama = llamaConfig();
       const chosen = metaModel();
       const inputChars = JSON.stringify(conversation).length;
@@ -982,6 +984,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
         stopped = '';
         let outputChars = 0;
         for await (const delta of streamLlama({ config: llama, model: chosen, messages: conversation, maxTokens: room, images: metaSees,
+          tools, onToolCalls: (calls) => { actions = toolActions(calls, tools); },
           signal: AbortSignal.any([controller.signal, signal]), onFinish: (reason) => { stopped = reason; } })) {
           outputChars += delta.length;
           take(delta);
@@ -1061,7 +1064,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
         thinking, tier: tierFor('chat', routing), carryingOn, openaiOff: config.openaiOff })) {
         try {
           send('start', { model: metaModel(), spoken, searched: false, dropped, saw: metaSees, thought: Boolean(thinking) });
-          await runBackup(opening());
+          await runBackup(opening(), budget, offered.filter((entry) => entry.function.name !== 'search_web'));
           usedBackup = true;
           answeredByLlama = true;
           model = metaModel();
@@ -1103,11 +1106,12 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
         if (ponder && !answer.trim() && !controller.signal.aborted) {
           // He judged it hard: the same turn again, thought through first.
           thinking = 'medium';
+          if (usedBackup) model = metaModel();
           send('start', { model, spoken, searched, dropped, saw: Boolean(photo), thought: true });
-          await runOnce(opening());
+          await run(opening());
         } else if (!answer.trim() && actions.length && actions.every((action) => action.type === 'memory') && !controller.signal.aborted) {
           // Only a memory to offer and nothing said: answer the person too.
-          await runOnce(opening());
+          await run(opening());
         }
       }
     }
@@ -1368,7 +1372,7 @@ app.post('/api/build/team-review', rateLimit, requireAccess, runtime.middleware(
 
 // Architecture and release authority are separate server-owned decisions.
 app.post('/api/build/architecture',rateLimit,requireAccess,runtime.middleware('architect','architecture'),async(req,res)=>{
-  if(!config.building || !config.apiKey)return res.status(503).json({error:'The engineering team is unavailable on this host.'});
+  if(!config.building || !brainReady())return res.status(503).json({error:'The engineering team is unavailable on this host.'});
   const controller=new AbortController();res.on('close',()=>controller.abort());
   try{
     const asked=req.body?.asked;
@@ -1379,7 +1383,7 @@ app.post('/api/build/architecture',rateLimit,requireAccess,runtime.middleware('a
   }catch(error){if(!controller.signal.aborted)res.status(error.status || 502).json({error:error.message || 'Architecture decisions could not finish.'});}
 });
 app.post('/api/build/release',rateLimit,requireAccess,runtime.middleware('reviewer','review'),async(req,res)=>{
-  if(!config.building || !config.apiKey)return res.status(503).json({error:'The engineering team is unavailable on this host.'});
+  if(!config.building || !brainReady())return res.status(503).json({error:'The engineering team is unavailable on this host.'});
   const controller=new AbortController();res.on('close',()=>controller.abort());
   try{
     const asked=req.body?.asked,updates=req.body?.updates || '';
@@ -2026,7 +2030,7 @@ app.post('/api/build/jobs',rateLimit,requireAccess,requireBackground,async(req,r
  try{
   const {id,token,asked,files=[],requestHistory=null}=req.body || {};
   const check=req.body?.check===true;
-  if(!config.apiKey && !check)return res.status(503).json({error:'The coding agent is unavailable on this deployment.'});
+  if(!brainReady() && !check)return res.status(503).json({error:'The coding agent is unavailable on this deployment.'});
   if(check && (files.length || req.body.checkpoint || requestHistory))return res.status(400).json({error:'A connection check cannot contain project files.'});
   if(typeof asked!=='string' || !asked.trim() || asked.length>6000 || !Array.isArray(files) || files.length>200 || Buffer.byteLength(JSON.stringify(files))>1500000)return res.status(400).json({error:'Describe your project in 1–6,000 characters and keep source files under 1.5 MB.'});
   assertAgentData({asked,files,requestHistory,checkpoint:req.body.checkpoint});
@@ -2061,7 +2065,7 @@ app.get('/api/build/jobs/:id',rateLimit,requireAccess,requireBackground,async(re
 app.post('/api/build/jobs/:id/control',rateLimit,requireAccess,requireBackground,async(req,res)=>{
  try{
   const action=req.body?.action;
-  if(['resume','revise'].includes(action) && !config.apiKey)return res.status(503).json({error:'The coding agent is unavailable on this deployment.'});
+  if(['resume','revise'].includes(action) && !brainReady())return res.status(503).json({error:'The coding agent is unavailable on this deployment.'});
   requireBuildGeneration(action,req.body?.generation);
   const options={generation:req.body?.generation,acknowledgeUncertain:req.body?.acknowledgeUncertain===true};
   if(action==='revise'){
