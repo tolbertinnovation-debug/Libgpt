@@ -3,7 +3,7 @@
 // cookies or the URL, and it is cleared on Lock or when the page closes.
 const $ = id => document.getElementById(id);
 const LABELS = {build: 'Coding agent', chat: 'Chat', research: 'Research', documents: 'Documents', library: 'Library',
-  images: 'Pictures', voice: 'Voice', livetalk: 'Live Talk', execution: 'Code testing'};
+  images: 'Pictures', voice: 'Voice', livetalk: 'Live Talk', execution: 'Code testing', backup: 'Backup (Meta Llama)'};
 let token = '', timer = null;
 
 export const usd = value => `$${(Number(value) || 0).toFixed(value > 0 && value < 0.01 ? 4 : 2)}`;
@@ -19,7 +19,7 @@ export function spendRows(status) {
 // The suggested $2 plan: half for building websites, the rest shared out. Chat and
 // research draw only on the total. Code testing stays off ($0) until approved.
 // Every paid feature has a limit the owner sets; none is unlimited. Code testing stays off ($0).
-const LIMIT_FIELDS = ['chat', 'research', 'build', 'images', 'documents', 'library', 'voice', 'livetalk'];
+const LIMIT_FIELDS = ['chat', 'research', 'build', 'images', 'documents', 'library', 'voice', 'livetalk', 'backup'];
 export const MAX_DAILY_USD = 10;
 
 /** Checks the form values and builds the admin request, or explains what to fix. */

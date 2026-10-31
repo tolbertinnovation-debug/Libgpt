@@ -11,13 +11,15 @@ const ROLES = Object.freeze({
   // The rest of the app: every paid feature outside Build answers to the same ledger.
   chat: ['generate'], research: ['search'], documents: ['generate'], library: ['generate'],
   images: ['generate'], voice: ['speak', 'transcribe'], livetalk: ['session'],
+  // Meta's Llama answering a chat turn when OpenAI cannot. Off until the owner sets its allowance.
+  backup: ['generate'],
   // Running generated code in an isolated sandbox (Milestone C). Off until an admin sets its allowance.
   execution: ['run'],
 });
 // Each role spends from one capability's daily allowance. Every Build role is "build".
-export const CAPABILITIES = Object.freeze(['build', 'chat', 'research', 'documents', 'library', 'images', 'voice', 'livetalk', 'execution']);
+export const CAPABILITIES = Object.freeze(['build', 'chat', 'research', 'documents', 'library', 'images', 'voice', 'livetalk', 'execution', 'backup']);
 // These start at $0: with no stored allowance every call is refused, never uncapped.
-const ZERO_UNLESS_SET = new Set(['execution']);
+const ZERO_UNLESS_SET = new Set(['execution', 'backup']);
 export const capabilityOf = role => (CAPABILITIES.includes(role) && role !== 'build' ? role : 'build');
 const DEFAULTS = Object.freeze({dailyUsd: 5, callsPerMinute: 20, concurrency: 4,
   maxCostPerMillionTokens: 100, maxInputChars: 180000, maxOutputTokens: 32000,
@@ -28,7 +30,7 @@ const digest = value => crypto.createHash('sha256').update(value).digest('hex');
 // screens and worker already look for ("spending cap", "rate limit",
 // "concurrency") so a denial is never retried as if it were a glitch.
 const CAPABILITY_WORDS = {build: 'coding', chat: 'chat', research: 'research', documents: 'document', library: 'Library',
-  images: 'picture', voice: 'voice', livetalk: 'Live Talk', execution: 'code-testing'};
+  images: 'picture', voice: 'voice', livetalk: 'Live Talk', execution: 'code-testing', backup: 'backup (Meta Llama)'};
 export function denialMessage(code, capability) {
   if (code === 'GOVERNANCE_BUDGET') return capability && capability !== 'total'
     ? `Today's ${CAPABILITY_WORDS[capability] || capability} spending cap has been reached, so this feature is paused until midnight UTC. Other features, your saved chats and your downloads still work.`

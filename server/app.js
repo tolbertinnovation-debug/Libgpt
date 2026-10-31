@@ -62,6 +62,7 @@ import { cleanSummary } from '../public/chat-summary.js';
 import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULES, realtimeSpeak, pcmToWav, advancedSpeechMicroUsd } from './realtime.js';
 import { realtimeVoice } from '../public/voice-cast.js';
 import { createMemorySyncStore, createPostgresSyncStore, validSyncId } from './sync-store.js';
+import { backupWorthy, llamaConfig, llamaMicroUsd, streamLlama } from './llama.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -321,6 +322,8 @@ app.get('/api/config', async (_req, res) => {
     liveTalk: liveTalkReady(),
     liveTalkMinutes: config.liveTalkMinutes,
     sync: Boolean(syncStore),
+    // Meta's Llama stands by for chat when OpenAI cannot answer.
+    backupModel: llamaConfig().ready,
     // The advanced voice reads answers when Live Talk's realtime model is available.
     advancedVoice: liveTalkReady(),
     voices: OPENAI_VOICES,
@@ -953,7 +956,43 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     };
 
     // Continue from the research already in the answer; do not pay to repeat the search.
-    const run = async (conversation, room = budget) => runOnce(conversation, room);
+    // Meta's Llama, when OpenAI cannot answer this turn (see llama.js). Charged
+    // to the owner's "backup" allowance, settled from the words actually sent.
+    let usedBackup = false;
+    const runBackup = async (conversation, room = budget) => {
+      const llama = llamaConfig();
+      const inputChars = JSON.stringify(conversation).length;
+      await runtime.meter('backup', 'generate', llamaMicroUsd(inputChars, room * 4), async (signal) => {
+        stopped = '';
+        let outputChars = 0;
+        for await (const delta of streamLlama({ config: llama, messages: conversation, maxTokens: room, temperature: temperature ?? 0.7,
+          signal: AbortSignal.any([controller.signal, signal]), onFinish: (reason) => { stopped = reason; } })) {
+          outputChars += delta.length;
+          take(delta);
+        }
+        return { inputChars, outputChars };
+      }, { settle: (result) => llamaMicroUsd(result.inputChars, result.outputChars) });
+    };
+    // Hands a failed first attempt to the backup when it is set up and the
+    // failure is OpenAI's (not the request's). True when the backup answered.
+    const tryBackup = async (error) => {
+      if (answer.trim() || controller.signal.aborted || !llamaConfig().ready || !backupWorthy(error)) return false;
+      try {
+        console.error('[chat] BACKUP_LLAMA', error?.code || error?.status || error?.message);
+        send('notice', { message: 'OpenAI could not answer just now, so Meta\'s Llama is answering this one.' });
+        send('start', { model: llamaConfig().model, spoken, searched: false, dropped, saw: false, thought: false, backup: true });
+        await runBackup(opening());
+        usedBackup = true;
+        model = llamaConfig().model;
+        return true;
+      } catch (backupError) {
+        if (controller.signal.aborted || answer.trim()) throw backupError;
+        console.error('[chat] BACKUP_FAILED', backupError?.code || backupError?.status || backupError?.message);
+        return false;
+      }
+    };
+
+    const run = async (conversation, room = budget) => (usedBackup ? runBackup(conversation, room) : runOnce(conversation, room));
 
     // A reader who asked for the rest is asking for exactly what the automatic
     // carry-on does, so they get exactly that: the same rules, against the
@@ -999,7 +1038,8 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     }
 
     if (!searched) {
-      await runOnce(opening(), budget, offered);
+      try { await runOnce(opening(), budget, offered); }
+      catch (error) { if (!(await tryBackup(error))) throw error; actions = []; }
       const lookup = actions.find((action) => action.type === 'search');
       if (lookup && !answer.trim() && reader && !controller.signal.aborted) {
         // He chose to read the web first: the same turn, on the reading model.
