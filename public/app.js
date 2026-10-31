@@ -15,7 +15,7 @@ import {
 import {
   DEFAULT_PATIENCE, PATIENCE, SpeechRecognitionAPI, VoiceConversation, patienceMs,
 } from './converse.js';
-import { VoiceOut } from './realvoice.js?v=voice-format-1';
+import { VoiceOut } from './realvoice.js?v=advanced-voice-1';
 import {
   DEFAULT_LOUDNESS, DEFAULT_ROOM, LOUDNESS, ROOMS, Room, isLoudness, isRoom,
 } from './room.js';
@@ -1407,6 +1407,8 @@ const speaker = new VoiceOut({
   cast: castNow,
   guard: new SpeakerGuard(),
   format: speechFormat,
+  // OpenAI's advanced voice (the realtime model) when the site has it and it is not switched off.
+  engine: () => (state.catalogue?.advancedVoice && state.prefs.voiceEngine !== 'standard' ? 'advanced' : 'standard'),
   room,
   // Off when the deployment has no key for it, or when the user has asked for
   // the phone's voice instead.
@@ -2724,6 +2726,8 @@ const CAST_SAMPLES = {
 function renderCastSettings() {
   const casting = state.prefs.voiceCasting !== 'one';
   $('settings-voice-quality').checked = state.prefs.voiceQuality === 'best';
+  $('settings-advanced-voice').checked = state.prefs.voiceEngine !== 'standard';
+  $('settings-advanced-voice-row').hidden = !state.catalogue?.advancedVoice;
   $('settings-casting').checked = casting;
   $('settings-openai-voice-hint').textContent = casting ? 'Grandpa\'s own voice; each topic below has its own' : 'Used for everything';
   $('settings-cast-box').hidden = !casting;
@@ -2745,6 +2749,12 @@ function renderCastSettings() {
     return row;
   }));
 }
+$('settings-advanced-voice').addEventListener('change', (event) => {
+  state.prefs.voiceEngine = event.target.checked ? 'advanced' : 'standard';
+  savePreferences();
+  speaker.stop();
+  toast(event.target.checked ? 'Advanced voice on: OpenAI\'s most natural voice.' : 'Standard voice.');
+});
 $('settings-voice-quality').addEventListener('change', (event) => {
   state.prefs.voiceQuality = event.target.checked ? 'best' : 'standard';
   savePreferences();
