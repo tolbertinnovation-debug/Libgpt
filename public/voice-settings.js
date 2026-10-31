@@ -1,8 +1,19 @@
 // Shared OpenAI voice choices and a one-time cleanup of older audio settings.
+// The voices that sound natural with gpt-4o-mini-tts and follow delivery
+// instructions well. Older voices (alloy, echo, fable, nova) are left out.
 export const OPENAI_VOICES = [
-  { id: 'cedar', label: 'Cedar', hint: 'Warm, clear conversation' },
-  { id: 'marin', label: 'Marin', hint: 'Clear, expressive conversation' },
+  { id: 'cedar', label: 'Cedar', hint: 'Man · warm, clear conversation', gender: 'man' },
+  { id: 'marin', label: 'Marin', hint: 'Woman · clear, expressive conversation', gender: 'woman' },
+  { id: 'coral', label: 'Coral', hint: 'Woman · warm and lively', gender: 'woman' },
+  { id: 'sage', label: 'Sage', hint: 'Woman · calm and precise', gender: 'woman' },
+  { id: 'shimmer', label: 'Shimmer', hint: 'Woman · soft and gentle', gender: 'woman' },
+  { id: 'ash', label: 'Ash', hint: 'Man · confident and direct', gender: 'man' },
+  { id: 'ballad', label: 'Ballad', hint: 'Man · expressive storyteller', gender: 'man' },
+  { id: 'verse', label: 'Verse', hint: 'Man · bright and versatile', gender: 'man' },
+  { id: 'onyx', label: 'Onyx', hint: 'Man · deep and steady', gender: 'man' },
 ];
+// Voices Live Talk (the realtime API) can use; the others fall back to Cedar there.
+export const REALTIME_VOICES = ['cedar', 'marin', 'coral', 'sage', 'shimmer', 'ash', 'ballad', 'verse'];
 export const DEFAULT_OPENAI_VOICE = 'cedar';
 export const VOICE_SETTINGS_VERSION = 2;
 export function openaiVoice(value) {

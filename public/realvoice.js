@@ -125,6 +125,7 @@ export class VoiceOut {
    * @param {object} deps.device        a Speaker, for the fallback
    * @param {() => boolean} deps.wanted  is the real voice asked for right now?
    * @param {() => string} deps.speaker  which elder is talking
+   * @param {() => object} [deps.cast]   the part of the cast for this answer: {voice, role, mood}
    * @param {() => object} deps.headers  headers for a request that spends money
    * @param {(message: string) => void} deps.onNotice
    * @param {(state: string) => void} onStateChange
@@ -220,7 +221,11 @@ export class VoiceOut {
     this.mode = 'real';
     if (fresh || this.state === 'idle') {
       this.settings = { ...settings };
-      this.cloudVoice = this.voice?.() || 'cedar';
+      // One voice and manner for a whole answer, chosen when it starts.
+      const cast = this.cast?.() || {};
+      this.cloudVoice = cast.voice || this.voice?.() || 'cedar';
+      this.cloudRole = cast.role || '';
+      this.cloudMood = cast.mood || '';
       this.cloudAccent = this.accent?.() ?? DEFAULT_ACCENT;
     }
     if (fresh) this.token += 1;
@@ -295,6 +300,8 @@ export class VoiceOut {
           text,
           speaker: this.speaker(),
           voice: this.cloudVoice,
+          ...(this.cloudRole ? { role: this.cloudRole } : {}),
+          ...(this.cloudMood ? { mood: this.cloudMood } : {}),
           accent: this.cloudAccent,
           speed: this.settings.rate,
         }),
