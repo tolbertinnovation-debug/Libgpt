@@ -1,3 +1,4 @@
+import { prepareRecording } from './wav.js?v=meta-media-1';
 // Listening by recording, rather than by asking the browser to listen.
 //
 // The microphone in this app used to go through SpeechRecognition — the Web
@@ -140,10 +141,12 @@ export class Dictation {
     // and it would still be charged for.
     if (audio.size < 2_000) return '';
 
+    // Meta's voice typing takes WAV; the recording is converted first when asked.
+    const upload = await prepareRecording(audio);
     const response = await fetch('/api/transcribe', {
       method: 'POST',
-      headers: { ...this.headers(), 'Content-Type': type },
-      body: audio,
+      headers: { ...this.headers(), 'Content-Type': upload.type || type },
+      body: upload,
     });
 
     if (!response.ok) {

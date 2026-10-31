@@ -36,10 +36,16 @@ export function llamaConfig(env = process.env) {
 }
 
 /** Text only: pictures and PDF pages stay with OpenAI, which can read them. */
-export function textOnly(messages) {
-  return messages.map((message) => (Array.isArray(message.content)
-    ? { role: message.role, content: message.content.filter((part) => part?.type === 'text').map((part) => part.text).join('\n\n') || '(an attachment that only the main model can read)' }
-    : { role: message.role, content: String(message.content ?? '') }));
+export function textOnly(messages, { images = false } = {}) {
+  return messages.map((message) => {
+    if (!Array.isArray(message.content)) return { role: message.role, content: String(message.content ?? '') };
+    // Muse Spark reads photos sent as image_url parts on a user message; PDF pages stay out.
+    if (images && message.role === 'user' && message.content.some((part) => part?.type === 'image_url')) {
+      return { role: 'user', content: message.content.filter((part) => part?.type === 'text' || part?.type === 'image_url')
+        .map((part) => (part.type === 'image_url' ? { type: 'image_url', image_url: { url: part.image_url?.url } } : { type: 'text', text: part.text })) };
+    }
+    return { role: message.role, content: message.content.filter((part) => part?.type === 'text').map((part) => part.text).join('\n\n') || '(an attachment that only the main model can read)' };
+  });
 }
 
 /** Should this failure of the main model be handed to the backup? */
@@ -53,13 +59,13 @@ export function backupWorthy(error) {
 }
 
 /** Stream one Llama answer. Yields text; `onFinish` gets the stop reason. */
-export async function* streamLlama({ config = llamaConfig(), model, messages, maxTokens = 1400, temperature, signal, onFinish, fetcher = fetch }) {
+export async function* streamLlama({ config = llamaConfig(), model, messages, maxTokens = 1400, temperature, images = false, signal, onFinish, fetcher = fetch }) {
   if (!config.ready) throw Object.assign(new Error('The Meta Llama backup is not set up.'), { status: 503 });
   const response = await fetcher(`${config.baseUrl}/chat/completions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.key}` },
     // Muse Spark does best at its default temperature, so none is sent unless asked.
-    body: JSON.stringify({ model: model || config.model, messages: textOnly(messages), stream: true, max_completion_tokens: maxTokens,
+    body: JSON.stringify({ model: model || config.model, messages: textOnly(messages, { images }), stream: true, max_completion_tokens: maxTokens,
       ...(Number.isFinite(temperature) ? { temperature } : {}) }),
     signal,
   });

@@ -1,3 +1,4 @@
+import { prepareRecording } from './wav.js?v=meta-media-1';
 // Hearing a spoken turn by recording it, instead of asking the browser to
 // listen.
 //
@@ -356,10 +357,12 @@ async function sendForWords(audio, headers, signal) {
   signal?.addEventListener('abort', abort, {once:true}); if (signal?.aborted) abort();
   const timer = setTimeout(() => controller.abort(new DOMException('Transcription took too long. Check your connection and retry.', 'TimeoutError')), 30_000);
   try {
+  // Meta's voice typing takes WAV; the recording is converted first when asked.
+  const upload = await prepareRecording(audio);
   const response = await fetch('/api/transcribe', {
     method: 'POST',
-    headers: { ...headers, 'Content-Type': audio.type || 'audio/webm' },
-    body: audio,
+    headers: { ...headers, 'Content-Type': upload.type || 'audio/webm' },
+    body: upload,
     signal: controller.signal,
   });
   if (!response.ok) {

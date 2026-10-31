@@ -25,8 +25,8 @@ import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary, loadJournal } from './library.js';
-import { Dictation, canRecord } from './dictate.js';
-import { RecordedEar, canListenByRecording } from './hearing.js';
+import { Dictation, canRecord } from './dictate.js?v=meta-media-1';
+import { RecordedEar, canListenByRecording } from './hearing.js?v=meta-media-1';
 import * as ritual from './ritual.js?v=chat-layout-2';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
@@ -38,6 +38,7 @@ import { loadSync, saveSync, syncOnce, newSyncCode, readSyncCode, syncKeys } fro
 import { LiveTalk, liveTalkSupported } from './live-talk.js';
 import { CAST, CAST_ROLES, castFor, realtimeVoice } from './voice-cast.js?v=voice-format-1';
 import { SpeakerGuard } from './speaker-guard.js';
+import { setRecordingFormat } from './wav.js?v=meta-media-1';
 import { OPENAI_VOICES, DEFAULT_OPENAI_VOICE } from './voice-settings.js';
 import {imageCard,mountImageComposer,safeChatImage,imagePrompt,imageLoadingMarkup} from './image-chat.js';
 
@@ -3822,6 +3823,7 @@ async function boot() {
     const response = await fetch('/api/config');
     const config = await response.json();
     state.catalogue = config;
+    setRecordingFormat(config.dictationFormat);
     scheduleSync(1500);
     // Recording support depends on the deployment config, which was unknown
     // during the first capability check. Re-enable voice after it arrives.
