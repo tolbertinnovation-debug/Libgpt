@@ -16,6 +16,23 @@ dev.meta.ai/docs.
 
 # Meta Llama: all text chat (for now), everyday chat, or backup
 
+## Pictures, photos and voice typing on Meta
+While OpenAI isn't available (`metaMedia()` in `server/app.js`), these three
+run on Meta. Formats were verified at dev.meta.ai/docs.
+- **Pictures:** `muse-image-1.0` through `POST /v1/images/generations`, which
+  returns `b64_json` as a JPEG data URL. Each picture reserves $0.012 from the
+  Pictures limit (Meta charges $0.01).
+- **Photos:** Muse Spark reads photos sent in chat as `image_url` parts. PDF
+  pages are still not sent.
+- **Voice typing:** `muse-voice-transcribe-1.0` through
+  `POST /v1/asr/transcribe`, multipart with a `request` JSON part and an
+  `audio` WAV part.
+  - It needs mono 16-bit PCM WAV, so `public/wav.js` converts the phone's
+    recording to 16 kHz first. The site asks for this with
+    `dictationFormat: 'wav'`.
+  - Liberian place and food names are sent as keywords.
+  - It reserves $0.216 an hour from the Voice limit (Meta charges $0.18).
+
 ## OpenAI switched off (for now)
 At the owner's request, OpenAI is off on the live host. `config.openaiOff`
 defaults to on wherever `VERCEL` is set, and `OPENAI_OFF=false` switches
@@ -26,8 +43,8 @@ OpenAI back on. While it is off:
   OpenAI fallback. If Llama fails, the chat says "Grandpa could not answer just
   now. Please try again in a moment.";
 - reading aloud uses the phone's own free voice;
-- pictures, photo and PDF reading, Live Talk, OpenAI dictation, web research,
-  documents, Library stories and Build are paused.
+- PDF page reading, Live Talk, web research, documents, Library stories and
+  Build are paused. Pictures, photos and voice typing run on Meta (above).
 
 ## Modes (`LLAMA_MODE`)
 - **`all`** (the default, owner's choice, to save OpenAI credit). Every text

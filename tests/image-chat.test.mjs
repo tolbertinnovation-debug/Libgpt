@@ -43,8 +43,9 @@ async function imageRoute(config,generate) {
   let handler;const pictureTimes=[];
   // The spending ledger is stood in for: the reservation is recorded and the action runs.
   const metered=[];const runtime={governed:()=>()=>{},meter:async(role,operation,microUsd,action)=>{metered.push({role,operation,microUsd});return action(new AbortController().signal);}};
-  new Function('app','rateLimit','requireAccess','config','imageRequest','pictureBudgetLeft','pictureTimes','generateImage','OpenAIError','runtime','imageMicroUsd','governanceError',source.slice(start,end))(
-    {post(_,...handlers){handler=handlers.at(-1);}},()=>{},()=>{},config,imageRequest,()=>Math.max(0,1-pictureTimes.length),pictureTimes,generate,class extends Error {},runtime,imageMicroUsd,()=>false);
+  // Meta's picture path is switched off here: these tests cover the OpenAI path.
+  new Function('app','rateLimit','requireAccess','config','imageRequest','pictureBudgetLeft','pictureTimes','generateImage','OpenAIError','runtime','imageMicroUsd','governanceError','metaMedia','metaImage','META_IMAGE_MICRO_USD',source.slice(start,end))(
+    {post(_,...handlers){handler=handlers.at(-1);}},()=>{},()=>{},config,imageRequest,()=>Math.max(0,1-pictureTimes.length),pictureTimes,generate,class extends Error {},runtime,imageMicroUsd,()=>false,()=>false,async()=>{throw new Error('Meta must not be called');},12000);
   const res=()=>({statusCode:200,destroyed:false,on(){},status(n){this.statusCode=n;return this;},json(body){this.body=body;return this;}});
   return {handler,res,pictureTimes,metered};
 }

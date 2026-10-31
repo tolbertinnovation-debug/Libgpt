@@ -63,6 +63,7 @@ import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULE
 import { realtimeVoice } from '../public/voice-cast.js';
 import { createMemorySyncStore, createPostgresSyncStore, validSyncId } from './sync-store.js';
 import { backupWorthy, completeLlama, everydayForLlama, llamaConfig, llamaMicroUsd, llamaMode, streamLlama } from './llama.js';
+import { metaImage, metaTranscribe, wavSeconds, META_IMAGE_MICRO_USD, META_TRANSCRIBE_MICRO_USD_PER_SECOND } from './meta-media.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -110,7 +111,9 @@ const hits = new Map();
 const WINDOW_MS = 60_000;
 
 // Chat can draw only with images on, a key, and (when hosted) an access code.
-const chatPicturesAvailable = () => config.imagesEnabled && Boolean(config.apiKey) && !(config.serverless && !config.accessCode);
+// Meta does pictures, photo reading and voice typing whenever OpenAI is not available.
+const metaMedia = () => !config.apiKey && llamaConfig().ready;
+const chatPicturesAvailable = () => config.imagesEnabled && (Boolean(config.apiKey) || metaMedia()) && !(config.serverless && !config.accessCode);
 
 function rateLimit(req, res, next) {
   if (config.rateLimitPerMinute <= 0) return next();
@@ -340,11 +343,13 @@ app.get('/api/config', async (_req, res) => {
     // Whether a recording can be sent here to be turned into words. When this
     // is false the page falls back to the browser's own speech recognition,
     // which on a good day is worse and on most Android phones is nothing.
-    dictation: config.dictation && Boolean(config.apiKey),
+    dictation: config.dictation && (Boolean(config.apiKey) || metaMedia()),
+    // Meta's voice typing takes WAV, so the phone converts its recording first.
+    dictationFormat: !config.apiKey && metaMedia() ? 'wav' : '',
     // True only where the switch is on AND something on this account can
     // actually look. A camera button that leads to "I cannot see pictures" is
     // worse than no camera button.
-    vision: config.vision && Boolean(config.apiKey) && Boolean(tiers.seeing),
+    vision: config.vision && ((Boolean(config.apiKey) && Boolean(tiers.seeing)) || metaMedia()),
     // Ritual Coding needs nothing beyond the key the rest of the app uses.
     building: config.building && Boolean(config.apiKey),
     backgroundBuilds: Boolean(buildJobStore && process.env.VERCEL_DEPLOYMENT_ID),
@@ -783,7 +788,9 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
   // Research can accompany a photo or a build when the question needs it.
   // With Llama answering all text chat, web research (an OpenAI tool) is not
   // used; Grandpa answers from what he knows and says so where it matters.
-  const llamaAll = llamaConfig().ready && llamaMode(process.env, { openaiOff: config.openaiOff }) === 'all' && !building && !photo && !document;
+  // Muse Spark can look at photos, so with OpenAI unavailable a photo goes to Meta too.
+  const metaSees = metaMedia() && Boolean(photo) && !document;
+  const llamaAll = llamaConfig().ready && llamaMode(process.env, { openaiOff: config.openaiOff }) === 'all' && !building && (!photo || metaSees) && !document;
   let searched = !building && Boolean(reader) && !llamaAll
     && !carryingOn
     && (req.body?.search === true || (research !== 'off' && needsLookingUp(routedQuestion, new Date(), research === 'always')));
@@ -837,11 +844,11 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
 
   // Nothing on this account can look at a picture. Better to say so and answer
   // the words than to send it to a model that will refuse the whole turn.
-  if (searched && (photo || document) && !(await canSeeWith(model))) {
+  if (!metaSees && searched && (photo || document) && !(await canSeeWith(model))) {
     searched = false;
     model = await pickModel(req.body?.model, 'chat', { ...routing, seeing: true });
   }
-  if ((photo || document) && !(await canSeeWith(model))) {
+  if (!metaSees && (photo || document) && !(await canSeeWith(model))) {
     if (document) {
       res.status(400).json({ error: 'No model available here can read PDF pages. Attach a text file instead.' });
       return;
@@ -974,7 +981,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       await runtime.meter('backup', 'generate', llamaMicroUsd(inputChars, room * 4, chosen), async (signal) => {
         stopped = '';
         let outputChars = 0;
-        for await (const delta of streamLlama({ config: llama, model: chosen, messages: conversation, maxTokens: room,
+        for await (const delta of streamLlama({ config: llama, model: chosen, messages: conversation, maxTokens: room, images: metaSees,
           signal: AbortSignal.any([controller.signal, signal]), onFinish: (reason) => { stopped = reason; } })) {
           outputChars += delta.length;
           take(delta);
@@ -1050,10 +1057,10 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       // Everyday chat: Llama first, to save OpenAI credit. If Llama cannot
       // answer (not set up, its allowance spent, an error), OpenAI does.
       let answeredByLlama = false;
-      if (llamaConfig().ready && everydayForLlama({ question: routedQuestion, building, searched, photo: Boolean(photo), document: Boolean(document),
+      if (llamaConfig().ready && everydayForLlama({ question: routedQuestion, building, searched, photo: Boolean(photo) && !metaSees, document: Boolean(document),
         thinking, tier: tierFor('chat', routing), carryingOn, openaiOff: config.openaiOff })) {
         try {
-          send('start', { model: metaModel(), spoken, searched: false, dropped, saw: false, thought: Boolean(thinking) });
+          send('start', { model: metaModel(), spoken, searched: false, dropped, saw: metaSees, thought: Boolean(thinking) });
           await runBackup(opening());
           usedBackup = true;
           answeredByLlama = true;
@@ -1774,7 +1781,8 @@ app.post(
       return;
     }
 
-    const seconds = secondsIn(audio.length);
+    const meta = metaMedia();
+    const seconds = meta ? Math.max(1, Math.ceil(wavSeconds(audio))) : secondsIn(audio.length);
     if (hearingBudgetLeft() < seconds) {
       res.status(429).json({
         error: 'The listening limit for this hour is used up. You can still type your question.',
@@ -1791,12 +1799,17 @@ app.post(
       heardSeconds.push({ at: Date.now(), n: seconds });
 
       // Reserved for at least ten seconds at the highest transcription rate.
-      const text = await runtime.meter('voice', 'transcribe', Math.max(10, seconds) * TRANSCRIBE_MICRO_USD_PER_SECOND, (signal) => transcribe({
-        audio,
-        type: req.get('Content-Type') || 'audio/webm',
-        prompt: LIKELY_WORDS,
-        signal: AbortSignal.any([controller.signal, signal]),
-      }));
+      const text = meta
+        // Muse Voice Transcribe ($0.18 an hour), with Liberian names as keywords.
+        ? await runtime.meter('voice', 'transcribe', Math.max(10, seconds) * META_TRANSCRIBE_MICRO_USD_PER_SECOND, (signal) => metaTranscribe({
+          audio, keywords: LIKELY_WORDS.split(', '), signal: AbortSignal.any([controller.signal, signal]),
+        }))
+        : await runtime.meter('voice', 'transcribe', Math.max(10, seconds) * TRANSCRIBE_MICRO_USD_PER_SECOND, (signal) => transcribe({
+          audio,
+          type: req.get('Content-Type') || 'audio/webm',
+          prompt: LIKELY_WORDS,
+          signal: AbortSignal.any([controller.signal, signal]),
+        }));
 
       // Silence, or a cough. Saying so beats putting an empty string in the
       // box and leaving somebody to wonder whether it heard them.
@@ -1873,7 +1886,7 @@ app.post('/api/picture', rateLimit, requireAccess, runtime.governed('images','ge
 
 // Image creation in chat uses the same access gate and spending budget as Album.
 app.post('/api/image', rateLimit, requireAccess, runtime.governed('images','generate'), async (req,res)=>{
-  if(!config.imagesEnabled || !config.apiKey) return res.status(503).json({error:'Image creation is not enabled on this app yet.'});
+  if(!config.imagesEnabled || !(config.apiKey || metaMedia())) return res.status(503).json({error:'Image creation is not enabled on this app yet.'});
   if(config.serverless && !config.accessCode) return res.status(503).json({error:'Image creation needs the app access code to be configured.'});
   let options;
   try {options=imageRequest(req.body);} catch(error) {return res.status(400).json({error:error.message});}
@@ -1884,8 +1897,11 @@ app.post('/api/image', rateLimit, requireAccess, runtime.governed('images','gene
   // Reserve before awaiting the provider; simultaneous requests cannot pass the same slot.
   pictureTimes.push(Date.now());
   try {
-    const image=await runtime.meter('images','generate',imageMicroUsd({quality:options.quality,size:options.size,model:config.imageModel}),
-      signal=>generateImage({prompt:options.renderPrompt,size:options.size,quality:options.quality,format:'jpeg',signal:AbortSignal.any([controller.signal,signal])}));
+    // Muse Image ($0.01 a picture) while OpenAI is not available.
+    const image=metaMedia()
+      ? await runtime.meter('images','generate',META_IMAGE_MICRO_USD,signal=>metaImage({prompt:options.renderPrompt,size:options.size,signal:AbortSignal.any([controller.signal,signal])}))
+      : await runtime.meter('images','generate',imageMicroUsd({quality:options.quality,size:options.size,model:config.imageModel}),
+        signal=>generateImage({prompt:options.renderPrompt,size:options.size,quality:options.quality,format:'jpeg',signal:AbortSignal.any([controller.signal,signal])}));
     if(controller.signal.aborted || res.destroyed) return;
     res.json({image,prompt:options.prompt,size:options.size,quality:options.quality,style:options.style,remaining:pictureBudgetLeft()});
   } catch(error) {
