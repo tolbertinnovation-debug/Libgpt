@@ -48,8 +48,12 @@ offered to Muse Spark in the same format. If Meta turns the tools down, he answe
 Each feature keeps its own owner-set limit (Build, Documents, Library, Pictures, ...). Chat stays
 on the Meta Llama limit.
 
-Still off, because Meta has no equivalent: spoken voice (the browser's own voice reads aloud),
-Live Talk, the advanced voice, and live web research.
+Grandpa's voice stays on OpenAI (owner's choice): reading aloud, the advanced voice, Live Talk and
+listening (voice typing) use `config.voiceKey`, which is the OpenAI key even while OpenAI is off.
+Nothing else can use it. `OPENAI_VOICE=off` turns the voice off too, and then listening goes to
+Meta's Muse Voice Transcribe and the phone's own voice reads aloud.
+
+Still off, because Meta has no equivalent: live web research.
 
 ## OpenAI switched off (for now)
 At the owner's request, OpenAI is off on the live host. `config.openaiOff`

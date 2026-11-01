@@ -98,7 +98,7 @@ export async function createRealtimeSecret(options, { signal, fetcher = fetch } 
   for (const minimal of [false, true]) {
     const response = await fetcher(`${config.baseUrl}/realtime/client_secrets`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.voiceKey}` },
       body: JSON.stringify({ session: realtimeSession({ ...options, minimal }) }),
       signal,
     });
@@ -136,7 +136,7 @@ export async function realtimeSpeak({ model, text, voice, speed = 1, delivery = 
     const chunks = [];
     let finished = false;
     // The key travels as a subprotocol, from this server only; the browser never sees it.
-    const socket = new WebSocketImpl(url, ['realtime', `openai-insecure-api-key.${config.apiKey}`]);
+    const socket = new WebSocketImpl(url, ['realtime', `openai-insecure-api-key.${config.voiceKey}`]);
     const finish = (error, value) => {
       if (finished) return;
       finished = true;
