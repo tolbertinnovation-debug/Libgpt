@@ -97,3 +97,32 @@ test('picture messages from the preview are checked too', () => {
   assert.equal(allow(from({ grandpa: 'visual-edit', type: 'insert-image', id: 5 })), true);
   assert.equal(allow(from({ grandpa: 'visual-edit', type: 'image', id: 'x' })), false);
 });
+
+test('parts of the page move, copy and keep their number so they stay selected', async () => {
+  const { moveElement, duplicateElement, siblingOf } = await import('../public/visual-edit.js');
+  const page = '<body>\n  <ul>\n    <li>One</li>\n    <li>Two <b>bold</b></li>\n    <li>Three</li>\n  </ul>\n  <section><h2>A</h2></section>\n</body>';
+  const lis = mapElements(page).filter((e) => e.tag === 'li');
+  const text = (html, id) => { const el = mapElements(html)[id]; return html.slice(el.start, el.end); };
+  const up = moveElement(page, lis[2].id, 'up');
+  assert.equal(up.html, page.replace('<li>Two <b>bold</b></li>\n    <li>Three</li>', '<li>Three</li>\n    <li>Two <b>bold</b></li>'));
+  assert.equal(text(up.html, up.id), '<li>Three</li>', 'the moved part keeps being the selected one');
+  const down = moveElement(page, lis[0].id, 'down');
+  assert.equal(down.html, page.replace('<li>One</li>\n    <li>Two <b>bold</b></li>', '<li>Two <b>bold</b></li>\n    <li>One</li>'));
+  assert.equal(text(down.html, down.id), '<li>One</li>', 'moving past a part with something inside it');
+  assert.deepEqual(moveElement(page, lis[0].id, 'up'), { html: page, id: lis[0].id }, 'already first');
+  assert.equal(siblingOf(page, mapElements(page).find((e) => e.tag === 'ul').id, 'down').tag, 'section');
+  const copy = duplicateElement(page, lis[1].id);
+  assert.equal(copy.html, page.replace('<li>Two <b>bold</b></li>', '<li>Two <b>bold</b></li>\n    <li>Two <b>bold</b></li>'));
+  assert.equal(text(copy.html, copy.id), '<li>Two <b>bold</b></li>');
+  assert.ok(mapElements(copy.html)[copy.id].start > mapElements(copy.html)[lis[1].id].start, 'the copy is the one after');
+  assert.equal(duplicateElement(page, 0).html, page, 'never the body');
+});
+
+test('part messages are checked: only the four actions, on a numbered part', () => {
+  const frame = {};
+  const allow = createPreviewMessageLimiter(frame, () => 1000);
+  const from = (data) => ({ source: frame, origin: 'null', data });
+  for (const action of ['up', 'down', 'copy', 'delete']) assert.equal(allow(from({ grandpa: 'visual-edit', type: 'part', id: 4, action })), true, action);
+  assert.equal(allow(from({ grandpa: 'visual-edit', type: 'part', id: 4, action: 'replace-page' })), false);
+  assert.equal(allow(from({ grandpa: 'visual-edit', type: 'part', action: 'up' })), false);
+});

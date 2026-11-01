@@ -49,7 +49,7 @@ export function mapElements(html) {
       open.pop(); top.closeStart = lt; top.end = lt;
     }
     const selfClosing = VOID.has(tag) || text[tagEnd - 2] === '/';
-    const element = { id: elements.length, tag, start: lt, openEnd: tagEnd, closeStart: selfClosing ? tagEnd : undefined, end: selfClosing ? tagEnd : undefined, selfClosing };
+    const element = { id: elements.length, tag, start: lt, openEnd: tagEnd, closeStart: selfClosing ? tagEnd : undefined, end: selfClosing ? tagEnd : undefined, selfClosing, parent: open.at(-1)?.id ?? null };
     elements.push(element);
     if (selfClosing) { i = tagEnd; continue; }
     if (RAW.has(tag)) {
@@ -124,6 +124,8 @@ export const EDITOR_SCRIPT = `(() => {
   const say = (message) => parent.postMessage({ grandpa: 'visual-edit', ...message }, '*');
   const style = document.createElement('style');
   style.textContent = '[data-gp-text]{outline:1px dashed rgba(26,115,232,.55);outline-offset:2px;cursor:text}[data-gp-text]:hover{outline-color:#1a73e8}[data-gp-editing]{outline:2px solid #1a73e8 !important;background:rgba(26,115,232,.06)}'
+    + '[data-gp-part]{outline:3px solid #f59e0b !important;outline-offset:3px;background:rgba(245,158,11,.08)}'
+    + '#gp-part{position:absolute;z-index:2147483647;display:none;gap:4px;padding:4px;background:#78350f;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.25)}#gp-part button{all:unset;color:#fff;font:600 14px/1 system-ui,sans-serif;min-width:38px;height:34px;padding:0 4px;display:grid;place-items:center;border-radius:7px;cursor:pointer}#gp-part button:active{background:#92400e}'
     + 'img[data-gp-img]{outline:2px dashed rgba(26,115,232,.6);outline-offset:2px;cursor:pointer}'
     + '#gp-bar{position:absolute;z-index:2147483647;display:none;gap:4px;padding:4px;background:#1f2937;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.25)}#gp-bar button{all:unset;color:#fff;font:600 15px/1 system-ui,sans-serif;min-width:36px;height:34px;display:grid;place-items:center;border-radius:7px;cursor:pointer}#gp-bar button:active{background:#374151}';
   document.head.appendChild(style);
@@ -135,7 +137,7 @@ export const EDITOR_SCRIPT = `(() => {
   // A small bar above the text being edited: bold, italic, link.
   const bar = document.createElement('div');
   bar.id = 'gp-bar';
-  bar.innerHTML = '<button type="button" data-do="bold" aria-label="Bold"><b>B</b></button><button type="button" data-do="italic" aria-label="Italic"><i>I</i></button><button type="button" data-do="link" aria-label="Link">Link</button><button type="button" data-do="picture" aria-label="Add a picture after this">+ Picture</button>';
+  bar.innerHTML = '<button type="button" data-do="bold" aria-label="Bold"><b>B</b></button><button type="button" data-do="italic" aria-label="Italic"><i>I</i></button><button type="button" data-do="link" aria-label="Link">Link</button><button type="button" data-do="picture" aria-label="Add a picture after this">+ Picture</button><button type="button" data-do="part" aria-label="Move, copy or delete this part">⇅ Move</button>';
   document.body.appendChild(bar);
   const place = (el) => { const box = el.getBoundingClientRect(); bar.style.display = 'flex'; bar.style.top = Math.max(0, box.top + scrollY - 44) + 'px'; bar.style.left = Math.max(4, Math.min(box.left + scrollX, innerWidth - 150)) + 'px'; };
   bar.addEventListener('mousedown', (event) => event.preventDefault());
@@ -143,6 +145,7 @@ export const EDITOR_SCRIPT = `(() => {
     const button = event.target.closest('[data-do]');
     if (!button || !editing) return;
     event.stopPropagation(); event.preventDefault();
+    if (button.dataset.do === 'part') { const el = editing; finish(); selectPart(movable(el)); return; }
     if (button.dataset.do === 'picture') {
       const id = Number(editing.getAttribute('data-gp'));
       finish();
@@ -164,11 +167,44 @@ export const EDITOR_SCRIPT = `(() => {
     const after = clean(el);
     if (after !== before) say({ type: 'text', id: Number(el.getAttribute('data-gp')), html: after, scroll: scrollY });
   };
+  // Parts of the page: select one, then move it up or down, copy it or delete it.
+  const partBar = document.createElement('div');
+  partBar.id = 'gp-part';
+  partBar.innerHTML = '<button type="button" data-part="up" aria-label="Move up">↑</button><button type="button" data-part="down" aria-label="Move down">↓</button><button type="button" data-part="copy" aria-label="Duplicate">Copy</button><button type="button" data-part="delete" aria-label="Delete">Delete</button><button type="button" data-part="bigger" aria-label="Select the bigger part around it">Bigger</button><button type="button" data-part="close" aria-label="Done with this part">✕</button>';
+  document.body.appendChild(partBar);
+  let part = null;
+  const FIXED = /^(?:HTML|HEAD|BODY)$/;
+  const movable = (el) => {
+    let node = el && el.closest('[data-gp]');
+    while (node && node.parentElement && !FIXED.test(node.parentElement.tagName) && node.parentElement.hasAttribute('data-gp') && node.parentElement.children.length === 1) node = node.parentElement;
+    return node && !FIXED.test(node.tagName) ? node : null;
+  };
+  const selectPart = (el) => {
+    if (part) part.removeAttribute('data-gp-part');
+    part = el || null;
+    if (!part) { partBar.style.display = 'none'; return; }
+    part.setAttribute('data-gp-part', '');
+    const box = part.getBoundingClientRect();
+    partBar.style.display = 'flex';
+    partBar.style.top = Math.max(0, box.top + scrollY - 46) + 'px';
+    partBar.style.left = Math.max(4, Math.min(box.left + scrollX, innerWidth - 300)) + 'px';
+  };
+  partBar.addEventListener('click', (event) => {
+    const button = event.target.closest('[data-part]');
+    if (!button || !part) return;
+    event.preventDefault(); event.stopPropagation();
+    const action = button.dataset.part;
+    if (action === 'close') { selectPart(null); return; }
+    if (action === 'bigger') { const up = part.parentElement && !FIXED.test(part.parentElement.tagName) ? part.parentElement : null; if (up && up.hasAttribute('data-gp')) selectPart(up); return; }
+    say({ type: 'part', action, id: Number(part.getAttribute('data-gp')), scroll: scrollY });
+  }, true);
   document.addEventListener('click', (event) => {
-    if (event.target.closest('#gp-bar')) return;
+    if (event.target.closest('#gp-bar') || event.target.closest('#gp-part')) return;
     const picture = event.target.closest('img[data-gp-img]');
-    if (picture) { event.preventDefault(); finish(); say({ type: 'image', id: Number(picture.getAttribute('data-gp')), scroll: scrollY }); return; }
+    if (picture) { event.preventDefault(); finish(); selectPart(null); say({ type: 'image', id: Number(picture.getAttribute('data-gp')), scroll: scrollY }); return; }
     const target = event.target.closest('[data-gp-text]');
+    if (!target && !editing) { event.preventDefault(); selectPart(movable(event.target)); return; }
+    if (target) selectPart(null);
     // Links, buttons and forms do nothing while editing: a tap means "edit this".
     if (event.target.closest('a,button,form,input,select,label,summary')) event.preventDefault();
     if (!target || target === editing) return;
@@ -191,13 +227,17 @@ export const EDITOR_SCRIPT = `(() => {
   addEventListener('message', (event) => { if (event.data && event.data.grandpa === 'visual-finish') { if (editing) editing.blur(); finish(); } });
   const start = Number(document.documentElement.getAttribute('data-gp-scroll') || 0);
   if (start) requestAnimationFrame(() => scrollTo(0, start));
+  // After a move or copy, the same part stays selected so it can be moved again.
+  const keep = document.documentElement.getAttribute('data-gp-select');
+  if (keep !== null) requestAnimationFrame(() => selectPart(document.querySelector('[data-gp="' + Number(keep) + '"]')));
   say({ type: 'ready', count: count + document.querySelectorAll('img[data-gp-img]').length });
 })();`;
 
 /** The preview document for editing: annotated page, no project scripts, the editor script added. */
-export function editingDocument(documentHtml, scroll = 0) {
+export function editingDocument(documentHtml, scroll = 0, select = null) {
   const withoutScripts = String(documentHtml || '').replace(/<script\b[\s\S]*?<\/script\s*>/gi, '');
-  const tagged = withoutScripts.replace(/<html\b/i, (m) => `${m} data-gp-scroll="${Math.max(0, Math.round(Number(scroll) || 0))}"`);
+  const keep = Number.isInteger(select) && select >= 0 ? ` data-gp-select="${select}"` : '';
+  const tagged = withoutScripts.replace(/<html\b/i, (m) => `${m} data-gp-scroll="${Math.max(0, Math.round(Number(scroll) || 0))}"${keep}`);
   const script = `<script>${EDITOR_SCRIPT}</script>`;
   return /<\/body\s*>/i.test(tagged) ? tagged.replace(/<\/body\s*>(?![\s\S]*<\/body)/i, `${script}</body>`) : tagged + script;
 }
@@ -285,3 +325,41 @@ export function insertAfter(html, id, markup) {
 
 /** A new picture tag, safe to place in a page. */
 export const pictureTag = (src, alt = '') => `<img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}" style="width: 100%; max-width: 100%; height: auto">`;
+
+/* ---- Step 4: moving, duplicating and deleting parts ----------------------- */
+const FIXED = new Set(['html', 'head', 'body']);
+
+/** The part next to this one (same parent), before or after it, or null. */
+export function siblingOf(html, id, direction) {
+  const elements = mapElements(html);
+  const el = elements[Number(id)];
+  if (!el || FIXED.has(el.tag)) return null;
+  const family = elements.filter((e) => e.parent === el.parent && !['script', 'style', 'link', 'meta', 'title'].includes(e.tag));
+  const at = family.indexOf(el);
+  return family[direction === 'up' ? at - 1 : at + 1] || null;
+}
+
+/** The source with one part swapped with its neighbour. Returns { html, id } with the part's new number. */
+export function moveElement(html, id, direction) {
+  const text = String(html || '');
+  const elements = mapElements(text);
+  const el = elements[Number(id)];
+  const other = siblingOf(text, id, direction);
+  if (!el || !other) return { html: text, id: Number(id) };
+  const [first, second] = direction === 'up' ? [other, el] : [el, other];
+  const moved = text.slice(0, first.start) + text.slice(second.start, second.end) + text.slice(first.end, second.start) + text.slice(first.start, first.end) + text.slice(second.end);
+  // Numbering follows source order: moving up takes the neighbour's number; moving down
+  // moves past every element inside the neighbour.
+  const inside = (e) => elements.filter((x) => x.start >= e.start && x.start < e.end).length;
+  return { html: moved, id: direction === 'up' ? other.id : el.id + inside(other) };
+}
+
+/** The source with a copy of one part straight after it. Returns { html, id } of the copy. */
+export function duplicateElement(html, id) {
+  const text = String(html || '');
+  const elements = mapElements(text);
+  const el = elements[Number(id)];
+  if (!el || FIXED.has(el.tag)) return { html: text, id: Number(id) };
+  const inside = elements.filter((x) => x.start >= el.start && x.start < el.end).length;
+  return { html: insertAfter(text, id, text.slice(el.start, el.end)), id: el.id + inside };
+}
