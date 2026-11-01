@@ -3913,3 +3913,15 @@ body {
 .publish-address { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: .9rem; }
 .publish-address span { opacity: .75; }
 .build-chip.is-primary { background: var(--gold); color: #1b1408; border-color: var(--gold); font-weight: 700; }
+
+/* Quality check in the publish sheet (Phase G) */
+.quality-check { margin: 12px; border: 1px solid var(--line, #e6d8bb); border-radius: 12px; padding: 10px 12px; }
+.quality-check summary { cursor: pointer; font-weight: 700; display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+.quality-scores { display: inline-flex; flex-wrap: wrap; gap: 4px; font-weight: 600; }
+.quality-score { font-size: .78rem; padding: 2px 8px; border-radius: 999px; background: #e8f5ec; color: #1e6b3a; }
+.quality-score.is-ok { background: #fff4d6; color: #7a5200; }
+.quality-score.is-low { background: #fde7e5; color: #9b1c13; }
+.quality-list { margin: 10px 0 4px; padding-left: 18px; display: grid; gap: 6px; font-size: .92rem; }
+.quality-list li.is-fix strong { color: #b3261e; }
+.quality-list li.is-warn strong { color: #8a5a00; }
+.quality-list li.is-info strong { color: var(--muted, #6b5346); }

@@ -45,6 +45,11 @@ test('the store: only the publishing phone can update or remove a site; the owne
     assert.equal(first.created, true);
     assert.match(first.token, /^[0-9a-f]{48}$/);
     assert.equal((await store.get('fixpoint')).files.length, 5);
+    const meta = await store.meta('fixpoint');
+    assert.deepEqual(meta.pages, ['index.html', 'about.html', 'shop/index.html'], 'the pages, without loading the files');
+    assert.equal(meta.name, 'FixPoint');
+    assert.equal('files' in meta, false);
+    assert.equal(await store.meta('nobody-here'), null);
     await assert.rejects(store.publish({ slug: 'fixpoint', name: 'Thief', files: SITE }), { status: 409 });
     await assert.rejects(store.publish({ slug: 'fixpoint', name: 'Thief', files: SITE, token: 'wrong' }), { status: 409 });
     const update = await store.publish({ slug: 'fixpoint', name: 'FixPoint 2', files: [SITE[0]], token: first.token });

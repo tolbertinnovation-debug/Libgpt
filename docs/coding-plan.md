@@ -256,4 +256,30 @@ The owner approved this order: A design, B publish on Grandpa, C database, D man
 - **Grandpa Kit 4** adds search-box styles and explains in Build's preview that the cart works once published.
 - **Needs approval later (recurring costs):** email or SMS alerts for new orders and bookings; real mobile-money or card payments (merchant accounts).
 
-### Next: Phase G (quality and security).
+### Phase G: quality and security (done)
+
+- **Quality check before publishing** (`public/publish-quality.js`). It is free, instant, runs on the phone, and changes nothing by itself. It appears in the publish sheet before and after publishing, with a score for each area and the problems listed, **Fix** first:
+  - **Accessibility:** page language, phone screen setting, a main heading, picture descriptions (alt), form labels, buttons and links without words, frames without titles.
+  - **Speed:** pictures over 400 KB, videos over 8 MB, a site over 3 MB.
+  - **Security:** forms that send to email or another site, password or card fields, `http:` resources browsers block, scripts from outside sites, embeds from unknown sites, `javascript:` links, and forms without a privacy page.
+  - **Search:** page title, description, more than one h1.
+- **One tap to fix.**
+  - **Ask Grandpa to fix these** sends the list as a change request that keeps the design.
+  - **Make the large pictures smaller** shrinks photographs on the phone (about 1600 px, under 300 KB), keeping their names, as a version that can be undone. A 1.3 MB photo became about 250 KB in the browser test.
+- **Backups.** Manage → Settings → **Download all website data** saves one file with everything visitors sent, the prices and text, booking and shop settings, and visitor counts (`GET /api/manage/<address>/export`, owner only). **Restore prices, text and settings** puts them back from that file, without touching what visitors sent.
+- **Security review of the data features:**
+  - The Manage page can never be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), so a published site on the same host cannot overlay it.
+  - Published sites get a `Permissions-Policy` that turns off camera, microphone, location, payment, USB, serial and Bluetooth.
+  - Email links in Manage are encoded. The cart dialog moves focus properly.
+  - Confirmed as before:
+    - visitors can only send;
+    - reading needs the publishing phone's key or the passcode (scrypt, with a lockout after wrong tries);
+    - everything Manage shows is built as text;
+    - CSV cells cannot run as formulas;
+    - published pages run in an opaque-origin sandbox.
+- **Speed of the data features.** Forms, sign-in and Manage now read only a site's name, key and page list (`siteStore.meta`), instead of loading the whole website (up to 4 MB) from the database on every request.
+
+### Later, each needing the owner's approval (recurring costs)
+- Email or SMS alerts for new orders and bookings.
+- Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
+- Custom domains for published sites (for example mamakitchen.lr).

@@ -90,8 +90,12 @@ export function createMemorySiteStore() {
       return true;
     },
     async list() { return [...rows.values()].map(({ slug, name, size, updatedAt }) => ({ slug, name, size, updatedAt })); },
+    async meta(slug) { const row = validSlug(slug) ? rows.get(slug) : null; return row ? metaOf(row.slug, row.name, row.tokenHash, row.files.map((f) => f.path), row.updatedAt) : null; },
   };
 }
+
+// What forms and Manage need about a site, without loading its files (which can be megabytes).
+const metaOf = (slug, name, tokenHash, paths, updatedAt) => ({ slug, name, tokenHash, pages: paths.filter((p) => /\.html?$/i.test(p)).slice(0, 40), updatedAt });
 
 const SCHEMA = `CREATE TABLE IF NOT EXISTS public.grandpa_ai_sites (
   scope text NOT NULL,
@@ -159,6 +163,16 @@ export function createPostgresSiteStore({ connectionString, pool: suppliedPool, 
     async list() {
       return transaction(async (client) => (await client.query('SELECT slug, name, size, updated_at FROM public.grandpa_ai_sites WHERE scope=$1 ORDER BY updated_at DESC LIMIT 500', [scope])).rows
         .map((row) => ({ slug: row.slug, name: row.name, size: row.size, updatedAt: new Date(row.updated_at).toISOString() })));
+    },
+    async meta(slug) {
+      if (!validSlug(slug)) return null;
+      return transaction(async (client) => {
+        const row = (await client.query(`SELECT slug, name, token_hash, updated_at, ARRAY(SELECT f->>'path' FROM jsonb_array_elements(files) AS f) AS paths
+          FROM public.grandpa_ai_sites WHERE scope=$1 AND slug=$2`, [scope, slug])).rows[0];
+        if (!row) return null;
+        const paths = Array.isArray(row.paths) ? row.paths : String(row.paths || '').replace(/^\{|\}$/g, '').split(',').filter(Boolean);
+        return metaOf(row.slug, row.name, row.token_hash, paths, new Date(row.updated_at).toISOString());
+      });
     },
   };
 }
