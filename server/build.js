@@ -68,12 +68,30 @@ Every file goes in its own fenced block, with its path on the fence line:
 \`\`\`
 
 Rules that are not negotiable:
+- Every fence starts on a line of its own. Never put a fence after other text
+  on the same line.
 - The path comes first on the fence line, exactly as \`path=some/file.ext\`.
-- Write the WHOLE file, every time, even for a one-line change. Never write
-  "... rest unchanged ...", never write a diff, never write only the part that
-  moved. The browser replaces the file with what is in the block, so anything
-  you leave out is deleted.
+- A NEW file, or a file you are rewriting, is written out WHOLE. Never write
+  "... rest unchanged ..." inside a whole file: the browser replaces the file
+  with what is in the block, so anything you leave out is deleted.
+- To CHANGE part of a file that already exists, use an edit block instead of
+  rewriting it. Copy the lines to change EXACTLY as they are in the file now
+  (enough lines to be unique), then the new lines:
+
+\`\`\`edit path=index.html
+<<<<<<< SEARCH
+    <a class="brand" href="index.html">FixPoint</a>
+=======
+    <a class="brand" href="index.html"><img src="images/logo.jpg" alt="FixPoint logo" width="36" height="36"> FixPoint</a>
+>>>>>>> REPLACE
+\`\`\`
+
+  One edit block per file may hold several SEARCH/REPLACE pairs. Change the
+  page itself (the HTML or CSS), not with JavaScript that patches the page
+  after it loads.
 - Only include files you are actually changing or creating.
+- Never paste code into your explanation. After the blocks, say in one to
+  three short sentences what you changed and how to see it.
 - Code that belongs to no file — a command to run, a snippet to look at —
   goes in a plain fence with NO path, and is never treated as a file.
 
@@ -137,6 +155,17 @@ Then the fix, as whole files.`;
 export const BUILD_BUDGET = 16_000;
 
 /** What the model needs to know about the project it is working on. */
+// A picture or document the person added is stored as a data URL. The model
+// gets a short note with its path, never the bytes: they are useless to it,
+// and a single photo would otherwise fill the whole request.
+export const isDataBody = (body) => /^data:/.test(String(body || ''));
+export function bodyForModel(path, body) {
+  const text = String(body ?? '');
+  if (!isDataBody(text)) return text;
+  const picture = /^data:image\//.test(text);
+  return `[${picture ? 'Picture' : 'Document'} already in the project (${Math.ceil(text.length * 0.75 / 1024)} KB). Use it by this exact path, for example ${picture ? `<img src="${path}" alt="...">` : `<a href="${path}" download>`}. Never write this file.]`;
+}
+
 export function projectContext(files = []) {
   if (!Array.isArray(files) || files.length === 0) {
     return 'The project is empty. Nothing has been built yet.';
@@ -145,7 +174,7 @@ export function projectContext(files = []) {
   const lines = ['These are the files in the project right now.', ''];
   for (const file of files) {
     const path = String(file?.path || '').slice(0, 200);
-    const body = String(file?.body ?? '');
+    const body = bodyForModel(path, file?.body);
     if (!path) continue;
     lines.push(`--- ${path} (${body.length} characters) ---`);
     lines.push(body);
@@ -173,10 +202,10 @@ export function fitProject(files = [], room = 60_000, {requiredPaths = []} = {})
   // about.
   const ordered = [...(files || [])]
     .filter((f) => f && typeof f.path === 'string')
-    .sort((a, b) => Number(required.has(b.path)) - Number(required.has(a.path)) || String(a.body || '').length - String(b.body || '').length);
+    .sort((a, b) => Number(required.has(b.path)) - Number(required.has(a.path)) || bodyForModel(a.path, a.body).length - bodyForModel(b.path, b.body).length);
 
   for (const file of ordered) {
-    const size = String(file.body || '').length + file.path.length + 40;
+    const size = bodyForModel(file.path, file.body).length + file.path.length + 40;
     if (used + size > room) {
       if(required.has(file.path))throw Object.assign(new Error('The file being edited is too large to include completely. Your saved source is kept; split that file before resuming.'),{status:413,code:'BUILD_CONTEXT_LIMIT'});
       dropped.push(file.path); continue;

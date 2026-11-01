@@ -19,10 +19,10 @@ import { conversationWindow } from './knowledge.js';
 
 import {
   applyChanges, danglingLinks, describeChanges, downloadFile, downloadProject, downloadSingleFile,
-  filesFrom, forSending, highlightFile, looksEmpty, makeProject, previewDocument,
+  applyEdits, filesFrom, forSending, highlightFile, looksEmpty, makeProject, previewDocument,
   previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
   loadProjectsDurable, saveProjectsDurable,
-} from './build.js?v=materials-1';
+} from './build.js?v=edits-1';
 import {buildTaskLabel,buildTaskFacts} from './build-task-state.js?v=phase2-stage6-reliability';
 import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js?v=phase2-stage6-reliability';
 import { shrink } from './photo.js';
@@ -477,9 +477,10 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said}={}) {
   renderPlan(p.team?{checkpoint:p.team,running:false}:null);
   renderThread();
   const received=new Map();
+  const editFailures=[];
   let saved=true,failed=false;
   try {
-    await generateFiles(said,p.files,{signal:controller.signal,faults:faults || [],
+    await generateFiles(said,p.files,{signal:controller.signal,faults:faults || [],editFailures,
       messages:conversationWindow(p.messages.filter(m=>m.content)).list,runtime:p.team?.plan?.runtime || 'static',
       onProse:prose=>{answer.content=prose;renderThread();},
       onFile:async file=>{
@@ -490,6 +491,7 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said}={}) {
         renderTree();
       }});
     answer.content ||= received.size ? 'Your changes are saved.' : 'No files were changed.';
+    if(editFailures.length)answer.content+=`\n\nSome edits did not match the current files (${[...new Set(editFailures.map(f=>f.path))].join(', ')}), so those files were left as they were.`;
     if(!received.size && p.team){p.team.status='needs_attention';p.team.message='The agent returned no completed files. Your current files are kept; resume the team to finish the requested change.';p.team.faults=[p.team.message];}
   } catch(error) {
     failed=true;
@@ -505,6 +507,13 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said}={}) {
     unmark(mine);state.live=null;state.streaming=null;el.editorInput.readOnly=false;
     await persist();render();
     document.dispatchEvent(new CustomEvent('ritual:busy',{detail:false}));
+    // An edit that did not match: asked again once, for those files written out whole.
+    if(!failed && editFailures.length && repairsLeft>0){
+      const paths=[...new Set(editFailures.map(f=>f.path))];
+      await changeFiles(`${said}\n\nYour SEARCH/REPLACE edits for ${paths.join(', ')} did not match the files as they are now. Write each of those files out whole this time, in a normal fenced block with its path, including the change.`,
+        {faults,repairsLeft:repairsLeft-1,shown:'Trying that change again'});
+      return;
+    }
     if(received.size && saved){
       await checkAfterSaving(answer);
       // The preview found a problem with the change: repaired once, automatically.
@@ -519,7 +528,19 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said}={}) {
 }
 
 /** Complete file fences become checkpoints immediately, before the stream ends. */
-async function generateFiles(instruction, files, {signal,onFile=async()=>{},onProse=()=>{},messages,faults=[],research='auto',allowPictures=false,runtime='static',agent='builder'}={}) {
+async function generateFiles(instruction, files, {signal,onFile=async()=>{},onProse=()=>{},messages,faults=[],research='auto',allowPictures=false,runtime='static',agent='builder',editFailures=[]}={}) {
+  // The files as they stand, so SEARCH/REPLACE edits apply to the latest text.
+  const working=new Map((files || []).map(f=>[f.path,f.body]));
+  let editsDone=0;
+  const applyEdit=async edit=>{
+    const base=working.get(edit.path);
+    if(base===undefined || /^data:/.test(base)){editFailures.push({path:edit.path,failed:['(the file does not exist yet, or is a picture)']});return;}
+    const result=applyEdits(base,edit.body);
+    if(result.failed.length){editFailures.push({path:edit.path,failed:result.failed});return;}
+    working.set(edit.path,result.text);
+    const file={path:edit.path,body:result.text};
+    await onFile(file);await auditAgentEvent('file_saved',[file]);completed.set(file.path,{...file});
+  };
   const response=await fetch('/api/chat',{
     method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},signal,
     body:JSON.stringify({mode:'build',buildAgent:agent,buildRuntime:runtime,research:'off',messages:messages || [{role:'user',content:instruction}],
@@ -554,7 +575,13 @@ async function generateFiles(instruction, files, {signal,onFile=async()=>{},onPr
         for(const file of parsed.files){
           if(completed.get(file.path)?.body===file.body)continue;
           if(signal?.aborted)throw new DOMException('Build stopped','AbortError');
+          working.set(file.path,file.body);
           await onFile({...file});await auditAgentEvent('file_saved',[file]);completed.set(file.path,{...file});
+        }
+        for(const edit of parsed.edits.slice(editsDone)){
+          editsDone+=1;
+          if(signal?.aborted)throw new DOMException('Build stopped','AbortError');
+          await applyEdit(edit);
         }
       }
     }

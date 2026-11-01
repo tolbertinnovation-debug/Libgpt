@@ -1,7 +1,7 @@
 // Deterministic source selection for generation only. Review still sees full source.
 import {resolveProjectPath} from '../public/build.js';
 import {safeTeamPath} from './build-team.js';
-import {fitProject,projectContext} from './build.js';
+import {fitProject,projectContext,isDataBody} from './build.js';
 const invalid=()=>Object.assign(new Error('Required coding context is unavailable or too large. Saved files are kept; split the task before resuming.'),{code:'BUILD_CONTEXT_LIMIT',status:413});
 const config=path=>/(?:^|\/)(?:package\.json|tsconfig\.json|jsconfig\.json|requirements\.txt|pyproject\.toml|schema\.prisma)$/.test(path);
 // Guidance is part of the project's constraints even when no source imports it.
@@ -25,6 +25,8 @@ export function generationContext(files,{targetPath,plan,instruction='',room=900
   return [resolved,resolved+'.js',resolved+'.jsx',resolved+'.mjs',resolved+'.cjs',resolved+'.ts',resolved+'.tsx',resolved+'.json',resolved+'/index.js',resolved+'/index.jsx',resolved+'/index.mjs',resolved+'/index.ts',resolved+'/index.tsx'].find(p=>byPath.has(p)) || '';
  };
  for(const f of files){
+  // Pictures and documents someone added have no references to follow.
+  if(isDataBody(f.body)){edges.set(f.path,[]);continue;}
   edges.set(f.path,references(f.body).map(ref=>locate(f.path,ref)).filter(Boolean));
   // Bare imports may be workspace packages/aliases. Unresolved literal module
   // or fetch references cannot establish a safe pruning boundary either.
