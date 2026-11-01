@@ -96,10 +96,13 @@ How it works now:
 - **On request.** "Look at it on a phone and fix what is wrong" (a chip after every build) runs the review and repairs what it finds.
 - **Cost.** One picture review per change, from the Build (coding) allowance.
 
-## Phase 5: versions and publishing
+## Phase 5: versions and publishing (done)
 
-- A clear history of versions with one-tap restore, and side-by-side **compare**.
-- Publishing stays behind the full engineering review, which already runs before release.
+- **Every change is named.** A version is saved before every change and named after it, for example "Before: Make the heading green". History therefore reads like the chat. Several saves from one change are grouped into one entry (`public/build-history.js` `historyEntries`).
+- **The Versions sheet** opens from "See versions" after every build, or from the ⋮ menu. Each entry shows how many files differ from now and when it was saved, with **Compare** and **Restore** buttons.
+- **Compare** shows each file that differs, as added, removed or changed. Changed files get a line-by-line diff with a little context: red for the saved version, green for now, ⋯ for unchanged stretches. Pictures are named but not shown as text. From there, **Restore this version** is one tap.
+- **Restoring** keeps the version you were on, so a restore can itself be undone. It also invalidates the release review.
+- **Publishing** stays behind the full engineering review, which already runs before release.
 
 ## Costs and limits
 

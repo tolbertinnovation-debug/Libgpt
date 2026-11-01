@@ -31,6 +31,7 @@ import { renderMarkdown } from './markdown.js';
 import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materials.js?v=materials-1';
 import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
 import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
+import { historyEntries, compareFiles } from './build-history.js?v=phase5-1';
 
 const $ = (id) => document.getElementById(id);
 
@@ -209,7 +210,8 @@ function fixHint(p) {
   if (!builtFiles(p).length || state.live || isBusy()) return '';
   const chips = ['Check for problems and fix them', ...(deps.vision ? ['Look at it on a phone and fix what is wrong'] : ['Make it look better on phones']), 'What is in my website?']
     .map((s) => `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('');
-  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${chips}</div></div>`;
+  const versions = (p.versions || []).length ? '<button class="build-chip" type="button" data-show-history>See versions</button>' : '';
+  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${chips}${versions}</div></div>`;
 }
 
 function proposalHtml(files, index, applied, checked, receipt) {
@@ -618,6 +620,8 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said, focus=
   p.messages.push(answer);
   const before=p.files.map(f=>({...f}));
   const versionsBefore=(p.versions || []).length;
+  // Each version is named after the change that followed it, so History reads like the chat.
+  const versionNote=`Before: ${String(label || shown || said).replace(/\s+/g,' ').slice(0,80)}`;
   // What the preview checks already know is wrong, when the person reports a problem.
   if(!faults && PROBLEM.test(said)){
     state.live={what:'Checking the website for problems…'};renderThread();
@@ -644,7 +648,7 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said, focus=
       onProse:prose=>{answer.content=prose;renderThread();},
       onFile:async file=>{
         received.set(file.path,file);
-        applyChanges(p,[file],'Before automatic file saving');
+        applyChanges(p,[file],versionNote);
         saved=await persist();
         if(!saved) throw new Error('Automatic saving failed. Download your files before leaving.');
         renderTree();
@@ -1348,15 +1352,38 @@ const ago = (at) => {
 
 function showHistory() {
   const p = project();
-  const versions = [...(p.versions || [])].reverse();
-  const rows = versions.map((v, i) => `
-    <button class="sheet-row" type="button" data-version="${p.versions.length - 1 - i}">
-      <span><strong>${escapeHtml(v.note)}</strong>
-        <small>${v.files.length} file${v.files.length === 1 ? '' : 's'}</small></span>
-      <span class="sheet-when">${ago(v.at)}</span>
-    </button>`).join('');
-  openSheet('Go back to', rows || '<p class="sheet-note">Nothing has been changed yet, so there is '
-    + 'nothing to go back to. A version is kept every time you save files into the build.</p>');
+  const entries = historyEntries(p.versions || []);
+  const rows = entries.map((entry) => {
+    const changed = compareFiles(p.versions[entry.index].files, p.files).length;
+    return `<div class="sheet-row history-row">
+      <span><strong>${escapeHtml(entry.note)}</strong>
+        <small>${changed ? `${changed} file${changed === 1 ? '' : 's'} different from now` : 'Same as now'} · ${ago(entry.at)}</small></span>
+      <span class="history-actions">
+        <button class="build-chip" type="button" data-compare="${entry.index}">Compare</button>
+        <button class="build-chip" type="button" data-version="${entry.index}">Restore</button>
+      </span>
+    </div>`;
+  }).join('');
+  openSheet('Versions', rows ? `<p class="sheet-note">A version is saved before every change. Compare one with your website now, or restore it in one tap — the version you are on is kept too.</p>${rows}`
+    : '<p class="sheet-note">Nothing has been changed yet, so there is nothing to go back to. A version is saved before every change.</p>');
+}
+
+/** One version against the files now, line by line. */
+function showCompare(index) {
+  const p = project();
+  const version = p.versions?.[index];
+  if (!version) return;
+  const diffs = compareFiles(version.files, p.files);
+  const body = diffs.length ? diffs.map((d) => {
+    const head = `<div class="diff-head"><strong>${escapeHtml(d.path)}</strong><span class="diff-kind is-${d.kind}">${d.kind === 'added' ? 'added since' : d.kind === 'removed' ? 'removed since' : 'changed'}</span>${d.picture ? '' : `<span class="diff-count"><span class="diff-plus">+${d.added}</span> <span class="diff-minus">−${d.removed}</span></span>`}</div>`;
+    if (d.picture) return `${head}<p class="sheet-note">A picture or document ${d.kind === 'changed' ? 'was replaced' : d.kind}.</p>`;
+    const lines = d.lines.map((line) => line.type === '…' ? '<div class="diff-line is-gap">⋯</div>'
+      : `<div class="diff-line ${line.type === '+' ? 'is-add' : line.type === '-' ? 'is-del' : ''}"><span class="diff-sign">${line.type === ' ' ? '' : line.type === '-' ? '−' : '+'}</span>${escapeHtml(line.text) || ' '}</div>`).join('');
+    return `${head}<div class="diff-lines">${lines}</div>${d.cut ? '<p class="sheet-note">Longer than shown.</p>' : ''}`;
+  }).join('') : '<p class="sheet-note">This version is the same as your website now.</p>';
+  openSheet(`Compare: ${historyEntries(p.versions).find((e) => e.index === index)?.note || 'saved version'}`,
+    `<p class="sheet-note"><span class="diff-minus">− red</span> is in the saved version; <span class="diff-plus">+ green</span> is in your website now.</p>${body}
+    <div class="history-actions"><button class="sheet-go" type="button" data-version="${index}">Restore this version</button><button class="build-chip" type="button" data-history-back>Back to versions</button></div>`);
 }
 
 
@@ -1954,6 +1981,7 @@ export async function mount(options = {}) {
     const starter = event.target.closest('.build-starter');
     if (starter) { send(starter.textContent.trim()); return; }
     if (event.target.closest('[data-discuss-start]')) { startFromBrief(); return; }
+    if (event.target.closest('[data-show-history]')) { showHistory(); return; }
     const undo = event.target.closest('[data-undo]');
     if (undo) { undoTo(project()?.messages[Number(undo.dataset.undo)]); return; }
     if (event.target.closest('[data-undo-plan]')) { undoTo([...(project()?.messages || [])].reverse().find((m) => m.todo?.undoAt && !m.todo.undone)); return; }
@@ -2037,6 +2065,9 @@ export async function mount(options = {}) {
       return;
     }
 
+    const compare = event.target.closest('[data-compare]');
+    if (compare) { showCompare(Number(compare.dataset.compare)); return; }
+    if (event.target.closest('[data-history-back]')) { showHistory(); return; }
     const version = event.target.closest('[data-version]');
     if (version) {
       if(isBusy()){deps.toast('Finish the current work before restoring a version.');return;}
