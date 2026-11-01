@@ -32,7 +32,7 @@ import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materia
 import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
 import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
 import { historyEntries, compareFiles } from './build-history.js?v=phase5-1';
-import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=edit-5';
+import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=edit-6';
 
 const $ = (id) => document.getElementById(id);
 
@@ -200,7 +200,7 @@ function renderThread() {
       : turn.undoAt && index === latestUndo && !inPlan.has(index) ? `<button class="build-chip" type="button" data-undo="${index}">Undo this change</button>` : '';
     const talk = turn.discussion ? discussionHtml(turn.discussion, !p.team && !p.background && !builtFiles(p).length && index === p.messages.length - 1) : '';
     return `<div class="build-turn build-turn-ai">
-      ${stepLabel}<div class="prose">${renderMarkdown(turn.content || '')}</div>${todo}${proposal}${lookedHtml(turn.looked)}${undo}${talk}
+      ${stepLabel}<div class="prose">${renderMarkdown(turn.content || '')}</div>${todo}${proposal}${editedHtml(turn, index)}${lookedHtml(turn.looked)}${undo}${talk}
     </div>`;
   }).join('') + live + fixHint(p);
   el.thread.scrollTop = el.thread.scrollHeight;
@@ -513,12 +513,48 @@ async function finishEditing() {
   state.editMode = false; state.editSession = null;
   if (p && session.changes) {
     const pages = [...session.pages].join(', ');
-    p.messages.push({ role: 'assistant', content: `Saved your ${session.changes === 1 ? 'edit' : `${session.changes} edits`} to ${pages}. They are in the real files now, so I will keep them in every later change.`,
-      undoAt: p.versions?.[session.versionsBefore]?.at, edited: true });
+    const turn = { role: 'assistant', content: `Saved your ${session.changes === 1 ? 'edit' : `${session.changes} edits`} to ${pages}. They are in the real files now, so I will keep them in every later change.`,
+      undoAt: p.versions?.[session.versionsBefore]?.at, edited: true, checked: 'checking' };
+    p.messages.push(turn);
     await persist();
+    render();
+    renderPreview();
+    // Step 5: the free checks, then a look at the page on a phone screen. Nothing is
+    // changed on its own: these are the person's edits, so problems are offered to fix.
+    const mine = mark('Checking your edits…');
+    try { turn.checked = await faultsIn(p.files); }
+    catch { turn.checked = ['The preview check could not finish. Retry checking before publishing.']; }
+    unmark(mine);
+    await persist(); renderThread();
+    if (Array.isArray(turn.checked) && !turn.checked.length) await lookAt(turn, 'The person edited the page by hand; check nothing looks broken.');
+    await persist(); render();
+    return;
   }
   render();
   renderPreview();
+}
+
+function editedHtml(turn, index) {
+  if (!turn.edited) return '';
+  const checked = turn.checked;
+  const problems = [...(Array.isArray(checked) ? checked : []), ...(Array.isArray(turn.looked) ? turn.looked : [])];
+  const status = checked === 'checking' ? '<p class="proposal-checking">Checking your edits…</p>'
+    : Array.isArray(checked) && checked.length ? `<div class="proposal-faults"><strong>${checked.length === 1 ? 'One thing is wrong after your edits' : `${checked.length} things are wrong after your edits`}:</strong><ul>${checked.map((f) => `<li>${escapeHtml(f)}</li>`).join('')}</ul></div>`
+    : Array.isArray(checked) ? '<p class="proposal-done">Preview checks passed.</p>' : '';
+  const fix = problems.length && !turn.fixRequested ? `<button class="build-chip" type="button" data-fix-edits="${index}">Ask Grandpa to fix ${problems.length === 1 ? 'this' : 'these'} (your edits are kept)</button>` : '';
+  return status + fix;
+}
+
+/** The person chose to have the problems after their edits fixed. */
+async function fixAfterEdits(index) {
+  const p = project();
+  const turn = p?.messages[index];
+  if (!turn?.edited || isBusy()) return;
+  const faults = [...(Array.isArray(turn.checked) ? turn.checked : []), ...visualFaults(Array.isArray(turn.looked) ? turn.looked : [])];
+  if (!faults.length) return;
+  turn.fixRequested = true;
+  await changeFiles('Fix only these problems, found after the person edited the page by hand. Keep every one of their edits (text, pictures, order of parts) exactly as it is.',
+    { faults, shown: 'Fix the problems after my edits' });
 }
 
 /** A hand edit to the page file: saved as a version, the preview re-numbered where needed. */
@@ -2162,6 +2198,8 @@ export async function mount(options = {}) {
     if (starter) { send(starter.textContent.trim()); return; }
     if (event.target.closest('[data-discuss-start]')) { startFromBrief(); return; }
     if (event.target.closest('[data-show-history]')) { showHistory(); return; }
+    const fixEdits = event.target.closest('[data-fix-edits]');
+    if (fixEdits) { fixAfterEdits(Number(fixEdits.dataset.fixEdits)); return; }
     const undo = event.target.closest('[data-undo]');
     if (undo) { undoTo(project()?.messages[Number(undo.dataset.undo)]); return; }
     if (event.target.closest('[data-undo-plan]')) { undoTo([...(project()?.messages || [])].reverse().find((m) => m.todo?.undoAt && !m.todo.undone)); return; }

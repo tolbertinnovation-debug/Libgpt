@@ -108,7 +108,7 @@ How it works now:
 
 All coding requests come from the owner's **Build (coding)** allowance in Owner Controls, and run on Meta Muse Spark (high reasoning effort for builds). Preview checks run in the phone's browser and cost nothing.
 
-## Editing the page by hand (in progress)
+## Editing the page by hand (done)
 
 The owner asked to be able to edit the preview directly: click and type, add or change pictures, move parts of the page. Every change must be saved.
 
@@ -138,4 +138,8 @@ The owner asked to be able to edit the preview directly: click and type, add or 
 - **Deleting.** Deleting a part removes its line too. Large parts ask first, and everything can be undone after **Done**.
 - **Exact source.** All of this happens in the real source text, keeping indentation. The page itself, html/head/body, can never be moved or deleted.
 
-**Next:** step 5 (checks after Done).
+**Done: step 5, checks after Done**
+
+- **Checks run automatically.** After **Done**, the free preview checks run first (missing pages or files, empty pages, phone and desktop errors). If they pass, Grandpa looks at the page on a phone screen (Phase 4).
+- **Nothing is changed on its own.** These are the person's own edits, so any problem is listed in the chat with **Ask Grandpa to fix this (your edits are kept)**. That runs a focused fix told to keep every text, picture and order edit exactly as it is.
+- **The bars stay out of the way.** The editing bars (B / I / Link / + Picture / ⇅ Move, and the part bar) sit at the bottom of the screen like a keyboard toolbar, so they never cover the text you want to tap next.

@@ -126,3 +126,9 @@ test('part messages are checked: only the four actions, on a numbered part', () 
   assert.equal(allow(from({ grandpa: 'visual-edit', type: 'part', id: 4, action: 'replace-page' })), false);
   assert.equal(allow(from({ grandpa: 'visual-edit', type: 'part', action: 'up' })), false);
 });
+
+test('the editing bars sit at the bottom of the screen, never over the page', () => {
+  assert.match(EDITOR_SCRIPT, /#gp-bar\{position:fixed;left:50%;bottom:10px/);
+  assert.match(EDITOR_SCRIPT, /#gp-part\{position:fixed;left:50%;bottom:10px/);
+  assert.match(EDITOR_SCRIPT, /body\{padding-bottom:70px !important\}/, 'the end of the page can still be reached above the bar');
+});
