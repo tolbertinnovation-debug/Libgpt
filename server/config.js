@@ -160,6 +160,14 @@ export const config = {
 };
 // The key is only used while OpenAI is switched on.
 config.apiKey = config.openaiOff ? '' : (process.env.OPENAI_API_KEY?.trim() || '');
+// Grandpa's voice (reading aloud, the advanced voice, Live Talk and listening)
+// stays on OpenAI even while the rest is switched off, because Meta has no
+// voice to read aloud with (owner's choice). OPENAI_VOICE=off turns it off too.
+const voiceOnlyKey = /^(0|false|no|off)$/i.test(process.env.OPENAI_VOICE?.trim() || '') ? '' : (process.env.OPENAI_API_KEY?.trim() || '');
+Object.defineProperty(config, 'voiceKey', {
+  enumerable: true,
+  get() { return this.openaiOff ? voiceOnlyKey : this.apiKey; },
+});
 
 // Models offered in the UI picker. The account still has to have access to
 // whichever one is chosen; the server reports the API's error if it does not.

@@ -211,14 +211,16 @@ async function postMeta(path, body, signal, meta) {
   throw new OpenAIError(detail?.error?.message || detail?.detail || `Meta answered ${response.status}.`, response.status, 'meta_error');
 }
 
-async function post(path, body, signal) {
+async function post(path, body, signal, { voice = false } = {}) {
   // body.model is what every one of these calls names.
   const asked = typeof body?.model === 'string' ? body.model : '';
+  // Grandpa's voice keeps OpenAI even while the rest is switched off.
+  const key = voice ? config.voiceKey : config.apiKey;
 
-  const meta = metaBridge();
+  const meta = voice ? null : metaBridge();
   if (meta) return postMeta(path, body, signal, meta);
-  if (config.openaiOff) throw new OpenAIError('This feature uses OpenAI, which is switched off for now.', 503, 'openai_off');
-  if (!config.apiKey) {
+  if (config.openaiOff && !voice) throw new OpenAIError('This feature uses OpenAI, which is switched off for now.', 503, 'openai_off');
+  if (!key) {
     throw new OpenAIError(
       'No OpenAI API key is configured. Copy .env.example to .env and set OPENAI_API_KEY.',
       500,
@@ -239,7 +241,7 @@ async function post(path, body, signal) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${config.apiKey}`,
+        Authorization: `Bearer ${key}`,
       },
       body: JSON.stringify(attempt),
       signal,
@@ -545,11 +547,11 @@ export async function* streamSearch({
  * Costs no tokens — it is a plain listing — so the answer can be refreshed
  * whenever the page loads, subject to the caller's cache.
  */
-export async function listModels({ signal } = {}) {
-  if (!config.apiKey) return [];
+export async function listModels({ signal, key = config.apiKey } = {}) {
+  if (!key) return [];
 
   const response = await fetch(`${config.baseUrl}/models`, {
-    headers: { Authorization: `Bearer ${config.apiKey}` },
+    headers: { Authorization: `Bearer ${key}` },
     signal,
   });
   if (!response.ok) throw await toError(response);
@@ -604,7 +606,7 @@ export async function speakAloud({ text, voice = 'ballad', delivery = '', speed,
   if (delivery && /gpt-/i.test(config.voiceModel)) body.instructions = delivery;
   if (speed) body.speed = speed;
 
-  const response = await post('/audio/speech', body, signal);
+  const response = await post('/audio/speech', body, signal, { voice: true });
   return Buffer.from(await response.arrayBuffer());
 }
 
@@ -629,7 +631,7 @@ export async function speakAloud({ text, voice = 'ballad', delivery = '', speed,
  * FormData with one file is not worth a package, and this project has four.
  */
 export async function transcribe({ audio, type = 'audio/webm', prompt = '', signal }) {
-  if (!config.apiKey) {
+  if (!config.voiceKey) {
     throw new OpenAIError(
       'No OpenAI API key is configured. Copy .env.example to .env and set OPENAI_API_KEY.',
       500,
@@ -662,7 +664,7 @@ export async function transcribe({ audio, type = 'audio/webm', prompt = '', sign
 
     return fetch(`${config.baseUrl}/audio/transcriptions`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${config.apiKey}` },
+      headers: { Authorization: `Bearer ${config.voiceKey}` },
       body: form,
       signal,
     });

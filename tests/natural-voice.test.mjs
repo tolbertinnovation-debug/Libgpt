@@ -65,8 +65,8 @@ test('actual speak endpoint forwards the new voice and refuses old voices before
   const start=source.indexOf('const spokenChars = []');const end=source.indexOf('// ---- the Cultural Album',start);
   let handler;const calls=[];const config={realVoice:true,apiKey:'test-placeholder',voiceCharsPerHour:60000};
   const metered=[];const runtime={governed:()=>()=>{},meter:async(role,operation,microUsd,action)=>{metered.push({role,operation,microUsd});return action(new AbortController().signal);}};
-  new Function('app','rateLimit','requireAccess','config','speechOptions','speakAloud','OpenAIError','runtime','SPEECH_MICRO_USD_PER_CHAR','governanceError','SPEECH_FORMATS','speakAdvanced',source.slice(start,end))(
-    {post(_path,...handlers){handler=handlers.at(-1);}},()=>{},()=>{},config,speechOptions,async args=>{calls.push(args);return Buffer.from('mock audio');},class extends Error {},runtime,30,()=>false,SPEECH_FORMATS,async()=>null);
+  new Function('app','rateLimit','requireAccess','config','speechOptions','speakAloud','OpenAIError','runtime','SPEECH_MICRO_USD_PER_CHAR','governanceError','SPEECH_FORMATS','speakAdvanced','voiceReady',source.slice(start,end))(
+    {post(_path,...handlers){handler=handlers.at(-1);}},()=>{},()=>{},config,speechOptions,async args=>{calls.push(args);return Buffer.from('mock audio');},class extends Error {},runtime,30,()=>false,SPEECH_FORMATS,async()=>null,()=>Boolean(config.apiKey));
   const invoke=async body=>{const res={headers:{},statusCode:200,on(){},status(n){this.statusCode=n;return this;},json(v){this.body=v;},setHeader(k,v){this.headers[k]=v;},send(v){this.audio=v;}};await handler({body},res);return res;};
   let res=await invoke({text:'Hello, my people.',voice:'marin',speed:1.05});
   assert.equal(res.statusCode,200);assert.equal(calls[0].voice,'marin');assert.equal(calls[0].speed,1.05);

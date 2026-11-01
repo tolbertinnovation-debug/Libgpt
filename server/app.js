@@ -115,6 +115,8 @@ const WINDOW_MS = 60_000;
 // Meta does pictures, photo reading and voice typing whenever OpenAI is not available.
 const metaMedia = () => !config.apiKey && llamaConfig().ready;
 // Text features (Build, documents, stories, plans) run on OpenAI, or on Meta while OpenAI is off.
+// Grandpa's voice runs on OpenAI, even while OpenAI is otherwise switched off.
+const voiceReady = () => Boolean(config.voiceKey);
 const brainReady = () => Boolean(config.apiKey) || metaMedia();
 const chatPicturesAvailable = () => config.imagesEnabled && (Boolean(config.apiKey) || metaMedia()) && !(config.serverless && !config.accessCode);
 
@@ -154,7 +156,14 @@ const EMPTY_TIERS = { fast: '', balanced: '', deep: '' };
 let modelCache = { at: 0, models: [], tiers: EMPTY_TIERS, search: '', searchDeep: '' };
 
 async function accountModels() {
-  if (!config.apiKey) return [];
+  if (!config.apiKey) {
+    // OpenAI for the voice only: the listing is kept just to find the realtime
+    // (advanced voice and Live Talk) model. Nothing joins the chat picker.
+    if (config.voiceKey && !(modelCache.all?.length && Date.now() - modelCache.at < MODEL_CACHE_MS)) {
+      try { modelCache = { ...modelCache, at: Date.now(), all: await listModels({ key: config.voiceKey }) }; } catch { /* the phone's voice still works */ }
+    }
+    return [];
+  }
   if (modelCache.models.length && Date.now() - modelCache.at < MODEL_CACHE_MS) {
     return modelCache.models;
   }
@@ -324,7 +333,7 @@ app.get('/api/config', async (_req, res) => {
     library: libraryCatalogue(),
     imagesEnabled: config.imagesEnabled,
     chatImages: chatPicturesAvailable(),
-    realVoice: config.realVoice && Boolean(config.apiKey),
+    realVoice: config.realVoice && voiceReady(),
     // Two-way live audio. Off on a serverless host without an access code, for
     // the same reason pictures are: the hourly ceiling cannot hold there.
     liveTalk: liveTalkReady(),
@@ -346,9 +355,9 @@ app.get('/api/config', async (_req, res) => {
     // Whether a recording can be sent here to be turned into words. When this
     // is false the page falls back to the browser's own speech recognition,
     // which on a good day is worse and on most Android phones is nothing.
-    dictation: config.dictation && (Boolean(config.apiKey) || metaMedia()),
+    dictation: config.dictation && (voiceReady() || metaMedia()),
     // Meta's voice typing takes WAV, so the phone converts its recording first.
-    dictationFormat: !config.apiKey && metaMedia() ? 'wav' : '',
+    dictationFormat: !voiceReady() && metaMedia() ? 'wav' : '',
     // True only where the switch is on AND something on this account can
     // actually look. A camera button that leads to "I cannot see pictures" is
     // worse than no camera button.
@@ -1571,7 +1580,7 @@ app.post('/api/speak', rateLimit, requireAccess, runtime.governed('voice','speak
   let options;
   try { options = speechOptions(req.body); }
   catch (error) { return res.status(error.status || 400).json({ error: error.message }); }
-  if (!config.apiKey) return res.status(503).json({ error: 'OpenAI speech is not configured on this deployment.' });
+  if (!voiceReady()) return res.status(503).json({ error: 'OpenAI speech is not configured on this deployment.' });
   const controller = new AbortController();
   res.on('close', () => controller.abort());
 
@@ -1656,7 +1665,7 @@ app.delete('/api/sync/:id', rateLimit, requireAccess, async (req, res) => {
 // hour, because a minute of live audio costs what a long page of text does.
 const liveSessions = [];
 function liveTalkReady() {
-  return config.liveTalk && Boolean(config.apiKey) && !(config.serverless && !config.accessCode)
+  return config.liveTalk && voiceReady() && !(config.serverless && !config.accessCode)
     && Boolean(pickRealtimeModel(modelCache.all || [], config.realtimeModel));
 }
 /** Worst-case cost of one session, reserved up front and never settled lower. */
@@ -1669,7 +1678,7 @@ function liveSessionsLeft() {
 }
 
 app.post('/api/live-talk/session', rateLimit, requireAccess, runtime.governed('livetalk','session'), async (req, res) => {
-  if (!config.liveTalk || !config.apiKey) {
+  if (!config.liveTalk || !voiceReady()) {
     res.status(503).json({ error: 'Live Talk is switched off on this deployment.', fallback: true });
     return;
   }
@@ -1786,7 +1795,8 @@ app.post(
       return;
     }
 
-    const meta = metaMedia();
+    // Listening uses OpenAI with the voice; Meta only where OpenAI has no key.
+    const meta = !voiceReady() && metaMedia();
     const seconds = meta ? Math.max(1, Math.ceil(wavSeconds(audio))) : secondsIn(audio.length);
     if (hearingBudgetLeft() < seconds) {
       res.status(429).json({
