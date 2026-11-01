@@ -485,6 +485,8 @@ export function applyChanges(project, proposed, note = '') {
   for (const file of incoming) {
     // A picture or document someone added is never replaced by text written about it.
     if (isDataFile(byPath.get(file.path)) && !isDataFile(file)) continue;
+    // The kit is only ever replaced by the kit itself.
+    if (isKitFile(file.path) && byPath.has(file.path) && note !== KIT_NOTE) continue;
     byPath.set(file.path, { ...byPath.get(file.path), ...file });
   }
   // Do not mutate the objects a caller may still use to describe the change.
@@ -725,6 +727,10 @@ export function bytesFromDataUrl(url) {
   }
 }
 
+/** The Grandpa Kit's two shared files: sent to builders as a note, never rewritten by them. */
+export const KIT_NOTE = 'Before adding the Grandpa Kit';
+export const isKitFile = (path) => /^assets\/grandpa-kit\.(?:css|js)$/.test(String(path || ''));
+
 /** A file stored as bytes (a picture or a document someone added), not text. */
 export const isDataFile = (file) => /^data:/.test(String(file?.body || ''));
 
@@ -758,6 +764,12 @@ export function forSending(files = [], { focus = null } = {}) {
     // A focused step sees the files it works on in full, and the rest as a
     // line it can ask to read — the way a coding assistant opens only what it needs.
     const text = String(file.body || '');
+    if (isKitFile(file.path)) {
+      const note = '[The Grandpa Kit: shared design file, already complete. Use its classes as the kit guide says; never write this file.]';
+      used += note.length + file.path.length;
+      out.push({ path: file.path, body: note });
+      continue;
+    }
     if (wanted && !wanted.has(file.path) && !isDataFile(file) && text.length > 3000) {
       const note = `[Not shown, to save space: ${text.split('\n').length} lines. If you need to read or change this file, write \`\`\`read path=${file.path}\`\`\` on its own line and stop; it will be sent to you.]`;
       used += note.length + file.path.length;

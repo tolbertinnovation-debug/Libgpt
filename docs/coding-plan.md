@@ -163,3 +163,24 @@ The owner asked that every website include what it needs: images, video, animati
   - the person's own pictures always come first, and any photo can be replaced by tapping it in Preview → Edit.
 - **Video.** Only video the person supplies is used: a file they added (as a muted, looping background or section video) or a YouTube or Vimeo link (a privacy-friendly embed in a 16:9 frame). No video or picture address is ever made up.
 - **The conversation before building** now asks about logo, photos and video, and says Grandpa will create photos if they have none.
+
+## Professional features plan
+
+The owner approved this order: A design, B publish on Grandpa, C database, D management, E business tools, F documents, G quality and security.
+
+### Phase A: more design features (done)
+
+- **The Grandpa Kit** (`public/kit/grandpa-kit.css` and `grandpa-kit.js`, about 18 KB, works offline). It is added to every project once, before a build or change, as `assets/grandpa-kit.*`. Builders are given its guide (`KIT_GUIDE`) and only a one-line note instead of its source, and only the kit itself can replace it. It provides:
+  - five **style presets** (`data-gk-style`: modern, bold, elegant, friendly, corporate) and **dark mode**;
+  - an animated or photo or video **hero**, sections, cards with icons and buttons;
+  - **reveal on scroll**;
+  - a **gallery with a full-screen viewer** (arrows, keys, swipe) and a **slider** (dots, arrows, swipe, auto-advance);
+  - **FAQ**, **prices**, **opening hours**, **team**, **map** (OpenStreetMap) and **video embeds**;
+  - a **WhatsApp button**, **back to top**, **counters**, a **page loader** and the **year**;
+  - a **language switch** for English, French and Liberian English.
+
+  All motion respects reduced-motion settings, and content is visible without JavaScript.
+- **The conversation before building** asks for the style preset and the languages.
+- **+ Section in Edit.** Select a part, then tap **+ Section**: services with icons, gallery, slider, prices, questions, opening hours, map, numbers, call to action, or WhatsApp. The section goes after the selected part and the kit is linked into the page. Its photographs are created when you tap **Done**, and then the checks run.
+
+### Next: Phase B, publish on Grandpa (a public address and QR code), then C and D (database and management).

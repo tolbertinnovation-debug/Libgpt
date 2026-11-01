@@ -3,7 +3,7 @@
 // person would: text that overlaps, a logo far too big, colours that cannot
 // be read. Scripts do not run in the picture; it shows the page's layout.
 
-import { previewDocument } from './build.js?v=media-1';
+import { previewDocument } from './build.js?v=kit-1';
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
