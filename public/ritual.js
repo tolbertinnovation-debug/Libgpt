@@ -22,12 +22,13 @@ import {
   filesFrom, forSending, highlightFile, looksEmpty, makeProject, previewDocument,
   previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
   loadProjectsDurable, saveProjectsDurable,
-} from './build.js';
+} from './build.js?v=materials-1';
 import {buildTaskLabel,buildTaskFacts} from './build-task-state.js?v=phase2-stage6-reliability';
 import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js?v=phase2-stage6-reliability';
 import { shrink } from './photo.js';
 import {backgroundActive,sameProjectSource,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile,canRetryBackgroundCreation,backgroundConnectionMessage} from './build-workspace.js?v=phase2-stage8-poll';
 import { renderMarkdown } from './markdown.js';
+import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materials.js?v=materials-1';
 
 const $ = (id) => document.getElementById(id);
 
@@ -72,6 +73,8 @@ const foregroundBusy=()=>Boolean(state.streaming || ritualRun?.running || state.
 const currentRun=()=>remoteRunning(project()) ? {running:true,background:true,startedAt:project().background.startedAt,checkpoint:project().team || {asked:project().background.asked,status:project().background.status}} : ritualRun?.running ? ritualRun : project()?.team ? {checkpoint:project().team,running:false} : null;
 
 const project = () => state.projects.find((p) => p.id === state.currentId) || null;
+// The files the build wrote, leaving out the pictures and documents the person added.
+const builtFiles = (p) => (p?.files || []).filter((f) => !(p.materials || []).includes(f.path));
 const persist = async () => {
   const ok = await saveProjectsDurable(state.projects);
   if (!ok) deps.toast('Your files are still open, but device storage could not save them. Download your project before leaving this page.');
@@ -176,12 +179,12 @@ function renderThread() {
     // Old run summaries belong to the activity history, not the current conversation.
     if(turn.role!=='user' && p.team && /^(Your request is saved, but planning did not finish|Completed files are saved\. Resolve|This task could not finish\.|Progress saved\. Resume)/.test(turn.content || ''))return '';
     if (turn.role === 'user') {
-      return `<div class="build-turn build-turn-you">${escapeHtml(turn.content)}</div>`;
+      return `<div class="build-turn build-turn-you">${turn.attached ? attachedHtml(p, turn.attached) : escapeHtml(turn.content)}</div>`;
     }
     const proposal = turn.proposal
       ? proposalHtml(turn.proposal, index, turn.applied, turn.checked, turn.changeReceipt)
       : '';
-    const talk = turn.discussion ? discussionHtml(turn.discussion, !p.team && !p.background && !p.files.length && index === p.messages.length - 1) : '';
+    const talk = turn.discussion ? discussionHtml(turn.discussion, !p.team && !p.background && !builtFiles(p).length && index === p.messages.length - 1) : '';
     return `<div class="build-turn build-turn-ai">
       <div class="prose">${renderMarkdown(turn.content || '')}</div>${proposal}${talk}
     </div>`;
@@ -191,7 +194,7 @@ function renderThread() {
 
 /** Once something is built: say plainly that anything can be fixed or changed. */
 function fixHint(p) {
-  if (!p.files.length || state.live || isBusy()) return '';
+  if (!builtFiles(p).length || state.live || isBusy()) return '';
   const chips = ['Check for problems and fix them', 'Make it look better on phones', 'Change the colours']
     .map((s) => `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('');
   return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${chips}</div></div>`;
@@ -419,11 +422,12 @@ async function send(text) {
   if (!said || !p || isBusy()) return;
   // A new project is talked through first, like a developer meeting a client:
   // questions, then a summary to approve. Nothing is built until they say so.
-  if (!p.files.length && !p.team && !p.background && !isBuildResumeCommand(said)) { await discuss(said); return; }
+  const written = (p.files || []).filter((f) => !(p.materials || []).includes(f.path)).length;
+  if (!written && !p.team && !p.background && !isBuildResumeCommand(said)) { await discuss(said); return; }
   // Built already: a fix or a change is made straight into the files, checked
   // in the phone and desktop preview, and repaired once more if the check
   // finds a problem. The full engineering review runs before publishing.
-  if (p.files.length && !isBuildResumeCommand(said) && p.background?.revision !== -1) { await changeFiles(said); return; }
+  if (written && !isBuildResumeCommand(said) && p.background?.revision !== -1) { await changeFiles(said); return; }
   if(deps.backgroundAvailable){
     const original=p.team?.asked || p.background?.asked || '';
     if(isBuildResumeCommand(said)){
@@ -886,6 +890,42 @@ async function faultsIn(files, expectedPaths = [], cancelled = () => false) {
  * Save four times. Every apply still keeps the version before it, so the
  * whole run can be undone step by step afterwards.
  */
+/* ---- pictures, text and documents added through the chat ---------------- */
+function attachedHtml(p, attached) {
+  const items = attached.map((a) => {
+    const file = p.files.find((f) => f.path === a.path);
+    const picture = /^data:image\//.test(file?.body || '');
+    return `<span class="build-attached">${picture ? `<img src="${escapeHtml(file.body)}" alt="">` : '<span class="build-attached-icon" aria-hidden="true">▤</span>'}<span>${escapeHtml(a.path)}</span></span>`;
+  }).join('');
+  return `<span class="build-attached-note">${attached.length === 1 ? 'Added a file' : `Added ${attached.length} files`}</span><span class="build-attached-list">${items}</span>`;
+}
+
+/** Files chosen in the chat become part of the website, ready to be used. */
+export async function addMaterials(chosen) {
+  const list = [...(chosen || [])];
+  if (!list.length) return;
+  if (isBusy()) { deps.toast('Wait for the current task to finish, then add your files.'); return; }
+  const p = project() || startProject();
+  if (list.length > MOST_MATERIALS) deps.toast(`Adding the first ${MOST_MATERIALS} files.`);
+  const taken = new Set(p.files.map((f) => f.path));
+  const made = [];
+  for (const file of list.slice(0, MOST_MATERIALS)) {
+    try { const material = await materialFromFile(file, taken); taken.add(material.path); made.push(material); }
+    catch (error) { deps.toast(error.message); }
+  }
+  if (!made.length) return;
+  applyChanges(p, made.map(({ path, body }) => ({ path, body })), 'Before adding files');
+  p.materials = [...new Set([...(p.materials || []), ...made.map((m) => m.path)])];
+  p.messages.push({ role: 'user', content: materialsNote(made), attached: made.map(({ path, kind }) => ({ path, kind })) });
+  const built = builtFiles(p).length > 0;
+  p.messages.push({ role: 'assistant', content: built
+    ? `Added to your website's files. Tell me where to use ${made.length === 1 ? 'it' : 'them'} — for example "put the logo in the header" or "add these photos to a gallery page".`
+    : `Got ${made.length === 1 ? 'it' : 'them'}. Now tell me about the website you want, and I will use ${made.length === 1 ? 'this file' : 'these files'} in it.` });
+  const saved = await persist();
+  if (!saved) deps.toast('Device storage is full. Download your project, or add smaller files.');
+  render();
+}
+
 /* ---- talking it through before building -------------------------------- */
 const START_BUILDING = /^(?:ok(?:ay)?[,! ]*)?(?:yes|yeah|yep|sure|go|go ahead|proceed|start|start (?:the )?build(?:ing)?|build(?: it)?(?: now)?|begin|looks good|perfect|do it|let'?s go|that'?s (?:it|right|good))(?:[,.! ]+(?:please|now|thanks|thank you))*[.!]*$/i;
 const lastDiscussion = (p) => [...(p?.messages || [])].reverse().find((m) => m.role === 'assistant' && m.discussion)?.discussion || null;
@@ -923,7 +963,9 @@ async function startFromBrief(said = 'Start building') {
   const agreed = lastDiscussion(p);
   if (!p || !agreed?.brief || isBusy()) return;
   if (agreed.title && !p.named) { p.name = agreed.title; p.named = true; }
-  await buildTheWholeThing(agreed.brief, false, { messageText: said });
+  const added = (p.materials || []).filter((path) => p.files.some((f) => f.path === path));
+  const brief = added.length ? `${agreed.brief}\n\nFiles the person added, already in the project. Use each where it belongs, by this exact path, and never rewrite them:\n${added.map((path) => `- ${path}`).join('\n')}` : agreed.brief;
+  await buildTheWholeThing(brief, false, { messageText: said });
 }
 
 function discussionHtml(discussion, latest) {
