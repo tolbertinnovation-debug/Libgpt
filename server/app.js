@@ -27,6 +27,8 @@ import { DISCUSS_PROMPT, readDiscussion, readDiscussReply } from './build-discus
 import { STEPS_PROMPT, readSteps } from './build-steps.js';
 import QRCode from 'qrcode';
 import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, findSiteFile, siteFileBody } from './site-store.js';
+import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, ENTRY_KINDS } from './site-data.js';
+import { siteRuntime, withRuntime } from './site-runtime.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
 import {
   DEFAULT_LANGUAGE,
@@ -106,7 +108,10 @@ app.disable('x-powered-by');
 const smallBodies = express.json({ limit: '2mb' });
 // Synced chats travel sealed in one piece; the host accepts up to 4.5 MB a request.
 const syncBodies = express.json({ limit: '4400kb' });
-app.use((req, res, next) => (req.path.startsWith('/api/sync/') || req.path === '/api/sites' ? syncBodies : smallBodies)(req, res, next));
+// What a visitor's form sends to a published site: small, and read as text (see /api/site-data).
+const siteFormBodies = express.text({ type: () => true, limit: '32kb' });
+app.use((req, res, next) => (req.path.startsWith('/api/site-data/') ? siteFormBodies
+  : req.path.startsWith('/api/sync/') || req.path === '/api/sites' ? syncBodies : smallBodies)(req, res, next));
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
 
 // ---- simple per-IP rate limit -------------------------------------------
@@ -1759,6 +1764,8 @@ const syncFailed = (res, error) => {
 // ---- publishing websites at /s/<address> (Phase B) ----------------------------
 const siteStore = governanceConnection ? createPostgresSiteStore({ connectionString: governanceConnection })
   : (config.serverless ? null : createMemorySiteStore());
+const siteData = governanceConnection ? createPostgresSiteData({ connectionString: governanceConnection })
+  : (config.serverless ? null : createMemorySiteData());
 const siteFailed = (res, error) => { if (!error.status) console.error('[sites]', error.message); res.status(error.status || 500).json({ error: error.status ? error.message : 'Publishing could not finish. Your files are still saved on this device.' }); };
 const publicBase = (req) => `${(req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0]}://${req.get('host')}`;
 
@@ -1773,7 +1780,11 @@ app.post('/api/sites', rateLimit, requireAccess, async (req, res) => {
 });
 app.delete('/api/sites/:slug', rateLimit, requireAccess, async (req, res) => {
   if (!siteStore) { res.status(503).json({ error: 'Publishing is not set up on this host.' }); return; }
-  try { res.json({ removed: await siteStore.remove(req.params.slug, String(req.body?.token || '')) }); } catch (error) { siteFailed(res, error); }
+  try {
+    const removed = await siteStore.remove(req.params.slug, String(req.body?.token || ''));
+    if (removed) await siteData?.removeSite(req.params.slug).catch(() => {});
+    res.json({ removed });
+  } catch (error) { siteFailed(res, error); }
 });
 app.get('/api/sites/:slug/qr.svg', rateLimit, async (req, res) => {
   if (!validSlug(req.params.slug)) { res.status(400).end(); return; }
@@ -1789,7 +1800,132 @@ app.get('/api/admin/sites', rateLimit, requireAgentAdmin, async (_req, res) => {
 });
 app.delete('/api/admin/sites/:slug', rateLimit, requireAgentAdmin, async (req, res) => {
   if (!siteStore) { res.status(503).json({ error: 'Publishing is not set up on this host.' }); return; }
-  try { res.json({ removed: await siteStore.remove(req.params.slug, '', { admin: true }) }); } catch (error) { siteFailed(res, error); }
+  try {
+    const removed = await siteStore.remove(req.params.slug, '', { admin: true });
+    if (removed) await siteData?.removeSite(req.params.slug).catch(() => {});
+    res.json({ removed });
+  } catch (error) { siteFailed(res, error); }
+});
+
+// ---- Grandpa Data and Manage (Phases C and D) -------------------------------
+// Visitors of a published site can only send. Sites run in an opaque origin, so
+// these public addresses answer any origin, and never use cookies.
+const siteHits = new Map();
+function siteLimit(req, res, next) {
+  const key = req.ip || 'unknown', now = Date.now();
+  const recent = (siteHits.get(key) || []).filter((t) => now - t < WINDOW_MS);
+  if (recent.length >= 120) { res.status(429).json({ error: 'Too many requests. Wait a moment and try again.' }); return; }
+  recent.push(now); siteHits.set(key, recent);
+  if (siteHits.size > 20_000) siteHits.clear();
+  next();
+}
+const openToSites = (res) => res.set({ 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type', 'Access-Control-Max-Age': '86400', 'Cache-Control': 'no-store' });
+const dataFailed = (res, error) => { if (!error.status) console.error('[site-data]', error.message); res.status(error.status || 500).json({ error: error.status ? error.message : 'Something went wrong. Try again in a moment.' }); };
+// A visitor's form arrives as JSON text (from the Grandpa script) or as a plain HTML form.
+function formFields(raw) {
+  const text = typeof raw === 'string' ? raw : '';
+  if (/^\s*\{/.test(text)) { try { return JSON.parse(text); } catch { return null; } }
+  const fields = {};
+  for (const [key, value] of new URLSearchParams(text)) fields[key] = key in fields ? `${fields[key]}, ${value}` : value;
+  return fields;
+}
+app.options('/api/site-data/:slug', (_req, res) => { openToSites(res); res.status(204).end(); });
+app.post('/api/site-data/:slug', siteLimit, async (req, res) => {
+  openToSites(res);
+  const wantsPage = !String(req.get('accept') || '').includes('application/json') && /urlencoded/.test(String(req.get('content-type') || ''));
+  const finish = (status, message) => {
+    if (!wantsPage) { res.status(status).json(status < 300 ? { ok: true } : { error: message }); return; }
+    res.set(SITE_HEADERS).set('Cache-Control', 'no-store').status(status).type('html').send(notFoundPage(message).replace('<h1>Page not found</h1>', `<h1>${status < 300 ? 'Thank you' : 'Not sent'}</h1>`)
+      .replace('</p></div>', `</p><p><a href="/s/${req.params.slug}/">Back to the website</a></p></div>`));
+  };
+  if (!siteStore || !siteData || !validSlug(req.params.slug)) { finish(404, 'There is no website at this address.'); return; }
+  try {
+    const fields = formFields(req.body);
+    if (!fields) { finish(400, 'The form could not be read.'); return; }
+    const entry = cleanEntry(fields);
+    if (!entry) { finish(200, 'Thank you. It was sent.'); return; }   // spam is quietly dropped
+    if (!(await siteStore.get(req.params.slug))) { finish(404, 'There is no website at this address.'); return; }
+    await siteData.addEntry(req.params.slug, entry);
+    finish(201, 'Thank you. It was sent.');
+  } catch (error) {
+    if (!error.status) console.error('[site-data]', error.message);
+    finish(error.status || 500, error.status ? error.message : 'It could not be sent. Try again in a moment.');
+  }
+});
+
+// Manage: the publishing phone's token, or a passcode the owner set from it.
+async function manageAccess(req, res, next) {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!siteStore || !siteData) { res.status(503).json({ error: 'Manage needs the app database, which is not set up on this host.' }); return; }
+  if (!validSlug(req.params.slug)) { res.status(404).json({ error: 'There is no website at this address.' }); return; }
+  try {
+    const site = await siteStore.get(req.params.slug);
+    if (!site) { res.status(404).json({ error: 'There is no website at this address.' }); return; }
+    const key = String(req.get('x-site-key') || '');
+    const publisher = publishedBy(site, key);
+    if (!publisher && !(await siteData.checkSession(site.slug, key))) { res.status(401).json({ error: 'Sign in with the passcode for this website.' }); return; }
+    req.site = site; req.siteKey = key; req.sitePublisher = publisher;
+    next();
+  } catch (error) { dataFailed(res, error); }
+}
+app.post('/api/manage/:slug/login', rateLimit, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  if (!siteStore || !siteData || !validSlug(req.params.slug)) { res.status(404).json({ error: 'There is no website at this address.' }); return; }
+  try {
+    if (!(await siteStore.get(req.params.slug))) { res.status(404).json({ error: 'There is no website at this address.' }); return; }
+    const key = await siteData.login(req.params.slug, String(req.body?.passcode || ''));
+    if (!key) { res.status(401).json({ error: 'That passcode is not right.' }); return; }
+    res.json({ key });
+  } catch (error) { dataFailed(res, error); }
+});
+app.get('/api/manage/:slug', rateLimit, manageAccess, async (req, res) => {
+  try {
+    const summary = await siteData.summary(req.site.slug);
+    res.json({ slug: req.site.slug, name: req.site.name, url: `${publicBase(req)}/s/${req.site.slug}/`, publisher: req.sitePublisher,
+      pages: req.site.files.filter((f) => /\.html?$/i.test(f.path)).map((f) => f.path).slice(0, 40), kinds: ENTRY_KINDS, ...summary });
+  } catch (error) { dataFailed(res, error); }
+});
+app.get('/api/manage/:slug/entries', rateLimit, manageAccess, async (req, res) => {
+  try {
+    const kind = ENTRY_KINDS.includes(req.query.kind) ? req.query.kind : '';
+    const status = ['new', 'done'].includes(req.query.status) ? req.query.status : '';
+    const entries = await siteData.listEntries(req.site.slug, { kind, status });
+    if (req.query.format === 'csv') {
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${req.site.slug}-entries.csv"`);
+      res.send(entriesToCsv(entries));
+      return;
+    }
+    res.json({ entries });
+  } catch (error) { dataFailed(res, error); }
+});
+app.patch('/api/manage/:slug/entries/:id', rateLimit, manageAccess, async (req, res) => {
+  const status = req.body?.status;
+  if (!['new', 'done'].includes(status)) { res.status(400).json({ error: 'The status must be new or done.' }); return; }
+  try { res.json({ updated: await siteData.updateEntry(req.site.slug, String(req.params.id), status) }); } catch (error) { dataFailed(res, error); }
+});
+app.delete('/api/manage/:slug/entries/:id', rateLimit, manageAccess, async (req, res) => {
+  try { res.json({ removed: await siteData.deleteEntry(req.site.slug, String(req.params.id)) }); } catch (error) { dataFailed(res, error); }
+});
+app.put('/api/manage/:slug/content', rateLimit, manageAccess, async (req, res) => {
+  try { res.json({ content: await siteData.setContent(req.site.slug, req.body?.content) }); } catch (error) { dataFailed(res, error); }
+});
+// Only the publishing phone chooses the passcode, and changing it signs everyone else out.
+app.put('/api/manage/:slug/passcode', rateLimit, manageAccess, async (req, res) => {
+  if (!req.sitePublisher) { res.status(403).json({ error: 'Only the phone that published this website can change its passcode.' }); return; }
+  try { checkPasscode(req.body?.passcode); await siteData.setPasscode(req.site.slug, req.body.passcode); res.json({ ok: true }); } catch (error) { dataFailed(res, error); }
+});
+app.post('/api/manage/:slug/sign-out-all', rateLimit, manageAccess, async (req, res) => {
+  if (!req.sitePublisher) { res.status(403).json({ error: 'Only the phone that published this website can sign everyone out.' }); return; }
+  try { await siteData.signOutAll(req.site.slug); res.json({ ok: true }); } catch (error) { dataFailed(res, error); }
+});
+app.post('/api/manage/:slug/logout', rateLimit, manageAccess, async (req, res) => {
+  try { await siteData.logout(req.site.slug, req.siteKey); res.json({ ok: true }); } catch (error) { dataFailed(res, error); }
+});
+// The Manage page itself, on the app's own address (not inside the site's sandbox).
+app.get('/manage/:slug', (_req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.sendFile(path.join(__dirname, '..', 'public', 'manage.html'));
 });
 
 // Published sites: public, and sandboxed. The CSP sandbox gives each page an
@@ -1804,6 +1940,13 @@ const SITE_HEADERS = {
 const notFoundPage = (message) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Not found</title><style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;margin:0;padding:24px;color:#1f2937;text-align:center}</style></head><body><div><h1>Page not found</h1><p>${message}</p></div></body></html>`;
 // Without the trailing slash, a page's relative links would resolve one folder too high.
 app.get('/s/:slug', (req, res, next) => (req.path.endsWith('/') ? next() : res.redirect(301, `/s/${encodeURIComponent(req.params.slug)}/`)));
+app.get('/s/:slug/_grandpa/site.js', siteLimit, async (req, res) => {
+  res.set({ ...SITE_HEADERS, 'Cache-Control': 'no-store' });
+  if (!validSlug(req.params.slug)) { res.status(404).end(); return; }
+  // One request per page view: it counts the visit and carries the owner's saved content.
+  const content = siteData ? await siteData.visitAndContent(req.params.slug).catch(() => null) : null;
+  res.type('text/javascript; charset=utf-8').send(siteRuntime(req.params.slug, content));
+});
 app.get('/s/:slug/*', async (req, res) => {
   res.set(SITE_HEADERS);
   if (!siteStore || !validSlug(req.params.slug)) { res.status(404).type('html').send(notFoundPage('There is no website at this address.')); return; }
@@ -1813,6 +1956,7 @@ app.get('/s/:slug/*', async (req, res) => {
     const file = findSiteFile(site.files, req.params[0] || '');
     if (!file) { res.status(404).type('html').send(notFoundPage('This page is not part of the website.')); return; }
     const { type, body } = siteFileBody(file);
+    if (type.startsWith('text/html')) { res.type(type).send(withRuntime(body.toString('utf8'), site.slug)); return; }
     res.type(type).send(body);
   } catch (error) {
     console.error('[sites]', error.message);

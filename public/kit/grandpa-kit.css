@@ -1,4 +1,4 @@
-/* Grandpa Kit 1 — professional sections and effects for websites built in Grandpa AI.
+/* Grandpa Kit 2 — professional sections and effects for websites built in Grandpa AI.
    Override anything in your own stylesheet; set your colours with --brand and --accent. */
 :root{--brand:#1a56db;--accent:#f59e0b;--ink:#0f172a;--muted:#475569;--surface:#ffffff;--tint:#f1f5f9;--dark:#0b1220;--on-dark:#e2e8f0;--radius:14px;--shadow:0 10px 30px rgba(15,23,42,.10);--font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--heading:var(--font);--space:clamp(48px,8vw,96px);--max:1120px}
 [data-gk-style="modern"]{--radius:14px;--shadow:0 10px 30px rgba(15,23,42,.10)}
@@ -86,3 +86,14 @@ h1,h2,h3{font-family:var(--heading);line-height:1.15}
   .gk-hero.is-animated{animation:gk-shift 18s ease infinite}
 }
 @media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}.gk-slides{transition:none}}
+/* Forms that save to Grandpa Data: <form class="gk-form" data-gk-form="message|booking|order|signup"> */
+.gk-form{display:grid;gap:14px;max-width:620px}
+.gk-form label{display:grid;gap:6px;font-weight:600}
+.gk-form input,.gk-form select,.gk-form textarea{font:inherit;width:100%;padding:12px 14px;border:1px solid rgba(15,23,42,.18);border-radius:calc(var(--radius) * .6);background:var(--surface);color:var(--ink)}
+.gk-form textarea{min-height:120px;resize:vertical}
+.gk-form input:focus-visible,.gk-form select:focus-visible,.gk-form textarea:focus-visible{outline:3px solid var(--accent);outline-offset:1px}
+.gk-form .gk-row{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr))}
+.gk-form button[disabled]{opacity:.6;cursor:wait}
+.gk-form-status{margin:0;font-weight:600}
+.gk-form-status.is-sent{color:#15803d}.gk-form-status.is-error{color:#b91c1c}
+.gk-form-status:empty{display:none}

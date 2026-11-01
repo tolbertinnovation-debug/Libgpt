@@ -191,4 +191,28 @@ The owner approved this order: A design, B publish on Grandpa, C database, D man
 - **Safety.** Sites are public and served with `Content-Security-Policy: sandbox …` without `allow-same-origin`. Every published page therefore runs in an opaque origin and **cannot read the app's storage, cookies or access code**, whatever its scripts do. A browser test confirmed the page was blocked. `nosniff` is set too. Pictures are served as real images, and `/s/name/about` finds `about.html`.
 - **Later (needs approval):** your own domain (for example fixpoint.lr) or a separate sites domain.
 
-### Next: Phase C and D, database and management.
+### Phases C and D: Grandpa Data and Manage (done)
+
+- **Forms that save.** Every published page gets a small Grandpa script (`server/site-runtime.js`), served at `/s/<address>/_grandpa/site.js` and placed first in `<head>`. Forms marked `data-gk-form="message|booking|order|signup"` are sent to `POST /api/site-data/<address>`. Visitors see a thank-you message and the form clears.
+  - **Visitors can only send, never read.** The address answers any origin (published pages have an opaque origin), never uses cookies, and accepts plain HTML forms too.
+  - **Spam protection:** a hidden field only robots fill in, a too-fast check, at most 30 fields and 10,000 characters a form, 120 requests a minute per visitor, 300 forms a day per site, and 3,000 kept per site.
+- **Manage** (`/manage/<address>`, `public/manage.js`), on the app's own address, outside the site sandbox:
+  - **Inbox:** messages, bookings, orders and sign-ups with filters. Mark done or new, WhatsApp, Call, Email, Delete, and **Export to Excel (CSV)**. Cells that could run as formulas are made plain text.
+  - **Prices & text:** Manage reads the site's pages and finds what can be changed:
+    - single texts marked `data-gk-text="key"`;
+    - lists marked `data-gk-list="name"`, with items `data-gk-item` and parts `data-gk-field`.
+
+    The owner edits, adds, removes and reorders rows. The Grandpa script shows the saved version on the next page view, with no rebuild. An empty text is hidden.
+  - **Visitors:** page views for the last 14 days. No names, addresses or cookies are kept.
+  - **Settings:** the publishing phone sets a **passcode** (6–64 characters, stored with scrypt) so the business owner can sign in on their own phone.
+    - Sign-ins last 30 days.
+    - After 8 wrong passcodes, sign-in pauses for 15 minutes.
+    - Changing the passcode, or **Sign everyone else out**, ends the other sign-ins.
+    - People who signed in with the passcode cannot change it.
+- **Opening Manage.** Build → Publish on the web → **Manage** opens it with the publishing phone's key in the address fragment, which never reaches a server. The key is then kept on that phone.
+- **Storage.** The app's existing database: `grandpa_ai_site_entries` and `grandpa_ai_site_admin`, or memory on a local server. Taking a site down removes what it collected.
+- **Builders know it.** `KIT_GUIDE` tells every builder to write forms with `data-gk-form`, and to mark prices, menu, products, hours and notices for Manage. The conversation before building asks what visitors should be able to send.
+- **Grandpa Kit 2** adds form styles. It also explains in Build's preview that forms work once the site is published, and older projects get the new kit automatically.
+- **Cost:** no new service. Each page view makes one small database read and write.
+
+### Next: Phase E (business tools) or F (documents).
