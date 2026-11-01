@@ -4,7 +4,7 @@
   "private": true,
   "license": "SEE LICENSE IN LICENSE",
   "author": "Tolbert Innovation Hub (Monrovia, Liberia)",
-  "description": "Grandpa AI \u2014 African-centred conversational AI platform by Tolbert Innovation Hub. Claude-style chat interface powered by the OpenAI API.",
+  "description": "Grandpa AI — African-centred conversational AI platform by Tolbert Innovation Hub. Claude-style chat interface powered by the OpenAI API.",
   "type": "module",
   "main": "server/index.js",
   "engines": {
@@ -30,6 +30,7 @@
     "nitro": "^3.0.260903-beta",
     "pdfkit": "^0.20.2",
     "pg": "^8.23.1",
+    "qrcode": "^1.5.4",
     "rollup": "^4.65.0",
     "sharp": "^0.35.5",
     "workflow": "^5.2.3"
