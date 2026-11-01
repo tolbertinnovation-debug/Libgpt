@@ -131,4 +131,11 @@ The owner asked to be able to edit the preview directly: click and type, add or 
 - **"+ Picture"** in the text bar adds a picture straight after that text, on its own line with the same indent.
 - **Only that picture's tag changes** in the file. Its other attributes and style rules are kept, and a removed picture takes its empty line with it.
 
-**Next:** step 4 (move, duplicate, delete parts), step 5 (checks after Done).
+**Done: step 4, moving, copying and deleting parts**
+
+- **Selecting a part.** Tap around a part (a card's edge, a section's background), or tap text and press **⇅ Move**. The part gets an orange outline and its own bar: **↑ Up**, **↓ Down**, **Copy**, **Delete**, **Bigger** (select the part around it, for example from a chip to the whole list) and **✕**.
+- **Moving and copying.** Moving swaps the part with its neighbour inside the same section, and copying puts a copy straight after it. In both cases, the part being worked on stays selected after the page reloads, so it can be moved again at once.
+- **Deleting.** Deleting a part removes its line too. Large parts ask first, and everything can be undone after **Done**.
+- **Exact source.** All of this happens in the real source text, keeping indentation. The page itself, html/head/body, can never be moved or deleted.
+
+**Next:** step 5 (checks after Done).

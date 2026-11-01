@@ -2,7 +2,7 @@ import {verificationStatusMarkup} from './build-verification.js';
 import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
 import {restrictPreviewDocument} from './preview-policy.js';
-import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=edit-2';
+import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=edit-3';
 import {loadPreviewGuard,previewGuardReady} from './preview-guard.js';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
@@ -32,7 +32,7 @@ import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materia
 import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
 import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
 import { historyEntries, compareFiles } from './build-history.js?v=phase5-1';
-import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES } from './visual-edit.js?v=edit-4';
+import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=edit-5';
 
 const $ = (id) => document.getElementById(id);
 
@@ -401,14 +401,15 @@ function renderPreview() {
       // Edit mode: the page's elements are numbered in the source and its scripts paused,
       // so a tap edits exactly what is in the file.
       const page=editPage(p,entry);
-      document=page ? editingDocument(previewDocument(p.files.map(f=>f.path===page.path?{...f,body:annotate(f.body)}:f),page.path,{navigation:false}),state.editScroll) : '';
+      document=page ? editingDocument(previewDocument(p.files.map(f=>f.path===page.path?{...f,body:annotate(f.body)}:f),page.path,{navigation:false}),state.editScroll,state.editSelect) : '';
+      state.editSelect=null;
     }else document=look.can ? previewDocument(p.files,entry) : '';
     setPreviewDocument(restricted && document && !editing ? restrictPreviewDocument(document) : document);
     el.previewFrame.dataset.signature=signature;el.previewFrame.sourceSnapshot=structuredClone(p.files);
   }
   const editButton=$('preview-edit');
   if(editButton){editButton.setAttribute('aria-pressed',String(Boolean(state.editMode)));editButton.textContent=state.editMode?'Done':'Edit';editButton.hidden=!look.can;}
-  if(state.editMode){el.previewNote.hidden=false;el.previewNote.textContent='Editing: tap any text and type, or tap a picture to change it. Links and the page\'s scripts are paused while you edit. Tap Done when you finish — every change is saved.';}
+  if(state.editMode){el.previewNote.hidden=false;el.previewNote.textContent='Editing: tap text to type, tap a picture to change it, or tap around a part (or use ⇅ Move) to move, copy or delete it. Links and the page\'s scripts are paused while you edit. Tap Done when you finish — every change is saved.';}
   const select=$('preview-page');
   if(select){const pages=p.files.filter(file=>/\.html?$/i.test(file.path));select.innerHTML=pages.map(file=>`<option value="${escapeHtml(file.path)}">${escapeHtml(file.path)}</option>`).join('');select.value=entry || pages.find(file=>file.path==='index.html')?.path || pages[0]?.path || '';}
   el.previewFrame.classList.toggle('is-phone',state.previewSize==='mobile');
@@ -600,10 +601,30 @@ async function changePicture(kind, value) {
   if (await savePageEdit(page, body, state.editScroll)) deps.toast(kind === 'remove' ? 'Picture removed.' : kind === 'size' ? 'Size changed.' : 'Description saved.');
 }
 
+/** Move a part up or down, copy it or delete it. */
+async function changePart(id, action, scroll) {
+  const p = project();
+  const page = editPage(p);
+  if (!page) return;
+  const el = mapElements(page.body)[id];
+  if (!el || ['html', 'head', 'body'].includes(el.tag)) return;
+  if (action === 'delete') {
+    const size = page.body.slice(el.start, el.end).replace(/<[^>]+>/g, '').trim().length;
+    if (size > 120 && !globalThis.confirm?.('Delete this part of the page? You can undo it after tapping Done.')) return;
+    if (await savePageEdit(page, removeElement(page.body, id), scroll)) deps.toast('Deleted.');
+    return;
+  }
+  const result = action === 'copy' ? duplicateElement(page.body, id) : moveElement(page.body, id, action);
+  if (result.html === page.body) { deps.toast(action === 'up' ? 'It is already at the top of its section.' : action === 'down' ? 'It is already at the bottom of its section.' : 'This part cannot be copied.'); return; }
+  state.editSelect = result.id;
+  await savePageEdit(page, result.html, scroll);
+}
+
 /** One edit from the preview, saved into the file. */
 async function applyVisualEdit(data) {
   const p = project();
   if (!state.editMode || !p) return;
+  if (data.type === 'part') { await changePart(Number(data.id), data.action, data.scroll); return; }
   if (data.type === 'image' || data.type === 'insert-image') { state.editScroll = Number(data.scroll) || 0; showPictureSheet(Number(data.id), { insert: data.type === 'insert-image' }); return; }
   if (data.type !== 'text') return;
   const id = Number(data.id);
