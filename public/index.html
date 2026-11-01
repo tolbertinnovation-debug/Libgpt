@@ -12,7 +12,7 @@
 <meta property="og:description" content="African-centred conversational AI by Tolbert Innovation Hub. Ask in Liberian English, by voice or text.">
 <meta property="og:image" content="logo.png">
 <meta property="og:type" content="website">
-<link rel="stylesheet" href="styles.css?v=build-talk-1">
+<link rel="stylesheet" href="styles.css?v=materials-1">
 </head>
 <body>
 
@@ -398,6 +398,9 @@
         <input type="file" id="camera-input" accept="image/*" capture="environment" hidden>
         <input type="file" id="paper-input" hidden
                accept=".txt,.md,.csv,.tsv,.log,.json,.yaml,.yml,.pdf,text/plain,application/pdf">
+        <!-- Build: pictures, text and documents to put on the website. -->
+        <input type="file" id="build-file-input" multiple hidden
+               accept="image/*,.svg,.txt,.md,.csv,.tsv,.json,.html,.htm,.css,.js,.xml,.yaml,.yml,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.zip,.mp3,.m4a,.wav,.ogg,.mp4,.webm">
 
         <!-- The plus. Five icons round a text box left "Ask Grandpa
              anything…" wrapping onto two lines on a phone, which is the one
@@ -433,6 +436,14 @@
                 </svg>
               </span>
               <span>Photos</span>
+            </button>
+            <button class="more-item build-add-btn" id="build-add-btn" type="button" role="menuitem">
+              <span class="more-icon">
+                <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true">
+                  <path d="M20.5 11.5l-8.2 8.2a5 5 0 0 1-7.1-7.1l8.6-8.6a3.3 3.3 0 0 1 4.7 4.7l-8.6 8.6a1.7 1.7 0 0 1-2.4-2.4l7.9-7.9"/>
+                </svg>
+              </span>
+              <span>Add pictures &amp; files</span>
             </button>
             <button class="more-item" id="create-document-btn" type="button" role="menuitem">
               <span class="more-icon" aria-hidden="true">▤</span><span>Create a document</span>
@@ -846,6 +857,6 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<script type="module" src="app.js?v=build-fix-1"></script>
+<script type="module" src="app.js?v=materials-1"></script>
 </body>
 </html>

@@ -27,7 +27,7 @@ import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary, loadJournal } from './library.js';
 import { Dictation, canRecord } from './dictate.js?v=voice-fix-1';
 import { RecordedEar, canListenByRecording } from './hearing.js?v=meta-media-1';
-import * as ritual from './ritual.js?v=build-fix-1';
+import * as ritual from './ritual.js?v=materials-1';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 import { mountSupport } from './support.js?v=phase3-sync-1';
@@ -1974,6 +1974,13 @@ el.photo.addEventListener('click', () => {
   el.photoInput.click();
 });
 el.photoInput.addEventListener('change', () => choosePhoto(el.photoInput.files?.[0]));
+// Build: pictures, text and documents go straight into the website's files.
+$('build-add-btn')?.addEventListener('click', () => { showMore(false); $('build-file-input')?.click(); });
+$('build-file-input')?.addEventListener('change', async (event) => {
+  const files = [...(event.target.files || [])];
+  event.target.value = '';
+  await ritual.addMaterials(files);
+});
 el.photoDrop.addEventListener('click', dropPhoto);
 
 /* ---- Listening by recording ---------------------------------------------

@@ -3857,3 +3857,13 @@ body {
 @media (min-width: 900px) {
   #build-thread, #build-empty { width: 100%; max-width: var(--measure, 760px); margin-left: auto; margin-right: auto; }
 }
+
+/* ---- Build: adding pictures and files through the chat ------------------ */
+#app:not([data-mode="build"]) #build-add-btn { display: none; }
+#app[data-mode="build"] .more-menu .more-item:not(#build-add-btn) { display: none; }
+#app[data-mode="build"] #more-btn { display: inline-flex; }
+.build-attached-note { display: block; font-size: .82rem; opacity: .8; margin-bottom: 6px; }
+.build-attached-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.build-attached { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; font-size: .78rem; background: var(--bg-hover); border-radius: 10px; padding: 4px 8px 4px 4px; overflow-wrap: anywhere; }
+.build-attached img { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; flex: none; }
+.build-attached-icon { width: 32px; height: 32px; display: grid; place-items: center; font-size: 1rem; }

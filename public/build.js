@@ -417,7 +417,11 @@ export function applyChanges(project, proposed, note = '') {
   const incoming = [...new Map(proposed.map((file) => [file.path, file])).values()];
   if (!describeChanges(before, incoming).some((file) => file.kind !== 'same')) return project;
   const byPath = new Map(project.files.map((f) => [f.path, { ...f }]));
-  for (const file of incoming) byPath.set(file.path, { ...byPath.get(file.path), ...file });
+  for (const file of incoming) {
+    // A picture or document someone added is never replaced by text written about it.
+    if (isDataFile(byPath.get(file.path)) && !isDataFile(file)) continue;
+    byPath.set(file.path, { ...byPath.get(file.path), ...file });
+  }
   // Do not mutate the objects a caller may still use to describe the change.
   project.files = [...byPath.values()];
 
@@ -656,6 +660,9 @@ export function bytesFromDataUrl(url) {
   }
 }
 
+/** A file stored as bytes (a picture or a document someone added), not text. */
+export const isDataFile = (file) => /^data:/.test(String(file?.body || ''));
+
 /** Is this file a picture the build drew, rather than text somebody can read? */
 export const isPicture = (file) => /^data:image\//.test(String(file?.body || ''));
 
@@ -664,7 +671,7 @@ export function downloadProject(project) {
   const safe = String(project.name || 'build').toLowerCase()
     .replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'build';
   // Pictures go in as bytes; everything else as the text it is.
-  const blob = zip((project.files || []).map((file) => (isPicture(file)
+  const blob = zip((project.files || []).map((file) => (isDataFile(file)
     ? { path: file.path, body: bytesFromDataUrl(file.body) || new Uint8Array() }
     : file)));
   const url = URL.createObjectURL(blob);
@@ -682,10 +689,15 @@ export function forSending(files = []) {
   const out = [];
   let used = 0;
   for (const file of files) {
-    const size = (file.body || '').length + file.path.length;
+    // Pictures and documents travel as a short note: the builder needs the
+    // path to use them, never their bytes, and must never rewrite them.
+    const body = isDataFile(file)
+      ? `[${/^data:image\//.test(file.body) ? 'Picture' : 'Document'} already in the project (${Math.ceil(file.body.length * 0.75 / 1024)} KB). Use it by this exact path, for example ${/^data:image\//.test(file.body) ? `<img src="${file.path}" alt="...">` : `<a href="${file.path}" download>`}. Never write this file.]`
+      : file.body || '';
+    const size = body.length + file.path.length;
     if (used + size > MOST_PROJECT_CHARS) break;
     used += size;
-    out.push({ path: file.path, body: file.body });
+    out.push({ path: file.path, body });
   }
   return out;
 }
