@@ -185,8 +185,16 @@ function renderThread() {
     return `<div class="build-turn build-turn-ai">
       <div class="prose">${renderMarkdown(turn.content || '')}</div>${proposal}${talk}
     </div>`;
-  }).join('') + live;
+  }).join('') + live + fixHint(p);
   el.thread.scrollTop = el.thread.scrollHeight;
+}
+
+/** Once something is built: say plainly that anything can be fixed or changed. */
+function fixHint(p) {
+  if (!p.files.length || state.live || isBusy()) return '';
+  const chips = ['Check for problems and fix them', 'Make it look better on phones', 'Change the colours']
+    .map((s) => `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('');
+  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${chips}</div></div>`;
 }
 
 function proposalHtml(files, index, applied, checked, receipt) {
@@ -412,6 +420,10 @@ async function send(text) {
   // A new project is talked through first, like a developer meeting a client:
   // questions, then a summary to approve. Nothing is built until they say so.
   if (!p.files.length && !p.team && !p.background && !isBuildResumeCommand(said)) { await discuss(said); return; }
+  // Built already: a fix or a change is made straight into the files, checked
+  // in the phone and desktop preview, and repaired once more if the check
+  // finds a problem. The full engineering review runs before publishing.
+  if (p.files.length && !isBuildResumeCommand(said) && p.background?.revision !== -1) { await changeFiles(said); return; }
   if(deps.backgroundAvailable){
     const original=p.team?.asked || p.background?.asked || '';
     if(isBuildResumeCommand(said)){
@@ -433,10 +445,26 @@ async function send(text) {
     await buildTheWholeThing(retry?p.team.asked:`${p.team.asked}\n\nAdditional instructions: ${said}`);return;
   }
 
-  p.messages.push({role:'user',content:said});
+  await changeFiles(said);
+}
+
+// Words that mean something is wrong, so the automatic checks' findings go with the request.
+const PROBLEM = /\b(?:fix|error|errors|broken|break|bug|bugs|problem|problems|issue|issues|wrong|not (?:work|show|load|open|display)|doesn'?t|does not|isn'?t|can'?t|cannot|won'?t|blank|missing|crash|stuck|overlap|cut off|too (?:big|small))\b/i;
+
+/** A change or a fix to a project that already has files. */
+async function changeFiles(said, {faults=null, repairsLeft=1, shown=said}={}) {
+  const p=project();
+  if(!p || isBusy())return;
+  p.messages.push({role:'user',content:shown});
   const answer={role:'assistant',content:''};
   p.messages.push(answer);
   const before=p.files.map(f=>({...f}));
+  // What the preview checks already know is wrong, when the person reports a problem.
+  if(!faults && PROBLEM.test(said)){
+    state.live={what:'Checking the website for problems…'};renderThread();
+    try{faults=await faultsIn(p.files);}catch{faults=[];}
+    state.live=null;
+  }
   if(p.team){invalidateRelease(p);p.team.latestRequest=said;p.team.message='Updating files; a fresh supervisor review is required.';}
   const controller=new AbortController();
   state.streaming=controller;state.loadingStartedAt=Date.now();el.editorInput.readOnly=true;
@@ -447,7 +475,7 @@ async function send(text) {
   const received=new Map();
   let saved=true,failed=false;
   try {
-    await generateFiles(said,p.files,{signal:controller.signal,
+    await generateFiles(said,p.files,{signal:controller.signal,faults:faults || [],
       messages:conversationWindow(p.messages.filter(m=>m.content)).list,runtime:p.team?.plan?.runtime || 'static',
       onProse:prose=>{answer.content=prose;renderThread();},
       onFile:async file=>{
@@ -472,11 +500,17 @@ async function send(text) {
     }
     unmark(mine);state.live=null;state.streaming=null;el.editorInput.readOnly=false;
     await persist();render();
+    document.dispatchEvent(new CustomEvent('ritual:busy',{detail:false}));
     if(received.size && saved){
       await checkAfterSaving(answer);
-      if(p.team && !failed)await buildTheWholeThing(p.team.asked,true);
+      // The preview found a problem with the change: repaired once, automatically.
+      if(!failed && repairsLeft>0 && Array.isArray(answer.checked) && answer.checked.length){
+        await changeFiles('Fix the problems the preview check found after the last change, keeping everything else as it is.',
+          {faults:answer.checked,repairsLeft:repairsLeft-1,shown:'Fix the problems the check found'});
+        return;
+      }
+      if(p.team && !failed){p.team.message='Changes saved and checked. The engineering team reviews everything again before publishing.';await persist();render();}
     }
-    document.dispatchEvent(new CustomEvent('ritual:busy',{detail:false}));
   }
 }
 
