@@ -61,7 +61,7 @@ test('the data store: entries, the owner\'s content, visits, passcode and sign-i
     entries = await data.listEntries('fixpoint');
     assert.equal(entries.length, 1);
 
-    assert.deepEqual(await data.visitAndContent('fixpoint'), { texts: {}, lists: {} });
+    assert.deepEqual(await data.visitAndContent('fixpoint'), { texts: {}, lists: {}, settings: null });
     await data.visitAndContent('fixpoint');
     await data.setContent('fixpoint', { texts: { notice: 'Closed Sunday' }, lists: { menu: [{ name: 'Rice', price: 'LRD 350' }] } });
     assert.equal((await data.visitAndContent('fixpoint')).texts.notice, 'Closed Sunday');
@@ -125,7 +125,7 @@ test('published sites save forms, and only the owner can read them on Manage', a
   const script = await fetch(`${base}/s/mama-kitchen/_grandpa/site.js`);
   assert.match(script.headers.get('content-type'), /javascript/);
   assert.match(script.headers.get('content-security-policy'), /^sandbox /);
-  assert.match(await script.text(), /var SLUG = "mama-kitchen", CONTENT = \{"texts":\{\},"lists":\{\}\}/);
+  assert.match(await script.text(), /var SLUG = "mama-kitchen", CONTENT = \{"texts":\{\},"lists":\{\},"settings":null\}/);
 
   // A visitor sends an order from the sandboxed page (Origin: null), as plain text.
   const sent = await fetch(`${base}/api/site-data/mama-kitchen`, { method: 'POST', headers: { Origin: 'null', 'Content-Type': 'text/plain;charset=UTF-8' },

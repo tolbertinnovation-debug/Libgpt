@@ -27,8 +27,8 @@ import { DISCUSS_PROMPT, readDiscussion, readDiscussReply } from './build-discus
 import { STEPS_PROMPT, readSteps } from './build-steps.js';
 import QRCode from 'qrcode';
 import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, findSiteFile, siteFileBody } from './site-store.js';
-import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, ENTRY_KINDS } from './site-data.js';
-import { siteRuntime, withRuntime } from './site-runtime.js';
+import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, bookingTimes, slotProblem, ENTRY_KINDS, ENTRY_STATUSES } from './site-data.js';
+import { siteRuntime, withRuntime, withSeo, sitemapFor } from './site-runtime.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
 import {
   DEFAULT_LANGUAGE,
@@ -1829,6 +1829,18 @@ function formFields(raw) {
   for (const [key, value] of new URLSearchParams(text)) fields[key] = key in fields ? `${fields[key]}, ${value}` : value;
   return fields;
 }
+// The free booking times on one date, for the booking form on a published page.
+app.get('/api/site-slots/:slug', siteLimit, async (req, res) => {
+  openToSites(res);
+  if (!siteData || !validSlug(req.params.slug)) { res.status(404).json({ error: 'There is no website at this address.' }); return; }
+  try {
+    const booking = (await siteData.settings(req.params.slug))?.booking;
+    const date = String(req.query.date || '');
+    const times = bookingTimes(booking, date);
+    const counts = times.length ? await siteData.bookingCounts(req.params.slug, date) : {};
+    res.json({ date, on: Boolean(booking?.on), times: times.map((time) => ({ time, left: booking.capacity - (counts[time] || 0) })).filter((t) => t.left > 0) });
+  } catch (error) { dataFailed(res, error); }
+});
 app.options('/api/site-data/:slug', (_req, res) => { openToSites(res); res.status(204).end(); });
 app.post('/api/site-data/:slug', siteLimit, async (req, res) => {
   openToSites(res);
@@ -1846,7 +1858,15 @@ app.post('/api/site-data/:slug', siteLimit, async (req, res) => {
     const entry = cleanEntry(fields);
     if (!entry) { finish(200, 'Thank you. It was sent.'); return; }   // spam is quietly dropped
     if (!(await siteStore.get(req.params.slug))) { finish(404, 'There is no website at this address.'); return; }
-    const id = await siteData.addEntry(req.params.slug, entry);
+    // Bookings must be for a free time the owner opened in Manage.
+    let slotCapacity = 0;
+    if (entry.kind === 'booking') {
+      const booking = (await siteData.settings(req.params.slug))?.booking;
+      const problem = slotProblem(booking, entry.fields.date, entry.fields.time);
+      if (problem) { finish(400, problem); return; }
+      if (booking?.on) slotCapacity = booking.capacity;
+    }
+    const id = await siteData.addEntry(req.params.slug, entry, { slotCapacity });
     finish(201, 'Thank you. It was sent.', entryRef(id));
   } catch (error) {
     if (!error.status) console.error('[site-data]', error.message);
@@ -1889,7 +1909,7 @@ app.get('/api/manage/:slug', rateLimit, manageAccess, async (req, res) => {
 app.get('/api/manage/:slug/entries', rateLimit, manageAccess, async (req, res) => {
   try {
     const kind = ENTRY_KINDS.includes(req.query.kind) ? req.query.kind : '';
-    const status = ['new', 'done'].includes(req.query.status) ? req.query.status : '';
+    const status = ENTRY_STATUSES.includes(req.query.status) ? req.query.status : '';
     const entries = await siteData.listEntries(req.site.slug, { kind, status });
     if (req.query.format === 'csv') {
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -1902,11 +1922,14 @@ app.get('/api/manage/:slug/entries', rateLimit, manageAccess, async (req, res) =
 });
 app.patch('/api/manage/:slug/entries/:id', rateLimit, manageAccess, async (req, res) => {
   const status = req.body?.status;
-  if (!['new', 'done'].includes(status)) { res.status(400).json({ error: 'The status must be new or done.' }); return; }
+  if (!ENTRY_STATUSES.includes(status)) { res.status(400).json({ error: 'The status must be new, done or cancelled.' }); return; }
   try { res.json({ updated: await siteData.updateEntry(req.site.slug, String(req.params.id), status) }); } catch (error) { dataFailed(res, error); }
 });
 app.delete('/api/manage/:slug/entries/:id', rateLimit, manageAccess, async (req, res) => {
   try { res.json({ removed: await siteData.deleteEntry(req.site.slug, String(req.params.id)) }); } catch (error) { dataFailed(res, error); }
+});
+app.put('/api/manage/:slug/settings', rateLimit, manageAccess, async (req, res) => {
+  try { res.json({ settings: await siteData.setSettings(req.site.slug, req.body?.settings) }); } catch (error) { dataFailed(res, error); }
 });
 app.put('/api/manage/:slug/content', rateLimit, manageAccess, async (req, res) => {
   try { res.json({ content: await siteData.setContent(req.site.slug, req.body?.content) }); } catch (error) { dataFailed(res, error); }
@@ -1955,9 +1978,14 @@ app.get('/s/:slug/*', async (req, res) => {
     const site = await siteStore.get(req.params.slug);
     if (!site) { res.status(404).type('html').send(notFoundPage('There is no website at this address.')); return; }
     const file = findSiteFile(site.files, req.params[0] || '');
+    if (!file && req.params[0] === 'sitemap.xml') { res.type('application/xml; charset=utf-8').send(sitemapFor(site, `${publicBase(req)}/s/${site.slug}/`)); return; }
     if (!file) { res.status(404).type('html').send(notFoundPage('This page is not part of the website.')); return; }
     const { type, body } = siteFileBody(file);
-    if (type.startsWith('text/html')) { res.type(type).send(withRuntime(body.toString('utf8'), site.slug)); return; }
+    if (type.startsWith('text/html')) {
+      const pageUrl = `${publicBase(req)}/s/${site.slug}/${file.path === 'index.html' ? '' : file.path}`;
+      res.type(type).send(withRuntime(withSeo(body.toString('utf8'), { siteName: site.name, url: pageUrl, base: `${publicBase(req)}/s/${site.slug}/`, path: file.path, files: site.files }), site.slug));
+      return;
+    }
     res.type(type).send(body);
   } catch (error) {
     console.error('[sites]', error.message);

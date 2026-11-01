@@ -233,4 +233,27 @@ The owner approved this order: A design, B publish on Grandpa, C database, D man
 - **Policy pages.** Builders write `privacy.html` for any business site with a form, and `terms.html` and `refunds.html` when it sells or takes orders or bookings. They are linked in every footer and written in plain, honest words (no invented laws or guarantees), with "Last updated". Sites without a privacy page get a one-tap chip, **Add privacy, terms and refund pages**.
 - **Cost:** none. PDFs are made by the phone's own print screen.
 
-### Next: Phase E (business tools), then G (quality and security).
+### Phase E: business tools (done, without recurring costs)
+
+- **Bookings at set times.** In Manage → **Shop & bookings**, the owner switches bookings on and chooses:
+  - booking days, opening and closing times, and the length of each booking (15 minutes to 2 hours);
+  - people per time, how many days ahead, and closed dates.
+
+  On the published site, a booking form (`data-gk-form="booking"` with `date` and `time` fields) limits the date to that window. It offers only the times still free (from `GET /api/site-slots/<address>?date=`), with "n left" when more than one person fits.
+
+  The server refuses a time the owner did not open, and a full time is never booked twice: the count is checked inside the same database lock as the insert. **Cancel booking** in Manage frees the time. **Upcoming bookings** lists bookings by day, and the inbox gains a Cancelled filter.
+- **Cart and orders.** `data-gk-add` buttons in list items (name and price from `data-gk-field`) fill a cart, which stays while the visitor moves between pages (`window.name`, which works in the sandbox).
+  - A cart button shows the count and total.
+  - Checkout asks for name, phone, address and a note, and shows the owner's **payment** and **delivery** instructions (pay on delivery or mobile money, as the owner writes it).
+  - The order arrives in Manage with its items and total, and **Invoice / receipt** fills the lines from it. The visitor gets the reference, the payment instructions and a PDF copy.
+- **Search.** `input[data-gk-search]` filters the page's cards, list items, FAQ and documents.
+- **SEO.** Published pages get the tags they are missing:
+  - a description from the first paragraph;
+  - Open Graph title, description, URL and picture (the hero photo or first image);
+  - a Twitter card and a canonical address.
+
+  `/s/<address>/sitemap.xml` lists the pages, unless the site has its own. Builders write a unique title and description per page, one h1, alt text and `lang`.
+- **Grandpa Kit 4** adds search-box styles and explains in Build's preview that the cart works once published.
+- **Needs approval later (recurring costs):** email or SMS alerts for new orders and bookings; real mobile-money or card payments (merchant accounts).
+
+### Next: Phase G (quality and security).
