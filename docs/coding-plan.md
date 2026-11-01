@@ -107,3 +107,18 @@ How it works now:
 ## Costs and limits
 
 All coding requests come from the owner's **Build (coding)** allowance in Owner Controls, and run on Meta Muse Spark (high reasoning effort for builds). Preview checks run in the phone's browser and cost nothing.
+
+## Editing the page by hand (in progress)
+
+The owner asked to be able to edit the preview directly: click and type, add or change pictures, move parts of the page. Every change must be saved.
+
+**Done: steps 1–2, Edit mode and text** (`public/visual-edit.js`)
+
+- **Edit / Done** in Preview. While editing, the page's own scripts and links are paused, so a tap means "edit this".
+- **Exact edits.** Every element in the page's source is located by position (a small HTML reader that matches how browsers close `<li>` and `<p>` by themselves), and the preview copy is numbered with `data-gp`. An edit replaces only that element's content in the real file, so formatting, scripts and everything else are untouched.
+- **Tap any text and type.** Headings, paragraphs, links, buttons, list items and so on can be edited. Enter finishes one-line text and Escape cancels. A small bar offers **Bold**, *Italic* and **Link**.
+- **What is typed is cleaned** to text and simple formatting. Scripts, event handlers, `javascript:` links and pasted blocks are removed.
+- **Saving.** Each edit is saved straight away as a named version ("Before: you edited index.html"), so Undo, Compare and Restore work. **Done** adds one chat message with **Undo**.
+- **Safety.** The preview only accepts well-formed editor messages from its own frame.
+
+**Next:** step 3 (pictures: replace, size, remove, add), step 4 (move, duplicate, delete parts), step 5 (checks after Done).

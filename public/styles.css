@@ -3896,3 +3896,7 @@ body {
 .diff-line.is-del { background: rgba(198,40,40,.12); }
 .diff-line.is-gap { color: var(--text-faint); text-align: center; }
 .diff-sign { display: inline-block; width: 1.2em; opacity: .8; }
+
+/* ---- Editing the page by hand ------------------------------------------- */
+.preview-edit { font-weight: 700; }
+.preview-edit[aria-pressed="true"] { background: #1a73e8; color: #fff; border-color: #1a73e8; }

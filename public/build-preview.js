@@ -34,8 +34,11 @@ export function createPreviewMessageLimiter(frame, now=Date.now) {
   return event=>{
     const d=event?.data,t=now();
     if(event?.source!==frame || event.origin!=='null' || !d || typeof d!=='object' || Array.isArray(d) || d.checkId || !Number.isFinite(t) || t<start)return false;
-    if(!['navigate','download-file','fault'].includes(d.grandpa))return false;
-    if(d.grandpa==='fault' ? typeof d.what!=='string' || !d.what || d.what.length>400 : typeof d.path!=='string' || !d.path || d.path.length>300)return false;
+    if(!['navigate','download-file','fault','visual-edit'].includes(d.grandpa))return false;
+    // Hand edits from the page editor: text for one numbered element, or the editor saying it is ready.
+    if(d.grandpa==='visual-edit'){
+      if(d.type==='ready' ? !Number.isInteger(d.count) : d.type!=='text' || !Number.isInteger(d.id) || d.id<0 || typeof d.html!=='string' || d.html.length>20000)return false;
+    }else if(d.grandpa==='fault' ? typeof d.what!=='string' || !d.what || d.what.length>400 : typeof d.path!=='string' || !d.path || d.path.length>300)return false;
     if(d.hash!==undefined && (typeof d.hash!=='string' || d.hash.length>500))return false;
     if(t-start>=1000){start=t;count=0;}
     if(count>=20)return false;

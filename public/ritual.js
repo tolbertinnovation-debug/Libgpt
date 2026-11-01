@@ -2,7 +2,7 @@ import {verificationStatusMarkup} from './build-verification.js';
 import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
 import {restrictPreviewDocument} from './preview-policy.js';
-import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=phase2-stage9-preview';
+import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=edit-1';
 import {loadPreviewGuard,previewGuardReady} from './preview-guard.js';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
@@ -32,6 +32,7 @@ import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materia
 import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
 import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
 import { historyEntries, compareFiles } from './build-history.js?v=phase5-1';
+import { annotate, editingDocument, replaceInner, cleanInner, elementCount } from './visual-edit.js?v=edit-3';
 
 const $ = (id) => document.getElementById(id);
 
@@ -391,8 +392,23 @@ function renderPreview() {
   const active=workingFile(p.team);
   if(state.followAgent && remoteRunning(p) && /\.html?$/i.test(active) && p.files.some(file=>file.path===active))state.previewPath=active;
   const entry=p.files.some(f=>f.path===state.previewPath) ? state.previewPath : '';
-  const signature=`${p.id}:${sourceFingerprint(p.files)}:${entry}:${restricted}`;
-  if(el.previewFrame.dataset.signature!==signature || !sameProjectSource(el.previewFrame.sourceSnapshot,p.files)){previewLoads.notice='';const document=look.can ? previewDocument(p.files,entry) : '';setPreviewDocument(restricted && document ? restrictPreviewDocument(document) : document);el.previewFrame.dataset.signature=signature;el.previewFrame.sourceSnapshot=structuredClone(p.files);}
+  const editing=state.editMode && look.can;
+  const signature=`${p.id}:${sourceFingerprint(p.files)}:${entry}:${restricted}:${editing?'edit':'view'}`;
+  if(el.previewFrame.dataset.signature!==signature || !sameProjectSource(el.previewFrame.sourceSnapshot,p.files)){
+    previewLoads.notice='';
+    let document='';
+    if(editing){
+      // Edit mode: the page's elements are numbered in the source and its scripts paused,
+      // so a tap edits exactly what is in the file.
+      const page=editPage(p,entry);
+      document=page ? editingDocument(previewDocument(p.files.map(f=>f.path===page.path?{...f,body:annotate(f.body)}:f),page.path,{navigation:false}),state.editScroll) : '';
+    }else document=look.can ? previewDocument(p.files,entry) : '';
+    setPreviewDocument(restricted && document && !editing ? restrictPreviewDocument(document) : document);
+    el.previewFrame.dataset.signature=signature;el.previewFrame.sourceSnapshot=structuredClone(p.files);
+  }
+  const editButton=$('preview-edit');
+  if(editButton){editButton.setAttribute('aria-pressed',String(Boolean(state.editMode)));editButton.textContent=state.editMode?'Done':'Edit';editButton.hidden=!look.can;}
+  if(state.editMode){el.previewNote.hidden=false;el.previewNote.textContent='Editing: tap any text and type. Links and the page\'s scripts are paused while you edit. Tap Done when you finish — every change is saved.';}
   const select=$('preview-page');
   if(select){const pages=p.files.filter(file=>/\.html?$/i.test(file.path));select.innerHTML=pages.map(file=>`<option value="${escapeHtml(file.path)}">${escapeHtml(file.path)}</option>`).join('');select.value=entry || pages.find(file=>file.path==='index.html')?.path || pages[0]?.path || '';}
   el.previewFrame.classList.toggle('is-phone',state.previewSize==='mobile');
@@ -402,6 +418,7 @@ function renderPreview() {
 }
 
 function ensureView(view) {
+  if (state.editMode && view !== 'preview') finishEditing();
   state.view = view;
   // One view at a time on every screen: Preview gets the whole screen, Chat only the conversation.
   const app=el.build.closest('.app');if(app)app.dataset.buildView=view;
@@ -468,6 +485,65 @@ async function send(text) {
   }
 
   await changeFiles(said);
+}
+
+/* ---- Editing the page by hand -------------------------------------------- */
+function editPage(p, entry = state.previewPath) {
+  const pages = (p?.files || []).filter((f) => /\.html?$/i.test(f.path) && !/^data:/.test(f.body || ''));
+  return pages.find((f) => f.path === entry) || pages.find((f) => f.path === 'index.html') || pages[0] || null;
+}
+
+async function startEditing() {
+  const p = project();
+  if (!p || isBusy()) { deps.toast('Wait for the current work to finish, then edit.'); return; }
+  state.editMode = true;
+  state.editScroll = 0;
+  state.editSession = { changes: 0, versionsBefore: (p.versions || []).length, pages: new Set() };
+  renderPreview();
+}
+
+async function finishEditing() {
+  if (!state.editMode) return;
+  // Let the text being typed in save first.
+  try { el.previewFrame.contentWindow?.postMessage({ grandpa: 'visual-finish' }, '*'); } catch { /* frame gone */ }
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const p = project();
+  const session = state.editSession || { changes: 0 };
+  state.editMode = false; state.editSession = null;
+  if (p && session.changes) {
+    const pages = [...session.pages].join(', ');
+    p.messages.push({ role: 'assistant', content: `Saved your ${session.changes === 1 ? 'edit' : `${session.changes} edits`} to ${pages}. They are in the real files now, so I will keep them in every later change.`,
+      undoAt: p.versions?.[session.versionsBefore]?.at, edited: true });
+    await persist();
+  }
+  render();
+  renderPreview();
+}
+
+/** One edit from the preview, saved into the file. */
+async function applyVisualEdit(data) {
+  const p = project();
+  if (!state.editMode || !p || data.type !== 'text') return;
+  const id = Number(data.id);
+  if (!Number.isInteger(id) || id < 0 || typeof data.html !== 'string' || data.html.length > 20000) return;
+  const page = editPage(p);
+  if (!page) return;
+  const body = replaceInner(page.body, id, cleanInner(data.html));
+  if (body === page.body) return;
+  const renumbered = elementCount(body) !== elementCount(page.body);
+  applyChanges(p, [{ path: page.path, body }], `Before: you edited ${page.path}`);
+  if (p.team) invalidateRelease(p, 'Files edited by hand. Fresh independent release checks are required.');
+  state.editSession.changes += 1;
+  state.editSession.pages.add(page.path);
+  state.editScroll = Number(data.scroll) || 0;
+  if (!(await persist())) deps.toast('Saving on this device failed. Download your files before leaving.');
+  if (renumbered) { delete el.previewFrame.dataset.signature; renderPreview(); }
+  else {
+    // The page on screen already shows the edit: keep it, rather than reloading.
+    el.previewFrame.dataset.signature = `${p.id}:${sourceFingerprint(p.files)}:${p.files.some((f) => f.path === state.previewPath) ? state.previewPath : ''}:${state.restrictedPreview === true}:edit`;
+    el.previewFrame.sourceSnapshot = structuredClone(p.files);
+  }
+  renderTree();
 }
 
 /* ---- Phase 4: seeing the result ------------------------------------------ */
@@ -1972,6 +2048,7 @@ export async function mount(options = {}) {
     if(event.target.closest('#agent-pause')){if(remoteRunning(project()))await stopBackgroundBuild('pause');else stop();return;}
     if(event.target.closest('#agent-cancel')){if(remoteRunning(project()))await stopBackgroundBuild('cancel');else stop();return;}
     if(event.target.closest('#agent-resume')){$('plan-resume')?.click();return;}
+    if(event.target.closest('#preview-edit')){if(state.editMode)finishEditing();else startEditing();return;}
     if(event.target.closest('#preview-refresh')){state.previewUnloaded=false;previewLoads.notice='';previewLoads.left=[];el.previewFrame.dataset.signature='';renderPreview();return;}
     if(event.target.closest('[data-team-plan]')){showProjectPlan();return;}
     if(event.target.closest('[data-team-architecture]')){showArchitecture();return;}
@@ -2128,6 +2205,10 @@ export async function mount(options = {}) {
       if(pendingPreviewScroll)el.previewFrame.contentWindow.postMessage({grandpa:'scroll-to',hash:pendingPreviewScroll.hash},'*');
     }else if(data?.grandpa==='download-file' && file){downloadFile(file);}
     else if(data?.grandpa==='fault' && typeof data.what==='string'){deps.toast(data.what.slice(0,400));}
+    else if(data?.grandpa==='visual-edit'){
+      if(data.type==='ready' && state.editMode && !data.count)deps.toast('There is no text on this page that can be edited by hand.');
+      else applyVisualEdit(data);
+    }
   });
 
   $('build-file-search')?.addEventListener('input',renderTree);
