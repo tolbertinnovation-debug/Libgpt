@@ -27,7 +27,7 @@ import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary, loadJournal } from './library.js';
 import { Dictation, canRecord } from './dictate.js?v=voice-fix-1';
 import { RecordedEar, canListenByRecording } from './hearing.js?v=meta-media-1';
-import * as ritual from './ritual.js?v=phase3-1';
+import * as ritual from './ritual.js?v=phase4-2';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 import { mountSupport } from './support.js?v=phase3-sync-1';
@@ -3965,6 +3965,8 @@ async function boot() {
         toast,
         canDraw: Boolean(config.buildPictures),
         backgroundAvailable: Boolean(config.backgroundBuilds),
+        // Phase 4: Muse Spark can look at a picture of the page after a change.
+        vision: Boolean(config.vision),
         onMode: (mode) => {
           const building = mode === 'build';
           el.input.placeholder = building

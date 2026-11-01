@@ -22,7 +22,7 @@ import {
   applyEdits, filesFrom, forSending, highlightFile, looksEmpty, makeProject, previewDocument,
   previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
   loadProjectsDurable, saveProjectsDurable,
-} from './build.js?v=phase2-1';
+} from './build.js?v=phase4-1';
 import {buildTaskLabel,buildTaskFacts} from './build-task-state.js?v=phase2-stage6-reliability';
 import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js?v=phase2-stage6-reliability';
 import { shrink } from './photo.js';
@@ -30,6 +30,7 @@ import {backgroundActive,sameProjectSource,sourceFingerprint,workspaceChanges,ne
 import { renderMarkdown } from './markdown.js';
 import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materials.js?v=materials-1';
 import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
+import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
 
 const $ = (id) => document.getElementById(id);
 
@@ -197,7 +198,7 @@ function renderThread() {
       : turn.undoAt && index === latestUndo && !inPlan.has(index) ? `<button class="build-chip" type="button" data-undo="${index}">Undo this change</button>` : '';
     const talk = turn.discussion ? discussionHtml(turn.discussion, !p.team && !p.background && !builtFiles(p).length && index === p.messages.length - 1) : '';
     return `<div class="build-turn build-turn-ai">
-      ${stepLabel}<div class="prose">${renderMarkdown(turn.content || '')}</div>${todo}${proposal}${undo}${talk}
+      ${stepLabel}<div class="prose">${renderMarkdown(turn.content || '')}</div>${todo}${proposal}${lookedHtml(turn.looked)}${undo}${talk}
     </div>`;
   }).join('') + live + fixHint(p);
   el.thread.scrollTop = el.thread.scrollHeight;
@@ -206,7 +207,7 @@ function renderThread() {
 /** Once something is built: say plainly that anything can be fixed or changed. */
 function fixHint(p) {
   if (!builtFiles(p).length || state.live || isBusy()) return '';
-  const chips = ['Check for problems and fix them', 'Make it look better on phones', 'What is in my website?']
+  const chips = ['Check for problems and fix them', ...(deps.vision ? ['Look at it on a phone and fix what is wrong'] : ['Make it look better on phones']), 'What is in my website?']
     .map((s) => `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('');
   return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${chips}</div></div>`;
 }
@@ -441,6 +442,7 @@ async function send(text) {
   // Questions about the site itself are answered from the files: instant and free.
   if (written && ABOUT_SITE.test(said)) { answerLocally(said, aboutSite(p)); return; }
   if (written && SEARCH_QUESTION.test(said)) { answerLocally(said, whereIs(p, said)); return; }
+  if (written && LOOK_REQUEST.test(said)) { await lookOnRequest(said); return; }
   if (written && !isBuildResumeCommand(said) && p.background?.revision !== -1) { await workOn(said); return; }
   if(deps.backgroundAvailable){
     const original=p.team?.asked || p.background?.asked || '';
@@ -464,6 +466,50 @@ async function send(text) {
   }
 
   await changeFiles(said);
+}
+
+/* ---- Phase 4: seeing the result ------------------------------------------ */
+/** Take a phone-width picture of the page and have it looked at. Returns the problems seen. */
+async function lookAt(turn, request = '') {
+  const p = project();
+  if (!p || !deps.vision) return [];
+  const mine = mark('Looking at the page on a phone screen…');
+  turn.looked = 'looking'; renderThread();
+  let problems = [];
+  try {
+    const image = await snapshot(p.files);
+    if (!image) { turn.looked = null; return []; }
+    const verdict = await teamRequest('/api/build/look', { image, request: String(request).slice(0, 1500), summary: summarize(p) });
+    problems = Array.isArray(verdict.problems) ? verdict.problems : [];
+    turn.looked = problems.length ? problems : 'ok';
+  } catch {
+    turn.looked = null;   // a look that could not happen is not a failure of the build
+  } finally {
+    unmark(mine); await persist(); renderThread();
+  }
+  return problems;
+}
+
+function lookedHtml(looked) {
+  if (looked === 'looking') return '<p class="proposal-checking">Looking at the page on a phone screen…</p>';
+  if (looked === 'ok') return '<p class="proposal-done">Looked at it on a phone screen: it looks right.</p>';
+  if (Array.isArray(looked) && looked.length) return `<div class="proposal-faults"><strong>Seen on the phone screen:</strong><ul>${looked.map((p) => `<li>${escapeHtml(p)}</li>`).join('')}</ul></div>`;
+  return '';
+}
+
+const LOOK_REQUEST = /^(?:look at (?:it|my|the|this)\b.*|check how it looks.*|how does (?:it|my (?:website|site)) look\??)$/i;
+
+/** "Look at it on a phone and fix what's wrong": a review on request. */
+async function lookOnRequest(said) {
+  const p = project();
+  if (!deps.vision) { answerLocally(said, 'Looking at pictures of the page is not available on this site right now.'); return; }
+  p.messages.push({ role: 'user', content: said });
+  const answer = { role: 'assistant', content: 'I looked at your page the way a visitor on a phone would.' };
+  p.messages.push(answer);
+  const problems = await lookAt(answer, said);
+  if (answer.looked == null) answer.content = 'I could not take a picture of the page just now. Try again in a moment.';
+  await persist(); render();
+  if (problems.length) await changeFiles('Fix how the page looks on a phone, keeping everything else as it is.', { faults: visualFaults(problems), shown: null, label: 'Fixing what looked wrong' });
 }
 
 /* ---- Phase 3: knowing the project ---------------------------------------- */
@@ -564,7 +610,7 @@ async function undoTo(turn) {
 const PROBLEM = /\b(?:fix|error|errors|broken|break|bug|bugs|problem|problems|issue|issues|wrong|not (?:work|show|load|open|display)|doesn'?t|does not|isn'?t|can'?t|cannot|won'?t|blank|missing|crash|stuck|overlap|cut off|too (?:big|small))\b/i;
 
 /** A change or a fix to a project that already has files. */
-async function changeFiles(said, {faults=null, repairsLeft=1, shown=said, focus=null, check=true, readsLeft=1, label=''}={}) {
+async function changeFiles(said, {faults=null, repairsLeft=1, shown=said, focus=null, check=true, readsLeft=1, label='', look=true, lookFixes=1}={}) {
   const p=project();
   if(!p || isBusy())return false;
   if(shown)p.messages.push({role:'user',content:shown});
@@ -639,7 +685,16 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said, focus=
     // The preview found a problem with the change: repaired once, automatically.
     if(!failed && repairsLeft>0 && Array.isArray(answer.checked) && answer.checked.length){
       return await changeFiles('Fix the problems the preview check found after the last change, keeping everything else as it is.',
-        {faults:answer.checked,repairsLeft:repairsLeft-1,shown:'Fix the problems the check found'});
+        {faults:answer.checked,repairsLeft:repairsLeft-1,shown:'Fix the problems the check found',look,lookFixes});
+    }
+    // Phase 4: the code checks passed; now look at the page the way a visitor would.
+    if(!failed && look && Array.isArray(answer.checked) && !answer.checked.length){
+      const problems=await lookAt(answer,said);
+      // Its own single repair, whatever the code checks used.
+      if(problems.length && lookFixes>0){
+        return await changeFiles(`Fix how the page looks on a phone, keeping everything else as it is. The request was: ${said}`,
+          {faults:visualFaults(problems),repairsLeft:0,shown:'Fix what looked wrong on the phone screen',look:true,lookFixes:lookFixes-1});
+      }
     }
     if(p.team && !failed){p.team.message='Changes saved and checked. The engineering team reviews everything again before publishing.';await persist();render();}
   }

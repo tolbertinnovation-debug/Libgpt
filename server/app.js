@@ -25,6 +25,7 @@ import {
 import { safeDiagnostic } from './openai-failure.js';
 import { DISCUSS_PROMPT, readDiscussion, readDiscussReply } from './build-discuss.js';
 import { STEPS_PROMPT, readSteps } from './build-steps.js';
+import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
 import {
   DEFAULT_LANGUAGE,
   DEFAULT_PERSONA,
@@ -1372,6 +1373,35 @@ app.post('/api/build/discuss', rateLimit, requireAccess, runtime.middleware('orc
     if (controller.signal.aborted) return;
     console.error('[build-discuss]', error?.status, safeDiagnostic(String(error?.message || error)));
     res.status([401, 403, 429, 503].includes(error?.status) ? error.status : 502).json({ error: error?.message || 'I could not answer just now. Try again.' });
+  }
+});
+
+// Phase 4: Muse Spark looks at a phone-width picture of the page after a change.
+app.post('/api/build/look', rateLimit, requireAccess, runtime.middleware('reviewer','review'), async (req, res) => {
+  if (!config.building) { res.status(503).json({ error: 'Building is switched off here.' }); return; }
+  if (!config.vision || !(metaMedia() || config.apiKey)) { res.status(503).json({ error: 'Looking at pictures is not available here.' }); return; }
+  const image = readSnapshot(req.body?.image);
+  if (!image) { res.status(400).json({ error: 'Send one picture of the page.' }); return; }
+  const request = typeof req.body?.request === 'string' ? req.body.request.trim().slice(0, 1500) : '';
+  const summary = typeof req.body?.summary === 'string' ? req.body.summary.trim().slice(0, 2500) : '';
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+  try {
+    const raw = await complete({
+      model: await pickModel(undefined, 'chat', { seeing: true }),
+      messages: [{ role: 'system', content: LOOK_PROMPT }, { role: 'user', content: [
+        { type: 'text', text: `${request ? `The person asked for: ${request}\n\n` : ''}${summary ? `What the site is:\n${summary}\n\n` : ''}Here is the page at phone width.` },
+        { type: 'image_url', image_url: { url: image } },
+      ] }],
+      maxTokens: 600, temperature: 0.2, json: true, signal: controller.signal,
+    });
+    const verdict = readLook(raw);
+    if (!verdict) { res.status(502).json({ error: 'The review came back in a shape I could not use.' }); return; }
+    res.json(verdict);
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    console.error('[build-look]', error?.status, safeDiagnostic(String(error?.message || error)));
+    res.status([401, 403, 429, 503].includes(error?.status) ? error.status : 502).json({ error: error?.message || 'The page could not be reviewed just now.' });
   }
 });
 
