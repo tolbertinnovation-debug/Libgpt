@@ -1,3 +1,4 @@
+import { DESIGN_STANDARD } from './design-standard.js';
 // Ritual Coding — the part of Grandpa AI that builds things.
 //
 // The rest of this app answers questions. This one writes files, and that is a
@@ -28,6 +29,7 @@
  */
 export const buildPrompt = ({pictures=false,runtime='static'}={}) => {
   let prompt=pictures?BUILD_PROMPT:BUILD_PROMPT.replace(/\nPICTURES\n[\s\S]*?\nWHAT TO BUILD WITH/,'\nWHAT TO BUILD WITH');
+  prompt=`${prompt}\n\n${DESIGN_STANDARD}`;
   if(runtime==='fullstack')prompt=prompt.replace(/WHAT TO BUILD WITH\n[\s\S]*?\nQUALITY REQUIREMENTS/,`WHAT TO BUILD WITH
 The engineering team may prepare backend API/server code, database schemas, tests and cloud configuration when assigned. Write complete files and environment-variable placeholders, never real secrets. Use plain HTML/CSS/JavaScript for browser pages. Write backend, data and infrastructure files in the languages and frameworks named in the plan's technology stack, with their dependency manifests and tests. Document installation, test commands, required services and separate hosting. The app does not run backend code or provision cloud resources; never claim those tests or services are operational. Deployment must remain blocked until independently verified infrastructure and tests exist.
 
@@ -90,6 +92,7 @@ Rules that are not negotiable:
   page itself (the HTML or CSS), not with JavaScript that patches the page
   after it loads.
 - Only include files you are actually changing or creating.
+- A photograph written as <img ... data-picture="description"> is created by the app after you answer; do not also ask for it in an image block.
 - Never paste code into your explanation. After the blocks, say in one to
   three short sentences what you changed and how to see it.
 - Code that belongs to no file — a command to run, a snippet to look at —
