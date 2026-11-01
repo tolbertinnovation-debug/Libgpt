@@ -271,8 +271,12 @@ export function tidyPath(raw) {
  * every file underneath it.
  */
 export function filesFrom(answer) {
-  const lines = String(answer || '').split('\n');
+  // Models sometimes start a file on the same line as their sentence
+  // ("Here it is.```js path=app.js"). The fence is put on a line of its own.
+  const text = String(answer || '').replace(/([^\n])(`{3,}|~{3,})([ \t]*[\w+#-]*[ \t]+(?:path|file|filename)[ \t]*=)/g, '$1\n$2$3');
+  const lines = text.split('\n');
   const files = [];
+  const edits = [];
   const pictures = [];
   const prose = [];
 
@@ -284,12 +288,19 @@ export function filesFrom(answer) {
     if (open) {
       // Only a fence of the same kind, at least as long, closes this one — and
       // a closing fence carries nothing after it.
-      const closes = fence && fence[2][0] === open.marker[0]
+      let closes = fence && fence[2][0] === open.marker[0]
         && fence[2].length >= open.marker.length
         && !fence[3].trim();
+      // A closing fence glued to the last line of code ("})();```").
+      if (!closes && !fence && open.path && line.trimEnd().endsWith(open.marker) && line.trim() !== open.marker) {
+        open.body.push(line.trimEnd().slice(0, -open.marker.length));
+        closes = true;
+      }
       if (closes) {
         if (open.path && open.picture) {
           pictures.push({ path: open.path, about: open.body.join(' ').trim() });
+        } else if (open.path && open.edit) {
+          edits.push({ path: open.path, body: open.body.join('\n') });
         } else if (open.path) {
           files.push({ path: open.path, body: open.body.join('\n') });
         } else {
@@ -309,6 +320,8 @@ export function filesFrom(answer) {
         // A block labelled `image` is not a file — it is a description of a
         // picture that has to be drawn before there is anything to save.
         picture: /(^|[ \t])image([ \t]|$)/i.test(fence[3]),
+        // ```edit path=…: SEARCH/REPLACE changes to a file that already exists.
+        edit: /^[ \t]*(?:edit|diff-edit|patch)([ \t]|$)/i.test(fence[3]),
         body: [],
       };
       continue;
@@ -325,12 +338,53 @@ export function filesFrom(answer) {
 
   return {
     files,
+    edits,
     // At most two. The prompt asks for that; this is the guard, because a
     // model that ignores it would be spending somebody's money unattended.
     pictures: pictures.slice(0, 2),
     prose: prose.join('\n').replace(/\n{3,}/g, '\n\n').trim(),
     unfinished,
   };
+}
+
+/**
+ * Apply SEARCH/REPLACE edit blocks to a file, the way coding assistants make
+ * small changes to large files without rewriting them:
+ *
+ *   <<<<<<< SEARCH
+ *   lines exactly as they are now
+ *   =======
+ *   the lines that replace them
+ *   >>>>>>> REPLACE
+ *
+ * Exact text first; then the same lines ignoring indentation and trailing
+ * spaces. Returns { text, applied, failed } where failed lists the SEARCH
+ * text that could not be found, so nothing is changed on a guess.
+ */
+export function applyEdits(original, body) {
+  const blocks = [...String(body || '').matchAll(/^<{5,}[ \t]*SEARCH[ \t]*\n([\s\S]*?)\n?^={5,}[ \t]*\n([\s\S]*?)\n?^>{5,}[ \t]*REPLACE[ \t]*$/gm)];
+  let text = String(original ?? '');
+  const failed = [];
+  let applied = 0;
+  for (const [, search, replace] of blocks) {
+    if (!search.trim()) { if (!text.trim()) { text = replace; applied += 1; } else failed.push(search); continue; }
+    const at = text.indexOf(search);
+    if (at >= 0 && text.indexOf(search, at + 1) < 0) { text = text.slice(0, at) + replace + text.slice(at + search.length); applied += 1; continue; }
+    if (at >= 0) { failed.push(search); continue; }   // more than one place: never guess which
+    // Loose match: the same lines, ignoring indentation and trailing spaces.
+    const want = search.split('\n').map((l) => l.trim());
+    const have = text.split('\n');
+    const starts = [];
+    for (let i = 0; i + want.length <= have.length; i += 1) {
+      if (want.every((line, j) => have[i + j].trim() === line)) starts.push(i);
+    }
+    if (starts.length !== 1) { failed.push(search); continue; }
+    have.splice(starts[0], want.length, ...replace.split('\n'));
+    text = have.join('\n');
+    applied += 1;
+  }
+  if (!blocks.length) failed.push('(no SEARCH/REPLACE blocks)');
+  return { text, applied, failed };
 }
 
 /**
