@@ -23,6 +23,7 @@ import {
   canReason,
 } from './openai.js';
 import { safeDiagnostic } from './openai-failure.js';
+import { DISCUSS_PROMPT, readDiscussion, readDiscussReply } from './build-discuss.js';
 import {
   DEFAULT_LANGUAGE,
   DEFAULT_PERSONA,
@@ -1342,6 +1343,32 @@ app.post('/api/plan', rateLimit, requireAccess, runtime.middleware('orchestrator
 
 // Five-agent builds keep planning and review as distinct supervisor calls.
 // Workers continue to use the existing cancellable /api/chat file stream.
+// Talk the project through before building: questions, then a brief to approve.
+app.post('/api/build/discuss', rateLimit, requireAccess, runtime.middleware('orchestrator','plan'), async (req, res) => {
+  if (!config.building) { res.status(503).json({ error: 'Building is switched off here.' }); return; }
+  const messages = readDiscussion(req.body?.messages);
+  if (!messages.length || messages.at(-1).role !== 'user') { res.status(400).json({ error: 'Tell me what you would like to build.' }); return; }
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+  try {
+    const raw = await complete({
+      model: await pickModel(req.body?.model, 'chat'),
+      messages: [{ role: 'system', content: DISCUSS_PROMPT }, ...messages],
+      maxTokens: 1400,
+      temperature: 0.5,
+      json: true,
+      signal: controller.signal,
+    });
+    const answer = readDiscussReply(raw);
+    if (!answer) { res.status(502).json({ error: 'I could not put that into words just now. Try again.' }); return; }
+    res.json(answer);
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    console.error('[build-discuss]', error?.status, safeDiagnostic(String(error?.message || error)));
+    res.status([401, 403, 429, 503].includes(error?.status) ? error.status : 502).json({ error: error?.message || 'I could not answer just now. Try again.' });
+  }
+});
+
 app.post('/api/build/team-plan', rateLimit, requireAccess, runtime.middleware('orchestrator','plan'), async (req, res) => {
   if (!config.building) { res.status(503).json({error:'Building is switched off here.'}); return; }
   const asked = req.body?.asked;

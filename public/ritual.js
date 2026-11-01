@@ -181,8 +181,9 @@ function renderThread() {
     const proposal = turn.proposal
       ? proposalHtml(turn.proposal, index, turn.applied, turn.checked, turn.changeReceipt)
       : '';
+    const talk = turn.discussion ? discussionHtml(turn.discussion, !p.team && !p.background && !p.files.length && index === p.messages.length - 1) : '';
     return `<div class="build-turn build-turn-ai">
-      <div class="prose">${renderMarkdown(turn.content || '')}</div>${proposal}
+      <div class="prose">${renderMarkdown(turn.content || '')}</div>${proposal}${talk}
     </div>`;
   }).join('') + live;
   el.thread.scrollTop = el.thread.scrollHeight;
@@ -408,6 +409,9 @@ async function send(text) {
   const said = String(text || '').trim();
   const p = project();
   if (!said || !p || isBusy()) return;
+  // A new project is talked through first, like a developer meeting a client:
+  // questions, then a summary to approve. Nothing is built until they say so.
+  if (!p.files.length && !p.team && !p.background && !isBuildResumeCommand(said)) { await discuss(said); return; }
   if(deps.backgroundAvailable){
     const original=p.team?.asked || p.background?.asked || '';
     if(isBuildResumeCommand(said)){
@@ -848,6 +852,61 @@ async function faultsIn(files, expectedPaths = [], cancelled = () => false) {
  * Save four times. Every apply still keeps the version before it, so the
  * whole run can be undone step by step afterwards.
  */
+/* ---- talking it through before building -------------------------------- */
+const START_BUILDING = /^(?:ok(?:ay)?[,! ]*)?(?:yes|yeah|yep|sure|go|go ahead|proceed|start|start (?:the )?build(?:ing)?|build(?: it)?(?: now)?|begin|looks good|perfect|do it|let'?s go|that'?s (?:it|right|good))(?:[,.! ]+(?:please|now|thanks|thank you))*[.!]*$/i;
+const lastDiscussion = (p) => [...(p?.messages || [])].reverse().find((m) => m.role === 'assistant' && m.discussion)?.discussion || null;
+
+async function discuss(said) {
+  const p = project();
+  const agreed = lastDiscussion(p);
+  if (agreed?.brief && START_BUILDING.test(said)) { await startFromBrief(said); return; }
+  p.messages.push({ role: 'user', content: said });
+  const controller = new AbortController();
+  state.streaming = controller; state.live = { what: 'Thinking about your project…' };
+  document.dispatchEvent(new CustomEvent('ritual:busy', { detail: true }));
+  renderThread();
+  try {
+    const conversation = p.messages.filter((m) => m.content && (m.role === 'user' || m.discussion)).map(({ role, content }) => ({ role, content }));
+    const answer = await teamRequest('/api/build/discuss', { messages: conversation }, controller.signal);
+    p.messages.push({ role: 'assistant', content: answer.reply, discussion: { ready: Boolean(answer.ready), brief: answer.brief || '', title: answer.title || '', suggestions: answer.suggestions || [] } });
+    if (answer.title && !p.named) p.name = answer.title;
+  } catch (error) {
+    if (error.name !== 'AbortError') {
+      // Never a dead end: what they said so far can still be built.
+      const brief = p.messages.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
+      p.messages.push({ role: 'assistant', content: `I could not reply just now (${error.message}). Send your message again, or tap **Start building** to build from what you have told me.`, discussion: { ready: true, brief, title: '', suggestions: [] } });
+    }
+  } finally {
+    state.streaming = null; state.live = null;
+    await persist(); render();
+    document.dispatchEvent(new CustomEvent('ritual:busy', { detail: false }));
+  }
+}
+
+/** The person said to start: the agreed brief goes to the build team. */
+async function startFromBrief(said = 'Start building') {
+  const p = project();
+  const agreed = lastDiscussion(p);
+  if (!p || !agreed?.brief || isBusy()) return;
+  if (agreed.title && !p.named) { p.name = agreed.title; p.named = true; }
+  await buildTheWholeThing(agreed.brief, false, { messageText: said });
+}
+
+function discussionHtml(discussion, latest) {
+  if (!latest) return '';
+  const brief = escapeHtml(discussion.brief || '');
+  const chips = (discussion.suggestions || []).filter((s) => !START_BUILDING.test(s))
+    .map((s) => `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('');
+  return `<div class="build-brief${discussion.ready ? ' is-ready' : ''}">
+    ${brief ? `<details${discussion.ready ? ' open' : ''}><summary>What I'll build</summary><p class="build-brief-text">${brief}</p></details>` : ''}
+    ${chips ? `<div class="build-chips">${chips}</div>` : ''}
+    <div class="build-brief-actions">
+      <button class="build-start${discussion.ready ? '' : ' is-quiet'}" type="button" data-discuss-start>${discussion.ready ? 'Start building' : 'Skip questions and start building'}</button>
+      ${discussion.ready ? '<span class="build-brief-note">Or tell me what to change.</span>' : ''}
+    </div>
+  </div>`;
+}
+
 async function teamRequest(path, body, signal) {
   const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},signal,body:JSON.stringify(body)});
   const result=await response.json().catch(()=>({error:response.status===504?'The server took too long. Your saved files are kept; retry the team.':'The server returned an unreadable response. Retry the team.'}));
@@ -855,11 +914,11 @@ async function teamRequest(path, body, signal) {
   return result;
 }
 
-async function buildTheWholeThing(asked, resume=false, {automaticRelease=true}={}) {
+async function buildTheWholeThing(asked, resume=false, {automaticRelease=true,messageText=asked}={}) {
   const p=project();
   if(!p || isBusy())return;
-  if(deps.backgroundAvailable){await startBackgroundBuild(asked,resume);return;}
-  if(!resume)p.messages.push({role:'user',content:asked});
+  if(deps.backgroundAvailable){await startBackgroundBuild(asked,resume,{messageText});return;}
+  if(!resume)p.messages.push({role:'user',content:messageText});
   const controller=new AbortController();
   const run={running:true,controller,startedAt:Date.now(),checkpoint:resume?p.team:{asked,status:'planning'},note:''};
   let saved=true;
@@ -1616,6 +1675,9 @@ export async function mount(options = {}) {
 
     const starter = event.target.closest('.build-starter');
     if (starter) { send(starter.textContent.trim()); return; }
+    if (event.target.closest('[data-discuss-start]')) { startFromBrief(); return; }
+    const say = event.target.closest('[data-discuss-say]');
+    if (say) { send(say.dataset.discussSay); return; }
 
     if (event.target.closest('#build-menu-btn')) {
       const open = el.menu.hidden;
