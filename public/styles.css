@@ -3867,3 +3867,16 @@ body {
 .build-attached { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; font-size: .78rem; background: var(--bg-hover); border-radius: 10px; padding: 4px 8px 4px 4px; overflow-wrap: anywhere; }
 .build-attached img { width: 44px; height: 44px; object-fit: cover; border-radius: 8px; flex: none; }
 .build-attached-icon { width: 32px; height: 32px; display: grid; place-items: center; font-size: 1rem; }
+
+/* ---- Build Phase 2: plan, steps and undo -------------------------------- */
+.build-todo { list-style: none; margin: 10px 0; padding: 10px 12px; border: 1px solid var(--border, rgba(127,127,127,.3)); border-radius: var(--radius); background: var(--bg-hover); display: grid; gap: 6px; }
+.build-todo-step { display: flex; gap: 10px; align-items: flex-start; font-size: .88rem; }
+.build-todo-icon { width: 1.2em; flex: none; text-align: center; font-weight: 700; }
+.build-todo-step.is-done { opacity: .8; }
+.build-todo-step.is-done .build-todo-icon { color: #2e7d32; }
+.build-todo-step.is-failed .build-todo-icon { color: #c62828; }
+.build-todo-step.is-working { font-weight: 600; }
+.build-todo-step.is-working .build-todo-icon { animation: build-spin 1.2s linear infinite; display: inline-block; }
+.build-todo-step.is-skipped { opacity: .55; }
+@keyframes build-spin { to { transform: rotate(360deg); } }
+.build-step-label { margin: 0 0 4px; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; opacity: .7; }

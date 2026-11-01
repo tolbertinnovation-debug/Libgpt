@@ -277,6 +277,7 @@ export function filesFrom(answer) {
   const lines = text.split('\n');
   const files = [];
   const edits = [];
+  const reads = [];
   const pictures = [];
   const prose = [];
 
@@ -299,6 +300,8 @@ export function filesFrom(answer) {
       if (closes) {
         if (open.path && open.picture) {
           pictures.push({ path: open.path, about: open.body.join(' ').trim() });
+        } else if (open.read) {
+          // the body of a read block carries nothing
         } else if (open.path && open.edit) {
           edits.push({ path: open.path, body: open.body.join('\n') });
         } else if (open.path) {
@@ -313,6 +316,13 @@ export function filesFrom(answer) {
       continue;
     }
 
+    // ```read path=some/file``` — the builder asks to see a file before changing it.
+    if (fence && /^[ \t]*read\b/i.test(fence[3])) {
+      const wanted = pathFromFence(fence[3].replace(/(`{3,}|~{3,})\s*$/, ''));
+      if (wanted) reads.push(wanted);
+      if (!/(`{3,}|~{3,})\s*$/.test(fence[3])) open = { marker: fence[2], path: '', read: true, body: [] };
+      continue;
+    }
     if (fence) {
       open = {
         marker: fence[2],
@@ -339,6 +349,7 @@ export function filesFrom(answer) {
   return {
     files,
     edits,
+    reads: [...new Set(reads)],
     // At most two. The prompt asks for that; this is the guard, because a
     // model that ignores it would be spending somebody's money unattended.
     pictures: pictures.slice(0, 2),
@@ -739,10 +750,20 @@ export function downloadProject(project) {
 }
 
 /** What the server is told about the project, capped so a turn stays sendable. */
-export function forSending(files = []) {
+export function forSending(files = [], { focus = null } = {}) {
   const out = [];
   let used = 0;
+  const wanted = Array.isArray(focus) ? new Set(focus) : null;
   for (const file of files) {
+    // A focused step sees the files it works on in full, and the rest as a
+    // line it can ask to read — the way a coding assistant opens only what it needs.
+    const text = String(file.body || '');
+    if (wanted && !wanted.has(file.path) && !isDataFile(file) && text.length > 3000) {
+      const note = `[Not shown, to save space: ${text.split('\n').length} lines. If you need to read or change this file, write \`\`\`read path=${file.path}\`\`\` on its own line and stop; it will be sent to you.]`;
+      used += note.length + file.path.length;
+      out.push({ path: file.path, body: note });
+      continue;
+    }
     // Pictures and documents travel as a short note: the builder needs the
     // path to use them, never their bytes, and must never rewrite them.
     const body = isDataFile(file)

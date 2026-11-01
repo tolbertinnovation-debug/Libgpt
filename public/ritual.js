@@ -22,7 +22,7 @@ import {
   applyEdits, filesFrom, forSending, highlightFile, looksEmpty, makeProject, previewDocument,
   previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
   loadProjectsDurable, saveProjectsDurable,
-} from './build.js?v=edits-1';
+} from './build.js?v=phase2-1';
 import {buildTaskLabel,buildTaskFacts} from './build-task-state.js?v=phase2-stage6-reliability';
 import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js?v=phase2-stage6-reliability';
 import { shrink } from './photo.js';
@@ -175,6 +175,12 @@ function renderThread() {
       </div>`
     : '';
 
+  // Only the latest change can be undone in one tap; older ones go through History.
+  // A plan's steps are undone together, from the plan card.
+  const inPlan = new Set();
+  p.messages.forEach((turn, index) => { if (turn.todo) for (let j = index + 1; j < p.messages.length && p.messages[j].step; j += 1) inPlan.add(j); });
+  let latestUndo = -1;
+  p.messages.forEach((turn, index) => { if (!inPlan.has(index) && ((turn.undoAt && !turn.undone) || (turn.todo?.undoAt && !turn.todo.undone))) latestUndo = index; });
   el.thread.innerHTML = p.messages.map((turn, index) => {
     // Old run summaries belong to the activity history, not the current conversation.
     if(turn.role!=='user' && p.team && /^(Your request is saved, but planning did not finish|Completed files are saved\. Resolve|This task could not finish\.|Progress saved\. Resume)/.test(turn.content || ''))return '';
@@ -184,9 +190,13 @@ function renderThread() {
     const proposal = turn.proposal
       ? proposalHtml(turn.proposal, index, turn.applied, turn.checked, turn.changeReceipt)
       : '';
+    const stepLabel = turn.step ? `<p class="build-step-label">${escapeHtml(turn.step)}</p>` : '';
+    const todo = turn.todo ? todoHtml(turn.todo, index === latestUndo) : '';
+    const undo = turn.undone ? '<p class="build-brief-note">Undone — the files are back to how they were before this change.</p>'
+      : turn.undoAt && index === latestUndo && !inPlan.has(index) ? `<button class="build-chip" type="button" data-undo="${index}">Undo this change</button>` : '';
     const talk = turn.discussion ? discussionHtml(turn.discussion, !p.team && !p.background && !builtFiles(p).length && index === p.messages.length - 1) : '';
     return `<div class="build-turn build-turn-ai">
-      <div class="prose">${renderMarkdown(turn.content || '')}</div>${proposal}${talk}
+      ${stepLabel}<div class="prose">${renderMarkdown(turn.content || '')}</div>${todo}${proposal}${undo}${talk}
     </div>`;
   }).join('') + live + fixHint(p);
   el.thread.scrollTop = el.thread.scrollHeight;
@@ -427,7 +437,7 @@ async function send(text) {
   // Built already: a fix or a change is made straight into the files, checked
   // in the phone and desktop preview, and repaired once more if the check
   // finds a problem. The full engineering review runs before publishing.
-  if (written && !isBuildResumeCommand(said) && p.background?.revision !== -1) { await changeFiles(said); return; }
+  if (written && !isBuildResumeCommand(said) && p.background?.revision !== -1) { await workOn(said); return; }
   if(deps.backgroundAvailable){
     const original=p.team?.asked || p.background?.asked || '';
     if(isBuildResumeCommand(said)){
@@ -452,17 +462,92 @@ async function send(text) {
   await changeFiles(said);
 }
 
+/* ---- Phase 2: a visible plan, one step at a time ------------------------- */
+// Worth a to-do list? Long, or clearly several parts.
+const NEEDS_STEPS = (text) => String(text || '').length > 160
+  || (String(text || '').length > 40 && /\b(?:and also|then|also|redesign|new page|add (?:a|an) [\w ]*page|pages|sections?|several|every page|whole site|gallery|form|booking|checkout)\b/i.test(text));
+
+/** A change to a built website: small ones at once, larger ones as a ticked to-do list. */
+async function workOn(said) {
+  const p = project();
+  if (!p || isBusy()) return;
+  if (!NEEDS_STEPS(said)) { await changeFiles(said); return; }
+  p.messages.push({ role: 'user', content: said });
+  const plan = { role: 'assistant', content: '', todo: { request: said, steps: [] } };
+  p.messages.push(plan);
+  const controller = new AbortController();
+  state.streaming = controller; state.live = { what: 'Planning the steps…' };
+  document.dispatchEvent(new CustomEvent('ritual:busy', { detail: true }));
+  renderThread();
+  let steps = null;
+  try {
+    steps = (await teamRequest('/api/build/steps', { request: said, index: p.files.map((f) => ({ path: f.path, size: String(f.body || '').length })) }, controller.signal)).steps;
+  } catch (error) {
+    if (error.name === 'AbortError') { plan.content = 'Stopped before starting. Your files are unchanged.'; }
+  } finally {
+    state.streaming = null; state.live = null;
+    document.dispatchEvent(new CustomEvent('ritual:busy', { detail: false }));
+  }
+  if (plan.content) { await persist(); render(); return; }
+  if (!Array.isArray(steps) || steps.length < 2) {
+    // One step (or no plan): just do it, as a single change.
+    p.messages.splice(p.messages.indexOf(plan), 1);
+    p.messages.pop();
+    await changeFiles(said);
+    return;
+  }
+  plan.content = `Here is my plan — ${steps.length} steps. I will tick each one as it is done.`;
+  plan.todo.steps = steps.map((step) => ({ title: step.title, files: step.files || [], status: 'pending' }));
+  plan.todo.undoAt = null;
+  const versionsBefore = (p.versions || []).length;
+  await persist(); renderThread();
+  for (let i = 0; i < plan.todo.steps.length; i += 1) {
+    const step = plan.todo.steps[i];
+    step.status = 'working'; renderThread();
+    const last = i === plan.todo.steps.length - 1;
+    const ok = await changeFiles(`Overall request: ${said}\n\nThe plan has ${plan.todo.steps.length} steps. Do step ${i + 1} now, and only this step: ${step.title}`,
+      { shown: null, focus: step.files.length ? step.files : null, check: last, repairsLeft: last ? 1 : 0, label: `Step ${i + 1}: ${step.title}` });
+    step.status = ok ? 'done' : 'failed';
+    plan.todo.undoAt ||= p.versions?.[versionsBefore]?.at || null;
+    await persist(); renderThread();
+    if (!ok) { for (const rest of plan.todo.steps.slice(i + 1)) rest.status = 'skipped'; break; }
+  }
+  await persist(); render();
+}
+
+function todoHtml(todo, undoable) {
+  const icon = { pending: '○', working: '◐', done: '✓', failed: '✕', skipped: '–' };
+  const rows = todo.steps.map((step) => `<li class="build-todo-step is-${step.status}"><span class="build-todo-icon" aria-hidden="true">${icon[step.status] || '○'}</span><span>${escapeHtml(step.title)}</span></li>`).join('');
+  const finished = todo.steps.length && todo.steps.every((step) => step.status !== 'pending' && step.status !== 'working');
+  return `<ol class="build-todo" aria-label="Plan">${rows}</ol>${finished && todo.undoAt && undoable ? `<button class="build-chip" type="button" data-undo-plan>Undo all ${todo.steps.length} steps</button>` : ''}${todo.undone ? '<p class="build-brief-note">Undone — the files are back to how they were before this plan.</p>' : ''}`;
+}
+
+/** Put the files back to how they were before a turn (or a whole plan). */
+async function undoTo(turn) {
+  const p = project();
+  if (!p || isBusy() || !turn) return;
+  const at = turn.todo ? turn.todo.undoAt : turn.undoAt;
+  const index = (p.versions || []).findIndex((version) => version.at === at);
+  if (index < 0) { deps.toast('That earlier version is no longer saved.'); return; }
+  restoreVersion(p, index);
+  if (turn.todo) turn.todo.undone = true; else turn.undone = true;
+  if (p.team) invalidateRelease(p, 'Files restored. Fresh independent release checks are required.');
+  await persist(); render();
+  deps.toast('Undone. Your files are back to how they were.');
+}
+
 // Words that mean something is wrong, so the automatic checks' findings go with the request.
 const PROBLEM = /\b(?:fix|error|errors|broken|break|bug|bugs|problem|problems|issue|issues|wrong|not (?:work|show|load|open|display)|doesn'?t|does not|isn'?t|can'?t|cannot|won'?t|blank|missing|crash|stuck|overlap|cut off|too (?:big|small))\b/i;
 
 /** A change or a fix to a project that already has files. */
-async function changeFiles(said, {faults=null, repairsLeft=1, shown=said}={}) {
+async function changeFiles(said, {faults=null, repairsLeft=1, shown=said, focus=null, check=true, readsLeft=1, label=''}={}) {
   const p=project();
-  if(!p || isBusy())return;
-  p.messages.push({role:'user',content:shown});
-  const answer={role:'assistant',content:''};
+  if(!p || isBusy())return false;
+  if(shown)p.messages.push({role:'user',content:shown});
+  const answer={role:'assistant',content:'',...(label?{step:label}:{})};
   p.messages.push(answer);
   const before=p.files.map(f=>({...f}));
+  const versionsBefore=(p.versions || []).length;
   // What the preview checks already know is wrong, when the person reports a problem.
   if(!faults && PROBLEM.test(said)){
     state.live={what:'Checking the website for problems…'};renderThread();
@@ -477,11 +562,15 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said}={}) {
   renderPlan(p.team?{checkpoint:p.team,running:false}:null);
   renderThread();
   const received=new Map();
-  const editFailures=[];
+  const editFailures=[],reads=[];
   let saved=true,failed=false;
   try {
-    await generateFiles(said,p.files,{signal:controller.signal,faults:faults || [],editFailures,
-      messages:conversationWindow(p.messages.filter(m=>m.content)).list,runtime:p.team?.plan?.runtime || 'static',
+    // The conversation so far, ending with exactly this instruction (a step,
+    // a retry or a repair says more than the person's own words did).
+    const conversation=conversationWindow(p.messages.filter(m=>m.content && m!==answer)).list;
+    if(conversation.at(-1)?.role!=='user' || conversation.at(-1).content!==said)conversation.push({role:'user',content:said});
+    await generateFiles(said,p.files,{signal:controller.signal,faults:faults || [],editFailures,reads,focus,
+      messages:conversation,runtime:p.team?.plan?.runtime || 'static',
       onProse:prose=>{answer.content=prose;renderThread();},
       onFile:async file=>{
         received.set(file.path,file);
@@ -490,9 +579,10 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said}={}) {
         if(!saved) throw new Error('Automatic saving failed. Download your files before leaving.');
         renderTree();
       }});
+    if(!received.size && reads.length && readsLeft>0)answer.content=`Reading ${reads.join(', ')}…`;
     answer.content ||= received.size ? 'Your changes are saved.' : 'No files were changed.';
     if(editFailures.length)answer.content+=`\n\nSome edits did not match the current files (${[...new Set(editFailures.map(f=>f.path))].join(', ')}), so those files were left as they were.`;
-    if(!received.size && p.team){p.team.status='needs_attention';p.team.message='The agent returned no completed files. Your current files are kept; resume the team to finish the requested change.';p.team.faults=[p.team.message];}
+    if(!received.size && !(reads.length && readsLeft>0) && p.team){p.team.status='needs_attention';p.team.message='The agent returned no completed files. Your current files are kept; resume the team to finish the requested change.';p.team.faults=[p.team.message];}
   } catch(error) {
     failed=true;
     if(p.team){p.team.status=error.name==='AbortError'?'stopped':'needs_attention';p.team.message=error.name==='AbortError'?'Stopped. Completed files are kept.':error.message || 'The update could not finish. Resume to retry.';p.team.faults=[p.team.message];}
@@ -502,33 +592,38 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said}={}) {
       answer.proposal=[...received.values()];
       answer.changeReceipt=describeChanges(before,answer.proposal);
       answer.applied=true;
-      answer.checked=saved ? 'checking' : ['Automatic saving failed. Download this project.'];
+      answer.checked=saved ? (check ? 'checking' : null) : ['Automatic saving failed. Download this project.'];
+      // The version from before this turn, so the change can be undone in one tap.
+      answer.undoAt=p.versions?.[versionsBefore]?.at;
     }
     unmark(mine);state.live=null;state.streaming=null;el.editorInput.readOnly=false;
     await persist();render();
     document.dispatchEvent(new CustomEvent('ritual:busy',{detail:false}));
-    // An edit that did not match: asked again once, for those files written out whole.
-    if(!failed && editFailures.length && repairsLeft>0){
-      const paths=[...new Set(editFailures.map(f=>f.path))];
-      await changeFiles(`${said}\n\nYour SEARCH/REPLACE edits for ${paths.join(', ')} did not match the files as they are now. Write each of those files out whole this time, in a normal fenced block with its path, including the change.`,
-        {faults,repairsLeft:repairsLeft-1,shown:'Trying that change again'});
-      return;
-    }
-    if(received.size && saved){
-      await checkAfterSaving(answer);
-      // The preview found a problem with the change: repaired once, automatically.
-      if(!failed && repairsLeft>0 && Array.isArray(answer.checked) && answer.checked.length){
-        await changeFiles('Fix the problems the preview check found after the last change, keeping everything else as it is.',
-          {faults:answer.checked,repairsLeft:repairsLeft-1,shown:'Fix the problems the check found'});
-        return;
-      }
-      if(p.team && !failed){p.team.message='Changes saved and checked. The engineering team reviews everything again before publishing.';await persist();render();}
-    }
   }
+  // It asked to read files first: the same request again, with those files open.
+  if(!failed && !received.size && reads.length && readsLeft>0){
+    return await changeFiles(said,{faults,repairsLeft,shown:null,focus:[...new Set([...(focus || []),...reads])],check,readsLeft:readsLeft-1,label});
+  }
+  // An edit that did not match: asked again once, for those files written out whole.
+  if(!failed && editFailures.length && repairsLeft>0){
+    const paths=[...new Set(editFailures.map(f=>f.path))];
+    return await changeFiles(`${said}\n\nYour SEARCH/REPLACE edits for ${paths.join(', ')} did not match the files as they are now. Write each of those files out whole this time, in a normal fenced block with its path, including the change.`,
+      {faults,repairsLeft:repairsLeft-1,shown:shown ? 'Trying that change again' : null,focus:focus ? [...new Set([...focus,...paths])] : null,check,label});
+  }
+  if(received.size && saved && check){
+    await checkAfterSaving(answer);
+    // The preview found a problem with the change: repaired once, automatically.
+    if(!failed && repairsLeft>0 && Array.isArray(answer.checked) && answer.checked.length){
+      return await changeFiles('Fix the problems the preview check found after the last change, keeping everything else as it is.',
+        {faults:answer.checked,repairsLeft:repairsLeft-1,shown:'Fix the problems the check found'});
+    }
+    if(p.team && !failed){p.team.message='Changes saved and checked. The engineering team reviews everything again before publishing.';await persist();render();}
+  }
+  return !failed;
 }
 
 /** Complete file fences become checkpoints immediately, before the stream ends. */
-async function generateFiles(instruction, files, {signal,onFile=async()=>{},onProse=()=>{},messages,faults=[],research='auto',allowPictures=false,runtime='static',agent='builder',editFailures=[]}={}) {
+async function generateFiles(instruction, files, {signal,onFile=async()=>{},onProse=()=>{},messages,faults=[],research='auto',allowPictures=false,runtime='static',agent='builder',editFailures=[],reads=[],focus=null}={}) {
   // The files as they stand, so SEARCH/REPLACE edits apply to the latest text.
   const working=new Map((files || []).map(f=>[f.path,f.body]));
   let editsDone=0;
@@ -544,7 +639,7 @@ async function generateFiles(instruction, files, {signal,onFile=async()=>{},onPr
   const response=await fetch('/api/chat',{
     method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},signal,
     body:JSON.stringify({mode:'build',buildAgent:agent,buildRuntime:runtime,research:'off',messages:messages || [{role:'user',content:instruction}],
-      files:forSending(files),...(faults.length ? {faults} : {})}),
+      files:forSending(files,{focus}),...(faults.length ? {faults} : {})}),
   });
   if(!response.ok || !response.body){
     const body=await response.json().catch(()=>({}));
@@ -587,6 +682,7 @@ async function generateFiles(instruction, files, {signal,onFile=async()=>{},onPr
     }
   } finally {await reader.cancel().catch(()=>{});reader.releaseLock();}
   const parsed=filesFrom(whole);
+  reads.push(...parsed.reads.filter(path=>(files || []).some(f=>f.path===path)));
   if(parsed.unfinished)throw Object.assign(new Error('A file was cut off. Completed files were saved; resume to finish the missing file.'),finished?{code:'BUILD_INCOMPLETE_RESPONSE'}:{});
   if(!finished)throw new Error('The connection ended before the agent finished. Completed files were saved.');
   // Team designs use local SVG files, avoiding additional unattended image charges.
@@ -1779,6 +1875,9 @@ export async function mount(options = {}) {
     const starter = event.target.closest('.build-starter');
     if (starter) { send(starter.textContent.trim()); return; }
     if (event.target.closest('[data-discuss-start]')) { startFromBrief(); return; }
+    const undo = event.target.closest('[data-undo]');
+    if (undo) { undoTo(project()?.messages[Number(undo.dataset.undo)]); return; }
+    if (event.target.closest('[data-undo-plan]')) { undoTo([...(project()?.messages || [])].reverse().find((m) => m.todo?.undoAt && !m.todo.undone)); return; }
     const say = event.target.closest('[data-discuss-say]');
     if (say) { send(say.dataset.discussSay); return; }
 
