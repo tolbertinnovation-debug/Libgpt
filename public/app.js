@@ -7,7 +7,7 @@ import { chatContext } from './chat-context.js';
 import {imageDiscussion,validImageDiscussion,imageRequestLabel} from './image-context.js';
 import { renderMarkdown, escapeHtml } from './markdown.js';
 import { conversationWindow, answerDepth, researchMode } from './knowledge.js';
-import { groupByDate, loadChats, loadPrefs, newId, savePrefs, saveChats } from './storage.js?v=save-credit-1';
+import { groupByDate, loadChats, loadPrefs, newId, savePrefs, saveChats } from './storage.js?v=auto-speak-3';
 import {
   DEFAULT_DICTATION, DICTATION_ACCENTS, FALLBACK_DICTATION,
   Speaker, SentenceStream, englishVoices, loadVoices, pickDefaultVoice, stripMarkdown,
@@ -87,7 +87,7 @@ const state = {
     research: 'auto',
     theme: null,        // 'light' | 'dark' | null = follow the phone
     textSize: 'md',     // 'sm' | 'md' | 'lg'
-    autoSpeak: false,  // on in Settings; off by default to save voice spending
+    autoSpeak: true,   // every answer is read aloud; can be switched off in Settings
     voiceRate: 1,
     voicePitch: 1,      // only used by the phone fallback
     voiceURI: '',        // '' = let the app pick the closest accent
@@ -1183,6 +1183,9 @@ function ensureChat() {
 
 function send(rawText) {
   const typed = (rawText ?? el.input.value).trim();
+  // Phones only play sound that a tap started. Unlocking it on this tap lets
+  // the answer be read aloud by itself when it arrives.
+  try { if (state.prefs?.autoSpeak) speaker.unlock(); } catch { /* audio stays locked; the Listen button still works */ }
 
   // One message box for both modes. Which one it goes to is whichever the
   // person is looking at — a second box under the first would be one more

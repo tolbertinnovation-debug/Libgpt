@@ -35,10 +35,16 @@ export function migrateVoicePrefs(value) {
   // Once, to save OpenAI credit (owner's choice): reading answers aloud and the
   // advanced voice start off for everyone. Either can be switched back on in
   // Settings, and that choice then sticks.
-  if (prefs.autoSpeakDefault !== 'off-2') {
+  if (prefs.autoSpeakDefault !== 'off-2' && prefs.autoSpeakDefault !== 'on-3') {
     prefs.autoSpeak = false;
     prefs.voiceEngine = 'standard';
     prefs.autoSpeakDefault = 'off-2';
+  }
+  // Once, with the voice back on OpenAI (owner's choice): every answer is read
+  // aloud automatically for everyone. Switching it off in Settings then sticks.
+  if (prefs.autoSpeakDefault !== 'on-3') {
+    prefs.autoSpeak = true;
+    prefs.autoSpeakDefault = 'on-3';
   }
   prefs.openaiVoice = openaiVoice(prefs.openaiVoice);
   // Cloud speech always plays without artificial reverberation.

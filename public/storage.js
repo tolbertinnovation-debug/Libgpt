@@ -3,7 +3,7 @@
 // platform whose users may be discussing their farm, their business or their
 // health on a shared phone.
 
-import { migrateVoicePrefs } from './voice-settings.js?v=save-credit-1';
+import { migrateVoicePrefs } from './voice-settings.js?v=auto-speak-3';
 
 const KEY = 'grandpa-ai:chats:v1';
 const PREFS = 'grandpa-ai:prefs:v1';
