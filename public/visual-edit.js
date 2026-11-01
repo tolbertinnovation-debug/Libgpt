@@ -125,9 +125,10 @@ export const EDITOR_SCRIPT = `(() => {
   const style = document.createElement('style');
   style.textContent = '[data-gp-text]{outline:1px dashed rgba(26,115,232,.55);outline-offset:2px;cursor:text}[data-gp-text]:hover{outline-color:#1a73e8}[data-gp-editing]{outline:2px solid #1a73e8 !important;background:rgba(26,115,232,.06)}'
     + '[data-gp-part]{outline:3px solid #f59e0b !important;outline-offset:3px;background:rgba(245,158,11,.08)}'
-    + '#gp-part{position:absolute;z-index:2147483647;display:none;gap:4px;padding:4px;background:#78350f;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.25)}#gp-part button{all:unset;color:#fff;font:600 14px/1 system-ui,sans-serif;min-width:38px;height:34px;padding:0 4px;display:grid;place-items:center;border-radius:7px;cursor:pointer}#gp-part button:active{background:#92400e}'
+    + '#gp-part{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);z-index:2147483647;display:none;flex-wrap:wrap;justify-content:center;max-width:calc(100% - 16px);gap:4px;padding:4px;background:#78350f;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.25)}#gp-part button{all:unset;color:#fff;font:600 14px/1 system-ui,sans-serif;min-width:38px;height:34px;padding:0 4px;display:grid;place-items:center;border-radius:7px;cursor:pointer}#gp-part button:active{background:#92400e}'
     + 'img[data-gp-img]{outline:2px dashed rgba(26,115,232,.6);outline-offset:2px;cursor:pointer}'
-    + '#gp-bar{position:absolute;z-index:2147483647;display:none;gap:4px;padding:4px;background:#1f2937;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.25)}#gp-bar button{all:unset;color:#fff;font:600 15px/1 system-ui,sans-serif;min-width:36px;height:34px;display:grid;place-items:center;border-radius:7px;cursor:pointer}#gp-bar button:active{background:#374151}';
+    + '#gp-bar{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);z-index:2147483647;display:none;flex-wrap:wrap;justify-content:center;max-width:calc(100% - 16px);gap:4px;padding:4px;background:#1f2937;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.25)}#gp-bar button{all:unset;color:#fff;font:600 15px/1 system-ui,sans-serif;min-width:36px;height:34px;display:grid;place-items:center;border-radius:7px;cursor:pointer}#gp-bar button:active{background:#374151}';
+  style.textContent += 'body{padding-bottom:70px !important}';
   document.head.appendChild(style);
   const editable = (el) => el.matches(TEXT) && el.textContent.trim() && [...el.children].every((child) => INLINE.test(child.tagName) && !child.querySelector('div,p,section,ul,ol,img,table'));
   let count = 0;
@@ -139,7 +140,8 @@ export const EDITOR_SCRIPT = `(() => {
   bar.id = 'gp-bar';
   bar.innerHTML = '<button type="button" data-do="bold" aria-label="Bold"><b>B</b></button><button type="button" data-do="italic" aria-label="Italic"><i>I</i></button><button type="button" data-do="link" aria-label="Link">Link</button><button type="button" data-do="picture" aria-label="Add a picture after this">+ Picture</button><button type="button" data-do="part" aria-label="Move, copy or delete this part">⇅ Move</button>';
   document.body.appendChild(bar);
-  const place = (el) => { const box = el.getBoundingClientRect(); bar.style.display = 'flex'; bar.style.top = Math.max(0, box.top + scrollY - 44) + 'px'; bar.style.left = Math.max(4, Math.min(box.left + scrollX, innerWidth - 150)) + 'px'; };
+  // The bars sit at the bottom of the screen, like a keyboard toolbar, so they never cover the page.
+  const place = () => { bar.style.display = 'flex'; };
   bar.addEventListener('mousedown', (event) => event.preventDefault());
   bar.addEventListener('click', (event) => {
     const button = event.target.closest('[data-do]');
@@ -184,10 +186,8 @@ export const EDITOR_SCRIPT = `(() => {
     part = el || null;
     if (!part) { partBar.style.display = 'none'; return; }
     part.setAttribute('data-gp-part', '');
-    const box = part.getBoundingClientRect();
     partBar.style.display = 'flex';
-    partBar.style.top = Math.max(0, box.top + scrollY - 46) + 'px';
-    partBar.style.left = Math.max(4, Math.min(box.left + scrollX, innerWidth - 300)) + 'px';
+    if (part.scrollIntoView) part.scrollIntoView({ block: 'nearest' });
   };
   partBar.addEventListener('click', (event) => {
     const button = event.target.closest('[data-part]');
