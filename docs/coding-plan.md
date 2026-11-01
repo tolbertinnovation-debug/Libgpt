@@ -64,10 +64,24 @@ How it works now:
 - **Reading files on demand.** A focused step gets its own files in full, plus any small file. Larger files appear as a one-line note. If the builder writes ```` ```read path=… ```` it is sent the file and the step runs again.
 - **Undo.** The latest change has **Undo this change**; a finished plan has **Undo all N steps**. Either restores the saved version from before, and added pictures are kept. Older versions remain under History.
 
-## Phase 3: remembering the project
+## Phase 3: remembering the project (done)
 
 - **A project summary** is kept with the project and sent with every turn: its purpose, pages, colours, fonts, the main selectors and the files the person added. Grandpa then stays consistent across many fixes.
 - **Search across files** ("where is the phone number?") without rewriting anything.
+
+How it works now (`public/build-summary.js`):
+
+- **The project summary** is worked out from the files in the browser, so it is free, instant and always current. It covers:
+  - the purpose (as first asked);
+  - each page with its title and sections;
+  - the main colours, CSS variables and fonts;
+  - the header or menu classes;
+  - the phone numbers and emails on the site;
+  - the files the person added (never rewritten) and the other files.
+
+  It goes with every build request as `projectSummary`, and the server adds it to the builder's instructions under "keep every change consistent with it".
+- **"What is in my website?"** (a chip after every build) shows that summary in the chat.
+- **"Where is…?" questions** are answered from the files with the file and line number, and no AI call. Examples: "Where is the phone number?", "which file has the menu", `find "Book now"`, "where are the prices". Phone numbers, emails, pictures, prices and menus are recognised specially.
 
 ## Phase 4: seeing the result
 
