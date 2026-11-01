@@ -151,7 +151,7 @@ export class Dictation {
 
     if (!response.ok) {
       const body = await response.json().catch(() => ({}));
-      throw new Error(body.error || 'Could not make out the recording. Try again, or type it.');
+      throw Object.assign(new Error(body.error || 'Could not make out the recording. Try again, or type it.'), { status: response.status });
     }
 
     const body = await response.json();

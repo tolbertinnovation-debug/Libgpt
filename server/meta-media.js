@@ -48,16 +48,21 @@ export function wavSeconds(buffer) {
 export async function metaTranscribe({ config = llamaConfig(), audio, keywords = [], signal, fetcher = fetch }) {
   if (!config.ready) throw Object.assign(new Error('Meta voice typing is not set up.'), { status: 503 });
   if (!wavSeconds(audio)) throw Object.assign(new Error('Voice typing needs a WAV recording. Reload the page and try again.'), { status: 400 });
-  const form = new FormData();
-  form.append('request', new Blob([JSON.stringify({ model: META_TRANSCRIBE_MODEL, audioEncoding: 'WAV', mode: 'PUSH_TO_TALK',
-    ...(keywords.length ? { keywords: keywords.slice(0, 100) } : {}) })], { type: 'application/json' }));
-  form.append('audio', new Blob([audio], { type: 'audio/wav' }), 'recording.wav');
-  const response = await fetcher(`${config.baseUrl}/asr/transcribe`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${config.key}`, Accept: 'application/json' },
-    body: form,
-    signal,
-  });
+  const send = (words) => {
+    const form = new FormData();
+    form.append('request', new Blob([JSON.stringify({ model: META_TRANSCRIBE_MODEL, audioEncoding: 'WAV', mode: 'PUSH_TO_TALK',
+      ...(words.length ? { keywords: words.slice(0, 100) } : {}) })], { type: 'application/json' }));
+    form.append('audio', new Blob([audio], { type: 'audio/wav' }), 'recording.wav');
+    return fetcher(`${config.baseUrl}/asr/transcribe`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${config.key}`, Accept: 'application/json' },
+      body: form,
+      signal,
+    });
+  };
+  let response = await send(keywords);
+  // A 400 is refused before any work: try once more without the hint words.
+  if (response.status === 400 && keywords.length) response = await send([]);
   if (!response.ok) throw await failure(response, 'Muse Voice Transcribe');
   const body = await response.json();
   return String(body?.transcript || '').trim();

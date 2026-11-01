@@ -22,6 +22,7 @@ import {
   streamSearch as providerStreamSearch, transcribe,
   canReason,
 } from './openai.js';
+import { safeDiagnostic } from './openai-failure.js';
 import {
   DEFAULT_LANGUAGE,
   DEFAULT_PERSONA,
@@ -1820,10 +1821,13 @@ app.post(
       res.json({ text, heard: Boolean(text) });
     } catch (error) {
       if (controller.signal.aborted) return;
+      // Meta's own reason is shown, so a failure can be reported and fixed.
+      const metaReason = meta && !governanceError(error) && error?.message
+        ? `Voice typing did not work (Meta: ${safeDiagnostic(error.message).slice(0, 180)}). You can type instead.` : '';
       const message = error instanceof OpenAIError || governanceError(error)
         ? error.message
-        : 'Could not make out the recording. Try again, or type it.';
-      if (!(error instanceof OpenAIError) && !governanceError(error)) console.error('[transcribe]', error);
+        : metaReason || 'Could not make out the recording. Try again, or type it.';
+      if (!(error instanceof OpenAIError) && !governanceError(error)) console.error('[transcribe]', error?.status, safeDiagnostic(String(error?.message || error)));
       res.status(error.status === 429 ? 429 : 502).json({ error: message });
     }
   },
