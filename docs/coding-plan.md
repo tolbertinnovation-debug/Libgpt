@@ -83,10 +83,18 @@ How it works now (`public/build-summary.js`):
 - **"What is in my website?"** (a chip after every build) shows that summary in the chat.
 - **"Where is…?" questions** are answered from the files with the file and line number, and no AI call. Examples: "Where is the phone number?", "which file has the menu", `find "Book now"`, "where are the prices". Phone numbers, emails, pictures, prices and menus are recognised specially.
 
-## Phase 4: seeing the result
+## Phase 4: seeing the result (done)
 
 - After each change, a **screenshot of the preview** (phone width) is shown to Muse Spark, which can read images. The model can then catch visual problems that code checks miss, such as overlapping text, a logo that is too big, or unreadable colours, and fix them in the same turn.
 - Accessibility and speed checks: missing alt text, contrast, very large images.
+
+How it works now:
+
+- **Taking the picture** (`public/build-look.js`). After a change passes the code checks, the browser draws the page at phone width (390 pixels) into a JPEG. It uses the page's real HTML, its CSS and the person's pictures, with scripts removed, so it costs nothing and needs no service.
+- **The review** (`POST /api/build/look`, `server/build-look.js`). The picture goes to Muse Spark with a design-reviewer prompt. The prompt asks only about real, visible problems (overlap, cut-off content, a giant logo, unreadable text, the requested change missing), never taste. The answer is checked, with at most four problems. Only JPEG, PNG and WebP pictures of up to 1.6 MB are accepted, and the route is off where pictures cannot be read.
+- **The result in the chat.** The change card shows "Looked at it on a phone screen: it looks right", or what was seen. Problems get one automatic visual repair, which has its own budget separate from the code-check repair, and the page is looked at again.
+- **On request.** "Look at it on a phone and fix what is wrong" (a chip after every build) runs the review and repairs what it finds.
+- **Cost.** One picture review per change, from the Build (coding) allowance.
 
 ## Phase 5: versions and publishing
 
