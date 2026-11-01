@@ -29,6 +29,7 @@ import { shrink } from './photo.js';
 import {backgroundActive,sameProjectSource,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile,canRetryBackgroundCreation,backgroundConnectionMessage} from './build-workspace.js?v=phase2-stage8-poll';
 import { renderMarkdown } from './markdown.js';
 import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materials.js?v=materials-1';
+import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
 
 const $ = (id) => document.getElementById(id);
 
@@ -205,7 +206,7 @@ function renderThread() {
 /** Once something is built: say plainly that anything can be fixed or changed. */
 function fixHint(p) {
   if (!builtFiles(p).length || state.live || isBusy()) return '';
-  const chips = ['Check for problems and fix them', 'Make it look better on phones', 'Change the colours']
+  const chips = ['Check for problems and fix them', 'Make it look better on phones', 'What is in my website?']
     .map((s) => `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('');
   return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${chips}</div></div>`;
 }
@@ -437,6 +438,9 @@ async function send(text) {
   // Built already: a fix or a change is made straight into the files, checked
   // in the phone and desktop preview, and repaired once more if the check
   // finds a problem. The full engineering review runs before publishing.
+  // Questions about the site itself are answered from the files: instant and free.
+  if (written && ABOUT_SITE.test(said)) { answerLocally(said, aboutSite(p)); return; }
+  if (written && SEARCH_QUESTION.test(said)) { answerLocally(said, whereIs(p, said)); return; }
   if (written && !isBuildResumeCommand(said) && p.background?.revision !== -1) { await workOn(said); return; }
   if(deps.backgroundAvailable){
     const original=p.team?.asked || p.background?.asked || '';
@@ -460,6 +464,26 @@ async function send(text) {
   }
 
   await changeFiles(said);
+}
+
+/* ---- Phase 3: knowing the project ---------------------------------------- */
+const ABOUT_SITE = /^(?:what(?:'s| is) in (?:my|this|the) (?:website|site|project)|(?:show|tell) me (?:about )?(?:my|this|the) (?:website|site|project)|project summary|summary)\??$/i;
+
+function answerLocally(said, reply) {
+  const p = project();
+  p.messages.push({ role: 'user', content: said }, { role: 'assistant', content: reply, local: true });
+  persist(); render();
+}
+
+function aboutSite(p) {
+  const text = summarize(p);
+  return text ? `Here is what I know about your website (worked out from its files):\n\n${text.split('\n').map((line) => (line.startsWith('- ') ? `  ${line}` : `- ${line}`)).join('\n')}\n\nI use this with every change so the pages, colours and fonts stay consistent.` : 'There are no files yet.';
+}
+
+function whereIs(p, said) {
+  const found = searchProject(p.files, said);
+  if (!found.length) return 'I could not find that in your website\'s files. Try other words, or put the exact text in quotes, for example: find "Book now".';
+  return `Found ${found.length === 1 ? 'it' : `${found.length} places`}:\n\n${found.map((f) => `- **${f.path}**, line ${f.line}: \`${f.text.replace(/`/g, "'")}\``).join('\n')}\n\nTell me what to change there.`;
 }
 
 /* ---- Phase 2: a visible plan, one step at a time ------------------------- */
@@ -639,7 +663,7 @@ async function generateFiles(instruction, files, {signal,onFile=async()=>{},onPr
   const response=await fetch('/api/chat',{
     method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},signal,
     body:JSON.stringify({mode:'build',buildAgent:agent,buildRuntime:runtime,research:'off',messages:messages || [{role:'user',content:instruction}],
-      files:forSending(files,{focus}),...(faults.length ? {faults} : {})}),
+      files:forSending(files,{focus}),projectSummary:typeof summarize==='function' && typeof project==='function' ? summarize(project()) : '',...(faults.length ? {faults} : {})}),
   });
   if(!response.ok || !response.body){
     const body=await response.json().catch(()=>({}));

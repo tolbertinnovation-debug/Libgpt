@@ -827,6 +827,11 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       runtime:req.body?.buildRuntime==='fullstack'?'fullstack':'static',
     }),
     '',
+    // Phase 3: what the site is (worked out from its files in the browser), so
+    // every change stays consistent with the pages, colours and fonts it has.
+    typeof req.body?.projectSummary === 'string' && req.body.projectSummary.trim()
+      ? `PROJECT SUMMARY (worked out from the files; keep every change consistent with it: same colours, fonts, header, contact details)\n${req.body.projectSummary.replace(/\u0000/g, '').slice(0, 3000)}\n`
+      : '',
     projectContext(project.kept),
     project.dropped.length
       ? `\nThese files are in the project but were too large to include here, `
