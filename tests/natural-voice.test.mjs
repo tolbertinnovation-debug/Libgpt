@@ -16,12 +16,13 @@ test('old voice preferences reset once while unrelated preferences survive', () 
   assert.deepEqual(migrateVoicePrefs(chosen),chosen);
   assert.equal(migrateVoicePrefs({...chosen,openaiVoice:'Sarah',room:'hut'}).openaiVoice,'ballad');
   assert.equal(migrateVoicePrefs(null).openaiVoice,'ballad');
-  // To save OpenAI credit, reading aloud and the advanced voice start off once; switching them back on sticks.
-  const saved=migrateVoicePrefs({voiceSettingsVersion:2,autoSpeak:true,autoSpeakDefault:'on-1',voiceEngine:'advanced'});
-  assert.equal(saved.autoSpeak,false);assert.equal(saved.voiceEngine,'standard');
-  const chosenAgain=migrateVoicePrefs({...saved,autoSpeak:true,voiceEngine:'advanced'});
-  assert.equal(chosenAgain.autoSpeak,true);assert.equal(chosenAgain.voiceEngine,'advanced');
-  assert.equal(migrateVoicePrefs(null).autoSpeak,false);
+  // Reading every answer aloud is turned on once for everyone; switching it off afterwards sticks.
+  const saved=migrateVoicePrefs({voiceSettingsVersion:2,autoSpeak:false,autoSpeakDefault:'off-2',voiceEngine:'advanced'});
+  assert.equal(saved.autoSpeak,true);assert.equal(saved.voiceEngine,'advanced','a chosen voice engine is kept');
+  const off=migrateVoicePrefs({...saved,autoSpeak:false});
+  assert.equal(off.autoSpeak,false);
+  assert.equal(migrateVoicePrefs(null).autoSpeak,true);
+  assert.equal(migrateVoicePrefs({voiceSettingsVersion:2,autoSpeak:true,autoSpeakDefault:'on-1',voiceEngine:'advanced'}).autoSpeak,true);
   // Grandpa's voice moved from Cedar to Ballad once; a voice picked afterwards, Cedar included, stays.
   assert.equal(migrateVoicePrefs({voiceSettingsVersion:2,openaiVoice:'cedar'}).openaiVoice,'ballad');
   assert.equal(migrateVoicePrefs({voiceSettingsVersion:2,openaiVoice:'marin'}).openaiVoice,'marin');
