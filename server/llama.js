@@ -59,7 +59,7 @@ export function backupWorthy(error) {
 }
 
 /** Stream one Llama answer. Yields text; `onFinish` gets the stop reason. */
-export async function* streamLlama({ config = llamaConfig(), model, messages, maxTokens = 1400, temperature, images = false, tools = [], onToolCalls, signal, onFinish, fetcher = fetch }) {
+export async function* streamLlama({ config = llamaConfig(), model, messages, maxTokens = 1400, temperature, images = false, tools = [], onToolCalls, reasoningEffort = 'low', signal, onFinish, fetcher = fetch }) {
   if (!config.ready) throw Object.assign(new Error('The Meta Llama backup is not set up.'), { status: 503 });
   // Grandpa's tools (pictures, documents, memory, thinking), in the same format OpenAI uses.
   const offered = Array.isArray(tools) && tools.length ? tools : null;
@@ -68,6 +68,9 @@ export async function* streamLlama({ config = llamaConfig(), model, messages, ma
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.key}` },
     // Muse Spark does best at its default temperature, so none is sent unless asked.
     body: JSON.stringify({ model: model || config.model, messages: textOnly(messages, { images }), stream: true, max_completion_tokens: maxTokens,
+      // Muse models think before every answer unless told how much. Everyday
+      // answers think briefly ("low"), so the first words arrive sooner.
+      ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
       ...(withTools ? { tools: offered, tool_choice: 'auto' } : {}),
       ...(Number.isFinite(temperature) ? { temperature } : {}) }),
     signal,
@@ -146,6 +149,6 @@ export function everydayForLlama({ question = '', building = false, searched = f
 /** One short, complete Llama answer (titles, summaries). */
 export async function completeLlama({ config = llamaConfig(), messages, maxTokens = 300, temperature = 0.3, signal, fetcher = fetch }) {
   let text = '';
-  for await (const part of streamLlama({ config, messages, maxTokens, temperature, signal, fetcher })) text += part;
+  for await (const part of streamLlama({ config, messages, maxTokens, temperature, reasoningEffort: 'minimal', signal, fetcher })) text += part;
   return text.trim();
 }

@@ -156,14 +156,7 @@ const EMPTY_TIERS = { fast: '', balanced: '', deep: '' };
 let modelCache = { at: 0, models: [], tiers: EMPTY_TIERS, search: '', searchDeep: '' };
 
 async function accountModels() {
-  if (!config.apiKey) {
-    // OpenAI for the voice only: the listing is kept just to find the realtime
-    // (advanced voice and Live Talk) model. Nothing joins the chat picker.
-    if (config.voiceKey && !(modelCache.all?.length && Date.now() - modelCache.at < MODEL_CACHE_MS)) {
-      try { modelCache = { ...modelCache, at: Date.now(), all: await listModels({ key: config.voiceKey }) }; } catch { /* the phone's voice still works */ }
-    }
-    return [];
-  }
+  if (!config.apiKey) return [];
   if (modelCache.models.length && Date.now() - modelCache.at < MODEL_CACHE_MS) {
     return modelCache.models;
   }
@@ -203,6 +196,21 @@ async function accountModels() {
     // than failing the whole page.
     return modelCache.models;
   }
+}
+
+// OpenAI for the voice only: the realtime model (advanced voice, Live Talk) is
+// found with the voice key. Only voice features ask, never chat, so a message
+// does not wait on OpenAI. A failed listing is remembered for a minute too.
+let voiceModelCache = { at: 0, all: [], ok: false };
+async function voiceModels() {
+  if (config.apiKey) { await accountModels(); return modelCache.all || []; }
+  if (!config.voiceKey) return [];
+  const fresh = Date.now() - voiceModelCache.at < (voiceModelCache.ok ? MODEL_CACHE_MS : 60_000);
+  if (!fresh) {
+    try { voiceModelCache = { at: Date.now(), all: await listModels({ key: config.voiceKey, signal: AbortSignal.timeout(4000) }), ok: true }; }
+    catch { voiceModelCache = { at: Date.now(), all: voiceModelCache.all, ok: false }; }
+  }
+  return voiceModelCache.all;
 }
 
 // Set when the account turns out not to be able to read the web at all — the
@@ -304,6 +312,9 @@ app.post('/api/verify', rateLimit, (req, res) => {
 // ---- config the browser is allowed to know ------------------------------
 app.get('/api/config', async (_req, res) => {
   const fromAccount = await accountModels();
+  // Voice only: finds the advanced voice's model (OpenAI's model list, cached).
+  // Never holds the page up for long: a slow listing finishes in the background.
+  if (!config.apiKey) await Promise.race([voiceModels(), new Promise((resolve) => setTimeout(resolve, 1500).unref?.())]);
   const models = fromAccount.length ? fromAccount : FALLBACK_MODELS.filter((m) => runtime.appModels.includes(m.id));
 
   const tiers = fromAccount.length
@@ -985,7 +996,10 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     // to the owner's "backup" allowance, settled from the words actually sent.
     let usedBackup = false;
     // Muse Wonder, Meta's strongest model, for questions that need careful thinking; Muse Spark otherwise.
-    const metaModel = () => (thinking ? llamaConfig().deepModel : llamaConfig().model);
+    // Muse Wonder only when the person asked Grandpa to think (it is slower);
+    // otherwise Muse Spark, thinking a little more for questions that need it.
+    const metaModel = () => (thinking === 'medium' ? llamaConfig().deepModel : llamaConfig().model);
+    const metaEffort = () => (thinking ? 'medium' : 'low');
     const runBackup = async (conversation, room = budget, tools = []) => {
       const llama = llamaConfig();
       const chosen = metaModel();
@@ -993,7 +1007,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       await runtime.meter('backup', 'generate', llamaMicroUsd(inputChars, room * 4, chosen), async (signal) => {
         stopped = '';
         let outputChars = 0;
-        for await (const delta of streamLlama({ config: llama, model: chosen, messages: conversation, maxTokens: room, images: metaSees,
+        for await (const delta of streamLlama({ config: llama, model: chosen, messages: conversation, maxTokens: room, images: metaSees, reasoningEffort: metaEffort(),
           tools, onToolCalls: (calls) => { actions = toolActions(calls, tools); },
           signal: AbortSignal.any([controller.signal, signal]), onFinish: (reason) => { stopped = reason; } })) {
           outputChars += delta.length;
@@ -1074,7 +1088,8 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
         thinking, tier: tierFor('chat', routing), carryingOn, openaiOff: config.openaiOff })) {
         try {
           send('start', { model: metaModel(), spoken, searched: false, dropped, saw: metaSees, thought: Boolean(thinking) });
-          await runBackup(opening(), budget, offered.filter((entry) => entry.function.name !== 'search_web'));
+          // No web search on Meta, and no think_carefully: a second, slower pass is not worth the wait.
+          await runBackup(opening(), budget, offered.filter((entry) => !['search_web', 'think_carefully'].includes(entry.function.name)));
           usedBackup = true;
           answeredByLlama = true;
           model = metaModel();
@@ -1531,8 +1546,7 @@ app.post('/api/structured', rateLimit, requireAccess, runtime.governed('library'
 // instead: not asked for, no realtime model on the account, or it failed.
 async function speakAdvanced({ text, options, body, signal }) {
   if (body?.engine !== 'advanced' || !config.liveTalk) return null;
-  await accountModels();
-  const model = pickRealtimeModel(modelCache.all || [], config.realtimeModel);
+  const model = pickRealtimeModel(await voiceModels(), config.realtimeModel);
   if (!model) return null;
   const perMinute = /mini/.test(model) ? REALTIME_MICRO_USD_PER_MINUTE.mini : REALTIME_MICRO_USD_PER_MINUTE.full;
   try {
@@ -1666,7 +1680,7 @@ app.delete('/api/sync/:id', rateLimit, requireAccess, async (req, res) => {
 const liveSessions = [];
 function liveTalkReady() {
   return config.liveTalk && voiceReady() && !(config.serverless && !config.accessCode)
-    && Boolean(pickRealtimeModel(modelCache.all || [], config.realtimeModel));
+    && Boolean(pickRealtimeModel(config.apiKey ? modelCache.all || [] : voiceModelCache.all, config.realtimeModel));
 }
 /** Worst-case cost of one session, reserved up front and never settled lower. */
 const liveSessionMicroUsd = (model) => config.liveTalkMinutes
@@ -1698,8 +1712,7 @@ app.post('/api/live-talk/session', rateLimit, requireAccess, runtime.governed('l
   const controller = new AbortController();
   res.on('close', () => controller.abort());
   try {
-    await accountModels();
-    const model = pickRealtimeModel(modelCache.all || [], config.realtimeModel);
+    const model = pickRealtimeModel(await voiceModels(), config.realtimeModel);
     if (!model) {
       res.status(503).json({ error: 'Live Talk needs a realtime voice model that this account does not have.', fallback: true });
       return;

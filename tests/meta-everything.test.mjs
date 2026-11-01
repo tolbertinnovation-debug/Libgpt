@@ -13,6 +13,7 @@ test('an OpenAI request becomes a Meta request: Muse model, Meta token field, no
   assert.equal(plain.max_completion_tokens, 300);
   assert.equal('max_tokens' in plain, false);
   assert.equal(plain.temperature, 0.3);
+  assert.equal(plain.reasoning_effort, 'low', 'Muse Spark thinks briefly, so answers start sooner');
   const deep = forMeta({ model: 'gpt-5.4', messages: [], reasoning_effort: 'medium', temperature: 0.7, max_completion_tokens: 900 }, META);
   assert.equal(deep.model, 'muse-wonder-1.0', 'careful thinking goes to Muse Wonder');
   assert.equal('temperature' in deep, false);
@@ -109,6 +110,8 @@ test('with OpenAI off, Build, stories, documents, pictures and chat tools all ru
   const chatBody = meta.at(-1).body;
   assert.ok(chatBody.tools.some((entry) => entry.function.name === 'create_image'));
   assert.equal(chatBody.tools.some((entry) => entry.function.name === 'search_web'), false, 'no web search on Meta');
+  assert.equal(chatBody.tools.some((entry) => entry.function.name === 'think_carefully'), false, 'no slow second pass on Meta');
+  assert.equal(chatBody.reasoning_effort, 'low');
   assert.match(chat, /event: action\ndata: \{"type":"image","prompt":"Liberian farmers planting rice"\}/);
 
   assert.deepEqual(openaiRequests, [], 'nothing ever reached OpenAI');
