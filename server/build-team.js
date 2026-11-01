@@ -2,7 +2,7 @@ import {teamPathConflicts} from '../public/build-team.js';
 import { danglingLinks, projectIssues } from '../public/build.js';
 import { charterText, normalizeStack } from './agent-charters.js';
 import { requirementPrompt, missingRequirements, carryMissingRequirements } from './build-requirements.js';
-import { DESIGN_STANDARD } from './design-standard.js';
+import { DESIGN_STANDARD, KIT_GUIDE } from './design-standard.js';
 
 export const TEAM_AGENTS = Object.freeze(['design', 'pages', 'interactions', 'content', 'backend', 'cloud']);
 const LEGACY_TEAM_AGENTS = ['design', 'pages', 'interactions', 'content'];
@@ -17,7 +17,8 @@ Shared browser scripts must initialize after DOM readiness, guard optional page-
 The shared contract MUST specify navigation, exact shared asset paths, CSS classes, element IDs/data attributes, design tokens, responsive behaviour and interaction contracts. For fullstack also specify API routes, request/response shapes, validation, authentication boundaries, data schema and external setup. Detail each page's real content so builders can implement independently. Browser previews and downloaded static pages must remain useful without a running backend and explain unavailable actions honestly.
 Use supplied brands/details; do not invent testimonials, addresses, credentials or payment integrations. Use SVG logos and icons, labelled forms, keyboard focus, honest validation/loading/empty states. Browser JSON data must work offline without fetch of local files. Do not reproduce Grandpa AI itself unless explicitly requested.
 The shared contract must also fix the look: the design tokens, the hero background, the background of each section, the motion classes (reveal and is-visible) and every photograph by path and description (images/name.jpg written with data-picture), so all builders produce one consistent, modern design.
-${DESIGN_STANDARD}`;
+${DESIGN_STANDARD}
+${KIT_GUIDE}`;
 
 export const TEAM_REVIEW_PROMPT = `${charterText('reviewer')}
 You are Ritual Coding's independent Reviewer. You are separate from the Orchestrator and every builder, and did not write these changes. Review actual source against the user's brief, architecture and shared plan. Your recommendation is one gate only: you cannot authorize deployment or override Security, QA/DevOps or the Approver.
@@ -90,6 +91,7 @@ export function workerInstruction(plan, agent, brief = '', targetPath = '') {
   return [charterText(agent),
     `You are the ${agent} specialist on an engineering team with a separate Architect, Reviewer, Security, QA/DevOps and Approver.`,
     `Original request: ${brief}`, `Project: ${plan.title}. ${plan.summary}`,
+    ['backend', 'cloud'].includes(agent) ? '' : `${DESIGN_STANDARD}\n\n${KIT_GUIDE}`,
     plan.stack ? `Technology stack (use exactly this): frontend ${plan.stack.frontend}; backend ${plan.stack.backend}; database ${plan.stack.database}; infrastructure ${plan.stack.infrastructure}; languages ${plan.stack.languages.join(', ')}.` : '',
     `Acceptance requirements: ${plan.requirements.join('\n')}`,
     `Shared contract:\n${plan.contract}`, `Pages/navigation:\n${JSON.stringify(plan.pages)}`,

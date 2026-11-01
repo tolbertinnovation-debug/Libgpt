@@ -2,7 +2,7 @@ import {verificationStatusMarkup} from './build-verification.js';
 import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
 import {restrictPreviewDocument} from './preview-policy.js';
-import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=edit-3';
+import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=kit-1';
 import {loadPreviewGuard,previewGuardReady} from './preview-guard.js';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
@@ -19,10 +19,10 @@ import { conversationWindow } from './knowledge.js';
 
 import {
   applyChanges, danglingLinks, describeChanges, downloadFile, downloadProject, downloadSingleFile,
-  applyEdits, filesFrom, forSending, highlightFile, pendingPictures, looksEmpty, makeProject, previewDocument,
+  applyEdits, filesFrom, forSending, highlightFile, pendingPictures, KIT_NOTE, isKitFile, looksEmpty, makeProject, previewDocument,
   previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
   loadProjectsDurable, saveProjectsDurable,
-} from './build.js?v=media-1';
+} from './build.js?v=kit-1';
 import {buildTaskLabel,buildTaskFacts} from './build-task-state.js?v=phase2-stage6-reliability';
 import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js?v=phase2-stage6-reliability';
 import { shrink } from './photo.js';
@@ -32,7 +32,8 @@ import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materia
 import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
 import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
 import { historyEntries, compareFiles } from './build-history.js?v=phase5-1';
-import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=edit-6';
+import { SECTIONS, KIT_FILES, ensureKitLinks } from './build-sections.js?v=kit-1';
+import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=kit-1';
 
 const $ = (id) => document.getElementById(id);
 
@@ -490,6 +491,22 @@ async function send(text) {
   await changeFiles(said);
 }
 
+/* ---- The Grandpa Kit ----------------------------------------------------- */
+/** Add the shared design kit to a project once, so builders can use its sections and effects. */
+async function ensureKit(p) {
+  if (!p || p.files.some((f) => isKitFile(f.path))) return true;
+  try {
+    const [css, js] = await Promise.all([KIT_FILES.css, KIT_FILES.js].map(async (path) => {
+      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-1`);
+      if (!response.ok) throw new Error('kit');
+      return response.text();
+    }));
+    applyChanges(p, [{ path: KIT_FILES.css, body: css }, { path: KIT_FILES.js, body: js }], KIT_NOTE);
+    await persist();
+    return true;
+  } catch { return false; }
+}
+
 /* ---- Editing the page by hand -------------------------------------------- */
 function editPage(p, entry = state.previewPath) {
   const pages = (p?.files || []).filter((f) => /\.html?$/i.test(f.path) && !/^data:/.test(f.body || ''));
@@ -523,6 +540,7 @@ async function finishEditing() {
     renderPreview();
     // Step 5: the free checks, then a look at the page on a phone screen. Nothing is
     // changed on its own: these are the person's edits, so problems are offered to fix.
+    await createPhotos(p);
     const mine = mark('Checking your edits…');
     try { turn.checked = await faultsIn(p.files); }
     catch { turn.checked = ['The preview check could not finish. Retry checking before publishing.']; }
@@ -639,6 +657,26 @@ async function changePicture(kind, value) {
   if (await savePageEdit(page, body, state.editScroll)) deps.toast(kind === 'remove' ? 'Picture removed.' : kind === 'size' ? 'Size changed.' : 'Description saved.');
 }
 
+/** Ready-made sections from the kit, inserted after the selected part. */
+function showSectionSheet(id) {
+  state.sectionTarget = id;
+  openSheet('Add a section', `<p class="sheet-note">It goes straight after the part you selected. Then tap any words to change them; photographs are created for you.</p>
+    <div class="section-choices">${Object.entries(SECTIONS).map(([key, section]) => `<button class="sheet-row" type="button" data-add-section="${key}"><span><strong>${escapeHtml(section.label)}</strong></span></button>`).join('')}</div>`);
+}
+
+async function addSection(key) {
+  const p = project();
+  const page = editPage(p);
+  const section = SECTIONS[key];
+  if (!p || !page || !section) return;
+  closeSheet();
+  await ensureKit(p);
+  const fresh = p.files.find((f) => f.path === page.path);
+  const inserted = insertAfter(fresh.body, state.sectionTarget, section.html);
+  if (inserted === fresh.body) { deps.toast('Select a part of the page first, then add the section after it.'); return; }
+  if (await savePageEdit(fresh, ensureKitLinks(inserted, fresh.path), state.editScroll)) deps.toast(`${section.label} added.`);
+}
+
 /** Move a part up or down, copy it or delete it. */
 async function changePart(id, action, scroll) {
   const p = project();
@@ -662,6 +700,7 @@ async function changePart(id, action, scroll) {
 async function applyVisualEdit(data) {
   const p = project();
   if (!state.editMode || !p) return;
+  if (data.type === 'part' && data.action === 'section') { state.editScroll = Number(data.scroll) || 0; showSectionSheet(Number(data.id)); return; }
   if (data.type === 'part') { await changePart(Number(data.id), data.action, data.scroll); return; }
   if (data.type === 'image' || data.type === 'insert-image') { state.editScroll = Number(data.scroll) || 0; showPictureSheet(Number(data.id), { insert: data.type === 'insert-image' }); return; }
   if (data.type !== 'text') return;
@@ -832,6 +871,7 @@ const PROBLEM = /\b(?:fix|error|errors|broken|break|bug|bugs|problem|problems|is
 async function changeFiles(said, {faults=null, repairsLeft=1, shown=said, focus=null, check=true, readsLeft=1, label='', look=true, lookFixes=1}={}) {
   const p=project();
   if(!p || isBusy())return false;
+  if(p.files.some(f=>/\.html?$/i.test(f.path)))await ensureKit(p);
   if(shown)p.messages.push({role:'user',content:shown});
   const answer={role:'assistant',content:'',...(label?{step:label}:{})};
   p.messages.push(answer);
@@ -1414,6 +1454,7 @@ async function startFromBrief(said = 'Start building') {
   if (!p || !agreed?.brief || isBusy()) return;
   if (agreed.title && !p.named) { p.name = agreed.title; p.named = true; }
   const added = (p.materials || []).filter((path) => p.files.some((f) => f.path === path));
+  await ensureKit(p);
   const brief = added.length ? `${agreed.brief}\n\nFiles the person added, already in the project. Use each where it belongs, by this exact path, and never rewrite them:\n${added.map((path) => `- ${path}`).join('\n')}` : agreed.brief;
   await buildTheWholeThing(brief, false, { messageText: said });
 }
@@ -2315,6 +2356,8 @@ export async function mount(options = {}) {
       return;
     }
 
+    const addKey = event.target.closest('[data-add-section]');
+    if (addKey) { addSection(addKey.dataset.addSection); return; }
     const use = event.target.closest('[data-pic-use]');
     if (use) { usePicture(use.dataset.picUse); return; }
     if (event.target.closest('[data-pic-upload]')) { uploadPicture(); return; }

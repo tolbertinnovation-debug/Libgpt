@@ -1,4 +1,4 @@
-import { DESIGN_STANDARD } from './design-standard.js';
+import { DESIGN_STANDARD, KIT_GUIDE, isKitPath } from './design-standard.js';
 // Ritual Coding — the part of Grandpa AI that builds things.
 //
 // The rest of this app answers questions. This one writes files, and that is a
@@ -29,7 +29,7 @@ import { DESIGN_STANDARD } from './design-standard.js';
  */
 export const buildPrompt = ({pictures=false,runtime='static'}={}) => {
   let prompt=pictures?BUILD_PROMPT:BUILD_PROMPT.replace(/\nPICTURES\n[\s\S]*?\nWHAT TO BUILD WITH/,'\nWHAT TO BUILD WITH');
-  prompt=`${prompt}\n\n${DESIGN_STANDARD}`;
+  prompt=`${prompt}\n\n${DESIGN_STANDARD}\n\n${KIT_GUIDE}`;
   if(runtime==='fullstack')prompt=prompt.replace(/WHAT TO BUILD WITH\n[\s\S]*?\nQUALITY REQUIREMENTS/,`WHAT TO BUILD WITH
 The engineering team may prepare backend API/server code, database schemas, tests and cloud configuration when assigned. Write complete files and environment-variable placeholders, never real secrets. Use plain HTML/CSS/JavaScript for browser pages. Write backend, data and infrastructure files in the languages and frameworks named in the plan's technology stack, with their dependency manifests and tests. Document installation, test commands, required services and separate hosting. The app does not run backend code or provision cloud resources; never claim those tests or services are operational. Deployment must remain blocked until independently verified infrastructure and tests exist.
 
@@ -164,6 +164,7 @@ export const BUILD_BUDGET = 16_000;
 export const isDataBody = (body) => /^data:/.test(String(body || ''));
 export function bodyForModel(path, body) {
   const text = String(body ?? '');
+  if (isKitPath(path)) return '[The Grandpa Kit: shared design file, already complete. Use its classes as the kit guide says; never write this file.]';
   if (!isDataBody(text)) return text;
   const picture = /^data:image\//.test(text);
   return `[${picture ? 'Picture' : 'Document'} already in the project (${Math.ceil(text.length * 0.75 / 1024)} KB). Use it by this exact path, for example ${picture ? `<img src="${path}" alt="...">` : `<a href="${path}" download>`}. Never write this file.]`;

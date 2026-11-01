@@ -172,7 +172,7 @@ export const EDITOR_SCRIPT = `(() => {
   // Parts of the page: select one, then move it up or down, copy it or delete it.
   const partBar = document.createElement('div');
   partBar.id = 'gp-part';
-  partBar.innerHTML = '<button type="button" data-part="up" aria-label="Move up">↑</button><button type="button" data-part="down" aria-label="Move down">↓</button><button type="button" data-part="copy" aria-label="Duplicate">Copy</button><button type="button" data-part="delete" aria-label="Delete">Delete</button><button type="button" data-part="bigger" aria-label="Select the bigger part around it">Bigger</button><button type="button" data-part="close" aria-label="Done with this part">✕</button>';
+  partBar.innerHTML = '<button type="button" data-part="up" aria-label="Move up">↑</button><button type="button" data-part="down" aria-label="Move down">↓</button><button type="button" data-part="copy" aria-label="Duplicate">Copy</button><button type="button" data-part="delete" aria-label="Delete">Delete</button><button type="button" data-part="section" aria-label="Add a ready-made section after this">+ Section</button><button type="button" data-part="bigger" aria-label="Select the bigger part around it">Bigger</button><button type="button" data-part="close" aria-label="Done with this part">✕</button>';
   document.body.appendChild(partBar);
   let part = null;
   const FIXED = /^(?:HTML|HEAD|BODY)$/;

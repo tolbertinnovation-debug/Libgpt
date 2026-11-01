@@ -39,7 +39,7 @@ export function createPreviewMessageLimiter(frame, now=Date.now) {
     if(d.grandpa==='visual-edit'){
       if(d.type==='ready'){if(!Number.isInteger(d.count))return false;}
       else if(d.type==='image' || d.type==='insert-image'){if(!Number.isInteger(d.id) || d.id<0)return false;}
-      else if(d.type==='part'){if(!Number.isInteger(d.id) || d.id<0 || !['up','down','copy','delete'].includes(d.action))return false;}
+      else if(d.type==='part'){if(!Number.isInteger(d.id) || d.id<0 || !['up','down','copy','delete','section'].includes(d.action))return false;}
       else if(d.type!=='text' || !Number.isInteger(d.id) || d.id<0 || typeof d.html!=='string' || d.html.length>20000)return false;
     }else if(d.grandpa==='fault' ? typeof d.what!=='string' || !d.what || d.what.length>400 : typeof d.path!=='string' || !d.path || d.path.length>300)return false;
     if(d.hash!==undefined && (typeof d.hash!=='string' || d.hash.length>500))return false;
