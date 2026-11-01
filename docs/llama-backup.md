@@ -55,6 +55,21 @@ Meta's Muse Voice Transcribe and the phone's own voice reads aloud.
 
 Still off, because Meta has no equivalent: live web research.
 
+## Pacing: quick answers, a proper think on large tasks
+
+Muse models always reason before answering, so `metaPlan()` in `server/llama.js` decides how long:
+
+| The question | Model | Thinking |
+| --- | --- | --- |
+| A greeting, a quick question, anything spoken | Muse Spark | minimal |
+| An ordinary question | Muse Spark | low |
+| One that needs reasoning (money, sums, a choice) | Muse Spark | medium |
+| A large task (a long request, a story, a plan, "thorough") | Muse Spark | high |
+| The person tapped **Think** | Muse Wonder | medium |
+| A Build | Muse Spark | high |
+
+Whenever the thinking is medium or more, the chat shows "Thinking it through…" until the first words arrive.
+
 ## OpenAI switched off (for now)
 At the owner's request, OpenAI is off on the live host. `config.openaiOff`
 defaults to on wherever `VERCEL` is set, and `OPENAI_OFF=false` switches

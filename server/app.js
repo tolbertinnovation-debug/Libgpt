@@ -63,7 +63,7 @@ import { cleanSummary } from '../public/chat-summary.js';
 import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULES, realtimeSpeak, pcmToWav, advancedSpeechMicroUsd } from './realtime.js';
 import { realtimeVoice } from '../public/voice-cast.js';
 import { createMemorySyncStore, createPostgresSyncStore, validSyncId } from './sync-store.js';
-import { backupWorthy, completeLlama, everydayForLlama, llamaConfig, llamaMicroUsd, llamaMode, streamLlama } from './llama.js';
+import { backupWorthy, completeLlama, everydayForLlama, llamaConfig, llamaMicroUsd, llamaMode, metaPlan, streamLlama } from './llama.js';
 import { metaImage, metaTranscribe, wavSeconds, META_IMAGE_MICRO_USD, META_TRANSCRIBE_MICRO_USD_PER_SECOND } from './meta-media.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -968,6 +968,8 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
         maxTokens: room,
         temperature,
         reasoningEffort: searched ? '' : thinking,
+        // On Meta, writing a whole build is a large task: think it through properly.
+        metaEffort: building ? 'high' : '',
         signal: controller.signal,
         onFinish: (reason) => { stopped = reason; },
         tools,
@@ -995,11 +997,11 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     // Meta's Llama, when OpenAI cannot answer this turn (see llama.js). Charged
     // to the owner's "backup" allowance, settled from the words actually sent.
     let usedBackup = false;
-    // Muse Wonder, Meta's strongest model, for questions that need careful thinking; Muse Spark otherwise.
-    // Muse Wonder only when the person asked Grandpa to think (it is slower);
-    // otherwise Muse Spark, thinking a little more for questions that need it.
-    const metaModel = () => (thinking === 'medium' ? llamaConfig().deepModel : llamaConfig().model);
-    const metaEffort = () => (thinking ? 'medium' : 'low');
+    // Quick answers to small questions, a proper think on large tasks, and Muse
+    // Wonder when the person asks Grandpa to Think (see metaPlan in llama.js).
+    const plan = () => metaPlan({ thinking, tier: tierFor('chat', routing), depth, spoken, carryingOn });
+    const metaModel = () => plan().model;
+    const metaEffort = () => plan().effort;
     const runBackup = async (conversation, room = budget, tools = []) => {
       const llama = llamaConfig();
       const chosen = metaModel();
@@ -1087,7 +1089,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       if (llamaConfig().ready && everydayForLlama({ question: routedQuestion, building, searched, photo: Boolean(photo) && !metaSees, document: Boolean(document),
         thinking, tier: tierFor('chat', routing), carryingOn, openaiOff: config.openaiOff })) {
         try {
-          send('start', { model: metaModel(), spoken, searched: false, dropped, saw: metaSees, thought: Boolean(thinking) });
+          send('start', { model: metaModel(), spoken, searched: false, dropped, saw: metaSees, thought: plan().long });
           // No web search on Meta, and no think_carefully: a second, slower pass is not worth the wait.
           await runBackup(opening(), budget, offered.filter((entry) => !['search_web', 'think_carefully'].includes(entry.function.name)));
           usedBackup = true;

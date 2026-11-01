@@ -69,9 +69,15 @@ test('with OpenAI off: chat runs on Llama, no OpenAI request is ever made, and O
 
   assert.equal(metaModels[0], 'muse-spark-1.3', 'everyday chat on Muse Spark');
   await (await post('/api/chat', { messages: [{ role: 'user', content: 'Should I take a loan of 50000 LD at 10% a month?' }], research: 'off' })).text();
-  assert.equal(metaModels.at(-1), 'muse-spark-1.3', 'a question that needs some thought stays on the faster Muse Spark');
-  assert.equal(efforts.at(-1), 'medium', 'and thinks a little more');
-  assert.equal(efforts[0], 'low', 'everyday answers think briefly, so they start sooner');
+  assert.equal(metaModels.at(-1), 'muse-spark-1.3', 'a question that needs reasoning stays on Muse Spark');
+  assert.equal(efforts.at(-1), 'medium', 'and thinks it over');
+  const large = `Help me plan my farm for next year. ${'I have two acres of land near Gbarnga, some cassava, a few goats and a small budget. '.repeat(5)}`;
+  await (await post('/api/chat', { messages: [{ role: 'user', content: large }], research: 'off' })).text();
+  assert.equal(efforts.at(-1), 'high', 'a large task is thought through properly');
+  await (await post('/api/chat', { messages: [{ role: 'user', content: 'Good morning Grandpa' }], research: 'off' })).text();
+  assert.equal(efforts.at(-1), 'minimal', 'a greeting is answered at once');
+  await (await post('/api/chat', { messages: [{ role: 'user', content: 'What do goats eat?' }], research: 'off' })).text();
+  assert.equal(efforts.at(-1), 'low', 'an ordinary question after a brief thought');
   await (await post('/api/chat', { messages: [{ role: 'user', content: 'Should I take a loan of 50000 LD at 10% a month?' }], research: 'off', think: true })).text();
   assert.equal(metaModels.at(-1), 'muse-wonder-1.0', 'Think asks Muse Wonder');
 

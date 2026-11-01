@@ -171,7 +171,8 @@ export function forMeta(body, meta) {
   // Careful thinking goes to Muse Wonder; everything else to Muse Spark,
   // thinking briefly so answers start sooner (Muse models always reason).
   next.model = next.reasoning_effort ? meta.deepModel : meta.model;
-  if (!next.reasoning_effort) next.reasoning_effort = 'low';
+  if (!next.reasoning_effort) next.reasoning_effort = next.meta_effort || 'low';
+  delete next.meta_effort;
   if ('max_tokens' in next) {
     if (!('max_completion_tokens' in next)) next.max_completion_tokens = next.max_tokens;
     delete next.max_tokens;
@@ -268,7 +269,7 @@ async function post(path, body, signal, { voice = false } = {}) {
  * its thought, "length" when it hit the token ceiling part-way through.
  */
 export async function* streamChat({
-  model, messages, maxTokens, temperature, signal, onFinish, onUsage, tools, onToolCalls, reasoningEffort,
+  model, messages, maxTokens, temperature, signal, onFinish, onUsage, tools, onToolCalls, reasoningEffort, metaEffort = '',
 }) {
   const offered = Array.isArray(tools) && tools.length ? tools : null;
   // Thinking replaces the temperature: reasoning models refuse both together.
@@ -283,6 +284,8 @@ export async function* streamChat({
     ...(onUsage ? {stream_options:{include_usage:true}} : {}),
     ...(effort ? {reasoning_effort: effort} : {temperature: temperature ?? 0.7}),
     ...tokenLimit(model || config.model, maxTokens ?? 1400),
+    // How long Muse Spark thinks, when this goes to Meta (never sent to OpenAI).
+    ...(metaEffort && metaBridge() ? { meta_effort: metaEffort } : {}),
   }, signal);
 
   const reader = response.body.getReader();
