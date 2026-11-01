@@ -25,11 +25,14 @@ test('with OpenAI off: chat runs on Llama, no OpenAI request is ever made, and O
   let llamaUp = true;
   const openaiRequests = [];
   const metaModels = [];
+  const efforts = [];
   const original = globalThis.fetch;
   globalThis.fetch = async (url, options) => {
     const target = String(url);
     if (target.startsWith('https://llama.test/')) {
-      metaModels.push(JSON.parse(options.body).model);
+      const sent = JSON.parse(options.body);
+      metaModels.push(sent.model);
+      efforts.push(sent.reasoning_effort);
       if (!llamaUp) return Response.json({ error: { message: 'overloaded' } }, { status: 503 });
       return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Llama here.' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
     }
@@ -66,7 +69,11 @@ test('with OpenAI off: chat runs on Llama, no OpenAI request is ever made, and O
 
   assert.equal(metaModels[0], 'muse-spark-1.3', 'everyday chat on Muse Spark');
   await (await post('/api/chat', { messages: [{ role: 'user', content: 'Should I take a loan of 50000 LD at 10% a month?' }], research: 'off' })).text();
-  assert.equal(metaModels.at(-1), 'muse-wonder-1.0', 'questions that need careful thinking go to Muse Wonder');
+  assert.equal(metaModels.at(-1), 'muse-spark-1.3', 'a question that needs some thought stays on the faster Muse Spark');
+  assert.equal(efforts.at(-1), 'medium', 'and thinks a little more');
+  assert.equal(efforts[0], 'low', 'everyday answers think briefly, so they start sooner');
+  await (await post('/api/chat', { messages: [{ role: 'user', content: 'Should I take a loan of 50000 LD at 10% a month?' }], research: 'off', think: true })).text();
+  assert.equal(metaModels.at(-1), 'muse-wonder-1.0', 'Think asks Muse Wonder');
 
   llamaUp = false;
   const failed = await (await post('/api/chat', { messages: [{ role: 'user', content: 'Hello again' }], research: 'off' })).text();

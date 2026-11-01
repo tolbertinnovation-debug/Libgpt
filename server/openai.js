@@ -168,14 +168,16 @@ export const metaBridge = () => {
 /** The OpenAI request rewritten for Meta: Muse model, Meta's token field, no PDF parts. */
 export function forMeta(body, meta) {
   const next = { ...body };
-  // Careful thinking goes to Muse Wonder; everything else to Muse Spark.
+  // Careful thinking goes to Muse Wonder; everything else to Muse Spark,
+  // thinking briefly so answers start sooner (Muse models always reason).
   next.model = next.reasoning_effort ? meta.deepModel : meta.model;
+  if (!next.reasoning_effort) next.reasoning_effort = 'low';
   if ('max_tokens' in next) {
     if (!('max_completion_tokens' in next)) next.max_completion_tokens = next.max_tokens;
     delete next.max_tokens;
   }
   // Thinking replaces the temperature, as with OpenAI's reasoning models.
-  if (next.reasoning_effort) delete next.temperature;
+  if (next.model === meta.deepModel) delete next.temperature;
   if (Array.isArray(next.messages)) {
     next.messages = next.messages.map((message) => {
       if (!Array.isArray(message.content)) return message;

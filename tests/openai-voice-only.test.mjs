@@ -67,10 +67,12 @@ test('OpenAI for the voice only: speaking and listening use OpenAI, everything e
   assert.equal((await heard.json()).text, 'How do I plant cassava?');
   assert.ok(openai.includes('/audio/transcriptions'));
 
+  const listings = openai.filter((path) => path === '/models').length;
   const chat = await (await original(`${base}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ messages: [{ role: 'user', content: 'Hello Grandpa' }], research: 'off' }) })).text();
   assert.match(chat, /Meta here\./);
   assert.ok(meta.includes('/chat/completions'));
+  assert.equal(openai.filter((path) => path === '/models').length, listings, 'a chat message never waits on OpenAI');
 
   assert.deepEqual(openai.filter((path) => !['/models', '/audio/speech', '/audio/transcriptions'].includes(path)), [], 'only the voice reached OpenAI');
 });
