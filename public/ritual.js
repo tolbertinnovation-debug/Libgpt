@@ -19,10 +19,10 @@ import { conversationWindow } from './knowledge.js';
 
 import {
   applyChanges, danglingLinks, describeChanges, downloadFile, downloadProject, downloadSingleFile,
-  applyEdits, filesFrom, forSending, highlightFile, looksEmpty, makeProject, previewDocument,
+  applyEdits, filesFrom, forSending, highlightFile, pendingPictures, looksEmpty, makeProject, previewDocument,
   previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
   loadProjectsDurable, saveProjectsDurable,
-} from './build.js?v=phase4-1';
+} from './build.js?v=media-1';
 import {buildTaskLabel,buildTaskFacts} from './build-task-state.js?v=phase2-stage6-reliability';
 import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js?v=phase2-stage6-reliability';
 import { shrink } from './photo.js';
@@ -212,7 +212,9 @@ function fixHint(p) {
   const chips = ['Check for problems and fix them', ...(deps.vision ? ['Look at it on a phone and fix what is wrong'] : ['Make it look better on phones']), 'What is in my website?']
     .map((s) => `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('');
   const versions = (p.versions || []).length ? '<button class="build-chip" type="button" data-show-history>See versions</button>' : '';
-  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${chips}${versions}</div></div>`;
+  const photos = state.canDraw ? pendingPictures(p.files).length : 0;
+  const photoChip = photos ? `<button class="build-chip" type="button" data-create-photos>Create the ${photos === 1 ? 'photograph' : `${photos} photographs`} this site needs</button>` : '';
+  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${photoChip}${chips}${versions}</div></div>`;
 }
 
 function proposalHtml(files, index, applied, checked, receipt) {
@@ -900,6 +902,7 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said, focus=
       {faults,repairsLeft:repairsLeft-1,shown:shown ? 'Trying that change again' : null,focus:focus ? [...new Set([...focus,...paths])] : null,check,label});
   }
   if(received.size && saved && check){
+    await createPhotos(p);
     await checkAfterSaving(answer);
     // The preview found a problem with the change: repaired once, automatically.
     if(!failed && repairsLeft>0 && Array.isArray(answer.checked) && answer.checked.length){
@@ -1028,7 +1031,31 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * Failures are quiet on purpose. A page whose picture did not arrive is worth
  * having; a build that stops because a picture did not arrive is not.
  */
-async function drawPictures(wanted, {signal}={}) {
+/**
+ * The photographs the pages ask for (<img src="images/…" data-picture="…">),
+ * created with the owner's Pictures allowance after the files are written.
+ */
+async function createPhotos(p, { limit = 6 } = {}) {
+  if (!p || !state.canDraw) return 0;
+  const wanted = pendingPictures(p.files, limit);
+  if (!wanted.length) return 0;
+  const busy = state.streaming;
+  if (!busy) state.streaming = new AbortController();
+  let drawn = [];
+  try {
+    drawn = await drawPictures(wanted, { signal: state.streaming.signal, longEdge: 1280, want: 180_000 });
+  } catch (error) { if (error.name !== 'AbortError') deps.toast(error.message || 'The photographs could not be created.'); }
+  finally { if (!busy) state.streaming = null; unmark(liveToken); }
+  if (drawn.length) {
+    applyChanges(p, drawn, 'Before: creating the photographs');
+    p.messages.push({ role: 'assistant', content: `I created ${drawn.length === 1 ? 'a photograph' : `${drawn.length} photographs`} for your website: ${drawn.map((d) => d.path).join(', ')}. Tap one in Preview → Edit to replace it with your own.` });
+    await persist();
+  }
+  if (p === project()) render();
+  return drawn.length;
+}
+
+async function drawPictures(wanted, {signal, longEdge=720, want=90_000}={}) {
   const drawn = [];
   for (const [at, want] of wanted.entries()) {
     if (!state.canDraw) break;
@@ -1050,7 +1077,7 @@ async function drawPictures(wanted, {signal}={}) {
       // 720px on the long edge and under 90KB: bigger than a page on a phone
       // shows, small enough that a project with two of them still fits beside
       // somebody's conversations.
-      const small = await shrink(asBlob, { longEdge: 720, want: 90_000 });
+      const small = await shrink(asBlob, { longEdge, want });
       drawn.push({ path: want.path, body: small.url });
     } catch (error) {
       if(error.name==='AbortError')throw error;
@@ -1162,6 +1189,8 @@ async function applyBackgroundJob(p,job){
   render();document.dispatchEvent(new CustomEvent('ritual:busy',{detail:state.mode==='build' && isBusy()}));
   if(!remoteRunning(p)){backgroundObserver?.stop();if(wasRunning)deps.toast(job.status==='approved'?'Build ready. Open Preview to inspect it.':'Build progress saved.');}
  }
+ // The photographs the finished pages ask for.
+ if(wasRunning && !remoteRunning(p) && !conflict && p===project())await createPhotos(p);
 }
 function watchBackground(){
  const p=project();backgroundObserver?.stop();
@@ -1462,6 +1491,8 @@ async function buildTheWholeThing(asked, resume=false, {automaticRelease=true,me
     document.dispatchEvent(new CustomEvent('ritual:busy',{detail:false}));
     ensureView('chat');
   }
+  // The photographs the new pages ask for, before anything is published.
+  if(p===project() && !deps.backgroundAvailable)await createPhotos(p);
   if(automaticRelease && p.automation && p.team?.status==='approved' && p===project())await publishProject({automatic:true});
 }
 
@@ -2198,6 +2229,7 @@ export async function mount(options = {}) {
     if (starter) { send(starter.textContent.trim()); return; }
     if (event.target.closest('[data-discuss-start]')) { startFromBrief(); return; }
     if (event.target.closest('[data-show-history]')) { showHistory(); return; }
+    if (event.target.closest('[data-create-photos]')) { const p = project(); if (!isBusy()) createPhotos(p); return; }
     const fixEdits = event.target.closest('[data-fix-edits]');
     if (fixEdits) { fixAfterEdits(Number(fixEdits.dataset.fixEdits)); return; }
     const undo = event.target.closest('[data-undo]');

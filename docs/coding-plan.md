@@ -143,3 +143,23 @@ The owner asked to be able to edit the preview directly: click and type, add or 
 - **Checks run automatically.** After **Done**, the free preview checks run first (missing pages or files, empty pages, phone and desktop errors). If they pass, Grandpa looks at the page on a phone screen (Phase 4).
 - **Nothing is changed on its own.** These are the person's own edits, so any problem is listed in the chat with **Ask Grandpa to fix this (your edits are kept)**. That runs a focused fix told to keep every text, picture and order edit exactly as it is.
 - **The bars stay out of the way.** The editing bars (B / I / Link / + Picture / ⇅ Move, and the part bar) sit at the bottom of the screen like a keyboard toolbar, so they never cover the text you want to tap next.
+
+## Rich websites: photographs, video, animation, backgrounds
+
+The owner asked that every website include what it needs: images, video, animation design and good backgrounds.
+
+- **One design standard for every builder** (`server/design-standard.js`). The single builder, the engineering team's planner and every team builder all work to it:
+  - design tokens as CSS variables;
+  - a full-width hero with a rich background (layered gradient, SVG pattern, or a photo under a dark overlay with readable contrast);
+  - alternating section backgrounds, cards and inline SVG icons, and a responsive layout;
+  - tasteful motion: reveal on scroll with `is-visible`, hover lift and smooth scrolling, all inside `prefers-reduced-motion: no-preference` and never hiding content;
+  - a proper footer and favicon.
+- **The team plan carries the look.** The planner's shared contract must fix the tokens, hero and section backgrounds, motion classes and the list of photographs, so the whole team produces one consistent design.
+- **Photographs are created for you.** Builders write `<img src="images/name.jpg" data-picture="description">`. After the files are saved, the app creates those photos with Muse Image, from the owner's Pictures allowance:
+  - at most six per build, 1280 px and about 180 KB each;
+  - this happens after a cloud build, after a build on the phone and after each change;
+  - a "Create the photographs this site needs" chip appears when any are pending;
+  - until then they count as pending, not broken links;
+  - the person's own pictures always come first, and any photo can be replaced by tapping it in Preview → Edit.
+- **Video.** Only video the person supplies is used: a file they added (as a muted, looping background or section video) or a YouTube or Vimeo link (a privacy-friendly embed in a 16:9 frame). No video or picture address is ever made up.
+- **The conversation before building** now asks about logo, photos and video, and says Grandpa will create photos if they have none.

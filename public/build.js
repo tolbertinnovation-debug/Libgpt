@@ -822,9 +822,34 @@ function pointsAt(html) {
  * Reported in the words of the page doing the pointing, because that is the
  * file somebody has to change.
  */
+/**
+ * Photographs a page asks for but the project does not have yet:
+ * <img src="images/name.jpg" data-picture="description">. The app creates
+ * them after the files are written, so until then they are pending, not broken.
+ */
+export function pendingPictures(files = [], limit = 8) {
+  const have = new Set(files.map((f) => f.path));
+  const wanted = new Map();
+  for (const file of files) {
+    if (!/\.html?$/i.test(file.path) || /^data:/.test(file.body || '')) continue;
+    for (const [tag] of String(file.body || '').matchAll(/<img\b[^>]*>/gi)) {
+      const about = /\bdata-picture\s*=\s*("([^"]*)"|'([^']*)')/i.exec(tag);
+      const src = /\bsrc\s*=\s*("([^"]*)"|'([^']*)')/i.exec(tag);
+      if (!about || !src) continue;
+      const path = resolveProjectPath(file.path, src[2] ?? src[3] ?? '');
+      const description = (about[2] ?? about[3] ?? '').trim();
+      if (!path || have.has(path) || wanted.has(path) || !description || !/\.(?:jpe?g|png|webp)$/i.test(path)) continue;
+      wanted.set(path, { path, about: description.slice(0, 600), page: file.path });
+    }
+  }
+  return [...wanted.values()].slice(0, limit);
+}
+
 export function danglingLinks(files = []) {
   const have = new Set(files.map((f) => f.path));
   const faults = [];
+  // Photographs the app is about to create are not broken links.
+  for (const picture of pendingPictures(files, 1000)) have.add(picture.path);
 
   for (const file of files) {
     if (!/\.html?$/i.test(file.path)) continue;

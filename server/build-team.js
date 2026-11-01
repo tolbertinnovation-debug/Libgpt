@@ -2,6 +2,7 @@ import {teamPathConflicts} from '../public/build-team.js';
 import { danglingLinks, projectIssues } from '../public/build.js';
 import { charterText, normalizeStack } from './agent-charters.js';
 import { requirementPrompt, missingRequirements, carryMissingRequirements } from './build-requirements.js';
+import { DESIGN_STANDARD } from './design-standard.js';
 
 export const TEAM_AGENTS = Object.freeze(['design', 'pages', 'interactions', 'content', 'backend', 'cloud']);
 const LEGACY_TEAM_AGENTS = ['design', 'pages', 'interactions', 'content'];
@@ -14,7 +15,9 @@ STACK: choose the best technology for this project and record it in stack. Stati
 Use runtime static for plain offline HTML/CSS/JavaScript with no CDN or build step. Use runtime fullstack only when the user requests a backend, database, authentication, cloud or server feature. Backend writes real server code and cloud writes schema/config/setup documentation when requested. Their source files cannot execute in the browser preview: require separate hosting, real credentials and provisioning, clearly disclosed in README and the site. Never fabricate active integrations, successful deployment or backend tests. No secrets in browser files, generated credentials or hidden dependency on Grandpa AI's hosting APIs.
 Shared browser scripts must initialize after DOM readiness, guard optional page-specific elements before reading dataset or attaching listeners, and remain valid on every planned page.
 The shared contract MUST specify navigation, exact shared asset paths, CSS classes, element IDs/data attributes, design tokens, responsive behaviour and interaction contracts. For fullstack also specify API routes, request/response shapes, validation, authentication boundaries, data schema and external setup. Detail each page's real content so builders can implement independently. Browser previews and downloaded static pages must remain useful without a running backend and explain unavailable actions honestly.
-Use supplied brands/details; do not invent testimonials, addresses, credentials or payment integrations. Use SVG artwork, labelled forms, keyboard focus, honest validation/loading/empty states. Browser JSON data must work offline without fetch of local files. Do not reproduce Grandpa AI itself unless explicitly requested.`;
+Use supplied brands/details; do not invent testimonials, addresses, credentials or payment integrations. Use SVG logos and icons, labelled forms, keyboard focus, honest validation/loading/empty states. Browser JSON data must work offline without fetch of local files. Do not reproduce Grandpa AI itself unless explicitly requested.
+The shared contract must also fix the look: the design tokens, the hero background, the background of each section, the motion classes (reveal and is-visible) and every photograph by path and description (images/name.jpg written with data-picture), so all builders produce one consistent, modern design.
+${DESIGN_STANDARD}`;
 
 export const TEAM_REVIEW_PROMPT = `${charterText('reviewer')}
 You are Ritual Coding's independent Reviewer. You are separate from the Orchestrator and every builder, and did not write these changes. Review actual source against the user's brief, architecture and shared plan. Your recommendation is one gate only: you cannot authorize deployment or override Security, QA/DevOps or the Approver.
@@ -91,7 +94,7 @@ export function workerInstruction(plan, agent, brief = '', targetPath = '') {
     `Acceptance requirements: ${plan.requirements.join('\n')}`,
     `Shared contract:\n${plan.contract}`, `Pages/navigation:\n${JSON.stringify(plan.pages)}`,
     `Your task:\n${task.instruction}`, `Your exclusively owned files: ${task.files.join(', ')}.`,
-    `${targetPath?`For this operation write only ${targetPath} completely in a closed fenced block with path=${targetPath}.`:'Write every owned file completely in a fenced code block with path=filename.'} Write no file owned by another specialist. Do not wait for colleagues; use the shared contract exactly. Never say rest unchanged or omit implementation. Keep all other filenames and selectors consistent. Include no image generation request blocks; draw assets as SVG files. Do not claim checks passed or files saved; the supervisor and application do that after inspecting actual output.`].filter(Boolean).join('\n\n');
+    `${targetPath?`For this operation write only ${targetPath} completely in a closed fenced block with path=${targetPath}.`:'Write every owned file completely in a fenced code block with path=filename.'} Write no file owned by another specialist. Do not wait for colleagues; use the shared contract exactly. Never say rest unchanged or omit implementation. Keep all other filenames and selectors consistent. Include no image request blocks: logos and icons are SVG, and photographs are <img src="images/name.jpg" data-picture="description"> as the design standard says (the app creates them). Follow the design standard in the shared contract: rich hero and section backgrounds, tasteful motion that never hides content, responsive layout. Do not claim checks passed or files saved; the supervisor and application do that after inspecting actual output.`].filter(Boolean).join('\n\n');
 }
 
 /** A provider cannot turn known faults into approval by returning approved:true. */
