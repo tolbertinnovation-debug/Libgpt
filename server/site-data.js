@@ -179,8 +179,8 @@ export function createMemorySiteData({ now = () => Date.now() } = {}) {
       rows.push(row);
       return row.id;
     },
-    async listEntries(slug, { kind = '', status = '' } = {}) {
-      return list(slug).filter((r) => (!kind || r.kind === kind) && (!status || r.status === status)).slice().reverse().slice(0, 1000).map((r) => ({ ...r }));
+    async listEntries(slug, { kind = '', status = '', limit = 1000 } = {}) {
+      return list(slug).filter((r) => (!kind || r.kind === kind) && (!status || r.status === status)).slice().reverse().slice(0, Math.min(5000, limit)).map((r) => ({ ...r }));
     },
     async updateEntry(slug, id, status) {
       const row = list(slug).find((r) => r.id === id);
@@ -293,9 +293,9 @@ export function createPostgresSiteData({ connectionString, pool: suppliedPool, s
         return id;
       });
     },
-    async listEntries(slug, { kind = '', status = '' } = {}) {
+    async listEntries(slug, { kind = '', status = '', limit = 1000 } = {}) {
       return transaction(async (client) => (await client.query(`SELECT * FROM public.grandpa_ai_site_entries WHERE scope=$1 AND slug=$2
-        AND ($3 = '' OR kind=$3) AND ($4 = '' OR status=$4) ORDER BY created_at DESC, id DESC LIMIT 1000`, [scope, slug, kind, status])).rows.map(readEntry));
+        AND ($3 = '' OR kind=$3) AND ($4 = '' OR status=$4) ORDER BY created_at DESC, id DESC LIMIT $5`, [scope, slug, kind, status, Math.min(5000, Number(limit) || 1000)])).rows.map(readEntry));
     },
     async updateEntry(slug, id, status) {
       return transaction(async (client) => (await client.query('UPDATE public.grandpa_ai_site_entries SET status=$4 WHERE scope=$1 AND slug=$2 AND id=$3', [scope, slug, id, status])).rowCount > 0);

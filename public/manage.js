@@ -136,7 +136,7 @@ function entryCard(entry) {
       entry.kind === 'booking' && entry.status !== 'cancelled' ? h('button', { type: 'button', text: 'Cancel booking', onclick: () => { if (confirm('Cancel this booking? Its time becomes free again.')) setStatus('cancelled'); } }) : null,
       digits.length >= 7 ? h('a', { class: 'button', href: `https://wa.me/${digits}`, target: '_blank', rel: 'noopener', text: 'WhatsApp' }) : null,
       digits.length >= 7 ? h('a', { class: 'button', href: `tel:${phone.replace(/[^\d+]/g, '')}`, text: 'Call' }) : null,
-      email ? h('a', { class: 'button', href: `mailto:${email}`, text: 'Email' }) : null,
+      email ? h('a', { class: 'button', href: `mailto:${encodeURIComponent(email).replace(/%40/g, '@')}`, text: 'Email' }) : null,
       h('button', { type: 'button', text: 'Invoice / receipt', onclick: () => showDocument(entry) }),
       h('button', { type: 'button', class: 'danger', text: 'Delete', onclick: async () => {
         if (!confirm('Delete this for good?')) return;
@@ -401,6 +401,36 @@ function showSettings() {
   } else {
     parts.push(h('div', { class: 'card' }, h('p', { text: 'You signed in with the passcode. The person who made this website in Grandpa AI can change it.' })));
   }
+  // Backups: everything in one file, and the owner's prices, text and settings back from it.
+  const backupStatus = h('p', { class: 'msg', role: 'status' });
+  const download = h('button', { type: 'button', text: '⬇ Download all website data', onclick: async () => {
+    download.disabled = true;
+    try {
+      const response = await fetch(`/api/manage/${encodeURIComponent(slug)}/export`, { headers: { 'X-Site-Key': store.get() } });
+      if (!response.ok) throw new Error('The backup could not be made. Try again.');
+      const url = URL.createObjectURL(await response.blob());
+      const link = h('a', { href: url, download: `${slug}-backup-${new Date().toISOString().slice(0, 10)}.json` });
+      document.body.append(link); link.click(); link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10_000);
+      message(backupStatus, 'Saved. Keep the file somewhere safe, such as your email or Google Drive.', true);
+    } catch (error) { message(backupStatus, error.message); } finally { download.disabled = false; }
+  } });
+  const restoreInput = h('input', { type: 'file', accept: 'application/json,.json', hidden: true, onchange: async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      const backup = JSON.parse(await file.text());
+      if (backup?.kind !== 'grandpa-site-backup') throw new Error('That file is not a backup from Manage.');
+      if (!confirm(`Put back the prices, text and settings from ${backup.exportedAt ? new Date(backup.exportedAt).toLocaleDateString() : 'this backup'}? What visitors sent is not changed.`)) return;
+      if (backup.content) state.info.content = (await api('/content', { method: 'PUT', body: { content: backup.content } })).content;
+      if (backup.settings) state.info.settings = (await api('/settings', { method: 'PUT', body: { settings: backup.settings } })).settings;
+      message(backupStatus, 'Restored. The website shows it straight away.', true);
+    } catch (error) { if (!error.quiet) message(backupStatus, error instanceof SyntaxError ? 'That file could not be read.' : error.message); }
+  } });
+  parts.push(h('div', { class: 'card' }, h('h2', { text: 'Backup' }),
+    h('p', { class: 'note', text: 'One file with everything visitors sent, your prices and text, booking and shop settings, and visitor counts.' }),
+    h('div', { class: 'row' }, download, h('button', { type: 'button', text: 'Restore prices, text and settings', onclick: () => restoreInput.click() })), restoreInput, backupStatus));
   parts.push(h('button', { type: 'button', class: 'full', text: 'Sign out on this phone', onclick: async () => {
     if (!info.publisher) await api('/logout', { method: 'POST' }).catch(() => {});
     store.set(''); showLogin();

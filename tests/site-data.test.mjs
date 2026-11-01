@@ -192,7 +192,19 @@ test('published sites save forms, and only the owner can read them on Manage', a
   const manage = await fetch(`${base}/manage/mama-kitchen`);
   assert.equal(manage.status, 200);
   assert.match(await manage.text(), /Manage your website/);
-  assert.equal(manage.headers.get('content-security-policy'), null, 'not inside the site sandbox');
+  assert.doesNotMatch(manage.headers.get('content-security-policy'), /sandbox/, 'not inside the site sandbox');
+  assert.equal(manage.headers.get('content-security-policy'), "frame-ancestors 'none'", 'and never framed by a published site');
+  assert.equal(manage.headers.get('x-frame-options'), 'DENY');
+
+  // A backup of everything, for the owner only.
+  assert.equal((await fetch(`${base}/api/manage/mama-kitchen/export`)).status, 401);
+  const backup = await fetch(`${base}/api/manage/mama-kitchen/export`, { headers: owner });
+  assert.match(backup.headers.get('content-disposition'), /mama-kitchen-backup-\d{4}-\d{2}-\d{2}\.json/);
+  const all = await backup.json();
+  assert.equal(all.kind, 'grandpa-site-backup');
+  assert.equal(all.content.texts.notice, 'Closed on Sunday');
+  assert.equal(all.entries.length, 1);
+  assert.match((await fetch(`${base}/s/mama-kitchen/`)).headers.get('permissions-policy'), /camera=\(\)/);
 
   // Taking the site down removes what it collected.
   await json('DELETE', '/api/sites/mama-kitchen', { token: published.token });

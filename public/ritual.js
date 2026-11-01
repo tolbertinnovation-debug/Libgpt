@@ -33,6 +33,7 @@ import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=
 import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
 import { historyEntries, compareFiles } from './build-history.js?v=phase5-1';
 import { SECTIONS, KIT_FILES, ensureKitLinks } from './build-sections.js?v=kit-1';
+import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js?v=quality-1';
 import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=kit-1';
 
 const $ = (id) => document.getElementById(id);
@@ -500,6 +501,38 @@ async function send(text) {
 const slugFromName = (name) => String(name || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '');
 const publishedChanged = (p) => Boolean(p.publish && p.publish.fingerprint !== sourceFingerprint(p.files));
 
+/* ---- The quality check (Phase G) ----------------------------------------- */
+function qualityHtml(p) {
+  const report = qualityReport(p.files);
+  const levels = { fix: 'Fix', warn: 'Check', info: 'Tip' };
+  const areas = Object.entries(report.areas).map(([area, score]) => `<span class="quality-score ${score >= 90 ? 'is-good' : score >= 70 ? 'is-ok' : 'is-low'}">${escapeHtml(area)} ${score}</span>`).join('');
+  const shown = ['fix', 'warn', 'info'].flatMap((level) => report.items.filter((i) => i.level === level)).slice(0, 8);
+  const list = shown.length ? `<ul class="quality-list">${shown.map((i) => `<li class="is-${i.level}"><strong>${levels[i.level]}</strong> ${escapeHtml(i.message)}</li>`).join('')}</ul>${report.items.length > shown.length ? `<p class="sheet-note">…and ${report.items.length - shown.length} more.</p>` : ''}`
+    : '<p class="sheet-note">No problems found. 👍</p>';
+  const fixable = qualityRequest(report) ? '<button class="build-chip" type="button" data-quality-fix>Ask Grandpa to fix these</button>' : '';
+  const pictures = bigPictures(p.files).length ? `<button class="build-chip" type="button" data-shrink-pictures>Make ${bigPictures(p.files).length === 1 ? 'the large picture' : `${bigPictures(p.files).length} large pictures`} smaller</button>` : '';
+  return `<details class="quality-check"${report.items.some((i) => i.level === 'fix') ? ' open' : ''}><summary>Quality check <span class="quality-scores">${areas}</span></summary>${list}<div class="history-actions">${fixable}${pictures}</div></details>`;
+}
+
+/** Large photographs made web-sized (about 1600 pixels, under 300 KB), keeping their names. */
+async function shrinkPictures(p) {
+  const big = bigPictures(p.files).filter((f) => !/^data:image\/png/.test(f.body) || !/logo|icon/i.test(f.path));
+  if (!big.length) { deps.toast('No large pictures to make smaller.'); return; }
+  const changed = [];
+  for (const file of big) {
+    try {
+      const blob = await (await fetch(file.body)).blob();
+      const small = await shrink(blob, { longEdge: 1600, want: 300_000 });
+      if (small.url.length < file.body.length) changed.push({ path: file.path, body: small.url });
+    } catch { /* that picture stays as it is */ }
+  }
+  if (!changed.length) { deps.toast('The pictures could not be made smaller.'); return; }
+  applyChanges(p, changed, `Before: made ${changed.length === 1 ? 'a picture' : `${changed.length} pictures`} smaller`);
+  await persist();
+  deps.toast(`${changed.length === 1 ? 'One picture is' : `${changed.length} pictures are`} smaller now.`);
+  render();
+}
+
 function showWebPublish() {
   const p = project();
   if (!p) return;
@@ -518,6 +551,7 @@ function showWebPublish() {
       <a class="sheet-go publish-manage" href="/manage/${encodeURIComponent(pub.slug)}#key=${encodeURIComponent(pub.token || '')}" target="_blank" rel="noopener noreferrer">Manage: messages, bookings, orders and prices</a>
       <p class="sheet-note">See what visitors send through the website's forms, change prices, menu, hours and notices, and set a passcode so the business owner can manage it on their own phone.</p>
       ${publishedChanged(p) ? '<p class="sheet-note">You have changed the website since it was published.</p><button class="sheet-go" type="button" data-publish-go>Update the published website</button>' : '<p class="sheet-note">The published website matches your latest version.</p>'}
+      ${qualityHtml(p)}
       <button class="build-chip pic-remove" type="button" data-publish-remove>Take the website down</button>`);
     return;
   }
@@ -526,6 +560,7 @@ function showWebPublish() {
     <label class="sheet-note" for="publish-slug">Address</label>
     <div class="publish-address"><span>${escapeHtml(location.host)}/s/</span><input id="publish-slug" class="pic-alt" maxlength="40" value="${escapeHtml(slugFromName(p.name) || 'my-website')}" autocapitalize="off" spellcheck="false"></div>
     <p class="sheet-note">3 to 40 letters, numbers and dashes.</p>
+    ${qualityHtml(p)}
     <button class="sheet-go" type="button" data-publish-go>Publish</button>`);
 }
 
@@ -2444,6 +2479,8 @@ export async function mount(options = {}) {
     }
 
     if (event.target.closest('[data-publish-go]')) { publishToWeb(); return; }
+    if (event.target.closest('[data-quality-fix]')) { const p = project(); const ask = p && qualityRequest(qualityReport(p.files)); if (ask && !isBusy()) { closeSheet(); send(ask); } return; }
+    if (event.target.closest('[data-shrink-pictures]')) { const p = project(); if (p && !isBusy()) { closeSheet(); shrinkPictures(p).then(() => showWebPublish()); } return; }
     if (event.target.closest('[data-publish-remove]')) { unpublishFromWeb(); return; }
     if (event.target.closest('[data-publish-copy]')) { const url = project()?.publish?.url; if (url) navigator.clipboard?.writeText(url).then(() => deps.toast('Link copied.'), () => deps.toast(url)); return; }
     if (event.target.closest('[data-publish-share]')) { const p = project(); if (p?.publish) navigator.share?.({ title: p.name, url: p.publish.url }).catch(() => {}); return; }

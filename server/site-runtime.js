@@ -181,13 +181,14 @@ const RUNTIME = String.raw`(function () {
     }
     cartPanel.classList.add('is-open');
     renderCart();
+    var close = cartPanel.querySelector('.gk-cart-close'); if (close) close.focus();
   }
   function renderCart(done) {
     var sheet = document.createElement('div'); sheet.className = 'gk-cart-sheet';
     var head = document.createElement('div'); head.className = 'gk-cart-head';
     var h = document.createElement('h2'); h.textContent = done ? 'Order sent' : 'Your order';
     var close = document.createElement('button'); close.type = 'button'; close.className = 'gk-cart-close'; close.setAttribute('aria-label', 'Close'); close.textContent = '×';
-    close.addEventListener('click', function () { cartPanel.classList.remove('is-open'); });
+    close.addEventListener('click', function () { cartPanel.classList.remove('is-open'); if (cartButton && !cartButton.hidden) cartButton.focus(); });
     head.appendChild(h); head.appendChild(close); sheet.appendChild(head);
     if (done) {
       var p = document.createElement('p'); p.textContent = 'Thank you. Your order was sent. Your reference is ' + done.ref + '. We will contact you to confirm it.'; sheet.appendChild(p);

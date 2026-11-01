@@ -1857,7 +1857,7 @@ app.post('/api/site-data/:slug', siteLimit, async (req, res) => {
     if (!fields) { finish(400, 'The form could not be read.'); return; }
     const entry = cleanEntry(fields);
     if (!entry) { finish(200, 'Thank you. It was sent.'); return; }   // spam is quietly dropped
-    if (!(await siteStore.get(req.params.slug))) { finish(404, 'There is no website at this address.'); return; }
+    if (!(await siteStore.meta(req.params.slug))) { finish(404, 'There is no website at this address.'); return; }
     // Bookings must be for a free time the owner opened in Manage.
     let slotCapacity = 0;
     if (entry.kind === 'booking') {
@@ -1880,7 +1880,7 @@ async function manageAccess(req, res, next) {
   if (!siteStore || !siteData) { res.status(503).json({ error: 'Manage needs the app database, which is not set up on this host.' }); return; }
   if (!validSlug(req.params.slug)) { res.status(404).json({ error: 'There is no website at this address.' }); return; }
   try {
-    const site = await siteStore.get(req.params.slug);
+    const site = await siteStore.meta(req.params.slug);
     if (!site) { res.status(404).json({ error: 'There is no website at this address.' }); return; }
     const key = String(req.get('x-site-key') || '');
     const publisher = publishedBy(site, key);
@@ -1893,7 +1893,7 @@ app.post('/api/manage/:slug/login', rateLimit, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   if (!siteStore || !siteData || !validSlug(req.params.slug)) { res.status(404).json({ error: 'There is no website at this address.' }); return; }
   try {
-    if (!(await siteStore.get(req.params.slug))) { res.status(404).json({ error: 'There is no website at this address.' }); return; }
+    if (!(await siteStore.meta(req.params.slug))) { res.status(404).json({ error: 'There is no website at this address.' }); return; }
     const key = await siteData.login(req.params.slug, String(req.body?.passcode || ''));
     if (!key) { res.status(401).json({ error: 'That passcode is not right.' }); return; }
     res.json({ key });
@@ -1903,7 +1903,7 @@ app.get('/api/manage/:slug', rateLimit, manageAccess, async (req, res) => {
   try {
     const summary = await siteData.summary(req.site.slug);
     res.json({ slug: req.site.slug, name: req.site.name, url: `${publicBase(req)}/s/${req.site.slug}/`, publisher: req.sitePublisher,
-      pages: req.site.files.filter((f) => /\.html?$/i.test(f.path)).map((f) => f.path).slice(0, 40), kinds: ENTRY_KINDS, ...summary });
+      pages: req.site.pages, kinds: ENTRY_KINDS, ...summary });
   } catch (error) { dataFailed(res, error); }
 });
 app.get('/api/manage/:slug/entries', rateLimit, manageAccess, async (req, res) => {
@@ -1928,6 +1928,15 @@ app.patch('/api/manage/:slug/entries/:id', rateLimit, manageAccess, async (req, 
 app.delete('/api/manage/:slug/entries/:id', rateLimit, manageAccess, async (req, res) => {
   try { res.json({ removed: await siteData.deleteEntry(req.site.slug, String(req.params.id)) }); } catch (error) { dataFailed(res, error); }
 });
+// A backup of everything the website collected and the owner saved, as one file.
+app.get('/api/manage/:slug/export', rateLimit, manageAccess, async (req, res) => {
+  try {
+    const [summary, entries] = await Promise.all([siteData.summary(req.site.slug), siteData.listEntries(req.site.slug, { limit: 5000 })]);
+    res.setHeader('Content-Disposition', `attachment; filename="${req.site.slug}-backup-${new Date().toISOString().slice(0, 10)}.json"`);
+    res.json({ kind: 'grandpa-site-backup', version: 1, exportedAt: new Date().toISOString(), site: { slug: req.site.slug, name: req.site.name, url: `${publicBase(req)}/s/${req.site.slug}/` },
+      content: summary.content, settings: summary.settings, visits: summary.visits, entries });
+  } catch (error) { dataFailed(res, error); }
+});
 app.put('/api/manage/:slug/settings', rateLimit, manageAccess, async (req, res) => {
   try { res.json({ settings: await siteData.setSettings(req.site.slug, req.body?.settings) }); } catch (error) { dataFailed(res, error); }
 });
@@ -1949,6 +1958,11 @@ app.post('/api/manage/:slug/logout', rateLimit, manageAccess, async (req, res) =
 // The Manage page itself, on the app's own address (not inside the site's sandbox).
 app.get('/manage/:slug', (_req, res) => {
   res.setHeader('Cache-Control', 'no-store');
+  // Never inside another page (a published site could otherwise frame it).
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.sendFile(path.join(__dirname, '..', 'public', 'manage.html'));
 });
 
@@ -1959,6 +1973,7 @@ const SITE_HEADERS = {
   'Content-Security-Policy': "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads; frame-ancestors 'self'",
   'X-Content-Type-Options': 'nosniff',
   'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Permissions-Policy': 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=()',
   'Cache-Control': 'public, max-age=60',
 };
 const notFoundPage = (message) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Not found</title><style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;margin:0;padding:24px;color:#1f2937;text-align:center}</style></head><body><div><h1>Page not found</h1><p>${message}</p></div></body></html>`;
