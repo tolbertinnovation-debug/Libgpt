@@ -1,4 +1,4 @@
-/* Grandpa Kit 1 — gallery viewer, sliders, reveal on scroll, dark mode, language switch,
+/* Grandpa Kit 2 — gallery viewer, sliders, reveal on scroll, dark mode, language switch,
    counters, back to top and page loader. Everything works without it; it only adds. */
 (function () {
   'use strict';
@@ -96,6 +96,18 @@
     // Back to top: .gk-top
     var top = document.querySelector('.gk-top');
     if (top) { top.addEventListener('click', function () { scrollTo({ top: 0, behavior: reduce ? 'auto' : 'smooth' }); }); addEventListener('scroll', function () { top.classList.toggle('is-shown', scrollY > 600); }, { passive: true }); }
+
+    // Forms (data-gk-form) save to Grandpa Data once the site is published; the
+    // published page's own Grandpa script handles them. Before that, say so.
+    if (!window.GrandpaSite) document.querySelectorAll('form[data-gk-form]').forEach(function (form) {
+      form.addEventListener('submit', function (e) {
+        if (window.GrandpaSite) return;
+        e.preventDefault();
+        var box = form.querySelector('[data-gk-form-status]');
+        if (!box) { box = document.createElement('p'); box.className = 'gk-form-status'; box.setAttribute('data-gk-form-status', ''); box.setAttribute('role', 'status'); form.appendChild(box); }
+        box.textContent = 'This form works once the website is published. What visitors send will appear in Manage.';
+      });
+    });
 
     // Year: [data-gk-year]
     document.querySelectorAll('[data-gk-year]').forEach(function (el) { el.textContent = String(new Date().getFullYear()); });

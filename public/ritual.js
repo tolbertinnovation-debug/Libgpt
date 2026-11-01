@@ -511,6 +511,8 @@ function showWebPublish() {
         ${navigator.share ? '<button class="build-chip" type="button" data-publish-share>Share</button>' : ''}
         <a class="build-chip" href="${escapeHtml(pub.url)}" target="_blank" rel="noopener">Open</a>
       </div>
+      <a class="sheet-go publish-manage" href="/manage/${encodeURIComponent(pub.slug)}#key=${encodeURIComponent(pub.token || '')}" target="_blank" rel="noopener noreferrer">Manage: messages, bookings, orders and prices</a>
+      <p class="sheet-note">See what visitors send through the website's forms, change prices, menu, hours and notices, and set a passcode so the business owner can manage it on their own phone.</p>
       ${publishedChanged(p) ? '<p class="sheet-note">You have changed the website since it was published.</p><button class="sheet-go" type="button" data-publish-go>Update the published website</button>' : '<p class="sheet-note">The published website matches your latest version.</p>'}
       <button class="build-chip pic-remove" type="button" data-publish-remove>Take the website down</button>`);
     return;
@@ -570,11 +572,14 @@ async function unpublishFromWeb() {
 
 /* ---- The Grandpa Kit ----------------------------------------------------- */
 /** Add the shared design kit to a project once, so builders can use its sections and effects. */
+const KIT_VERSION = 'Grandpa Kit 2';
 async function ensureKit(p) {
-  if (!p || p.files.some((f) => isKitFile(f.path))) return true;
+  // An older kit is replaced by the current one (only the kit ever changes the kit).
+  const kit = (p?.files || []).filter((f) => isKitFile(f.path));
+  if (!p || (kit.length === 2 && kit.every((f) => String(f.body).startsWith(`/* ${KIT_VERSION} `)))) return true;
   try {
     const [css, js] = await Promise.all([KIT_FILES.css, KIT_FILES.js].map(async (path) => {
-      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-1`);
+      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-2`);
       if (!response.ok) throw new Error('kit');
       return response.text();
     }));
