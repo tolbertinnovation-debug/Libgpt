@@ -25,7 +25,7 @@ import { GLOSSARY, annotateGlossary } from './glossary.js';
 import { proverbOfTheDay } from './proverbs.js';
 import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary, loadJournal } from './library.js';
-import { Dictation, canRecord } from './dictate.js?v=meta-media-1';
+import { Dictation, canRecord } from './dictate.js?v=voice-fix-1';
 import { RecordedEar, canListenByRecording } from './hearing.js?v=meta-media-1';
 import * as ritual from './ritual.js?v=chat-layout-2';
 import { shrink, thumbnail } from './photo.js';
@@ -1990,7 +1990,10 @@ const dictation = new Dictation({
 
 let transcribing = false;
 
-const canSendRecording = () => Boolean(state.catalogue.dictation) && canRecord();
+// Set when the server could not turn a recording into words (not a limit):
+// the phone's own listening is used for the rest of this visit, where it has one.
+let recordingRefused = false;
+const canSendRecording = () => Boolean(state.catalogue.dictation) && canRecord() && !recordingRefused;
 
 async function startRecording() {
   speaker.stop();                 // never listen and talk at once
@@ -2028,7 +2031,10 @@ async function finishRecording() {
     updateSendState();
     el.input.focus();
   } catch (error) {
-    toast(error.message);
+    if (error.status && error.status !== 429 && error.status !== 401 && SpeechRecognition) {
+      recordingRefused = true;
+      toast(`${error.message} Tap the microphone again to use the phone's own listening.`);
+    } else toast(error.message);
   } finally {
     transcribing = false;
     el.listeningBar.hidden = true;

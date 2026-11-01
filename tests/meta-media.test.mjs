@@ -33,6 +33,17 @@ test('Muse Voice Transcribe: WAV in multipart with the documented request part, 
   assert.deepEqual(JSON.parse(await form.get('request').text()), { model: META_TRANSCRIBE_MODEL, audioEncoding: 'WAV', mode: 'PUSH_TO_TALK', keywords: ['Gbarnga', 'Kpelle'] });
   assert.equal(form.get('audio').type, 'audio/wav');
   await assert.rejects(metaTranscribe({ config, audio: Buffer.from('webm bytes, not a wav file at all') }), /needs a WAV recording/);
+
+  // Hint words turned down: asked again without them, rather than failing.
+  const requests = [];
+  const retried = await metaTranscribe({ config, audio, keywords: ['Gbarnga'], fetcher: async (_url, options) => {
+    const request = JSON.parse(await (await new Request('http://x', { method: 'POST', body: options.body }).formData()).get('request').text());
+    requests.push(request);
+    return request.keywords ? Response.json({ error: { message: 'bad keywords' } }, { status: 400 }) : Response.json({ transcript: 'Hello Grandpa' });
+  } });
+  assert.equal(retried, 'Hello Grandpa');
+  assert.equal(requests.length, 2);
+  assert.equal('keywords' in requests[1], false);
 });
 
 test('the phone sends WAV (16 kHz mono 16-bit) only when the site asks for it', async () => {
@@ -68,7 +79,7 @@ test('with OpenAI off, /api/image, /api/transcribe and photo questions go to Met
   globalThis.fetch = async (url, options) => {
     const target = String(url);
     if (target === 'https://meta.test/v1/images/generations') { seen.images.push(JSON.parse(options.body)); return Response.json({ data: [{ b64_json: 'AAAA' }], output_format: 'jpeg' }); }
-    if (target === 'https://meta.test/v1/asr/transcribe') { seen.asr += 1; return Response.json({ transcript: 'How do I plant cassava?' }); }
+    if (target === 'https://meta.test/v1/asr/transcribe') { seen.asr += 1; return seen.asrDown ? Response.json({ error: { message: 'Unsupported WAV file' } }, { status: 500 }) : Response.json({ transcript: 'How do I plant cassava?' }); }
     if (target === 'https://meta.test/v1/chat/completions') {
       seen.chat.push(JSON.parse(options.body));
       return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: 'The leaf has mosaic disease.' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
@@ -96,6 +107,12 @@ test('with OpenAI off, /api/image, /api/transcribe and photo questions go to Met
   assert.equal(heard.status, 200, await heard.clone().text());
   assert.deepEqual(await heard.json(), { text: 'How do I plant cassava?', heard: true });
   assert.equal(seen.asr, 1);
+  // Meta's own reason reaches the person, so it can be reported.
+  seen.asrDown = true;
+  const refused = await original(`${base}/api/transcribe`, { method: 'POST', headers: { 'Content-Type': 'audio/wav' }, body: await wav(2) });
+  assert.equal(refused.status, 502);
+  assert.match((await refused.json()).error, /Voice typing did not work \(Meta: Unsupported WAV file\)/);
+  seen.asrDown = false;
 
   const photo = 'data:image/jpeg;base64,' + Buffer.alloc(3000, 7).toString('base64');
   const answer = await (await original(`${base}/api/chat`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
