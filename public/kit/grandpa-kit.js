@@ -1,4 +1,4 @@
-/* Grandpa Kit 3 — gallery viewer, sliders, reveal on scroll, dark mode, language switch,
+/* Grandpa Kit 4 — gallery viewer, sliders, reveal on scroll, dark mode, language switch,
    counters, back to top and page loader. Everything works without it; it only adds. */
 (function () {
   'use strict';
@@ -107,6 +107,16 @@
         if (!box) { box = document.createElement('p'); box.className = 'gk-form-status'; box.setAttribute('data-gk-form-status', ''); box.setAttribute('role', 'status'); form.appendChild(box); }
         box.textContent = 'This form works once the website is published. What visitors send will appear in Manage.';
       });
+    });
+
+    // Add to cart (data-gk-add) and booking times work on the published site; before that, say so.
+    document.addEventListener('click', function (e) {
+      var add = !window.GrandpaSite && e.target.closest && e.target.closest('[data-gk-add]');
+      if (!add) return;
+      e.preventDefault();
+      var note = document.createElement('div'); note.className = 'gk-note'; note.setAttribute('role', 'status');
+      note.textContent = 'The cart works once the website is published. Orders will appear in Manage.';
+      document.body.appendChild(note); setTimeout(function () { if (note.parentNode) note.parentNode.removeChild(note); }, 3500);
     });
 
     // Print or save as PDF: [data-gk-print] prints the page, or only the element named in it ("#certificate")

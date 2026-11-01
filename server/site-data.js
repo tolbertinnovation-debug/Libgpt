@@ -84,7 +84,58 @@ const scrypt = (passcode, salt) => crypto.scryptSync(passcode, salt, 32).toStrin
 const sealPasscode = (passcode) => { const salt = crypto.randomBytes(16).toString('hex'); return { salt, hash: scrypt(checkPasscode(passcode), salt) }; };
 const passcodeMatches = (sealed, passcode) => Boolean(sealed?.salt && typeof passcode === 'string' && passcode.length <= 64 && sameText(scrypt(passcode, sealed.salt), sealed.hash));
 
-function emptyAdmin() { return { passcode: null, sessions: [], content: { texts: {}, lists: {} }, visits: {}, failures: 0, lockedUntil: 0 }; }
+function emptyAdmin() { return { passcode: null, sessions: [], content: { texts: {}, lists: {} }, settings: null, visits: {}, failures: 0, lockedUntil: 0 }; }
+
+/* ---- bookings and the shop (Phase E) ------------------------------------- */
+export const ENTRY_STATUSES = ['new', 'done', 'cancelled'];
+const hhmm = (text, fallback) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(String(text || '')) ? String(text) : fallback);
+const minutes = (time) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+const clock = (mins) => `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+const isDate = (text) => /^\d{4}-\d{2}-\d{2}$/.test(String(text || '')) && !Number.isNaN(Date.parse(`${text}T00:00:00Z`));
+
+/** The owner's booking hours and shop details, cleaned. */
+export function cleanSettings(input) {
+  const source = input && typeof input === 'object' ? input : {};
+  const b = source.booking && typeof source.booking === 'object' ? source.booking : {};
+  const shop = source.shop && typeof source.shop === 'object' ? source.shop : {};
+  const open = hhmm(b.open, '08:00'), close = hhmm(b.close, '17:00');
+  if (minutes(close) <= minutes(open)) throw fail('The closing time must be after the opening time.', 400);
+  const text = (v, n) => String(v ?? '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, '').slice(0, n);
+  return {
+    booking: {
+      on: Boolean(b.on),
+      days: [...new Set((Array.isArray(b.days) ? b.days : [1, 2, 3, 4, 5, 6]).map(Number).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6))].sort(),
+      open, close,
+      slot: [15, 20, 30, 45, 60, 90, 120].includes(Number(b.slot)) ? Number(b.slot) : 30,
+      capacity: Math.min(50, Math.max(1, Math.round(Number(b.capacity) || 1))),
+      ahead: Math.min(365, Math.max(1, Math.round(Number(b.ahead) || 60))),
+      closed: [...new Set((Array.isArray(b.closed) ? b.closed : []).filter(isDate))].sort().slice(0, 100),
+      offset: Math.min(840, Math.max(-720, Math.round(Number(b.offset) || 0))),   // minutes from UTC; Liberia is 0
+    },
+    shop: { currency: text(shop.currency, 12).trim() || 'LRD', payment: text(shop.payment, 600), delivery: text(shop.delivery, 400) },
+  };
+}
+
+/** The bookable times on one date (in the business's own time), past times left out. */
+export function bookingTimes(booking, date, now = Date.now()) {
+  if (!booking?.on || !isDate(date) || booking.closed.includes(date)) return [];
+  const local = new Date(now + booking.offset * 60_000);
+  const todayLocal = local.toISOString().slice(0, 10);
+  const last = new Date(Date.parse(`${todayLocal}T00:00:00Z`) + booking.ahead * 86_400_000).toISOString().slice(0, 10);
+  if (date < todayLocal || date > last) return [];
+  if (!booking.days.includes(new Date(`${date}T00:00:00Z`).getUTCDay())) return [];
+  const nowMinutes = date === todayLocal ? local.getUTCHours() * 60 + local.getUTCMinutes() : -1;
+  const times = [];
+  for (let t = minutes(booking.open); t + booking.slot <= minutes(booking.close); t += booking.slot) if (t > nowMinutes) times.push(clock(t));
+  return times;
+}
+
+/** Why a booking for this date and time cannot be taken, or '' when it can. */
+export function slotProblem(booking, date, time, now = Date.now()) {
+  if (!booking?.on) return '';
+  if (!isDate(date) || !hhmm(time, '')) return 'Choose a date and a time for your booking.';
+  return bookingTimes(booking, date, now).includes(time) ? '' : 'That time cannot be booked. Choose another time.';
+}
 const keepVisits = (visits, now) => {
   const cutoff = today(now - VISIT_DAYS * 86_400_000);
   return Object.fromEntries(Object.entries(visits || {}).filter(([day]) => day >= cutoff));
@@ -116,8 +167,11 @@ export function createMemorySiteData({ now = () => Date.now() } = {}) {
   const list = (slug) => { if (!entries.has(slug)) entries.set(slug, []); return entries.get(slug); };
   return {
     durable: false,
-    async addEntry(slug, entry) {
+    async addEntry(slug, entry, { slotCapacity = 0 } = {}) {
       const rows = list(slug);
+      if (slotCapacity && entry.kind === 'booking' && rows.filter((r) => r.kind === 'booking' && r.status !== 'cancelled' && r.fields.date === entry.fields.date && r.fields.time === entry.fields.time).length >= slotCapacity) {
+        throw fail('Sorry, that time was just booked. Choose another time.', 409);
+      }
       const since = now() - 86_400_000;
       if (rows.filter((r) => Date.parse(r.createdAt) > since).length >= ENTRIES_PER_DAY) throw fail('This website has received too many forms today. Try again tomorrow, or call the business.', 429);
       if (rows.length >= ENTRIES_KEPT) throw fail('This website cannot take more forms just now. Please call the business.', 507);
@@ -142,13 +196,20 @@ export function createMemorySiteData({ now = () => Date.now() } = {}) {
     },
     async summary(slug) {
       const a = admin(slug), rows = list(slug);
-      return { hasPasscode: Boolean(a.passcode), content: a.content, visits: keepVisits(a.visits, now()), newEntries: rows.filter((r) => r.status === 'new').length, entries: rows.length };
+      return { hasPasscode: Boolean(a.passcode), content: a.content, settings: a.settings, visits: keepVisits(a.visits, now()), newEntries: rows.filter((r) => r.status === 'new').length, entries: rows.length };
+    },
+    async settings(slug) { return admins.get(slug)?.settings || null; },
+    async setSettings(slug, settings) { admin(slug).settings = cleanSettings(settings); return admin(slug).settings; },
+    async bookingCounts(slug, date) {
+      const counts = {};
+      for (const r of list(slug)) if (r.kind === 'booking' && r.status !== 'cancelled' && r.fields.date === date) counts[r.fields.time] = (counts[r.fields.time] || 0) + 1;
+      return counts;
     },
     async content(slug) { return admins.get(slug)?.content || { texts: {}, lists: {} }; },
     async visitAndContent(slug) {
       const a = admin(slug), day = today(now());
       a.visits = keepVisits({ ...a.visits, [day]: (a.visits[day] || 0) + 1 }, now());
-      return a.content;
+      return { ...a.content, settings: a.settings };
     },
     async setContent(slug, content) { admin(slug).content = cleanContent(content); return admin(slug).content; },
     async setPasscode(slug, passcode) { const a = admin(slug); a.passcode = sealPasscode(passcode); a.sessions = []; a.failures = 0; a.lockedUntil = 0; return true; },
@@ -215,9 +276,14 @@ export function createPostgresSiteData({ connectionString, pool: suppliedPool, s
   const readEntry = (row) => ({ id: row.id, kind: row.kind, page: row.page, fields: typeof row.fields === 'string' ? JSON.parse(row.fields) : row.fields, status: row.status, createdAt: new Date(row.created_at).toISOString() });
   return {
     durable: true,
-    async addEntry(slug, entry) {
+    async addEntry(slug, entry, { slotCapacity = 0 } = {}) {
       return transaction(async (client) => {
         await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`site-entries:${scope}:${slug}`]);
+        if (slotCapacity && entry.kind === 'booking') {
+          const taken = (await client.query(`SELECT count(*)::integer AS n FROM public.grandpa_ai_site_entries WHERE scope=$1 AND slug=$2 AND kind='booking'
+            AND status<>'cancelled' AND fields->>'date'=$3 AND fields->>'time'=$4`, [scope, slug, entry.fields.date, entry.fields.time])).rows[0].n;
+          if (taken >= slotCapacity) throw fail('Sorry, that time was just booked. Choose another time.', 409);
+        }
         const counts = (await client.query(`SELECT count(*)::integer AS total, count(*) FILTER (WHERE created_at > now() - interval '1 day')::integer AS day
           FROM public.grandpa_ai_site_entries WHERE scope=$1 AND slug=$2`, [scope, slug])).rows[0];
         if (counts.day >= ENTRIES_PER_DAY) throw fail('This website has received too many forms today. Try again tomorrow, or call the business.', 429);
@@ -241,12 +307,18 @@ export function createPostgresSiteData({ connectionString, pool: suppliedPool, s
       return transaction(async (client) => {
         const a = await readAdmin(client, slug);
         const counts = (await client.query(`SELECT count(*)::integer AS total, count(*) FILTER (WHERE status='new')::integer AS fresh FROM public.grandpa_ai_site_entries WHERE scope=$1 AND slug=$2`, [scope, slug])).rows[0];
-        return { hasPasscode: Boolean(a.passcode), content: a.content, visits: keepVisits(a.visits, now()), newEntries: counts.fresh, entries: counts.total };
+        return { hasPasscode: Boolean(a.passcode), content: a.content, settings: a.settings, visits: keepVisits(a.visits, now()), newEntries: counts.fresh, entries: counts.total };
       });
+    },
+    async settings(slug) { return transaction(async (client) => (await readAdmin(client, slug)).settings); },
+    async setSettings(slug, settings) { const clean = cleanSettings(settings); return withAdmin(slug, (a) => { a.settings = clean; return clean; }); },
+    async bookingCounts(slug, date) {
+      return transaction(async (client) => Object.fromEntries((await client.query(`SELECT fields->>'time' AS time, count(*)::integer AS n FROM public.grandpa_ai_site_entries
+        WHERE scope=$1 AND slug=$2 AND kind='booking' AND status<>'cancelled' AND fields->>'date'=$3 GROUP BY 1`, [scope, slug, date])).rows.map((r) => [r.time, r.n])));
     },
     async content(slug) { return transaction(async (client) => (await readAdmin(client, slug)).content); },
     async visitAndContent(slug) {
-      return withAdmin(slug, (a) => { const day = today(now()); a.visits = keepVisits({ ...a.visits, [day]: (a.visits[day] || 0) + 1 }, now()); return a.content; });
+      return withAdmin(slug, (a) => { const day = today(now()); a.visits = keepVisits({ ...a.visits, [day]: (a.visits[day] || 0) + 1 }, now()); return { ...a.content, settings: a.settings }; });
     },
     async setContent(slug, content) { const clean = cleanContent(content); return withAdmin(slug, (a) => { a.content = clean; return clean; }); },
     async setPasscode(slug, passcode) { const sealed = sealPasscode(passcode); return withAdmin(slug, (a) => { a.passcode = sealed; a.sessions = []; a.failures = 0; a.lockedUntil = 0; return true; }); },

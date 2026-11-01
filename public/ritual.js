@@ -576,14 +576,14 @@ async function unpublishFromWeb() {
 
 /* ---- The Grandpa Kit ----------------------------------------------------- */
 /** Add the shared design kit to a project once, so builders can use its sections and effects. */
-const KIT_VERSION = 'Grandpa Kit 3';
+const KIT_VERSION = 'Grandpa Kit 4';
 async function ensureKit(p) {
   // An older kit is replaced by the current one (only the kit ever changes the kit).
   const kit = (p?.files || []).filter((f) => isKitFile(f.path));
   if (!p || (kit.length === 2 && kit.every((f) => String(f.body).startsWith(`/* ${KIT_VERSION} `)))) return true;
   try {
     const [css, js] = await Promise.all([KIT_FILES.css, KIT_FILES.js].map(async (path) => {
-      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-3`);
+      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-4`);
       if (!response.ok) throw new Error('kit');
       return response.text();
     }));

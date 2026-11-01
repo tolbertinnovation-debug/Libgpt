@@ -75,7 +75,7 @@ async function start() {
 
 function render() {
   const info = state.info;
-  const tabs = [['inbox', `Inbox${info.newEntries ? ` (${info.newEntries})` : ''}`], ['content', 'Prices & text'], ['visitors', 'Visitors'], ['settings', 'Settings']];
+  const tabs = [['inbox', `Inbox${info.newEntries ? ` (${info.newEntries})` : ''}`], ['content', 'Prices & text'], ['shop', 'Shop & bookings'], ['visitors', 'Visitors'], ['settings', 'Settings']];
   root.replaceChildren(
     h('h1', { text: info.name || slug }),
     h('p', { class: 'lead' }, h('a', { href: info.url, target: '_blank', rel: 'noopener', text: info.url })),
@@ -94,12 +94,13 @@ async function loadTab() {
     if (state.tab === 'inbox') { state.entries = (await api('/entries')).entries; showInbox(); }
     else if (state.tab === 'content') await showContent();
     else if (state.tab === 'visitors') { state.info = await api(''); showVisitors(); }
+    else if (state.tab === 'shop') { state.entries = (await api('/entries?kind=booking')).entries; showShop(); }
     else showSettings();
   } catch (error) { if (!error.quiet) panel().replaceChildren(h('p', { class: 'msg error', role: 'alert', text: error.message })); }
 }
 
 /* ---- inbox --------------------------------------------------------------- */
-const FILTERS = [['all', 'All'], ['new', 'New'], ['message', 'Messages'], ['booking', 'Bookings'], ['order', 'Orders'], ['signup', 'Sign-ups']];
+const FILTERS = [['all', 'All'], ['new', 'New'], ['message', 'Messages'], ['booking', 'Bookings'], ['order', 'Orders'], ['signup', 'Sign-ups'], ['cancelled', 'Cancelled']];
 const phoneOf = (fields) => {
   for (const [key, value] of Object.entries(fields)) if (/phone|tel|mobile|whats|number|contact/i.test(key) && /\d{6,}/.test(value.replace(/[\s()-]/g, ''))) return value;
   return Object.values(fields).find((value) => /^\+?[\d\s()-]{7,20}$/.test(value)) || '';
@@ -108,7 +109,7 @@ const emailOf = (fields) => Object.values(fields).find((value) => /^[^\s@]+@[^\s
 const when = (iso) => { try { return new Date(iso).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }); } catch { return iso; } };
 
 function showInbox() {
-  const shown = state.entries.filter((e) => state.filter === 'all' || (state.filter === 'new' ? e.status === 'new' : e.kind === state.filter));
+  const shown = state.entries.filter((e) => state.filter === 'all' || (state.filter === 'new' || state.filter === 'cancelled' ? e.status === state.filter : e.kind === state.filter));
   const exportButton = h('button', { type: 'button', text: '⬇ Export to Excel (CSV)', onclick: () => exportCsv(exportButton) });
   panel().replaceChildren(
     h('div', { class: 'chips' }, FILTERS.map(([id, label]) => h('button', { type: 'button', 'aria-pressed': String(state.filter === id), text: label, onclick: () => { state.filter = id; showInbox(); } }))),
@@ -121,16 +122,18 @@ function entryCard(entry) {
   const phone = phoneOf(entry.fields), email = emailOf(entry.fields);
   const digits = phone.replace(/[^\d]/g, '');
   const status = h('p', { class: 'msg', role: 'status' });
-  const card = h('article', { class: `card entry${entry.status === 'done' ? ' done' : ''}` },
+  const setStatus = async (next) => {
+    try { await api(`/entries/${entry.id}`, { method: 'PATCH', body: { status: next } }); entry.status = next;
+      state.info.newEntries = state.entries.filter((e) => e.status === 'new').length; render(); if (state.tab === 'shop') showShop(); else showInbox(); } catch (error) { if (!error.quiet) message(status, error.message); }
+  };
+  const card = h('article', { class: `card entry${entry.status !== 'new' ? ' done' : ''}` },
     h('div', { class: 'top' },
-      h('span', {}, h('span', { class: `badge${entry.status === 'new' ? ' new' : ''}`, text: `${KIND_NAMES[entry.kind] || 'Form'}${entry.status === 'new' ? ' · new' : ''}` })),
+      h('span', {}, h('span', { class: `badge${entry.status === 'new' ? ' new' : ''}`, text: `${KIND_NAMES[entry.kind] || 'Form'}${entry.status === 'new' ? ' · new' : entry.status === 'cancelled' ? ' · cancelled' : ''}` })),
       h('span', { class: 'when', text: `${when(entry.createdAt)} · Ref ${entry.id.slice(0, 8).toUpperCase()}` })),
     h('dl', {}, Object.entries(entry.fields).flatMap(([key, value]) => [h('dt', { text: key }), h('dd', { text: value })])),
     h('div', { class: 'row' },
-      h('button', { type: 'button', class: entry.status === 'new' ? 'primary' : '', text: entry.status === 'new' ? '✓ Mark done' : '↺ Mark new', onclick: async () => {
-        try { await api(`/entries/${entry.id}`, { method: 'PATCH', body: { status: entry.status === 'new' ? 'done' : 'new' } }); entry.status = entry.status === 'new' ? 'done' : 'new';
-          state.info.newEntries = state.entries.filter((e) => e.status === 'new').length; render(); showInbox(); } catch (error) { if (!error.quiet) message(status, error.message); }
-      } }),
+      h('button', { type: 'button', class: entry.status === 'new' ? 'primary' : '', text: entry.status === 'new' ? (entry.kind === 'booking' ? '✓ Confirm' : '✓ Mark done') : '↺ Mark new', onclick: () => setStatus(entry.status === 'new' ? 'done' : 'new') }),
+      entry.kind === 'booking' && entry.status !== 'cancelled' ? h('button', { type: 'button', text: 'Cancel booking', onclick: () => { if (confirm('Cancel this booking? Its time becomes free again.')) setStatus('cancelled'); } }) : null,
       digits.length >= 7 ? h('a', { class: 'button', href: `https://wa.me/${digits}`, target: '_blank', rel: 'noopener', text: 'WhatsApp' }) : null,
       digits.length >= 7 ? h('a', { class: 'button', href: `tel:${phone.replace(/[^\d+]/g, '')}`, text: 'Call' }) : null,
       email ? h('a', { class: 'button', href: `mailto:${email}`, text: 'Email' }) : null,
@@ -163,6 +166,18 @@ const BUSINESS_KEY = `gp-doc-business:${slug}`;
 const number = (text) => { const n = Number(String(text ?? '').replace(/[^\d.-]/g, '')); return Number.isFinite(n) ? n : 0; };
 const money = (n) => n.toLocaleString(undefined, { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 });
 
+// An order from the website's cart: "Jollof rice × 2 = LRD 700; Fufu × 1 = LRD 250".
+function cartLines(items) {
+  if (!items || !/ × \d/.test(items)) return null;
+  const lines = items.split('; ').map((part) => {
+    const m = /^(.*) × (\d+)(?: = (.*))?$/.exec(part.trim());
+    if (!m) return null;
+    const qty = Number(m[2]), amount = number(m[3] || '');
+    return { item: m[1], qty: String(qty), price: amount && qty ? String(Math.round((amount / qty) * 100) / 100) : '' };
+  }).filter(Boolean);
+  return lines.length ? lines : null;
+}
+
 function showDocument(entry) {
   const ref = entry.id.slice(0, 8).toUpperCase();
   const f = entry.fields;
@@ -173,7 +188,7 @@ function showDocument(entry) {
     type: 'Invoice', number: `INV-${ref}`, date: new Date().toISOString().slice(0, 10),
     business: saved.business || state.info.name || '', contact: saved.contact || '', currency: saved.currency || 'LRD',
     billTo: [pick(/name/i), phoneOf(f), emailOf(f), pick(/address|location/i)].filter(Boolean).join('\n'),
-    lines: [{ item: pick(/item|order|product|service|menu/i) || `${KIND_NAMES[entry.kind] || 'Order'} ${ref}`, qty: pick(/qty|quantity|people|number of/i).replace(/[^\d.]/g, '') || '1', price: '' }],
+    lines: cartLines(f.items) || [{ item: pick(/item|order|product|service|menu/i) || `${KIND_NAMES[entry.kind] || 'Order'} ${ref}`, qty: pick(/qty|quantity|people|number of/i).replace(/[^\d.]/g, '') || '1', price: '' }],
     notes: 'Thank you for your business.',
   };
   const sheet = h('article', { class: 'doc-sheet' });
@@ -295,6 +310,51 @@ async function showContent() {
     state.found.lists.map(listCard),
     save, status,
   );
+}
+
+/* ---- shop and bookings --------------------------------------------------- */
+const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+function showShop() {
+  const saved = state.info.settings || {};
+  const b = { on: false, days: [1, 2, 3, 4, 5, 6], open: '08:00', close: '17:00', slot: 30, capacity: 1, ahead: 60, closed: [], offset: 0, ...(saved.booking || {}) };
+  const shop = { currency: 'LRD', payment: '', delivery: '', ...(saved.shop || {}) };
+  const status = h('p', { class: 'msg', role: 'status' });
+  const input = (label, value, attrs, set) => h('label', {}, label, h('input', { value, ...attrs, oninput: (e) => set(e.target.value) }));
+  const closedBox = h('textarea', { 'aria-label': 'Closed dates', placeholder: '2026-12-25, 2027-01-01' }, b.closed.join(', '));
+  const save = h('button', { type: 'button', class: 'primary full', text: 'Save shop and booking settings', onclick: async () => {
+    save.disabled = true;
+    b.closed = closedBox.value.split(/[\s,]+/).filter(Boolean);
+    try { const result = await api('/settings', { method: 'PUT', body: { settings: { booking: b, shop } } }); state.info.settings = result.settings; message(status, 'Saved. The website uses these settings straight away.', true); }
+    catch (error) { if (!error.quiet) message(status, error.message); } finally { save.disabled = false; }
+  } });
+  const todayText = new Date().toISOString().slice(0, 10);
+  const upcoming = state.entries.filter((e) => e.status !== 'cancelled' && (e.fields.date || '') >= todayText)
+    .sort((x, y) => `${x.fields.date} ${x.fields.time || ''}`.localeCompare(`${y.fields.date} ${y.fields.time || ''}`));
+  let lastDate = '';
+  panel().replaceChildren(
+    h('div', { class: 'card' }, h('h2', { text: 'Bookings' }),
+      h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: b.on, onchange: (e) => { b.on = e.target.checked; } }), ' Take bookings at set times'),
+      h('p', { class: 'note', text: 'Visitors see only the free times. A full time cannot be booked twice.' }),
+      h('div', { class: 'chips', style: 'margin-top:10px' }, DAY_NAMES.map((name, d) => h('button', { type: 'button', 'aria-pressed': String(b.days.includes(d)), text: name,
+        onclick: (e) => { b.days = b.days.includes(d) ? b.days.filter((x) => x !== d) : [...b.days, d].sort(); e.target.setAttribute('aria-pressed', String(b.days.includes(d))); } }))),
+      h('div', { class: 'doc-pair' }, input('Opens', b.open, { type: 'time' }, (v) => { b.open = v; }), input('Closes', b.close, { type: 'time' }, (v) => { b.close = v; })),
+      h('div', { class: 'doc-pair' },
+        h('label', {}, 'Each booking', h('select', { onchange: (e) => { b.slot = Number(e.target.value); } }, [15, 20, 30, 45, 60, 90, 120].map((m) => h('option', { value: m, selected: b.slot === m, text: m < 60 ? `${m} minutes` : `${m / 60} hour${m > 60 ? 's' : ''}` })))),
+        input('People per time', b.capacity, { type: 'number', min: 1, max: 50, inputmode: 'numeric' }, (v) => { b.capacity = Number(v); })),
+      input('How many days ahead', b.ahead, { type: 'number', min: 1, max: 365, inputmode: 'numeric' }, (v) => { b.ahead = Number(v); }),
+      h('label', {}, 'Closed dates (holidays)', closedBox)),
+    h('div', { class: 'card' }, h('h2', { text: 'Shop' }),
+      h('p', { class: 'note', text: 'Used by "Add to cart" buttons on your website.' }),
+      input('Currency', shop.currency, { maxlength: 12 }, (v) => { shop.currency = v; }),
+      h('label', {}, 'How customers pay', h('textarea', { placeholder: 'Pay on delivery, or send Orange Money / MTN MoMo to 0886 000 000 with your reference.', oninput: (e) => { shop.payment = e.target.value; } }, shop.payment)),
+      h('label', {}, 'Delivery or pick-up', h('textarea', { placeholder: 'Free delivery in Monrovia. Pick-up on Broad Street.', oninput: (e) => { shop.delivery = e.target.value; } }, shop.delivery))),
+    save, status,
+    h('h2', { text: 'Upcoming bookings', style: 'margin-top:20px' }),
+    upcoming.length ? upcoming.flatMap((entry) => {
+      const head = entry.fields.date !== lastDate ? h('h3', { class: 'agenda-day', text: new Date(`${entry.fields.date}T12:00:00Z`).toLocaleDateString([], { weekday: 'long', day: 'numeric', month: 'long' }) }) : null;
+      lastDate = entry.fields.date;
+      return [head, entryCard(entry)];
+    }) : h('p', { class: 'empty', text: 'No upcoming bookings.' }));
 }
 
 /* ---- visitors ------------------------------------------------------------ */
