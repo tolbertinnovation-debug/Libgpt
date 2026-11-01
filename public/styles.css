@@ -3880,3 +3880,19 @@ body {
 .build-todo-step.is-skipped { opacity: .55; }
 @keyframes build-spin { to { transform: rotate(360deg); } }
 .build-step-label { margin: 0 0 4px; font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; opacity: .7; }
+
+/* ---- Build Phase 5: versions and compare -------------------------------- */
+.history-row { align-items: center; gap: 10px; cursor: default; flex-wrap: wrap; }
+.history-actions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-left: auto; }
+.history-actions .sheet-go { margin: 0; }
+.diff-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 14px 0 6px; font-size: .88rem; overflow-wrap: anywhere; }
+.diff-kind { font-size: .72rem; text-transform: uppercase; letter-spacing: .03em; padding: 2px 6px; border-radius: 6px; background: var(--bg-hover); }
+.diff-count { margin-left: auto; font-size: .8rem; }
+.diff-plus { color: #2e7d32; }
+.diff-minus { color: #c62828; }
+.diff-lines { font: .76rem/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; border: 1px solid var(--border, rgba(127,127,127,.3)); border-radius: 8px; overflow-x: auto; max-height: 50vh; overflow-y: auto; }
+.diff-line { white-space: pre; padding: 0 8px; min-width: max-content; }
+.diff-line.is-add { background: rgba(46,125,50,.14); }
+.diff-line.is-del { background: rgba(198,40,40,.12); }
+.diff-line.is-gap { color: var(--text-faint); text-align: center; }
+.diff-sign { display: inline-block; width: 1.2em; opacity: .8; }
