@@ -24,6 +24,7 @@ import {
 } from './openai.js';
 import { safeDiagnostic } from './openai-failure.js';
 import { DISCUSS_PROMPT, readDiscussion, readDiscussReply } from './build-discuss.js';
+import { STEPS_PROMPT, readSteps } from './build-steps.js';
 import {
   DEFAULT_LANGUAGE,
   DEFAULT_PERSONA,
@@ -1366,6 +1367,32 @@ app.post('/api/build/discuss', rateLimit, requireAccess, runtime.middleware('orc
     if (controller.signal.aborted) return;
     console.error('[build-discuss]', error?.status, safeDiagnostic(String(error?.message || error)));
     res.status([401, 403, 429, 503].includes(error?.status) ? error.status : 502).json({ error: error?.message || 'I could not answer just now. Try again.' });
+  }
+});
+
+// A to-do list for a change to an existing website (Phase 2: visible steps).
+app.post('/api/build/steps', rateLimit, requireAccess, runtime.middleware('orchestrator','plan'), async (req, res) => {
+  if (!config.building) { res.status(503).json({ error: 'Building is switched off here.' }); return; }
+  const request = typeof req.body?.request === 'string' ? req.body.request.trim().slice(0, 4000) : '';
+  const files = (Array.isArray(req.body?.index) ? req.body.index : []).slice(0, 200)
+    .filter((f) => f && typeof f.path === 'string').map((f) => ({ path: f.path.slice(0, 180), size: Math.max(0, Number(f.size) || 0) }));
+  if (!request) { res.status(400).json({ error: 'Say what you would like to change.' }); return; }
+  const controller = new AbortController();
+  res.on('close', () => controller.abort());
+  try {
+    const raw = await complete({
+      model: await pickModel(req.body?.model, 'chat'),
+      messages: [{ role: 'system', content: STEPS_PROMPT },
+        { role: 'user', content: `Request: ${request}\n\nFiles in the project:\n${files.map((f) => `- ${f.path} (${f.size} characters)`).join('\n') || '(none)'}` }],
+      maxTokens: 900, temperature: 0.3, json: true, signal: controller.signal,
+    });
+    const steps = readSteps(raw, files.map((f) => f.path));
+    if (!steps) { res.status(502).json({ error: 'The plan came back in a shape I could not use.' }); return; }
+    res.json({ steps });
+  } catch (error) {
+    if (controller.signal.aborted) return;
+    console.error('[build-steps]', error?.status, safeDiagnostic(String(error?.message || error)));
+    res.status([401, 403, 429, 503].includes(error?.status) ? error.status : 502).json({ error: error?.message || 'The plan could not be made just now.' });
   }
 });
 
