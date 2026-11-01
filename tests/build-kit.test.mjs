@@ -17,7 +17,7 @@ test('the Grandpa Kit files are valid, small, and cover every promised feature',
   for (const preset of ['modern', 'bold', 'elegant', 'friendly', 'corporate']) assert.match(css, new RegExp(`data-gk-style="${preset}"`));
   for (const part of ['.gk-hero', '.gk-gallery', '.gk-lightbox', '.gk-slider', '.gk-faq', '.gk-pricing', '.gk-hours', '.gk-map', '.gk-whatsapp', '.gk-loader', '[data-theme="dark"]', '.gk-lang-switch']) assert.ok(css.includes(part), part);
   assert.match(css, /@media \(prefers-reduced-motion:no-preference\)\{\s*\.gk-js \.gk-reveal\{opacity:0/, 'hidden only once the script runs, and only with motion allowed');
-  for (const hook of ['[data-gk-gallery]', '[data-gk-slider]', '[data-gk-theme-toggle]', '[data-gk-lang-switch]', '[data-gk-count]', '.gk-top', '.gk-loader', 'IntersectionObserver']) assert.ok(js.includes(hook), hook);
+  for (const hook of ['[data-gk-print]', 'GrandpaPrint', '[data-gk-gallery]', '[data-gk-slider]', '[data-gk-theme-toggle]', '[data-gk-lang-switch]', '[data-gk-count]', '.gk-top', '.gk-loader', 'IntersectionObserver']) assert.ok(js.includes(hook), hook);
 });
 
 test('ready-made sections are well formed and ask for photographs the app creates', () => {

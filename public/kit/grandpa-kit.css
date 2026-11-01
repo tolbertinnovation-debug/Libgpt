@@ -1,4 +1,4 @@
-/* Grandpa Kit 2 — professional sections and effects for websites built in Grandpa AI.
+/* Grandpa Kit 3 — professional sections and effects for websites built in Grandpa AI.
    Override anything in your own stylesheet; set your colours with --brand and --accent. */
 :root{--brand:#1a56db;--accent:#f59e0b;--ink:#0f172a;--muted:#475569;--surface:#ffffff;--tint:#f1f5f9;--dark:#0b1220;--on-dark:#e2e8f0;--radius:14px;--shadow:0 10px 30px rgba(15,23,42,.10);--font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--heading:var(--font);--space:clamp(48px,8vw,96px);--max:1120px}
 [data-gk-style="modern"]{--radius:14px;--shadow:0 10px 30px rgba(15,23,42,.10)}
@@ -97,3 +97,23 @@ h1,h2,h3{font-family:var(--heading);line-height:1.15}
 .gk-form-status{margin:0;font-weight:600}
 .gk-form-status.is-sent{color:#15803d}.gk-form-status.is-error{color:#b91c1c}
 .gk-form-status:empty{display:none}
+/* Document library: <ul class="gk-docs"><li><a href="files/x.pdf" download>…</a></li></ul> */
+.gk-docs{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.gk-docs a{display:flex;align-items:center;gap:14px;padding:16px 18px;border-radius:var(--radius);background:var(--surface);color:var(--ink);box-shadow:var(--shadow);text-decoration:none;font-weight:600;transition:transform .2s ease}
+.gk-docs a:hover,.gk-docs a:focus-visible{transform:translateY(-2px)}
+.gk-docs a::before{content:"";flex:0 0 36px;height:44px;border-radius:4px 12px 4px 4px;background:linear-gradient(135deg,var(--brand),var(--accent));box-shadow:inset 0 -12px 0 rgba(255,255,255,.3)}
+.gk-docs small{display:block;font-weight:400;color:var(--muted)}
+/* Printable documents (certificates, price lists, receipts): <button data-gk-print="#id">Print or save as PDF</button> */
+.gk-doc{background:#fff;color:#111;max-width:800px;margin:0 auto;padding:clamp(24px,5vw,56px);border:1px solid #e5e7eb;border-radius:var(--radius)}
+.gk-doc h1,.gk-doc h2{color:#111}
+.gk-doc table{width:100%;border-collapse:collapse}.gk-doc th,.gk-doc td{text-align:left;padding:8px;border-bottom:1px solid #e5e7eb}
+.gk-certificate{text-align:center;border:10px double var(--brand);padding:clamp(32px,6vw,72px)}
+@media print{
+  @page{margin:14mm}
+  body{background:#fff!important;color:#000!important}
+  .gk-loader,.gk-top,.gk-whatsapp,.gk-theme-toggle,.gk-lang-switch,[data-gk-print],.gk-lightbox,nav,video{display:none!important}
+  .gk-reveal{opacity:1!important;transform:none!important}
+  .gk-card,.gk-docs a,.gk-doc{box-shadow:none!important;border:1px solid #ddd}
+  body.gk-printing>*:not(.gk-print-area){display:none!important}
+  .gk-print-area{display:block!important;position:static!important}
+}

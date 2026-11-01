@@ -124,7 +124,7 @@ function entryCard(entry) {
   const card = h('article', { class: `card entry${entry.status === 'done' ? ' done' : ''}` },
     h('div', { class: 'top' },
       h('span', {}, h('span', { class: `badge${entry.status === 'new' ? ' new' : ''}`, text: `${KIND_NAMES[entry.kind] || 'Form'}${entry.status === 'new' ? ' · new' : ''}` })),
-      h('span', { class: 'when', text: when(entry.createdAt) })),
+      h('span', { class: 'when', text: `${when(entry.createdAt)} · Ref ${entry.id.slice(0, 8).toUpperCase()}` })),
     h('dl', {}, Object.entries(entry.fields).flatMap(([key, value]) => [h('dt', { text: key }), h('dd', { text: value })])),
     h('div', { class: 'row' },
       h('button', { type: 'button', class: entry.status === 'new' ? 'primary' : '', text: entry.status === 'new' ? '✓ Mark done' : '↺ Mark new', onclick: async () => {
@@ -134,6 +134,7 @@ function entryCard(entry) {
       digits.length >= 7 ? h('a', { class: 'button', href: `https://wa.me/${digits}`, target: '_blank', rel: 'noopener', text: 'WhatsApp' }) : null,
       digits.length >= 7 ? h('a', { class: 'button', href: `tel:${phone.replace(/[^\d+]/g, '')}`, text: 'Call' }) : null,
       email ? h('a', { class: 'button', href: `mailto:${email}`, text: 'Email' }) : null,
+      h('button', { type: 'button', text: 'Invoice / receipt', onclick: () => showDocument(entry) }),
       h('button', { type: 'button', class: 'danger', text: 'Delete', onclick: async () => {
         if (!confirm('Delete this for good?')) return;
         try { await api(`/entries/${entry.id}`, { method: 'DELETE' }); state.entries = state.entries.filter((e) => e !== entry);
@@ -154,6 +155,73 @@ async function exportCsv(button) {
     document.body.append(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   } catch (error) { alert(error.message); } finally { button.disabled = false; }
+}
+
+/* ---- invoices and receipts ---------------------------------------------- */
+// Made in this browser and printed; the phone's print screen saves it as a PDF.
+const BUSINESS_KEY = `gp-doc-business:${slug}`;
+const number = (text) => { const n = Number(String(text ?? '').replace(/[^\d.-]/g, '')); return Number.isFinite(n) ? n : 0; };
+const money = (n) => n.toLocaleString(undefined, { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 });
+
+function showDocument(entry) {
+  const ref = entry.id.slice(0, 8).toUpperCase();
+  const f = entry.fields;
+  const pick = (re) => Object.entries(f).find(([k]) => re.test(k))?.[1] || '';
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(BUSINESS_KEY) || '{}'); } catch { saved = {}; }
+  const doc = {
+    type: 'Invoice', number: `INV-${ref}`, date: new Date().toISOString().slice(0, 10),
+    business: saved.business || state.info.name || '', contact: saved.contact || '', currency: saved.currency || 'LRD',
+    billTo: [pick(/name/i), phoneOf(f), emailOf(f), pick(/address|location/i)].filter(Boolean).join('\n'),
+    lines: [{ item: pick(/item|order|product|service|menu/i) || `${KIND_NAMES[entry.kind] || 'Order'} ${ref}`, qty: pick(/qty|quantity|people|number of/i).replace(/[^\d.]/g, '') || '1', price: '' }],
+    notes: 'Thank you for your business.',
+  };
+  const sheet = h('article', { class: 'doc-sheet' });
+  const draw = () => {
+    const total = doc.lines.reduce((sum, l) => sum + number(l.qty) * number(l.price), 0);
+    sheet.replaceChildren(
+      h('header', { class: 'doc-head' },
+        h('div', {}, h('h2', { text: doc.business || 'Your business' }), h('p', { class: 'doc-contact', text: doc.contact })),
+        h('div', { class: 'doc-meta' }, h('strong', { class: 'doc-type', text: doc.type.toUpperCase() }), h('div', { text: `No. ${doc.number}` }), h('div', { text: doc.date }))),
+      h('div', { class: 'doc-to' }, h('div', { class: 'note', text: doc.type === 'Receipt' ? 'Received from' : 'Bill to' }), h('p', { text: doc.billTo })),
+      h('table', {}, h('thead', {}, h('tr', {}, h('th', { text: 'Item' }), h('th', { text: 'Qty' }), h('th', { text: `Price (${doc.currency})` }), h('th', { text: `Amount (${doc.currency})` }))),
+        h('tbody', {}, doc.lines.filter((l) => l.item || l.price).map((l) => h('tr', {}, h('td', { text: l.item }), h('td', { text: l.qty }), h('td', { text: money(number(l.price)) }), h('td', { text: money(number(l.qty) * number(l.price)) })))),
+        h('tfoot', {}, h('tr', {}, h('td', { colspan: 3, text: doc.type === 'Receipt' ? 'Total paid' : 'Total due' }), h('td', { text: `${doc.currency} ${money(total)}` })))),
+      doc.notes ? h('p', { class: 'doc-notes', text: doc.notes }) : null,
+      h('p', { class: 'note', text: `Reference ${ref}` }));
+  };
+  const field = (label, key, attrs = {}) => h('label', {}, label, h(attrs.multiline ? 'textarea' : 'input', { value: attrs.multiline ? null : doc[key], type: attrs.type || null,
+    oninput: (e) => { doc[key] = e.target.value; if (['business', 'contact', 'currency'].includes(key)) { try { localStorage.setItem(BUSINESS_KEY, JSON.stringify({ business: doc.business, contact: doc.contact, currency: doc.currency })); } catch { /* private mode */ } } draw(); } }, attrs.multiline ? doc[key] : null));
+  const linesBox = h('div');
+  const drawLines = () => linesBox.replaceChildren(...doc.lines.map((l, i) => h('div', { class: 'list-row' },
+    h('label', {}, 'Item', h('input', { value: l.item, oninput: (e) => { l.item = e.target.value; draw(); } })),
+    h('div', { class: 'doc-pair' },
+      h('label', {}, 'Qty', h('input', { value: l.qty, inputmode: 'decimal', oninput: (e) => { l.qty = e.target.value; draw(); } })),
+      h('label', {}, 'Price', h('input', { value: l.price, inputmode: 'decimal', oninput: (e) => { l.price = e.target.value; draw(); } }))),
+    doc.lines.length > 1 ? h('div', { class: 'row' }, h('button', { type: 'button', class: 'danger', text: 'Remove', onclick: () => { doc.lines.splice(i, 1); drawLines(); draw(); } })) : null)),
+    h('button', { type: 'button', text: '+ Add a line', onclick: () => { doc.lines.push({ item: '', qty: '1', price: '' }); drawLines(); draw(); } }));
+  const typeSelect = h('select', { onchange: (e) => {
+    doc.type = e.target.value;
+    doc.number = `${doc.type === 'Receipt' ? 'RCT' : 'INV'}-${ref}`; numberInput.value = doc.number;
+    if (/^(Thank you for your business\.|Paid in full\. Thank you\.)$/.test(doc.notes)) { doc.notes = doc.type === 'Receipt' ? 'Paid in full. Thank you.' : 'Thank you for your business.'; notesInput.value = doc.notes; }
+    draw();
+  } }, h('option', { text: 'Invoice' }), h('option', { text: 'Receipt' }));
+  const numberField = field('Number', 'number'), numberInput = numberField.querySelector('input');
+  const notesField = field('Notes', 'notes', { multiline: true }), notesInput = notesField.querySelector('textarea');
+  drawLines(); draw();
+  root.replaceChildren(
+    h('div', { class: 'no-print' },
+      h('button', { type: 'button', text: '← Back to the inbox', onclick: () => { render(); loadTab(); } }),
+      h('h1', { text: 'Invoice or receipt', style: 'margin-top:12px' }),
+      h('div', { class: 'card' },
+        h('label', {}, 'Document', typeSelect), numberField, field('Date', 'date', { type: 'date' }),
+        field('Your business name', 'business'), field('Your phone, address (shown at the top)', 'contact'), field('Customer', 'billTo', { multiline: true }), field('Currency', 'currency'),
+        h('h2', { text: 'Items', style: 'margin-top:12px' }), linesBox, notesField),
+      h('button', { type: 'button', class: 'primary full', text: '🖨 Print or save as PDF', onclick: () => window.print() }),
+      h('p', { class: 'note', text: 'On a phone, choose "Save as PDF" in the print screen, then share it on WhatsApp.' }),
+      h('h2', { text: 'Preview', style: 'margin-top:18px' })),
+    sheet);
+  scrollTo(0, 0);
 }
 
 /* ---- prices & text ------------------------------------------------------- */

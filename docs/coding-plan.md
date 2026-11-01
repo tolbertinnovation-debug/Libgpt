@@ -215,4 +215,22 @@ The owner approved this order: A design, B publish on Grandpa, C database, D man
 - **Grandpa Kit 2** adds form styles. It also explains in Build's preview that forms work once the site is published, and older projects get the new kit automatically.
 - **Cost:** no new service. Each page view makes one small database read and write.
 
-### Next: Phase E (business tools) or F (documents).
+### Phase F: documents (done)
+
+- **A copy for the visitor.** After an order or booking is sent, the visitor sees a **reference** (8 characters) and a **Save a copy (PDF)** button. It prints a clean receipt page (business name, reference, date, what they sent), which the phone's print screen saves as a PDF. Any form can offer this with `data-gk-receipt`. A plain HTML form's thank-you page shows the reference too.
+- **Invoices and receipts in Manage.** Each inbox entry shows its reference and an **Invoice / receipt** button. It opens an editor with a live preview:
+  - number (`INV-` or `RCT-` plus the reference), date, the business name and contact line (remembered on that phone), and currency (LRD by default);
+  - the customer (filled from the form), item lines with quantity and price, the total, and notes.
+
+  **Print or save as PDF** prints only the document. The CSV export has a Reference column too.
+- **Grandpa Kit 3:**
+  - a **document list** (`.gk-docs`) for downloads;
+  - **printable documents** (`.gk-doc`, `.gk-certificate`) with `data-gk-print="#id"`, which prints only that part, or the whole page without a value;
+  - print styles that hide menus, buttons and effects.
+
+  Older projects are moved to Kit 3 automatically.
+- **+ Section** has **Documents to download**, and the **Opening hours** section is now editable in Manage.
+- **Policy pages.** Builders write `privacy.html` for any business site with a form, and `terms.html` and `refunds.html` when it sells or takes orders or bookings. They are linked in every footer and written in plain, honest words (no invented laws or guarantees), with "Last updated". Sites without a privacy page get a one-tap chip, **Add privacy, terms and refund pages**.
+- **Cost:** none. PDFs are made by the phone's own print screen.
+
+### Next: Phase E (business tools), then G (quality and security).

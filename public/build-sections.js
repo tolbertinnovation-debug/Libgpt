@@ -63,10 +63,10 @@ export const SECTIONS = Object.freeze({
   hours: { label: 'Opening hours', html: `<section class="gk-section is-tint">
   <div class="gk-container">
     <h2 class="gk-reveal">Opening hours</h2>
-    <table class="gk-hours gk-reveal">
-      <tr><td>Monday – Friday</td><td>8:00 – 18:00</td></tr>
-      <tr><td>Saturday</td><td>9:00 – 15:00</td></tr>
-      <tr><td>Sunday</td><td>Closed</td></tr>
+    <table class="gk-hours gk-reveal" data-gk-list="hours" data-gk-label="Opening hours">
+      <tr data-gk-item><td data-gk-field="day">Monday – Friday</td><td data-gk-field="time">8:00 – 18:00</td></tr>
+      <tr data-gk-item><td data-gk-field="day">Saturday</td><td data-gk-field="time">9:00 – 15:00</td></tr>
+      <tr data-gk-item><td data-gk-field="day">Sunday</td><td data-gk-field="time">Closed</td></tr>
     </table>
   </div>
 </section>` },
@@ -88,6 +88,15 @@ export const SECTIONS = Object.freeze({
     <h2>Ready to start?</h2>
     <p>One short sentence that tells people what to do next.</p>
     <div class="gk-buttons"><a class="gk-btn" href="#contact">Contact us</a></div>
+  </div>
+</section>` },
+  documents: { label: 'Documents to download (price list, forms, menu)', html: `<section class="gk-section">
+  <div class="gk-container">
+    <h2 class="gk-reveal">Documents</h2>
+    <p class="gk-lead gk-reveal">Download or print what you need.</p>
+    <ul class="gk-docs gk-reveal">
+      <li><a href="#" data-gk-print>Print or save this page as a PDF<small>Add your own PDF files with + in the chat, then ask Grandpa to list them here.</small></a></li>
+    </ul>
   </div>
 </section>` },
   whatsapp: { label: 'WhatsApp button (add your number)', html: `<a class="gk-whatsapp" href="https://wa.me/231770000000" aria-label="Chat on WhatsApp">${WHATSAPP_SVG}</a>` },

@@ -1,4 +1,4 @@
-/* Grandpa Kit 2 — gallery viewer, sliders, reveal on scroll, dark mode, language switch,
+/* Grandpa Kit 3 — gallery viewer, sliders, reveal on scroll, dark mode, language switch,
    counters, back to top and page loader. Everything works without it; it only adds. */
 (function () {
   'use strict';
@@ -109,9 +109,27 @@
       });
     });
 
+    // Print or save as PDF: [data-gk-print] prints the page, or only the element named in it ("#certificate")
+    document.querySelectorAll('[data-gk-print]').forEach(function (button) {
+      button.addEventListener('click', function (e) { e.preventDefault(); window.GrandpaPrint(button.getAttribute('data-gk-print')); });
+    });
+
     // Year: [data-gk-year]
     document.querySelectorAll('[data-gk-year]').forEach(function (el) { el.textContent = String(new Date().getFullYear()); });
   });
+
+  // Prints one part of the page on its own (the phone's print screen can save it as a PDF).
+  window.GrandpaPrint = window.GrandpaPrint || function (selector, html) {
+    var source = html ? null : (selector ? document.querySelector(selector) : null);
+    if (!html && !source) { window.print(); return; }
+    var area = document.createElement('div'); area.className = 'gk-print-area';
+    if (html) area.innerHTML = html; else area.appendChild(source.cloneNode(true));
+    document.body.appendChild(area); document.body.classList.add('gk-printing');
+    var done = function () { document.body.classList.remove('gk-printing'); if (area.parentNode) area.parentNode.removeChild(area); removeEventListener('afterprint', done); };
+    addEventListener('afterprint', done);
+    window.print();
+    setTimeout(done, 60000);
+  };
 
   // Page loader: .gk-loader disappears when the page has loaded (and after 3 s at most)
   var done = function () { document.querySelectorAll('.gk-loader').forEach(function (el) { el.classList.add('is-done'); }); };

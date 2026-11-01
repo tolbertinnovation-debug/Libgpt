@@ -27,7 +27,7 @@ import { DISCUSS_PROMPT, readDiscussion, readDiscussReply } from './build-discus
 import { STEPS_PROMPT, readSteps } from './build-steps.js';
 import QRCode from 'qrcode';
 import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, findSiteFile, siteFileBody } from './site-store.js';
-import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, ENTRY_KINDS } from './site-data.js';
+import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, ENTRY_KINDS } from './site-data.js';
 import { siteRuntime, withRuntime } from './site-runtime.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
 import {
@@ -1833,8 +1833,9 @@ app.options('/api/site-data/:slug', (_req, res) => { openToSites(res); res.statu
 app.post('/api/site-data/:slug', siteLimit, async (req, res) => {
   openToSites(res);
   const wantsPage = !String(req.get('accept') || '').includes('application/json') && /urlencoded/.test(String(req.get('content-type') || ''));
-  const finish = (status, message) => {
-    if (!wantsPage) { res.status(status).json(status < 300 ? { ok: true } : { error: message }); return; }
+  const finish = (status, message, ref = '') => {
+    if (!wantsPage) { res.status(status).json(status < 300 ? { ok: true, ...(ref ? { ref } : {}) } : { error: message }); return; }
+    if (ref) message += ` Your reference is ${ref}.`;
     res.set(SITE_HEADERS).set('Cache-Control', 'no-store').status(status).type('html').send(notFoundPage(message).replace('<h1>Page not found</h1>', `<h1>${status < 300 ? 'Thank you' : 'Not sent'}</h1>`)
       .replace('</p></div>', `</p><p><a href="/s/${req.params.slug}/">Back to the website</a></p></div>`));
   };
@@ -1845,8 +1846,8 @@ app.post('/api/site-data/:slug', siteLimit, async (req, res) => {
     const entry = cleanEntry(fields);
     if (!entry) { finish(200, 'Thank you. It was sent.'); return; }   // spam is quietly dropped
     if (!(await siteStore.get(req.params.slug))) { finish(404, 'There is no website at this address.'); return; }
-    await siteData.addEntry(req.params.slug, entry);
-    finish(201, 'Thank you. It was sent.');
+    const id = await siteData.addEntry(req.params.slug, entry);
+    finish(201, 'Thank you. It was sent.', entryRef(id));
   } catch (error) {
     if (!error.status) console.error('[site-data]', error.message);
     finish(error.status || 500, error.status ? error.message : 'It could not be sent. Try again in a moment.');

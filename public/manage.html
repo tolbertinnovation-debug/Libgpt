@@ -56,10 +56,30 @@ dt{color:var(--soft)}dd{margin:0;white-space:pre-wrap;word-break:break-word}
 .stat{font-size:1.6rem;font-weight:800}
 .empty{color:var(--soft);text-align:center;padding:24px 8px}
 [hidden]{display:none!important}
+.doc-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.doc-sheet{background:#fff;color:#111;border:1px solid var(--line);border-radius:10px;padding:24px;margin:8px 0 0;font-size:15px}
+.doc-sheet .note{color:#555}
+.doc-head{display:flex;justify-content:space-between;gap:16px;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:14px;flex-wrap:wrap}
+.doc-head h2{margin:0;font-size:1.3rem}.doc-contact{margin:2px 0 0;color:#444;white-space:pre-wrap}
+.doc-meta{text-align:right}.doc-type{font-size:1.2rem;letter-spacing:.08em}
+.doc-to p{margin:2px 0 14px;white-space:pre-wrap}
+.doc-sheet table{width:100%;border-collapse:collapse}
+.doc-sheet th,.doc-sheet td{text-align:left;padding:8px 6px;border-bottom:1px solid #ddd;vertical-align:top}
+.doc-sheet th:nth-child(n+2),.doc-sheet td:nth-child(n+2){text-align:right;white-space:nowrap}
+.doc-sheet tfoot td{font-weight:800;border-bottom:0;border-top:2px solid #111}
+.doc-sheet tfoot td:first-child{text-align:right}
+.doc-notes{margin:16px 0 0;white-space:pre-wrap}
+@media print{
+  @page{margin:14mm}
+  body{background:#fff;color:#111}
+  main{max-width:none;padding:0}
+  .no-print{display:none!important}
+  .doc-sheet{border:0;padding:0;margin:0}
+}
 </style>
 </head>
 <body>
 <main id="app"><p class="note">Opening…</p></main>
-<script src="/manage.js?v=manage-1" type="module"></script>
+<script src="/manage.js?v=manage-2" type="module"></script>
 </body>
 </html>
