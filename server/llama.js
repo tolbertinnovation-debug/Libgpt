@@ -146,6 +146,24 @@ export function everydayForLlama({ question = '', building = false, searched = f
   return !NEEDS_OPENAI.test(String(question || ''));
 }
 
+/**
+ * How long Meta's Muse models think before answering, the way good chatbots
+ * pace themselves: a greeting or a quick question is answered at once, an
+ * ordinary question after a brief thought, and a large task (a long request,
+ * a plan, a story, sums, a question that needs reasoning) thought through
+ * properly. Muse Wonder, the strongest and slowest, answers when the person
+ * asks Grandpa to Think. Returns { model, effort, long } (long: show
+ * "Thinking it through…" while he works).
+ */
+export function metaPlan({ config = llamaConfig(), thinking = '', tier = '', depth = '', spoken = false, carryingOn = false } = {}) {
+  if (thinking === 'medium') return { model: config.deepModel, effort: 'medium', long: true };
+  if (carryingOn) return { model: config.model, effort: 'low', long: false };
+  if (spoken || tier === 'fast') return { model: config.model, effort: 'minimal', long: false };
+  if (tier === 'deep' || depth === 'thorough') return { model: config.model, effort: 'high', long: true };
+  if (thinking || depth === 'detailed') return { model: config.model, effort: 'medium', long: true };
+  return { model: config.model, effort: 'low', long: false };
+}
+
 /** One short, complete Llama answer (titles, summaries). */
 export async function completeLlama({ config = llamaConfig(), messages, maxTokens = 300, temperature = 0.3, signal, fetcher = fetch }) {
   let text = '';

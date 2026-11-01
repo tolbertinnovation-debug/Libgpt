@@ -116,3 +116,20 @@ test('with OpenAI off, Build, stories, documents, pictures and chat tools all ru
 
   assert.deepEqual(openaiRequests, [], 'nothing ever reached OpenAI');
 });
+
+test('pacing: quick answers to small questions, a proper think on large tasks, Muse Wonder for Think', async () => {
+  const { metaPlan } = await import('../server/llama.js');
+  assert.deepEqual(metaPlan({ config: META, tier: 'fast' }), { model: 'muse-spark-1.3', effort: 'minimal', long: false });
+  assert.deepEqual(metaPlan({ config: META, tier: 'balanced' }), { model: 'muse-spark-1.3', effort: 'low', long: false });
+  assert.deepEqual(metaPlan({ config: META, tier: 'balanced', thinking: 'low' }), { model: 'muse-spark-1.3', effort: 'medium', long: true });
+  assert.deepEqual(metaPlan({ config: META, tier: 'deep' }), { model: 'muse-spark-1.3', effort: 'high', long: true });
+  assert.deepEqual(metaPlan({ config: META, tier: 'balanced', depth: 'thorough' }), { model: 'muse-spark-1.3', effort: 'high', long: true });
+  assert.deepEqual(metaPlan({ config: META, tier: 'deep', thinking: 'medium' }), { model: 'muse-wonder-1.0', effort: 'medium', long: true });
+  assert.equal(metaPlan({ config: META, tier: 'deep', spoken: true }).effort, 'minimal', 'spoken answers come quickly');
+  assert.equal(metaPlan({ config: META, tier: 'deep', carryingOn: true }).effort, 'low');
+  // A build (meta_effort) thinks properly on Spark, and the hint never reaches the request.
+  const build = forMeta({ model: 'gpt-5.4', messages: [], meta_effort: 'high' }, META);
+  assert.equal(build.model, 'muse-spark-1.3');
+  assert.equal(build.reasoning_effort, 'high');
+  assert.equal('meta_effort' in build, false);
+});
