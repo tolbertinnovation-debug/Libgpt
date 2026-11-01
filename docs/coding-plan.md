@@ -121,4 +121,14 @@ The owner asked to be able to edit the preview directly: click and type, add or 
 - **Saving.** Each edit is saved straight away as a named version ("Before: you edited index.html"), so Undo, Compare and Restore work. **Done** adds one chat message with **Undo**.
 - **Safety.** The preview only accepts well-formed editor messages from its own frame.
 
-**Next:** step 3 (pictures: replace, size, remove, add), step 4 (move, duplicate, delete parts), step 5 (checks after Done).
+**Done: step 3, pictures**
+
+- **Tap a picture** to open its menu:
+  - **Replace** it with a photo from your phone (resized for the web and added to your files) or with another picture already in the site;
+  - choose a **size**: small, medium, large or full width (the height keeps its shape);
+  - add a **description** for people who cannot see it;
+  - **Remove** it.
+- **"+ Picture"** in the text bar adds a picture straight after that text, on its own line with the same indent.
+- **Only that picture's tag changes** in the file. Its other attributes and style rules are kept, and a removed picture takes its empty line with it.
+
+**Next:** step 4 (move, duplicate, delete parts), step 5 (checks after Done).
