@@ -3906,3 +3906,10 @@ body {
 .pic-choice img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .pic-alt { flex: 1; min-width: 0; font: inherit; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border, rgba(127,127,127,.35)); background: transparent; color: inherit; }
 .pic-remove { margin-top: 12px; color: #c62828; }
+
+/* ---- Publishing on Grandpa ---------------------------------------------- */
+.publish-url { font-weight: 700; overflow-wrap: anywhere; font-size: 1.05rem; }
+.publish-qr { display: block; margin: 8px auto 14px; width: 200px; height: 200px; background: #fff; border-radius: 12px; padding: 6px; }
+.publish-address { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; font-size: .9rem; }
+.publish-address span { opacity: .75; }
+.build-chip.is-primary { background: var(--gold); color: #1b1408; border-color: var(--gold); font-weight: 700; }

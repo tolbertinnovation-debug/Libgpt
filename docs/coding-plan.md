@@ -183,4 +183,12 @@ The owner approved this order: A design, B publish on Grandpa, C database, D man
 - **The conversation before building** asks for the style preset and the languages.
 - **+ Section in Edit.** Select a part, then tap **+ Section**: services with icons, gallery, slider, prices, questions, opening hours, map, numbers, call to action, or WhatsApp. The section goes after the selected part and the kit is linked into the page. Its photographs are created when you tap **Done**, and then the checks run.
 
-### Next: Phase B, publish on Grandpa (a public address and QR code), then C and D (database and management).
+### Phase B: publish on Grandpa (done)
+
+- **Publish on the web** (a chip after every build). Choose an address (suggested from the project name) and get `https://libgrandpaai.com/s/<address>/`, with a **QR code**, **Copy link**, **Share** and **Open**. The free checks run first, and pending photographs are created. After you change the site, the chip reads **Update the published website**. **Take the website down** removes it.
+- **Storage** (`server/site-store.js`). Sites are kept in the app's existing database (`grandpa_ai_sites`), or in memory on a local server. There are at most 150 files and 4 MB per site; files a browser cannot open (programs) are left out; at most 100 new sites a day. Publishing needs the access code.
+- **Ownership.** Publishing returns a private token, kept on the phone that published, and only that phone can update or remove the site. The owner can list and take down any site (`/api/admin/sites`).
+- **Safety.** Sites are public and served with `Content-Security-Policy: sandbox …` without `allow-same-origin`. Every published page therefore runs in an opaque origin and **cannot read the app's storage, cookies or access code**, whatever its scripts do. A browser test confirmed the page was blocked. `nosniff` is set too. Pictures are served as real images, and `/s/name/about` finds `about.html`.
+- **Later (needs approval):** your own domain (for example fixpoint.lr) or a separate sites domain.
+
+### Next: Phase C and D, database and management.

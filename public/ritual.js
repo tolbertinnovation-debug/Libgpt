@@ -214,8 +214,9 @@ function fixHint(p) {
     .map((s) => `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('');
   const versions = (p.versions || []).length ? '<button class="build-chip" type="button" data-show-history>See versions</button>' : '';
   const photos = state.canDraw ? pendingPictures(p.files).length : 0;
+  const publishChip = deps.publishing ? `<button class="build-chip${p.publish && !publishedChanged(p) ? '' : ' is-primary'}" type="button" data-web-publish>${p.publish ? (publishedChanged(p) ? 'Update the published website' : 'Your live website') : 'Publish on the web'}</button>` : '';
   const photoChip = photos ? `<button class="build-chip" type="button" data-create-photos>Create the ${photos === 1 ? 'photograph' : `${photos} photographs`} this site needs</button>` : '';
-  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${photoChip}${chips}${versions}</div></div>`;
+  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${publishChip}${photoChip}${chips}${versions}</div></div>`;
 }
 
 function proposalHtml(files, index, applied, checked, receipt) {
@@ -489,6 +490,82 @@ async function send(text) {
   }
 
   await changeFiles(said);
+}
+
+/* ---- Publishing on Grandpa (Phase B) ------------------------------------- */
+const slugFromName = (name) => String(name || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40).replace(/-+$/, '');
+const publishedChanged = (p) => Boolean(p.publish && p.publish.fingerprint !== sourceFingerprint(p.files));
+
+function showWebPublish() {
+  const p = project();
+  if (!p) return;
+  if (!deps.publishing) { openSheet('Publish', '<p class="sheet-note">Publishing is not set up on this host yet.</p>'); return; }
+  const pub = p.publish;
+  if (pub?.url) {
+    openSheet('Your website is live', `
+      <p class="sheet-note">Anyone can open it at this address:</p>
+      <p class="publish-url"><a href="${escapeHtml(pub.url)}" target="_blank" rel="noopener">${escapeHtml(pub.url)}</a></p>
+      <img class="publish-qr" src="/api/sites/${encodeURIComponent(pub.slug)}/qr.svg" alt="QR code for ${escapeHtml(pub.url)}" width="200" height="200">
+      <div class="history-actions">
+        <button class="build-chip" type="button" data-publish-copy>Copy link</button>
+        ${navigator.share ? '<button class="build-chip" type="button" data-publish-share>Share</button>' : ''}
+        <a class="build-chip" href="${escapeHtml(pub.url)}" target="_blank" rel="noopener">Open</a>
+      </div>
+      ${publishedChanged(p) ? '<p class="sheet-note">You have changed the website since it was published.</p><button class="sheet-go" type="button" data-publish-go>Update the published website</button>' : '<p class="sheet-note">The published website matches your latest version.</p>'}
+      <button class="build-chip pic-remove" type="button" data-publish-remove>Take the website down</button>`);
+    return;
+  }
+  openSheet('Publish your website', `
+    <p class="sheet-note">Your website gets a public address that anyone can open, share and scan as a QR code. You can update it or take it down at any time.</p>
+    <label class="sheet-note" for="publish-slug">Address</label>
+    <div class="publish-address"><span>${escapeHtml(location.host)}/s/</span><input id="publish-slug" class="pic-alt" maxlength="40" value="${escapeHtml(slugFromName(p.name) || 'my-website')}" autocapitalize="off" spellcheck="false"></div>
+    <p class="sheet-note">3 to 40 letters, numbers and dashes.</p>
+    <button class="sheet-go" type="button" data-publish-go>Publish</button>`);
+}
+
+async function publishToWeb() {
+  const p = project();
+  if (!p || isBusy()) return;
+  const slug = p.publish?.slug || String($('publish-slug')?.value || '').trim().toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/.test(slug)) { deps.toast('Choose an address of 3 to 40 letters, numbers and dashes.'); return; }
+  closeSheet();
+  const mine = mark('Checking the website before publishing…');
+  renderThread();
+  let faults = [];
+  try { await createPhotos(p); faults = await faultsIn(p.files); } catch { faults = []; }
+  unmark(mine);
+  if (faults.length && !globalThis.confirm?.(`The checks found ${faults.length === 1 ? 'a problem' : `${faults.length} problems`}:\n\n${faults.slice(0, 5).join('\n')}\n\nPublish anyway?`)) { render(); return; }
+  const working = mark('Publishing…');
+  renderThread();
+  try {
+    const response = await fetch('/api/sites', { method: 'POST', headers: { 'Content-Type': 'application/json', ...deps.headers() },
+      body: JSON.stringify({ slug, name: p.name, token: p.publish?.token || '', files: p.files.map(({ path, body }) => ({ path, body })) }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'Publishing could not finish.');
+    const first = !p.publish;
+    p.publish = { slug: result.slug, url: result.url, token: result.token || p.publish?.token, publishedAt: Date.now(), fingerprint: sourceFingerprint(p.files) };
+    p.messages.push({ role: 'assistant', content: first ? `Your website is live at ${result.url} — share the link or the QR code. You can update it or take it down any time.` : `The published website is updated: ${result.url}` });
+    await persist();
+    unmark(working); render();
+    showWebPublish();
+  } catch (error) {
+    unmark(working); render();
+    deps.toast(error.message);
+  }
+}
+
+async function unpublishFromWeb() {
+  const p = project();
+  if (!p?.publish || !globalThis.confirm?.('Take the website down? The address will stop working until you publish again.')) return;
+  try {
+    const response = await fetch(`/api/sites/${encodeURIComponent(p.publish.slug)}`, { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...deps.headers() }, body: JSON.stringify({ token: p.publish.token }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'The website could not be taken down.');
+    const url = p.publish.url;
+    delete p.publish;
+    p.messages.push({ role: 'assistant', content: `The website at ${url} has been taken down. Your files are kept here.` });
+    await persist(); closeSheet(); render();
+  } catch (error) { deps.toast(error.message); }
 }
 
 /* ---- The Grandpa Kit ----------------------------------------------------- */
@@ -2270,6 +2347,7 @@ export async function mount(options = {}) {
     if (starter) { send(starter.textContent.trim()); return; }
     if (event.target.closest('[data-discuss-start]')) { startFromBrief(); return; }
     if (event.target.closest('[data-show-history]')) { showHistory(); return; }
+    if (event.target.closest('[data-web-publish]')) { showWebPublish(); return; }
     if (event.target.closest('[data-create-photos]')) { const p = project(); if (!isBusy()) createPhotos(p); return; }
     const fixEdits = event.target.closest('[data-fix-edits]');
     if (fixEdits) { fixAfterEdits(Number(fixEdits.dataset.fixEdits)); return; }
@@ -2356,6 +2434,10 @@ export async function mount(options = {}) {
       return;
     }
 
+    if (event.target.closest('[data-publish-go]')) { publishToWeb(); return; }
+    if (event.target.closest('[data-publish-remove]')) { unpublishFromWeb(); return; }
+    if (event.target.closest('[data-publish-copy]')) { const url = project()?.publish?.url; if (url) navigator.clipboard?.writeText(url).then(() => deps.toast('Link copied.'), () => deps.toast(url)); return; }
+    if (event.target.closest('[data-publish-share]')) { const p = project(); if (p?.publish) navigator.share?.({ title: p.name, url: p.publish.url }).catch(() => {}); return; }
     const addKey = event.target.closest('[data-add-section]');
     if (addKey) { addSection(addKey.dataset.addSection); return; }
     const use = event.target.closest('[data-pic-use]');

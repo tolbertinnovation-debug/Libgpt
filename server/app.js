@@ -25,6 +25,8 @@ import {
 import { safeDiagnostic } from './openai-failure.js';
 import { DISCUSS_PROMPT, readDiscussion, readDiscussReply } from './build-discuss.js';
 import { STEPS_PROMPT, readSteps } from './build-steps.js';
+import QRCode from 'qrcode';
+import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, findSiteFile, siteFileBody } from './site-store.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
 import {
   DEFAULT_LANGUAGE,
@@ -104,7 +106,7 @@ app.disable('x-powered-by');
 const smallBodies = express.json({ limit: '2mb' });
 // Synced chats travel sealed in one piece; the host accepts up to 4.5 MB a request.
 const syncBodies = express.json({ limit: '4400kb' });
-app.use((req, res, next) => (req.path.startsWith('/api/sync/') ? syncBodies : smallBodies)(req, res, next));
+app.use((req, res, next) => (req.path.startsWith('/api/sync/') || req.path === '/api/sites' ? syncBodies : smallBodies)(req, res, next));
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
 
 // ---- simple per-IP rate limit -------------------------------------------
@@ -353,6 +355,8 @@ app.get('/api/config', async (_req, res) => {
     liveTalk: liveTalkReady(),
     liveTalkMinutes: config.liveTalkMinutes,
     sync: Boolean(syncStore),
+    // Phase B: sites can be published at /s/<address> on this host.
+    publishing: Boolean(siteStore) && config.building,
     // Meta's Llama stands by for chat when OpenAI cannot answer.
     backupModel: llamaConfig().ready,
     // The advanced voice reads answers when Live Talk's realtime model is available.
@@ -1752,6 +1756,70 @@ const syncFailed = (res, error) => {
   if (!error.status) console.error('[sync]', error.message);
   res.status(error.status || 500).json({ error: error.status ? error.message : 'Sync could not finish. Your chats are still saved on this device.' });
 };
+// ---- publishing websites at /s/<address> (Phase B) ----------------------------
+const siteStore = governanceConnection ? createPostgresSiteStore({ connectionString: governanceConnection })
+  : (config.serverless ? null : createMemorySiteStore());
+const siteFailed = (res, error) => { if (!error.status) console.error('[sites]', error.message); res.status(error.status || 500).json({ error: error.status ? error.message : 'Publishing could not finish. Your files are still saved on this device.' }); };
+const publicBase = (req) => `${(req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0]}://${req.get('host')}`;
+
+app.post('/api/sites', rateLimit, requireAccess, async (req, res) => {
+  if (!siteStore || !config.building) { res.status(503).json({ error: 'Publishing needs the app database, which is not set up on this host.' }); return; }
+  res.setHeader('Cache-Control', 'no-store');
+  const slug = typeof req.body?.slug === 'string' && req.body.slug ? req.body.slug.trim().toLowerCase() : slugFrom(req.body?.name);
+  try {
+    const result = await siteStore.publish({ slug, name: req.body?.name, files: req.body?.files, token: typeof req.body?.token === 'string' ? req.body.token : '' });
+    res.json({ ...result, url: `${publicBase(req)}/s/${result.slug}/` });
+  } catch (error) { siteFailed(res, error); }
+});
+app.delete('/api/sites/:slug', rateLimit, requireAccess, async (req, res) => {
+  if (!siteStore) { res.status(503).json({ error: 'Publishing is not set up on this host.' }); return; }
+  try { res.json({ removed: await siteStore.remove(req.params.slug, String(req.body?.token || '')) }); } catch (error) { siteFailed(res, error); }
+});
+app.get('/api/sites/:slug/qr.svg', rateLimit, async (req, res) => {
+  if (!validSlug(req.params.slug)) { res.status(400).end(); return; }
+  const svg = await QRCode.toString(`${publicBase(req)}/s/${req.params.slug}/`, { type: 'svg', margin: 2, errorCorrectionLevel: 'M', color: { dark: '#111111', light: '#ffffff' } });
+  res.setHeader('Content-Type', 'image/svg+xml');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(svg);
+});
+// The owner can see and take down any published site.
+app.get('/api/admin/sites', rateLimit, requireAgentAdmin, async (_req, res) => {
+  if (!siteStore) { res.json({ sites: [] }); return; }
+  try { res.json({ sites: await siteStore.list() }); } catch (error) { siteFailed(res, error); }
+});
+app.delete('/api/admin/sites/:slug', rateLimit, requireAgentAdmin, async (req, res) => {
+  if (!siteStore) { res.status(503).json({ error: 'Publishing is not set up on this host.' }); return; }
+  try { res.json({ removed: await siteStore.remove(req.params.slug, '', { admin: true }) }); } catch (error) { siteFailed(res, error); }
+});
+
+// Published sites: public, and sandboxed. The CSP sandbox gives each page an
+// opaque origin, so a site's own scripts can never read this app's storage,
+// cookies or access code, however they were written.
+const SITE_HEADERS = {
+  'Content-Security-Policy': "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads; frame-ancestors 'self'",
+  'X-Content-Type-Options': 'nosniff',
+  'Referrer-Policy': 'strict-origin-when-cross-origin',
+  'Cache-Control': 'public, max-age=60',
+};
+const notFoundPage = (message) => `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Not found</title><style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;margin:0;padding:24px;color:#1f2937;text-align:center}</style></head><body><div><h1>Page not found</h1><p>${message}</p></div></body></html>`;
+// Without the trailing slash, a page's relative links would resolve one folder too high.
+app.get('/s/:slug', (req, res, next) => (req.path.endsWith('/') ? next() : res.redirect(301, `/s/${encodeURIComponent(req.params.slug)}/`)));
+app.get('/s/:slug/*', async (req, res) => {
+  res.set(SITE_HEADERS);
+  if (!siteStore || !validSlug(req.params.slug)) { res.status(404).type('html').send(notFoundPage('There is no website at this address.')); return; }
+  try {
+    const site = await siteStore.get(req.params.slug);
+    if (!site) { res.status(404).type('html').send(notFoundPage('There is no website at this address.')); return; }
+    const file = findSiteFile(site.files, req.params[0] || '');
+    if (!file) { res.status(404).type('html').send(notFoundPage('This page is not part of the website.')); return; }
+    const { type, body } = siteFileBody(file);
+    res.type(type).send(body);
+  } catch (error) {
+    console.error('[sites]', error.message);
+    res.status(503).type('html').send(notFoundPage('This website could not be opened just now. Try again in a moment.'));
+  }
+});
+
 app.get('/api/sync/:id', rateLimit, requireAccess, async (req, res) => {
   if (!syncReady(req, res)) return;
   try { res.json((await syncStore.get(req.params.id)) || { version: 0, data: '' }); } catch (error) { syncFailed(res, error); }
