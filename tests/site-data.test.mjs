@@ -19,8 +19,8 @@ test('what visitors send is cleaned; robots and empty forms are refused', () => 
     { texts: { notice: 'Open <b>today</b>', bad: '[object Object]' }, lists: { menu: [{ name: 'Rice', price: '350' }] } });
   assert.throws(() => checkPasscode('12345'), { status: 400 });
   assert.equal(checkPasscode('123456'), '123456');
-  const csv = entriesToCsv([{ createdAt: '2026-11-01T10:00:00.000Z', kind: 'order', status: 'new', page: 'index.html', fields: { name: 'Kollie, J.', item: '=HYPERLINK("x")', note: 'line\ntwo' } }]);
-  assert.ok(csv.startsWith('﻿Received,Kind,Status,Page,name,item,note\r\n'));
+  const csv = entriesToCsv([{ id: 'ab12cd34ef56', createdAt: '2026-11-01T10:00:00.000Z', kind: 'order', status: 'new', page: 'index.html', fields: { name: 'Kollie, J.', item: '=HYPERLINK("x")', note: 'line\ntwo' } }]);
+  assert.ok(csv.startsWith('\uFEFFReference,Received,Kind,Status,Page,name,item,note\r\nAB12CD34,'));
   assert.match(csv, /"Kollie, J\."/);
   assert.match(csv, /"'=HYPERLINK\(""x""\)"/, 'a formula is made plain text');
   assert.match(csv, /"line\ntwo"/);
@@ -132,12 +132,14 @@ test('published sites save forms, and only the owner can read them on Manage', a
     body: JSON.stringify({ _kind: 'order', _page: 'index.html', _t: 4000, name: 'Musu', phone: '+231 886 123 456', item: 'Rice x2' }) });
   assert.equal(sent.status, 201, await sent.clone().text());
   assert.equal(sent.headers.get('access-control-allow-origin'), '*');
+  const { ref } = await sent.clone().json();
+  assert.match(ref, /^[0-9A-F]{8}$/, 'the visitor gets a reference');
   assert.equal(sent.headers.get('set-cookie'), null);
   const robot = await fetch(`${base}/api/site-data/mama-kitchen`, { method: 'POST', body: JSON.stringify({ name: 'Bot', _gotcha: 'x' }) });
   assert.equal(robot.status, 200, 'robots are told it worked');
   const plain = await fetch(`${base}/api/site-data/mama-kitchen`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'name=Kollie&message=Is+it+open%3F' });
   assert.equal(plain.status, 201);
-  assert.match(await plain.text(), /Thank you[\s\S]*Back to the website/);
+  assert.match(await plain.text(), /Thank you[\s\S]*Your reference is [0-9A-F]{8}[\s\S]*Back to the website/);
   assert.equal((await fetch(`${base}/api/site-data/no-such-site`, { method: 'POST', body: '{"name":"x"}' })).status, 404);
   assert.equal((await fetch(`${base}/api/site-data/mama-kitchen`, { method: 'POST', body: '{"name":""}' })).status, 400);
   const preflight = await fetch(`${base}/api/site-data/mama-kitchen`, { method: 'OPTIONS', headers: { Origin: 'null', 'Access-Control-Request-Method': 'POST' } });
@@ -156,12 +158,13 @@ test('published sites save forms, and only the owner can read them on Manage', a
   const { entries } = await (await fetch(`${base}/api/manage/mama-kitchen/entries`, { headers: owner })).json();
   assert.deepEqual(entries.map((e) => e.fields.name), ['Kollie', 'Musu']);
   assert.equal(entries[1].kind, 'order');
+  assert.equal(entries[1].id.slice(0, 8).toUpperCase(), ref, 'the owner sees the same reference');
   assert.equal((await (await fetch(`${base}/api/manage/mama-kitchen/entries?kind=order`, { headers: owner })).json()).entries.length, 1);
   assert.deepEqual(await (await json('PATCH', `/api/manage/mama-kitchen/entries/${entries[1].id}`, { status: 'done' }, owner)).json(), { updated: true });
   assert.equal((await json('PATCH', `/api/manage/mama-kitchen/entries/${entries[1].id}`, { status: 'gone' }, owner)).status, 400);
   const csv = await fetch(`${base}/api/manage/mama-kitchen/entries?format=csv`, { headers: owner });
   assert.match(csv.headers.get('content-disposition'), /mama-kitchen-entries\.csv/);
-  assert.match(await csv.text(), /Received,Kind,Status,Page,name,message,phone,item/);
+  assert.match(await csv.text(), /Reference,Received,Kind,Status,Page,name,message,phone,item/);
   assert.deepEqual(await (await json('DELETE', `/api/manage/mama-kitchen/entries/${entries[0].id}`, undefined, owner)).json(), { removed: true });
 
   // The owner changes the menu; the next page view carries it.

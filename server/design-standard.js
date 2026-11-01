@@ -41,4 +41,11 @@ GRANDPA DATA AND MANAGE (the published site saves forms, and the owner changes c
 - Content the owner will want to change without a rebuild (prices, menu, products, opening hours, a notice) is marked so Manage can edit it:
   - single texts: data-gk-text="key" (for example <p class="notice" data-gk-text="notice" data-gk-label="Notice at the top">Open on public holidays</p>, phone, address);
   - lists: an element with data-gk-list="name" (data-gk-label="Menu"), holding repeated items marked data-gk-item, whose parts are marked data-gk-field="name" | "price" | "note" (same fields in every item). Example: <div class="gk-grid" data-gk-list="menu" data-gk-label="Menu"><article class="gk-card" data-gk-item><h3 data-gk-field="name">Jollof rice</h3><p data-gk-field="price">LRD 350</p><p data-gk-field="note">With chicken</p></article>...</div>. Hours: <table class="gk-hours" data-gk-list="hours" data-gk-label="Opening hours"><tr data-gk-item><td data-gk-field="day">Monday</td><td data-gk-field="time">8:00 – 18:00</td></tr>...</table>.
-  Write real starting content in the page; Manage shows it to the owner to change.`;
+  Write real starting content in the page; Manage shows it to the owner to change.
+DOCUMENTS
+- A download list, only for files that really are in the project: <ul class="gk-docs"><li><a href="files/price-list.pdf" download>Price list<small>PDF</small></a></li></ul>.
+- Printable documents (a certificate, price list or menu to print): put it in <div class="gk-doc" id="price-list"> (add gk-certificate for a certificate) with <button class="gk-btn" type="button" data-gk-print="#price-list">Print or save as PDF</button>. data-gk-print with no value prints the whole page.
+- Order and booking forms already give the visitor a reference and a "Save a copy (PDF)" button; the owner makes invoices and receipts in Manage. Do not build your own.
+POLICY PAGES
+- A business website with any form gets privacy.html; one that sells, takes orders or bookings also gets terms.html and refunds.html. Link them in the footer of every page.
+- Write them in plain, honest words with the business name: what the forms collect and why, that the business keeps it privately (Grandpa Data) and uses it only to reply, how to ask for it to be deleted, that there are no advertising or tracking cookies, and how to contact the business. Do not name laws, registration numbers or guarantees nobody gave you. End with "Last updated" and the month and year.`;

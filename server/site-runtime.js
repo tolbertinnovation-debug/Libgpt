@@ -83,10 +83,18 @@ const RUNTIME = String.raw`(function () {
       form.setAttribute('data-gk-sending', '1'); if (button) button.disabled = true;
       box.className = 'gk-form-status is-sending'; box.textContent = 'Sending…';
       fetch('/api/site-data/' + encodeURIComponent(SLUG), { method: 'POST', body: JSON.stringify(data), credentials: 'omit' })
-        .then(function (response) { return response.json().catch(function () { return {}; }).then(function (body) { if (!response.ok) throw new Error(body.error || 'It could not be sent.'); }); })
-        .then(function () {
+        .then(function (response) { return response.json().catch(function () { return {}; }).then(function (body) { if (!response.ok) throw new Error(body.error || 'It could not be sent.'); return body.ref || ''; }); })
+        .then(function (ref) {
           box.className = 'gk-form-status is-sent';
-          box.textContent = form.getAttribute('data-gk-success') || SUCCESS[kind] || SUCCESS.other;
+          box.textContent = (form.getAttribute('data-gk-success') || SUCCESS[kind] || SUCCESS.other) + (ref ? ' Your reference is ' + ref + '.' : '');
+          if (ref && (kind === 'order' || kind === 'booking' || form.hasAttribute('data-gk-receipt'))) {
+            var copy = document.createElement('button');
+            copy.type = 'button'; copy.className = 'gk-btn is-ghost gk-receipt-button'; copy.textContent = 'Save a copy (PDF)';
+            copy.style.marginLeft = '8px';
+            var sentData = data;
+            copy.addEventListener('click', function () { printReceipt(kind, ref, sentData); });
+            box.appendChild(document.createTextNode(' ')); box.appendChild(copy);
+          }
           form.reset();
         })
         .catch(function (error) {
@@ -95,6 +103,25 @@ const RUNTIME = String.raw`(function () {
         })
         .then(function () { form.removeAttribute('data-gk-sending'); if (button) button.disabled = false; });
     });
+  }
+
+  // A copy of what the visitor sent, printed on its own page (the print screen can save it as a PDF).
+  function esc(text) { return String(text).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function printReceipt(kind, ref, data) {
+    var site = (document.querySelector('meta[property="og:site_name"]') || {}).content || document.title || SLUG;
+    var rows = Object.keys(data).filter(function (k) { return k.charAt(0) !== '_' && String(data[k]).trim(); })
+      .map(function (k) { return '<tr><th>' + esc(k.replace(/[-_]/g, ' ')) + '</th><td>' + esc(data[k]) + '</td></tr>'; }).join('');
+    var title = { order: 'Order', booking: 'Booking request' }[kind] || 'Copy of your form';
+    var area = document.createElement('div');
+    area.className = 'gk-print-area gk-receipt';
+    area.innerHTML = '<style>.gk-receipt{font:15px/1.5 system-ui,sans-serif;color:#111;background:#fff;max-width:720px;margin:0 auto;padding:32px}.gk-receipt h1{font-size:22px;margin:0}.gk-receipt .gk-r-top{display:flex;justify-content:space-between;gap:16px;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:16px}.gk-receipt table{width:100%;border-collapse:collapse}.gk-receipt th,.gk-receipt td{text-align:left;vertical-align:top;padding:8px;border-bottom:1px solid #ddd}.gk-receipt th{width:35%;text-transform:capitalize;color:#444}.gk-receipt p{color:#444}@media screen{.gk-receipt{display:none}}@media print{body.gk-printing>*:not(.gk-print-area){display:none!important}.gk-receipt{display:block!important}}</style>' +
+      '<div class="gk-r-top"><div><h1>' + esc(site) + '</h1><div>' + esc(title) + '</div></div><div style="text-align:right"><strong>Reference ' + esc(ref) + '</strong><br>' + esc(new Date().toLocaleString()) + '</div></div>' +
+      '<table>' + rows + '</table><p>This is a copy of what you sent. The business will contact you to confirm.</p><p>' + esc(location.origin + location.pathname) + '</p>';
+    document.body.appendChild(area); document.body.classList.add('gk-printing');
+    var done = function () { document.body.classList.remove('gk-printing'); if (area.parentNode) area.parentNode.removeChild(area); removeEventListener('afterprint', done); };
+    addEventListener('afterprint', done);
+    window.print();
+    setTimeout(done, 60000);
   }
 
   function start() {

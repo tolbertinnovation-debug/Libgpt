@@ -208,6 +208,7 @@ function renderThread() {
 }
 
 /** Once something is built: say plainly that anything can be fixed or changed. */
+const POLICY_REQUEST = 'Add a privacy policy page, and terms and a refund policy page if this business sells or takes orders or bookings. Write them in plain words for this business, as the design standard says, and link them in the footer of every page.';
 function fixHint(p) {
   if (!builtFiles(p).length || state.live || isBusy()) return '';
   const chips = ['Check for problems and fix them', ...(deps.vision ? ['Look at it on a phone and fix what is wrong'] : ['Make it look better on phones']), 'What is in my website?']
@@ -215,8 +216,11 @@ function fixHint(p) {
   const versions = (p.versions || []).length ? '<button class="build-chip" type="button" data-show-history>See versions</button>' : '';
   const photos = state.canDraw ? pendingPictures(p.files).length : 0;
   const publishChip = deps.publishing ? `<button class="build-chip${p.publish && !publishedChanged(p) ? '' : ' is-primary'}" type="button" data-web-publish>${p.publish ? (publishedChanged(p) ? 'Update the published website' : 'Your live website') : 'Publish on the web'}</button>` : '';
+  const pages = builtFiles(p).filter((f) => /\.html?$/i.test(f.path) && !/^data:/.test(f.body || ''));
+  const policyChip = pages.length && !pages.some((f) => /(^|\/)(privacy|privacy-policy)\.html?$/i.test(f.path))
+    ? `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(POLICY_REQUEST)}">Add privacy, terms and refund pages</button>` : '';
   const photoChip = photos ? `<button class="build-chip" type="button" data-create-photos>Create the ${photos === 1 ? 'photograph' : `${photos} photographs`} this site needs</button>` : '';
-  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${publishChip}${photoChip}${chips}${versions}</div></div>`;
+  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${publishChip}${photoChip}${chips}${policyChip}${versions}</div></div>`;
 }
 
 function proposalHtml(files, index, applied, checked, receipt) {
@@ -572,14 +576,14 @@ async function unpublishFromWeb() {
 
 /* ---- The Grandpa Kit ----------------------------------------------------- */
 /** Add the shared design kit to a project once, so builders can use its sections and effects. */
-const KIT_VERSION = 'Grandpa Kit 2';
+const KIT_VERSION = 'Grandpa Kit 3';
 async function ensureKit(p) {
   // An older kit is replaced by the current one (only the kit ever changes the kit).
   const kit = (p?.files || []).filter((f) => isKitFile(f.path));
   if (!p || (kit.length === 2 && kit.every((f) => String(f.body).startsWith(`/* ${KIT_VERSION} `)))) return true;
   try {
     const [css, js] = await Promise.all([KIT_FILES.css, KIT_FILES.js].map(async (path) => {
-      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-2`);
+      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-3`);
       if (!response.ok) throw new Error('kit');
       return response.text();
     }));

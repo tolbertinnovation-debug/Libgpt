@@ -264,6 +264,9 @@ export function createPostgresSiteData({ connectionString, pool: suppliedPool, s
   };
 }
 
+/** The short reference a visitor and the owner both see for one entry. */
+export const entryRef = (id) => String(id || '').slice(0, 8).toUpperCase();
+
 /** True when the token is the one that published the site. */
 export function publishedBy(site, token) {
   return Boolean(site?.tokenHash && typeof token === 'string' && token && sameText(sha(token), site.tokenHash));
@@ -278,8 +281,8 @@ export function entriesToCsv(entries) {
     if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
     return /[",\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
   };
-  const header = ['Received', 'Kind', 'Status', 'Page', ...fieldNames];
-  const rows = entries.map((e) => [e.createdAt, e.kind, e.status, e.page, ...fieldNames.map((k) => e.fields?.[k] ?? '')]);
+  const header = ['Reference', 'Received', 'Kind', 'Status', 'Page', ...fieldNames];
+  const rows = entries.map((e) => [entryRef(e.id), e.createdAt, e.kind, e.status, e.page, ...fieldNames.map((k) => e.fields?.[k] ?? '')]);
   return '\uFEFF' + [header, ...rows].map((row) => row.map(cell).join(',')).join('\r\n') + '\r\n';
 }
 
