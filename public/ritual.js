@@ -2,7 +2,7 @@ import {verificationStatusMarkup} from './build-verification.js';
 import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
 import {restrictPreviewDocument} from './preview-policy.js';
-import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=edit-1';
+import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=edit-2';
 import {loadPreviewGuard,previewGuardReady} from './preview-guard.js';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
@@ -32,7 +32,7 @@ import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materia
 import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
 import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
 import { historyEntries, compareFiles } from './build-history.js?v=phase5-1';
-import { annotate, editingDocument, replaceInner, cleanInner, elementCount } from './visual-edit.js?v=edit-3';
+import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES } from './visual-edit.js?v=edit-4';
 
 const $ = (id) => document.getElementById(id);
 
@@ -408,7 +408,7 @@ function renderPreview() {
   }
   const editButton=$('preview-edit');
   if(editButton){editButton.setAttribute('aria-pressed',String(Boolean(state.editMode)));editButton.textContent=state.editMode?'Done':'Edit';editButton.hidden=!look.can;}
-  if(state.editMode){el.previewNote.hidden=false;el.previewNote.textContent='Editing: tap any text and type. Links and the page\'s scripts are paused while you edit. Tap Done when you finish — every change is saved.';}
+  if(state.editMode){el.previewNote.hidden=false;el.previewNote.textContent='Editing: tap any text and type, or tap a picture to change it. Links and the page\'s scripts are paused while you edit. Tap Done when you finish — every change is saved.';}
   const select=$('preview-page');
   if(select){const pages=p.files.filter(file=>/\.html?$/i.test(file.path));select.innerHTML=pages.map(file=>`<option value="${escapeHtml(file.path)}">${escapeHtml(file.path)}</option>`).join('');select.value=entry || pages.find(file=>file.path==='index.html')?.path || pages[0]?.path || '';}
   el.previewFrame.classList.toggle('is-phone',state.previewSize==='mobile');
@@ -520,10 +520,92 @@ async function finishEditing() {
   renderPreview();
 }
 
+/** A hand edit to the page file: saved as a version, the preview re-numbered where needed. */
+async function savePageEdit(page, body, scroll, { reload = true } = {}) {
+  const p = project();
+  if (!p || body === page.body) return false;
+  applyChanges(p, [{ path: page.path, body }], `Before: you edited ${page.path}`);
+  if (p.team) invalidateRelease(p, 'Files edited by hand. Fresh independent release checks are required.');
+  if (state.editSession) { state.editSession.changes += 1; state.editSession.pages.add(page.path); }
+  if (scroll != null) state.editScroll = Number(scroll) || 0;
+  if (!(await persist())) deps.toast('Saving on this device failed. Download your files before leaving.');
+  if (reload) { delete el.previewFrame.dataset.signature; renderPreview(); }
+  renderTree();
+  return true;
+}
+
+/* Pictures: replace, size, describe, remove, add. */
+function pictureChoices(p) {
+  return p.files.filter((f) => /^data:image\//.test(f.body || '') || /\.svg$/i.test(f.path));
+}
+
+function showPictureSheet(id, { insert = false } = {}) {
+  const p = project();
+  const page = editPage(p);
+  if (!p || !page) return;
+  state.pictureTarget = { id, insert, path: page.path };
+  const read = insert ? null : readAttributes(page.body, id);
+  if (!insert && read?.tag !== 'img') return;
+  const attr = (name) => read?.attrs.find(([n]) => n.toLowerCase() === name)?.[1] || '';
+  const current = insert ? null : p.files.find((f) => f.path === attr('src').replace(/^\.\//, ''));
+  const choices = pictureChoices(p).map((f) => `<button class="pic-choice" type="button" data-pic-use="${escapeHtml(f.path)}" title="${escapeHtml(f.path)}">${/^data:image\//.test(f.body) ? `<img src="${escapeHtml(f.body)}" alt="">` : `<span>${escapeHtml(f.path)}</span>`}</button>`).join('');
+  openSheet(insert ? 'Add a picture' : 'Picture', `
+    ${current && /^data:image\//.test(current.body) ? `<img class="pic-current" src="${escapeHtml(current.body)}" alt="">` : ''}
+    <button class="sheet-go" type="button" data-pic-upload>${insert ? 'Choose a picture from your phone' : 'Replace with a picture from your phone'}</button>
+    ${choices ? `<p class="sheet-note">${insert ? 'Or use one already in your website:' : 'Or use another picture from your website:'}</p><div class="pic-choices">${choices}</div>` : ''}
+    ${insert ? '' : `<p class="sheet-note">Size</p><div class="history-actions">${Object.keys(PICTURE_SIZES).map((size) => `<button class="build-chip" type="button" data-pic-size="${size}">${size[0].toUpperCase() + size.slice(1)}</button>`).join('')}</div>
+    <p class="sheet-note">Description, for people who cannot see it</p>
+    <div class="history-actions"><input id="pic-alt" class="pic-alt" type="text" maxlength="200" value="${escapeHtml(attr('alt'))}" placeholder="For example: FixPoint logo"><button class="build-chip" type="button" data-pic-alt>Save</button></div>
+    <button class="build-chip pic-remove" type="button" data-pic-remove>Remove this picture</button>`}`);
+}
+
+async function usePicture(path) {
+  const p = project();
+  const target = state.pictureTarget;
+  const page = p && target && p.files.find((f) => f.path === target.path);
+  if (!page) return;
+  const alt = (path.split('/').pop() || '').replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ');
+  const body = target.insert ? insertAfter(page.body, target.id, pictureTag(path, alt)) : setAttributes(page.body, target.id, { src: path });
+  closeSheet();
+  if (await savePageEdit(page, body, state.editScroll)) deps.toast(target.insert ? 'Picture added.' : 'Picture replaced.');
+}
+
+async function uploadPicture() {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = 'image/*';
+  input.addEventListener('change', async () => {
+    const file = input.files?.[0];
+    const p = project();
+    if (!file || !p) return;
+    try {
+      const material = await materialFromFile(file, new Set(p.files.map((f) => f.path)));
+      if (material.kind !== 'picture' && !/\.svg$/i.test(material.path)) { deps.toast('Choose a picture.'); return; }
+      applyChanges(p, [{ path: material.path, body: material.body }], 'Before adding files');
+      p.materials = [...new Set([...(p.materials || []), material.path])];
+      await usePicture(material.path);
+    } catch (error) { deps.toast(error.message); }
+  });
+  input.click();
+}
+
+async function changePicture(kind, value) {
+  const p = project();
+  const target = state.pictureTarget;
+  const page = p && target && p.files.find((f) => f.path === target.path);
+  if (!page) return;
+  const body = kind === 'size' ? sizePicture(page.body, target.id)(value)
+    : kind === 'alt' ? setAttributes(page.body, target.id, { alt: String(value || '').slice(0, 200) })
+    : removeElement(page.body, target.id);
+  closeSheet();
+  if (await savePageEdit(page, body, state.editScroll)) deps.toast(kind === 'remove' ? 'Picture removed.' : kind === 'size' ? 'Size changed.' : 'Description saved.');
+}
+
 /** One edit from the preview, saved into the file. */
 async function applyVisualEdit(data) {
   const p = project();
-  if (!state.editMode || !p || data.type !== 'text') return;
+  if (!state.editMode || !p) return;
+  if (data.type === 'image' || data.type === 'insert-image') { state.editScroll = Number(data.scroll) || 0; showPictureSheet(Number(data.id), { insert: data.type === 'insert-image' }); return; }
+  if (data.type !== 'text') return;
   const id = Number(data.id);
   if (!Number.isInteger(id) || id < 0 || typeof data.html !== 'string' || data.html.length > 20000) return;
   const page = editPage(p);
@@ -2142,6 +2224,13 @@ export async function mount(options = {}) {
       return;
     }
 
+    const use = event.target.closest('[data-pic-use]');
+    if (use) { usePicture(use.dataset.picUse); return; }
+    if (event.target.closest('[data-pic-upload]')) { uploadPicture(); return; }
+    const size = event.target.closest('[data-pic-size]');
+    if (size) { changePicture('size', size.dataset.picSize); return; }
+    if (event.target.closest('[data-pic-alt]')) { changePicture('alt', $('pic-alt')?.value || ''); return; }
+    if (event.target.closest('[data-pic-remove]')) { changePicture('remove'); return; }
     const compare = event.target.closest('[data-compare]');
     if (compare) { showCompare(Number(compare.dataset.compare)); return; }
     if (event.target.closest('[data-history-back]')) { showHistory(); return; }

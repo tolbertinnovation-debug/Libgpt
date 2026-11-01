@@ -70,3 +70,30 @@ test('only well-formed editor messages from the preview are accepted', () => {
   assert.equal(allow(from({ grandpa: 'visual-edit', type: 'delete-everything' })), false);
   assert.equal(allow({ source: {}, origin: 'null', data: { grandpa: 'visual-edit', type: 'text', id: 1, html: 'x' } }), false, 'only from the preview frame');
 });
+
+test('pictures: replace, size, describe, remove and add, changing only that tag', async () => {
+  const { readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, mergeStyle } = await import('../public/visual-edit.js');
+  const page = '<body>\n  <header><img class="logo" src="images/old.png" alt="logo" width="300" style="border-radius: 8px"></header>\n  <h1>Hi</h1>\n  <p>Text</p>\n</body>';
+  const img = mapElements(page).find((e) => e.tag === 'img').id;
+  const h1 = mapElements(page).find((e) => e.tag === 'h1').id;
+  assert.deepEqual(readAttributes(page, img).attrs, [['class', 'logo'], ['src', 'images/old.png'], ['alt', 'logo'], ['width', '300'], ['style', 'border-radius: 8px']]);
+  assert.equal(setAttributes(page, img, { src: 'images/new.jpg' }), page.replace('images/old.png', 'images/new.jpg'));
+  assert.match(setAttributes(page, img, { alt: 'Our "best" shop <3' }), /alt="Our &quot;best&quot; shop &lt;3"/);
+  assert.equal(sizePicture(page, img)('medium'), page.replace(' width="300" style="border-radius: 8px"', ' style="border-radius: 8px; width: 50%; max-width: 100%; height: auto"'));
+  assert.equal(sizePicture(page, img)('huge'), page, 'only the four sizes');
+  assert.equal(sizePicture(page, h1)('small'), page, 'only pictures are sized');
+  assert.equal(mergeStyle('width: 10px; color: red', { width: '25%', height: null }), 'color: red; width: 25%');
+  assert.equal(removeElement(page, img), page.replace('<img class="logo" src="images/old.png" alt="logo" width="300" style="border-radius: 8px">', ''));
+  assert.equal(removeElement(page, h1), page.replace('  <h1>Hi</h1>\n', ''), 'a line of its own goes with it');
+  assert.equal(removeElement(page, 0), page, 'never the body');
+  assert.equal(insertAfter(page, h1, pictureTag('images/a.jpg', 'A "b"')), page.replace('<h1>Hi</h1>', '<h1>Hi</h1>\n  <img src="images/a.jpg" alt="A &quot;b&quot;" style="width: 100%; max-width: 100%; height: auto">'));
+});
+
+test('picture messages from the preview are checked too', () => {
+  const frame = {};
+  const allow = createPreviewMessageLimiter(frame, () => 1000);
+  const from = (data) => ({ source: frame, origin: 'null', data });
+  assert.equal(allow(from({ grandpa: 'visual-edit', type: 'image', id: 7 })), true);
+  assert.equal(allow(from({ grandpa: 'visual-edit', type: 'insert-image', id: 5 })), true);
+  assert.equal(allow(from({ grandpa: 'visual-edit', type: 'image', id: 'x' })), false);
+});
