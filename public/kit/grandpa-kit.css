@@ -1,4 +1,4 @@
-/* Grandpa Kit 5 — professional sections and effects for websites built in Grandpa AI.
+/* Grandpa Kit 6 — professional sections and effects for websites built in Grandpa AI.
    Override anything in your own stylesheet; set your colours with --brand and --accent. */
 :root{--brand:#1a56db;--accent:#f59e0b;--ink:#0f172a;--muted:#475569;--surface:#ffffff;--tint:#f1f5f9;--dark:#0b1220;--on-dark:#e2e8f0;--radius:14px;--shadow:0 10px 30px rgba(15,23,42,.10);--font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--heading:var(--font);--space:clamp(48px,8vw,96px);--max:1120px}
 [data-gk-style="modern"]{--radius:14px;--shadow:0 10px 30px rgba(15,23,42,.10)}
@@ -24,7 +24,7 @@ h1,h2,h3{font-family:var(--heading);line-height:1.15}
 .gk-hero p{font-size:clamp(1.05rem,2.4vw,1.3rem);max-width:55ch;opacity:.92}
 .gk-hero video.gk-bg{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;z-index:-1;filter:brightness(.5)}
 .gk-buttons{display:flex;flex-wrap:wrap;gap:12px;margin-top:24px}
-.gk-btn{display:inline-flex;align-items:center;gap:8px;padding:14px 22px;border-radius:var(--radius);background:var(--accent);color:#111;font-weight:700;text-decoration:none;border:2px solid transparent;transition:transform .2s ease,box-shadow .2s ease}
+.gk-btn{display:inline-flex;align-items:center;gap:8px;padding:14px 22px;border-radius:var(--radius);background:var(--accent);color:var(--on-accent,#111);font-weight:700;text-decoration:none;border:2px solid transparent;transition:transform .2s ease,box-shadow .2s ease}
 .gk-btn.is-ghost{background:transparent;color:inherit;border-color:currentColor}
 .gk-btn:hover,.gk-btn:focus-visible{transform:translateY(-2px);box-shadow:var(--shadow)}
 .gk-grid{display:grid;gap:clamp(16px,3vw,28px);grid-template-columns:repeat(auto-fit,minmax(min(100%,260px),1fr))}
@@ -137,3 +137,76 @@ h1,h2,h3{font-family:var(--heading);line-height:1.15}
 .gk-videos{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))}
 .gk-credit-link{font-size:.85rem;opacity:.8}
 .gk-player+.gk-player,.gk-player+.gk-videos,.gk-videos+.gk-player{margin-top:18px}
+/* ---- Kit 6: design system ---------------------------------------------- */
+/* Type scale (fluid) and an 8px spacing scale */
+:root{--step--1:clamp(.83rem,.8rem + .15vw,.9rem);--step-0:clamp(1rem,.96rem + .2vw,1.1rem);--step-1:clamp(1.2rem,1.1rem + .5vw,1.4rem);--step-2:clamp(1.44rem,1.25rem + .9vw,1.85rem);--step-3:clamp(1.73rem,1.4rem + 1.6vw,2.5rem);--step-4:clamp(2.07rem,1.5rem + 2.8vw,3.4rem);--step-5:clamp(2.5rem,1.6rem + 4.4vw,4.4rem);
+--s-1:4px;--s-2:8px;--s-3:12px;--s-4:16px;--s-5:24px;--s-6:32px;--s-7:48px;--s-8:64px;--s-9:96px;
+--brand-50:color-mix(in srgb,var(--brand) 7%,#fff);--brand-100:color-mix(in srgb,var(--brand) 14%,#fff);--brand-200:color-mix(in srgb,var(--brand) 28%,#fff);--brand-700:color-mix(in srgb,var(--brand) 82%,#000);--brand-900:color-mix(in srgb,var(--brand) 55%,#000);--accent-100:color-mix(in srgb,var(--accent) 16%,#fff);--line:color-mix(in srgb,var(--ink) 12%,transparent)}
+.gk-eyebrow{display:inline-block;font-size:var(--step--1);font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--brand);margin:0 0 var(--s-2)}
+.is-dark .gk-eyebrow,.gk-hero .gk-eyebrow{color:var(--accent)}
+.gk-badge{display:inline-flex;align-items:center;gap:6px;padding:4px 12px;border-radius:999px;background:var(--brand-100);color:var(--brand-900);font-size:var(--step--1);font-weight:700}
+.gk-btn.is-brand{background:var(--brand);color:var(--on-brand,#fff)}
+.gk-center{text-align:center}.gk-center .gk-lead{margin-inline:auto}
+/* Font pairings: <html data-gk-fonts="modern|classic|friendly|bold|elegant|tech|editorial|warm"> (the kit loads them) */
+[data-gk-fonts="modern"]{--heading:"Plus Jakarta Sans",var(--font-sys);--font:"Inter",var(--font-sys)}
+[data-gk-fonts="classic"]{--heading:"Playfair Display",Georgia,serif;--font:"Source Sans 3",var(--font-sys)}
+[data-gk-fonts="friendly"]{--heading:"Nunito",var(--font-sys);--font:"Nunito",var(--font-sys)}
+[data-gk-fonts="bold"]{--heading:"Montserrat",var(--font-sys);--font:"Open Sans",var(--font-sys)}
+[data-gk-fonts="elegant"]{--heading:"Cormorant Garamond",Georgia,serif;--font:"Lato",var(--font-sys)}
+[data-gk-fonts="tech"]{--heading:"Space Grotesk",var(--font-sys);--font:"Inter",var(--font-sys)}
+[data-gk-fonts="editorial"]{--heading:"Merriweather",Georgia,serif;--font:"Source Sans 3",var(--font-sys)}
+[data-gk-fonts="warm"]{--heading:"Fraunces",Georgia,serif;--font:"Work Sans",var(--font-sys)}
+:root{--font-sys:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif}
+[data-gk-fonts] h1,[data-gk-fonts] h2{letter-spacing:-.015em}
+/* Header with a real phone menu: <header class="gk-header"> brand, <button class="gk-nav-toggle">, <nav class="gk-nav"> */
+.gk-header{position:sticky;top:0;z-index:50;display:flex;align-items:center;justify-content:space-between;gap:var(--s-4);padding:var(--s-3) max(16px,calc((100% - var(--max)) / 2));background:color-mix(in srgb,var(--surface) 88%,transparent);backdrop-filter:saturate(1.4) blur(10px);border-bottom:1px solid var(--line)}
+.gk-brand{display:inline-flex;align-items:center;gap:var(--s-2);font-family:var(--heading);font-weight:800;font-size:var(--step-1);color:var(--ink);text-decoration:none}
+.gk-nav{display:flex;align-items:center;gap:var(--s-5)}
+.gk-nav a{color:var(--ink);text-decoration:none;font-weight:600;padding:var(--s-2) 0;border-bottom:2px solid transparent}
+.gk-nav a:hover,.gk-nav a[aria-current="page"]{border-color:var(--accent)}
+.gk-nav-toggle{display:none;align-items:center;gap:8px;min-height:44px;padding:8px 14px;border-radius:var(--radius);border:1px solid var(--line);background:var(--surface);color:var(--ink);font:inherit;font-weight:700;cursor:pointer}
+@media (max-width:860px){.gk-js .gk-nav-toggle{display:inline-flex}.gk-js .gk-nav{position:absolute;left:0;right:0;top:100%;flex-direction:column;align-items:stretch;gap:0;padding:var(--s-2) 16px var(--s-4);background:var(--surface);border-bottom:1px solid var(--line);box-shadow:var(--shadow);display:none}.gk-js .gk-nav.is-open{display:flex}.gk-js .gk-nav a{padding:var(--s-3) 0;border-bottom:1px solid var(--line)}}
+/* Testimonials: .gk-testimonials of <figure class="gk-quote"><blockquote>…</blockquote><figcaption>Name <small>Role</small></figcaption></figure> */
+.gk-testimonials{display:grid;gap:var(--s-5);grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr))}
+.gk-quote{margin:0;padding:var(--s-6);background:var(--surface);color:var(--ink);border-radius:var(--radius);box-shadow:var(--shadow);display:flex;flex-direction:column;gap:var(--s-4)}
+.gk-quote blockquote{margin:0;font-size:var(--step-1);line-height:1.5}
+.gk-quote blockquote::before{content:"\201C";display:block;font-family:Georgia,serif;font-size:3rem;line-height:.6;color:var(--accent)}
+.gk-quote figcaption{display:flex;align-items:center;gap:var(--s-3);font-weight:700}.gk-quote figcaption img{width:48px;height:48px;border-radius:50%;object-fit:cover}.gk-quote small{display:block;font-weight:400;color:var(--muted)}
+/* Steps: <ol class="gk-steps"><li><h3>…</h3><p>…</p></li></ol> */
+.gk-steps{list-style:none;margin:0;padding:0;display:grid;gap:var(--s-5);grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));counter-reset:gk-step}
+.gk-steps li{counter-increment:gk-step;position:relative;padding:var(--s-6) var(--s-5) var(--s-5);background:var(--surface);border-radius:var(--radius);box-shadow:var(--shadow)}
+.gk-steps li::before{content:counter(gk-step);display:grid;place-items:center;width:44px;height:44px;border-radius:50%;background:var(--brand);color:var(--on-brand,#fff);font-weight:800;margin-bottom:var(--s-3)}
+.gk-steps h3{margin:0 0 var(--s-2);font-size:var(--step-1)}
+/* Timeline: <ol class="gk-timeline"><li><time>2019</time><h3>…</h3><p>…</p></li></ol> */
+.gk-timeline{list-style:none;margin:0;padding:0 0 0 var(--s-6);position:relative}
+.gk-timeline::before{content:"";position:absolute;left:10px;top:4px;bottom:4px;width:2px;background:var(--brand-200)}
+.gk-timeline li{position:relative;padding:0 0 var(--s-6)}
+.gk-timeline li::before{content:"";position:absolute;left:calc(-1 * var(--s-6) + 4px);top:6px;width:14px;height:14px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 4px var(--brand-100)}
+.gk-timeline time{font-weight:800;color:var(--brand)}.gk-timeline h3{margin:2px 0 var(--s-1);font-size:var(--step-1)}
+/* Tabs: <div class="gk-tabs" data-gk-tabs><div class="gk-tab-list"><button>One</button>…</div><div class="gk-tab-panel">…</div>…</div> */
+.gk-tab-list{display:flex;gap:var(--s-2);flex-wrap:wrap;border-bottom:1px solid var(--line);margin-bottom:var(--s-5)}
+.gk-tab-list button{font:inherit;font-weight:700;padding:var(--s-3) var(--s-4);border:0;background:none;color:var(--muted);border-bottom:3px solid transparent;cursor:pointer;min-height:44px}
+.gk-tab-list button[aria-selected="true"]{color:var(--ink);border-color:var(--accent)}
+.gk-js .gk-tab-panel[hidden]{display:none}
+/* Modal: <button data-gk-open="#id"> + <dialog class="gk-modal" id="id">… <button data-gk-close>Close</button></dialog> */
+.gk-modal{border:0;border-radius:var(--radius);padding:var(--s-6);max-width:min(560px,calc(100% - 32px));box-shadow:0 30px 80px rgba(0,0,0,.35);background:var(--surface);color:var(--ink)}
+.gk-modal::backdrop{background:rgba(2,6,23,.6)}
+/* Logo strip, stats band, product and post cards */
+.gk-logos{display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:var(--s-6) var(--s-7)}
+.gk-logos img,.gk-logos svg{height:40px;width:auto;filter:grayscale(1);opacity:.7;transition:opacity .2s,filter .2s}.gk-logos img:hover{filter:none;opacity:1}
+.gk-stats{display:grid;gap:var(--s-5);grid-template-columns:repeat(auto-fit,minmax(min(100%,160px),1fr));text-align:center}
+.gk-stats strong{display:block;font-family:var(--heading);font-size:var(--step-4);line-height:1;color:var(--brand)}.is-dark .gk-stats strong{color:var(--accent)}
+.gk-stats span{color:var(--muted)}.is-dark .gk-stats span{color:var(--on-dark)}
+.gk-product,.gk-post{display:flex;flex-direction:column;background:var(--surface);color:var(--ink);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;transition:transform .25s ease}
+.gk-product:hover,.gk-post:hover{transform:translateY(-4px)}
+.gk-product img{width:100%;aspect-ratio:4/5;object-fit:cover;background:var(--tint)}.gk-post img{width:100%;aspect-ratio:16/9;object-fit:cover;background:var(--tint)}
+.gk-product>div,.gk-post>div{padding:var(--s-4) var(--s-5) var(--s-5);display:flex;flex-direction:column;gap:var(--s-2);flex:1}
+.gk-product h3,.gk-post h3{margin:0;font-size:var(--step-1)}
+.gk-product .gk-price-tag{font-weight:800;font-size:var(--step-1);color:var(--brand)}
+.gk-product .gk-btn{margin-top:auto;justify-content:center}
+.gk-post small{color:var(--muted)}
+/* App bar for phone-app style projects: <nav class="gk-appbar"><a href="#home" aria-current="page">…</a></nav> */
+.gk-appbar{position:fixed;left:0;right:0;bottom:0;z-index:60;display:flex;justify-content:space-around;padding:6px 8px calc(6px + env(safe-area-inset-bottom));background:var(--surface);border-top:1px solid var(--line)}
+.gk-appbar a{display:grid;justify-items:center;gap:2px;min-width:64px;padding:6px;color:var(--muted);text-decoration:none;font-size:var(--step--1);font-weight:600}
+.gk-appbar a[aria-current="page"]{color:var(--brand)}
+@media (prefers-reduced-motion:reduce){.gk-product,.gk-post,.gk-btn{transition:none}}

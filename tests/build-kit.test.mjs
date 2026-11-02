@@ -13,7 +13,11 @@ test('the Grandpa Kit files are valid, small, and cover every promised feature',
   const css = await readFile(new URL('../public/kit/grandpa-kit.css', import.meta.url), 'utf8');
   const js = await readFile(new URL('../public/kit/grandpa-kit.js', import.meta.url), 'utf8');
   assert.doesNotThrow(() => new Function(js));
-  assert.ok(css.length < 14_000 && js.length < 14_000, 'light enough for a phone');
+  // Kit 6 (design system and components): about 10 KB on the wire once compressed.
+  assert.ok(css.length < 26_000 && js.length < 26_000, 'light enough for a phone');
+  for (const part of ['--step-5', '--s-9', '--brand-100', '.gk-eyebrow', '.gk-header', '.gk-nav-toggle', '.gk-testimonials', '.gk-steps', '.gk-timeline', '.gk-tab-list', '.gk-modal', '.gk-stats', '.gk-logos', '.gk-product', '.gk-post', '.gk-appbar', '.gk-player']) assert.ok(css.includes(part), part);
+  for (const pairing of ['modern', 'classic', 'friendly', 'bold', 'elegant', 'tech', 'editorial', 'warm']) assert.match(css, new RegExp(`data-gk-fonts="${pairing}"`)), assert.ok(js.includes(`${pairing}: [`), pairing);
+  for (const hook of ['.gk-nav-toggle', '[data-gk-tabs]', '[data-gk-open]', 'showModal', '--on-accent', 'fonts.googleapis.com']) assert.ok(js.includes(hook), hook);
   for (const preset of ['modern', 'bold', 'elegant', 'friendly', 'corporate']) assert.match(css, new RegExp(`data-gk-style="${preset}"`));
   for (const part of ['.gk-hero', '.gk-gallery', '.gk-lightbox', '.gk-slider', '.gk-faq', '.gk-pricing', '.gk-hours', '.gk-map', '.gk-whatsapp', '.gk-loader', '[data-theme="dark"]', '.gk-lang-switch']) assert.ok(css.includes(part), part);
   assert.match(css, /@media \(prefers-reduced-motion:no-preference\)\{\s*\.gk-js \.gk-reveal\{opacity:0/, 'hidden only once the script runs, and only with motion allowed');

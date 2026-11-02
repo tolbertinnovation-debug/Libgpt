@@ -3,6 +3,7 @@ import { danglingLinks, projectIssues } from '../public/build.js';
 import { charterText, normalizeStack } from './agent-charters.js';
 import { requirementPrompt, missingRequirements, carryMissingRequirements } from './build-requirements.js';
 import { DESIGN_STANDARD, KIT_GUIDE } from './design-standard.js';
+import { chooseRecipe, recipeGuide } from '../public/build-recipes.js';
 
 export const TEAM_AGENTS = Object.freeze(['design', 'pages', 'interactions', 'content', 'backend', 'cloud']);
 const LEGACY_TEAM_AGENTS = ['design', 'pages', 'interactions', 'content'];
@@ -91,7 +92,7 @@ export function workerInstruction(plan, agent, brief = '', targetPath = '') {
   return [charterText(agent),
     `You are the ${agent} specialist on an engineering team with a separate Architect, Reviewer, Security, QA/DevOps and Approver.`,
     `Original request: ${brief}`, `Project: ${plan.title}. ${plan.summary}`,
-    ['backend', 'cloud'].includes(agent) ? '' : `${DESIGN_STANDARD}\n\n${KIT_GUIDE}`,
+    ['backend', 'cloud'].includes(agent) ? '' : `${DESIGN_STANDARD}\n\n${KIT_GUIDE}\n\n${recipeGuide(chooseRecipe(brief))}`,
     plan.stack ? `Technology stack (use exactly this): frontend ${plan.stack.frontend}; backend ${plan.stack.backend}; database ${plan.stack.database}; infrastructure ${plan.stack.infrastructure}; languages ${plan.stack.languages.join(', ')}.` : '',
     `Acceptance requirements: ${plan.requirements.join('\n')}`,
     `Shared contract:\n${plan.contract}`, `Pages/navigation:\n${JSON.stringify(plan.pages)}`,
@@ -149,7 +150,8 @@ export function parseTeamJson(raw) {
 }
 export async function generateTeamPlan({asked,model,complete,signal,requirements=null}) {
   const carried=requirementPrompt(requirements);
-  const messages=[{role:'system',content:TEAM_PLAN_PROMPT},{role:'user',content:carried?`${asked}\n\n${carried}`:asked}];
+  const recipe=recipeGuide(chooseRecipe(asked));
+  const messages=[{role:'system',content:TEAM_PLAN_PROMPT},{role:'user',content:`${carried?`${asked}\n\n${carried}`:asked}\n\n${recipe}`}];
   let invalid='';
   for(let attempt=0;attempt<2;attempt++){
     if(signal?.aborted)throw new DOMException('Planning stopped','AbortError');

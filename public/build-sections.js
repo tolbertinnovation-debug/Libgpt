@@ -90,6 +90,41 @@ export const SECTIONS = Object.freeze({
     <div class="gk-buttons"><a class="gk-btn" href="#contact">Contact us</a></div>
   </div>
 </section>` },
+  testimonials: { label: 'What customers say (testimonials)', html: `<section class="gk-section is-tint">
+  <div class="gk-container">
+    <div class="gk-center"><p class="gk-eyebrow">Testimonials</p><h2 class="gk-reveal">What our customers say</h2></div>
+    <div class="gk-testimonials gk-reveal">
+      <figure class="gk-quote"><blockquote>Tap here and write what a real customer said about you.</blockquote><figcaption>Customer name <small>Where they are from</small></figcaption></figure>
+      <figure class="gk-quote"><blockquote>Another real customer's words.</blockquote><figcaption>Customer name <small>Their role</small></figcaption></figure>
+    </div>
+  </div>
+</section>` },
+  steps: { label: 'How it works (3 steps)', html: `<section class="gk-section">
+  <div class="gk-container">
+    <div class="gk-center"><p class="gk-eyebrow">How it works</p><h2 class="gk-reveal">Three simple steps</h2></div>
+    <ol class="gk-steps gk-reveal">
+      <li><h3>Contact us</h3><p>Call, WhatsApp or send the form.</p></li>
+      <li><h3>We agree the details</h3><p>We confirm what you need and the price.</p></li>
+      <li><h3>It is done</h3><p>We deliver on time, as promised.</p></li>
+    </ol>
+  </div>
+</section>` },
+  timeline: { label: 'Our story (timeline)', html: `<section class="gk-section">
+  <div class="gk-container">
+    <p class="gk-eyebrow">Our story</p><h2 class="gk-reveal">How we grew</h2>
+    <ol class="gk-timeline gk-reveal">
+      <li><time>2015</time><h3>We started</h3><p>Write how the business began.</p></li>
+      <li><time>2020</time><h3>We grew</h3><p>A milestone you are proud of.</p></li>
+      <li><time>Today</time><h3>Where we are now</h3><p>What you offer today.</p></li>
+    </ol>
+  </div>
+</section>` },
+  newsletter: { label: 'Sign up for news', html: `<section class="gk-section is-dark">
+  <div class="gk-container gk-center">
+    <p class="gk-eyebrow">Stay in touch</p><h2>Get our news and offers</h2>
+    <form class="gk-form" data-gk-form="signup" style="margin-inline:auto"><label>Your name <input name="name" required></label><label>Phone or email <input name="contact" required></label><button class="gk-btn" type="submit">Sign me up</button></form>
+  </div>
+</section>` },
   documents: { label: 'Documents to download (price list, forms, menu)', html: `<section class="gk-section">
   <div class="gk-container">
     <h2 class="gk-reveal">Documents</h2>

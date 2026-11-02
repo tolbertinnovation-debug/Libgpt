@@ -3932,3 +3932,7 @@ body {
 .video-place p { margin: 0; }
 .video-place .history-actions { width: 100%; }
 .video-place input { flex: 1 1 220px; min-width: 0; }
+
+/* Type of project in the conversation card */
+.build-recipe { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 8px 0; font-weight: 600; font-size: .92rem; }
+.build-recipe select { font: inherit; font-weight: 500; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line, #e6d8bb); background: var(--raised, #fffdf7); color: inherit; max-width: 100%; }
