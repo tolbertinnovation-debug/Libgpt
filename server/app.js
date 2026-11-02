@@ -28,7 +28,7 @@ import { STEPS_PROMPT, readSteps } from './build-steps.js';
 import QRCode from 'qrcode';
 import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, findSiteFile, siteFileBody } from './site-store.js';
 import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, bookingTimes, slotProblem, ENTRY_KINDS, ENTRY_STATUSES } from './site-data.js';
-import { siteRuntime, withRuntime, withSeo, sitemapFor } from './site-runtime.js';
+import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404 } from './site-runtime.js';
 import { searchPhotos, fetchPhoto, youtubeInfo, searchWords } from './media-search.js';
 import { chooseRecipe, RECIPES } from '../public/build-recipes.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
@@ -2025,6 +2025,15 @@ app.get('/s/:slug/_grandpa/site.js', siteLimit, async (req, res) => {
   const content = siteData ? await siteData.visitAndContent(req.params.slug).catch(() => null) : null;
   res.type('text/javascript; charset=utf-8').send(siteRuntime(req.params.slug, content));
 });
+// Professional extras for every published site: an app icon and an install file (Phase 4).
+app.get('/s/:slug/_grandpa/:extra(icon.svg|manifest.webmanifest)', async (req, res) => {
+  res.set({ ...SITE_HEADERS, 'Cache-Control': 'public, max-age=300' });
+  const site = siteStore && validSlug(req.params.slug) ? await siteStore.get(req.params.slug).catch(() => null) : null;
+  if (!site) { res.status(404).end(); return; }
+  const brand = brandColour(site.files);
+  if (req.params.extra === 'icon.svg') { res.type('image/svg+xml').send(siteIcon(site.name, brand)); return; }
+  res.type('application/manifest+json').send(siteManifest({ name: site.name, slug: site.slug, brand }));
+});
 app.get('/s/:slug/*', async (req, res) => {
   res.set(SITE_HEADERS);
   if (!siteStore || !validSlug(req.params.slug)) { res.status(404).type('html').send(notFoundPage('There is no website at this address.')); return; }
@@ -2033,11 +2042,17 @@ app.get('/s/:slug/*', async (req, res) => {
     if (!site) { res.status(404).type('html').send(notFoundPage('There is no website at this address.')); return; }
     const file = findSiteFile(site.files, req.params[0] || '');
     if (!file && req.params[0] === 'sitemap.xml') { res.type('application/xml; charset=utf-8').send(sitemapFor(site, `${publicBase(req)}/s/${site.slug}/`)); return; }
-    if (!file) { res.status(404).type('html').send(notFoundPage('This page is not part of the website.')); return; }
+    if (!file) {
+      // The site's own "page not found" page, or one in its style.
+      const own = site.files.find((f) => f.path === '404.html');
+      res.status(404).type('html').send(own ? withRuntime(own.body, site.slug)
+        : sitePage404({ name: site.name, slug: site.slug, hasKit: site.files.some((f) => f.path === 'assets/grandpa-kit.css'), brand: brandColour(site.files) }));
+      return;
+    }
     const { type, body } = siteFileBody(file);
     if (type.startsWith('text/html')) {
       const pageUrl = `${publicBase(req)}/s/${site.slug}/${file.path === 'index.html' ? '' : file.path}`;
-      res.type(type).send(withRuntime(withSeo(body.toString('utf8'), { siteName: site.name, url: pageUrl, base: `${publicBase(req)}/s/${site.slug}/`, path: file.path, files: site.files }), site.slug));
+      res.type(type).send(withRuntime(withSeo(body.toString('utf8'), { siteName: site.name, url: pageUrl, base: `${publicBase(req)}/s/${site.slug}/`, path: file.path, files: site.files, slug: site.slug, brand: brandColour(site.files) }), site.slug));
       return;
     }
     res.type(type).send(body);

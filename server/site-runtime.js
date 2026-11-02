@@ -351,7 +351,7 @@ const attr = (text) => String(text).replace(/\s+/g, ' ').trim().replace(/"/g, '&
 const plain = (html) => String(html).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 
 /** Search and sharing tags a page is missing: description, Open Graph, Twitter card and canonical address. */
-export function withSeo(html, { siteName = '', url = '', base = '', path = 'index.html', files = [] } = {}) {
+export function withSeo(html, { siteName = '', url = '', base = '', path = 'index.html', files = [], slug = '', brand = '' } = {}) {
   const text = String(html);
   const head = /<\/head>/i.exec(text);
   if (!head) return text;
@@ -369,7 +369,8 @@ export function withSeo(html, { siteName = '', url = '', base = '', path = 'inde
     const resolved = out.join('/');
     return known.has(resolved) ? base + resolved : '';
   };
-  const picture = resolve((/--hero-photo:\s*url\(["']?([^"')]+)/i.exec(text) || [])[1]) || resolve((/<img\b[^>]*\bsrc=["']([^"']+)/i.exec(text.slice(head.index)) || [])[1]);
+  const picture = resolve((/--hero-photo:\s*url\(["']?([^"')]+)/i.exec(text) || [])[1]) || resolve((/<img\b[^>]*\bsrc=["']([^"']+)/i.exec(text.slice(head.index)) || [])[1])
+    || (known.has('images/share.png') ? `${base}images/share.png` : '');
   const tags = [];
   if (description && !has(/<meta[^>]+name=["']description["']/i)) tags.push(`<meta name="description" content="${attr(description)}">`);
   if (!has(/property=["']og:title["']/i)) {
@@ -381,6 +382,14 @@ export function withSeo(html, { siteName = '', url = '', base = '', path = 'inde
   }
   if (!has(/name=["']twitter:card["']/i)) tags.push(`<meta name="twitter:card" content="${picture ? 'summary_large_image' : 'summary'}">`);
   if (url && !has(/rel=["']canonical["']/i)) tags.push(`<link rel="canonical" href="${attr(url)}">`);
+  // Professional extras (Phase 4): an icon, the install file and the phone toolbar colour, unless the page has its own.
+  if (slug) {
+    if (!has(/rel=["'](?:shortcut )?icon["']/i)) tags.push(`<link rel="icon" href="/s/${slug}/_grandpa/icon.svg" type="image/svg+xml">`);
+    if (!has(/rel=["']manifest["']/i)) tags.push(`<link rel="manifest" href="/s/${slug}/_grandpa/manifest.webmanifest">`);
+    if (!has(/name=["']theme-color["']/i)) tags.push(`<meta name="theme-color" content="${attr(brand || '#1a56db')}">`);
+  }
+  // Structured data for Google, from what the page itself says (never invented).
+  if (!has(/application\/ld\+json/i) && siteName) tags.push(`<script type="application/ld+json">${structuredData(text, { siteName, url: base || url, description, picture, slug })}</script>`);
   return tags.length ? text.slice(0, head.index) + tags.join('') + text.slice(head.index) : text;
 }
 
@@ -390,4 +399,72 @@ export function sitemapFor(site, base) {
   const pages = site.files.filter((f) => /\.html?$/i.test(f.path) && !/(^|\/)404\.html?$/i.test(f.path)).map((f) => f.path).sort((a, b) => (a === 'index.html' ? -1 : b === 'index.html' ? 1 : a.localeCompare(b)));
   const xml = (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${pages.map((p) => `  <url><loc>${xml(base + (p === 'index.html' ? '' : p))}</loc><lastmod>${day}</lastmod></url>`).join('\n')}\n</urlset>\n`;
+}
+
+/** The site's brand colour, from its own stylesheets (the kit's defaults do not count). */
+export function brandColour(files = []) {
+  for (const f of files) {
+    if (/^assets\/grandpa-(?:kit|app)\./.test(f.path) || !/\.(?:css|html?)$/i.test(f.path)) continue;
+    const m = /--brand\s*:\s*(#[0-9a-f]{3,8}\b|rgb\([\d\s,.%]+\))/i.exec(String(f.body || ''));
+    if (m) return m[1];
+  }
+  return '#1a56db';
+}
+
+const textColourOn = (hex) => {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return '#ffffff';
+  const full = m[1].length === 3 ? m[1].split('').map((c) => c + c).join('') : m[1];
+  const lum = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255).map((v) => (v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4));
+  const L = 0.2126 * lum[0] + 0.7152 * lum[1] + 0.0722 * lum[2];
+  return 1.05 / (L + 0.05) >= (L + 0.05) / 0.0556 ? '#ffffff' : '#111111';
+};
+
+/** An app icon: the first letter of the name on the brand colour. */
+export function siteIcon(name, brand = '#1a56db') {
+  const letter = (String(name || '?').trim().match(/[\p{L}\p{N}]/u) || ['?'])[0].toUpperCase().replace(/[<&>"]/g, '');
+  const fill = /^#[0-9a-f]{3,8}$/i.test(brand) || /^rgb\(/.test(brand) ? brand : '#1a56db';
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="${fill}"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif" font-size="300" font-weight="800" fill="${textColourOn(fill)}">${letter}</text></svg>`;
+}
+
+/** The install file, so the site can be added to a phone's home screen with its name, colour and icon. */
+export function siteManifest({ name, slug, brand = '#1a56db' }) {
+  return JSON.stringify({
+    name: String(name || slug).slice(0, 60), short_name: String(name || slug).slice(0, 12), start_url: `/s/${slug}/`, scope: `/s/${slug}/`,
+    display: 'standalone', background_color: '#ffffff', theme_color: brand,
+    icons: [{ src: `/s/${slug}/_grandpa/icon.svg`, sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
+  });
+}
+
+/** schema.org data from what the page says: name, address, telephone, email, opening hours; never invented. */
+export function structuredData(html, { siteName, url, description, picture, slug }) {
+  const text = String(html);
+  const tel = (/href=["']tel:([+\d][\d\s()-]{3,20})["']/i.exec(text) || [])[1];
+  const email = (/href=["']mailto:([^"'?\s]+@[^"'?\s]+)/i.exec(text) || [])[1];
+  const address = plain((/<address\b[^>]*>([\s\S]*?)<\/address>/i.exec(text) || [])[1] || '').replace(/&amp;/g, '&');
+  const hours = [];
+  const hoursTable = /<table\b[^>]*class=["'][^"']*gk-hours[^"']*["'][^>]*>([\s\S]*?)<\/table>/i.exec(text);
+  if (hoursTable) for (const row of hoursTable[1].matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)) {
+    const cells = [...row[1].matchAll(/<t[dh]\b[^>]*>([\s\S]*?)<\/t[dh]>/gi)].map((c) => plain(c[1]));
+    if (cells.length >= 2 && cells[0] && cells[1]) hours.push(`${cells[0]}: ${cells[1]}`.slice(0, 80));
+  }
+  const local = Boolean(tel || address || hours.length);
+  const words = (t) => String(t || '').replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  description = words(description);
+  const data = {
+    '@context': 'https://schema.org', '@type': local ? 'LocalBusiness' : 'Organization', name: siteName, url,
+    ...(description ? { description } : {}), ...(picture ? { image: picture } : {}), ...(slug ? { logo: `${url.replace(/\/s\/.*$/, '')}/s/${slug}/_grandpa/icon.svg` } : {}),
+    ...(tel ? { telephone: tel.trim() } : {}), ...(email ? { email } : {}), ...(address ? { address: address.slice(0, 200) } : {}),
+    ...(hours.length ? { openingHours: hours.slice(0, 14) } : {}),
+  };
+  return JSON.stringify(data).replace(/</g, '\\u003c');
+}
+
+/** A "page not found" page in the site's own style, with a way back. */
+export function sitePage404({ name, slug, hasKit, brand = '' }) {
+  const n = String(name || 'This website').replace(/[<&>"]/g, '');
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Page not found — ${n}</title><meta name="robots" content="noindex">
+${hasKit ? `<link rel="stylesheet" href="/s/${slug}/assets/grandpa-kit.css">` : ''}<link rel="icon" href="/s/${slug}/_grandpa/icon.svg" type="image/svg+xml">
+<style>${/^#[0-9a-f]{3,8}$/i.test(brand) ? `:root{--brand:${brand}}` : ''}body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:var(--font,system-ui,sans-serif);text-align:center;padding:24px;background:var(--tint,#f1f5f9);color:var(--ink,#0f172a)}main{max-width:520px}.big{font-size:clamp(4rem,18vw,7rem);font-weight:800;line-height:1;color:var(--brand,#1a56db);margin:0}a.home{display:inline-block;margin-top:20px;padding:14px 22px;border-radius:var(--radius,12px);background:var(--brand,#1a56db);color:#fff;font-weight:700;text-decoration:none}</style></head>
+<body><main><p class="big">404</p><h1>This page is not here</h1><p>The page may have moved, or the address may have a small mistake.</p><a class="home" href="/s/${slug}/">Go to the ${n} home page</a></main></body></html>`;
 }
