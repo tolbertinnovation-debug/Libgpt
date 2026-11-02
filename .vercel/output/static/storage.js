@@ -1,0 +1,81 @@
+// Conversations live in localStorage. Nothing is sent anywhere except the
+// messages themselves, on their way to the model — which matters for a
+// platform whose users may be discussing their farm, their business or their
+// health on a shared phone.
+
+import { migrateVoicePrefs } from './voice-settings.js?v=auto-speak-3';
+
+const KEY = 'grandpa-ai:chats:v1';
+const PREFS = 'grandpa-ai:prefs:v1';
+
+const read = (key, fallback) => {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const write = (key, value) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+    return true;
+  } catch {
+    // Quota full, or storage blocked (private window). The app keeps working
+    // in memory for this session; only persistence is lost.
+    return false;
+  }
+};
+
+export const newId = () =>
+  (crypto.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+
+export function loadChats() {
+  const chats = read(KEY, []);
+  return Array.isArray(chats) ? chats : [];
+}
+
+export function saveChats(chats) {
+  // Keep every saved conversation. Storage failure leaves the prior value intact.
+  return write(KEY, [...chats].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)));
+}
+
+export function loadPrefs() {
+  const prefs = migrateVoicePrefs(read(PREFS, {}));
+  write(PREFS, prefs);
+  try { localStorage.removeItem('grandpa-team-voice'); } catch { /* blocked storage */ }
+  return prefs;
+}
+
+export function savePrefs(prefs) {
+  return write(PREFS, prefs);
+}
+
+export function groupByDate(chats) {
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfYesterday = startOfToday - 86_400_000;
+  const startOfWeek = startOfToday - 7 * 86_400_000;
+  const startOfMonth = startOfToday - 30 * 86_400_000;
+
+  const groups = [
+    { label: 'Today', chats: [] },
+    { label: 'Yesterday', chats: [] },
+    { label: 'Previous 7 days', chats: [] },
+    { label: 'Previous 30 days', chats: [] },
+    { label: 'Older', chats: [] },
+  ];
+
+  for (const chat of chats) {
+    const t = chat.updatedAt || 0;
+    if (t >= startOfToday) groups[0].chats.push(chat);
+    else if (t >= startOfYesterday) groups[1].chats.push(chat);
+    else if (t >= startOfWeek) groups[2].chats.push(chat);
+    else if (t >= startOfMonth) groups[3].chats.push(chat);
+    else groups[4].chats.push(chat);
+  }
+
+  return groups.filter((g) => g.chats.length > 0);
+}
+

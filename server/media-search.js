@@ -5,7 +5,15 @@
 //    (title, channel, and whether the owner allows embedding). Videos are never
 //    downloaded; they play in YouTube's own player.
 
-import { youtubeId } from '../public/build-media.js';
+// Kept here (not imported from public/build-media.js, whose versioned browser
+// imports the production bundler cannot load). Same rules as the browser copy.
+/** The video id in any YouTube link: watch, youtu.be, shorts, embed or live. */
+export function youtubeId(link) {
+  const text = String(link || '').trim();
+  if (/^[\w-]{11}$/.test(text)) return text;
+  const m = /(?:youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|embed\/|shorts\/|live\/|v\/)|youtu\.be\/)([\w-]{11})/i.exec(text);
+  return m ? m[1] : '';
+}
 
 export const MEDIA_AGENT = 'GrandpaAI/1.0 (https://libgrandpaai.com; website builder)';
 const COMMONS = 'https://commons.wikimedia.org/w/api.php';

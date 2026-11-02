@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { youtubeId, youtubeLinks, playerMarkup, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, creditsPage, linkCredits } from '../public/build-media.js';
-import { searchPhotos, fetchPhoto, youtubeInfo, searchWords, MEDIA_AGENT } from '../server/media-search.js';
+import { searchPhotos, fetchPhoto, youtubeInfo, searchWords, MEDIA_AGENT, youtubeId as serverYoutubeId } from '../server/media-search.js';
+import { readFile, readdir } from 'node:fs/promises';
 import { pendingPictures } from '../public/build.js';
 import { isolatedLedger } from './support/ledger.mjs';
 
@@ -9,6 +10,7 @@ test('YouTube links of every kind give the video id; players are links that work
   for (const link of ['https://www.youtube.com/watch?v=dQw4w9WgXcQ', 'https://youtu.be/dQw4w9WgXcQ?si=abc', 'https://m.youtube.com/watch?feature=share&v=dQw4w9WgXcQ',
     'https://www.youtube.com/shorts/dQw4w9WgXcQ', 'https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ', 'dQw4w9WgXcQ']) assert.equal(youtubeId(link), 'dQw4w9WgXcQ', link);
   assert.equal(youtubeId('https://example.com/watch?v=dQw4w9WgXcQ'), '');
+  for (const link of ['https://youtu.be/dQw4w9WgXcQ?si=abc', 'https://www.youtube.com/live/dQw4w9WgXcQ', 'https://example.com/watch?v=dQw4w9WgXcQ', 'nope']) assert.equal(serverYoutubeId(link), youtubeId(link), `server and browser agree: ${link}`);
   assert.deepEqual(youtubeLinks('Use this https://youtu.be/dQw4w9WgXcQ and https://example.com'), ['https://youtu.be/dQw4w9WgXcQ']);
   const player = playerMarkup({ id: 'dQw4w9WgXcQ', title: 'Cooking "jollof" <rice>', channel: 'Mama' });
   assert.match(player, /^<a class="gk-player" href="https:\/\/www\.youtube\.com\/watch\?v=dQw4w9WgXcQ" data-youtube="dQw4w9WgXcQ"/);
@@ -123,4 +125,16 @@ test('the media routes: access, photo bytes with the credit, YouTube details', a
   assert.deepEqual(await (await original(`${base}/api/media/youtube?url=${encodeURIComponent('https://youtu.be/dddddddddd1')}`)).json(), { id: 'dddddddddd1', title: 'Market day', channel: 'Monrovia TV', thumb: 'https://i.ytimg.com/vi/dddddddddd1/hqdefault.jpg' });
   config.building = false;
   assert.equal((await original(`${base}/api/media/photos?q=market`)).status, 404, 'only where building is on');
+});
+
+test('the server never imports a browser file that uses versioned imports (the production bundler cannot load them)', async () => {
+  const dir = new URL('../server/', import.meta.url);
+  for (const name of (await readdir(dir)).filter((n) => n.endsWith('.js'))) {
+    const source = await readFile(new URL(name, dir), 'utf8');
+    for (const [, file] of source.matchAll(/from '\.\.\/public\/([^']+)'/g)) {
+      assert.doesNotMatch(file, /\?/, `${name} imports ${file}`);
+      const imported = await readFile(new URL(`../public/${file}`, import.meta.url), 'utf8');
+      assert.doesNotMatch(imported, /from '[^']*\?v=/, `${name} imports public/${file}, which has a versioned import`);
+    }
+  }
 });
