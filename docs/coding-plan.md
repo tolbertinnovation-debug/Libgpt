@@ -269,7 +269,7 @@ The owner approved this order: A design, B publish on Grandpa, C database, D man
 - **Backups.** Manage → Settings → **Download all website data** saves one file with everything visitors sent, the prices and text, booking and shop settings, and visitor counts (`GET /api/manage/<address>/export`, owner only). **Restore prices, text and settings** puts them back from that file, without touching what visitors sent.
 - **Security review of the data features:**
   - The Manage page can never be framed (`X-Frame-Options: DENY`, `frame-ancestors 'none'`), so a published site on the same host cannot overlay it.
-  - Published sites get a `Permissions-Policy` that turns off camera, microphone, location, payment, USB, serial and Bluetooth.
+  - Published sites get a `Permissions-Policy` that turns off camera, microphone, location, payment, USB and serial ports (Bluetooth was dropped: Chrome does not recognise it in this header and logs an error).
   - Email links in Manage are encoded. The cart dialog moves focus properly.
   - Confirmed as before:
     - visitors can only send;
@@ -326,7 +326,16 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
     - a phone-app bottom bar.
   - **Design rules** for every builder: tokens only, 60-30-10 colour, WCAG AA, at most two fonts, 60–75 character lines, an eyebrow, heading, lead and one primary action per section, consistent radius and shadow, image sizes against layout jumps, and 44px touch targets.
   - **+ Section** gains testimonials, How it works, Our story (timeline) and Sign up for news.
-- **Next:** Phase 3 (an app toolkit for real web software, and download as ZIP), Phase 4 (app icon, 404 page, structured data, share picture, manifest), Phase 5 (a higher quality bar with a design score), and Phase 6 (optional: a separate sites address so YouTube plays in the page and apps can install, work offline and remember data).
+- **Phase 3, real software (done).** Kit 7 adds `assets/grandpa-app.js`, the **app toolkit**, protected like the rest of the kit and shown to models only as a note. It has no build step and no outside services. It provides:
+  - **State:** `App.store` with listeners; `remember` keeps data on the device, or for the open tab inside the published sandbox, where localStorage is blocked.
+  - **Safe rendering:** `App.html` escapes every value, and `App.render` puts it on the page.
+  - **Screens:** `App.screens` with `data-screen` sections and the `.gk-appbar`.
+  - **Forms:** `App.form` gives friendly messages beside each field, with room for them reserved so a message never moves the button being tapped. Fields are read with `namedItem`, so a field called "item" works.
+  - **Data:** `App.table` with search and sort, accessible SVG `App.chart` (bar, line or pie), `App.csv` export, and `App.format` for money, numbers, dates and percent.
+  - **Games:** `App.loop` (pauses when the page is hidden), `App.sound`, `App.timer` and `App.toast`.
+
+  The tool, game, dashboard and phone-app recipes tell builders to use it, and `KIT_GUIDE` documents it. A **Download as ZIP** chip now sits next to the other build chips; the ZIP itself already existed.
+- **Next:** Phase 4 (app icon, 404 page, structured data, share picture, manifest), Phase 5 (a higher quality bar with a design score), and Phase 6 (optional: a separate sites address so YouTube plays in the page and apps can install, work offline and remember data).
 
 ### Later, each needing the owner's approval (recurring costs)
 - Grandpa choosing YouTube videos by himself needs a free YouTube Data API key (no payment card) added in Vercel.

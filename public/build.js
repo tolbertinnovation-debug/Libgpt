@@ -729,7 +729,7 @@ export function bytesFromDataUrl(url) {
 
 /** The Grandpa Kit's two shared files: sent to builders as a note, never rewritten by them. */
 export const KIT_NOTE = 'Before adding the Grandpa Kit';
-export const isKitFile = (path) => /^assets\/grandpa-kit\.(?:css|js)$/.test(String(path || ''));
+export const isKitFile = (path) => /^assets\/grandpa-(?:kit\.(?:css|js)|app\.js)$/.test(String(path || ''));
 
 /** A file stored as bytes (a picture or a document someone added), not text. */
 export const isDataFile = (file) => /^data:/.test(String(file?.body || ''));

@@ -38,15 +38,15 @@ Must have: comfortable reading (max-width 68ch, line-height 1.7, 18px text), dat
 Design: editorial and calm (style elegant), a strong serif or clean sans for headings, little decoration, excellent typography.` },
   { id: 'tool', name: 'Web tool (calculator, quiz, form)', words: /\b(calculator|converter|quiz|test|exam|survey|generator|tool|planner|estimator|checker|counter|timer|budget|bmi|loan|grade)\b/,
     guide: `A single-page web app: a short title and explanation, the tool itself above the fold, instant results, clear reset, an explanation of how the result is worked out.
-Engineering: one app state object, render functions that redraw from state, input validation with friendly messages, keyboard and screen-reader support, no page reloads, results that can be printed (data-gk-print). Published sites cannot use localStorage (sandbox): keep state in memory, or let the visitor send results with a form.
+Engineering: use the APP TOOLKIT (assets/grandpa-app.js): App.store for state, App.render with App.html to redraw from state, App.form for checks, input validation with friendly messages, keyboard and screen-reader support, no page reloads, results that can be printed (data-gk-print). Published sites cannot use localStorage (sandbox): keep state in memory, or let the visitor send results with a form.
 Design: focused and app-like (style modern), large touch targets, clear numbers, a results card that stands out.` },
   { id: 'game', name: 'Game', words: /\b(game|play|puzzle|snake|tic.?tac|memory game|trivia|arcade|score|level)\b/,
     guide: `A single-page game: title screen with how to play, the game, a score, game over with play again.
-Engineering: a game loop with requestAnimationFrame (or turn-based state for board games), a canvas or DOM board that resizes to the phone, touch and keyboard controls, pause when the tab is hidden, short sounds made with the Web Audio API only after the first tap, best score kept in memory (no localStorage on published sites).
+Engineering: the APP TOOLKIT's App.loop (or App.store turn-based state for board games), App.sound and App.timer, a canvas or DOM board that resizes to the phone, touch and keyboard controls, pause when the tab is hidden, short sounds made with the Web Audio API only after the first tap, best score kept in memory (no localStorage on published sites).
 Design: playful and clear (style bold or friendly), large buttons, readable on a small phone, motion that respects reduced-motion settings.` },
   { id: 'dashboard', name: 'Dashboard or tracker', words: /\b(dashboard|track(?:er|ing)?|inventory|stock|attendance|records?|report|analytics|crm|admin panel|expenses?|sales log|register)\b/,
     guide: `A web app with screens: overview (stat cards and simple SVG charts), a list or table with search, sort and filters, an add or edit form, a detail view.
-Engineering: one state store, hash-based screens (#overview, #items), tables with real header cells, number and date formatting, empty states, export to CSV in the browser. Data that must be kept goes through Grandpa Data forms on the published site; say clearly what is stored where.
+Engineering: the APP TOOLKIT: App.store, App.screens for #overview and #items, App.table (search and sort), App.chart for SVG charts, App.csv for export, App.format for money and dates, number and date formatting, empty states, export to CSV in the browser. Data that must be kept goes through Grandpa Data forms on the published site; say clearly what is stored where.
 Design: clean and dense (style corporate), a fixed sidebar or top tabs on desktop and a bottom bar on phones, muted colours with one accent for actions.` },
   { id: 'docs', name: 'Course or documentation website', words: /\b(courses?|lessons?|tutorials?|documentation|docs|guides?|manual|handbook|training|class notes|e-?learning|curriculum|modules?)\b/,
     guide: `Pages: Home (what you will learn), a lessons or chapters list, one page per lesson (title, goals, content, summary, next and previous links), Resources (downloads), FAQ.
@@ -58,7 +58,7 @@ Must have: a hero with the main promise and one primary button (Call, WhatsApp o
 Design: confident and clean (style modern or corporate), the brand colour on buttons and accents only, real photographs of the work.` },
   { id: 'app', name: 'Phone app (installable web app)', words: /\b(app|application|mobile app|android|iphone|ios|install(?:able)?|offline|pwa|software)\b/,
     guide: `A web app that feels like a phone app: a bottom navigation bar with 3–5 screens, a top bar with the screen title, large touch targets, screens switched without page loads.
-Engineering: one state store, hash-based screens, a web app manifest (manifest.webmanifest with name, colours and an SVG icon) and theme-color, safe-area padding (env(safe-area-inset-bottom)), no hover-only actions. Say honestly that installing and working offline need the app on its own address; on the published Grandpa address it runs in the browser.
+Engineering: the APP TOOLKIT (App.store with remember, App.screens with the .gk-appbar, App.form), a web app manifest (manifest.webmanifest with name, colours and an SVG icon) and theme-color, safe-area padding (env(safe-area-inset-bottom)), no hover-only actions. Say honestly that installing and working offline need the app on its own address; on the published Grandpa address it runs in the browser.
 Design: native-feeling (style modern), system fonts, cards and lists, smooth screen transitions with reduced-motion respected.` },
 ];
 

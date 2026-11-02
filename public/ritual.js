@@ -215,7 +215,7 @@ function fixHint(p) {
   if (!builtFiles(p).length || state.live || isBusy()) return '';
   const chips = ['Check for problems and fix them', ...(deps.vision ? ['Look at it on a phone and fix what is wrong'] : ['Make it look better on phones']), 'What is in my website?']
     .map((s) => `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('');
-  const versions = (p.versions || []).length ? '<button class="build-chip" type="button" data-show-history>See versions</button>' : '';
+  const versions = `${(p.versions || []).length ? '<button class="build-chip" type="button" data-show-history>See versions</button>' : ''}<button class="build-chip" type="button" data-download-zip>Download as ZIP</button>`;
   const photos = (state.canDraw || deps.freeMedia) ? pendingPictures(p.files).length : 0;
   const publishChip = deps.publishing ? `<button class="build-chip${p.publish && !publishedChanged(p) ? '' : ' is-primary'}" type="button" data-web-publish>${p.publish ? (publishedChanged(p) ? 'Update the published website' : 'Your live website') : 'Publish on the web'}</button>` : '';
   const pages = builtFiles(p).filter((f) => /\.html?$/i.test(f.path) && !/^data:/.test(f.body || ''));
@@ -612,18 +612,19 @@ async function unpublishFromWeb() {
 
 /* ---- The Grandpa Kit ----------------------------------------------------- */
 /** Add the shared design kit to a project once, so builders can use its sections and effects. */
-const KIT_VERSION = 'Grandpa Kit 6';
+const KIT_VERSION = 'Grandpa Kit 7';
 async function ensureKit(p) {
   // An older kit is replaced by the current one (only the kit ever changes the kit).
   const kit = (p?.files || []).filter((f) => isKitFile(f.path));
-  if (!p || (kit.length === 2 && kit.every((f) => String(f.body).startsWith(`/* ${KIT_VERSION} `)))) return true;
+  const paths = [KIT_FILES.css, KIT_FILES.js, KIT_FILES.app];
+  if (!p || (kit.length === paths.length && kit.every((f) => String(f.body).startsWith(`/* ${KIT_VERSION} `)))) return true;
   try {
-    const [css, js] = await Promise.all([KIT_FILES.css, KIT_FILES.js].map(async (path) => {
-      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-6`);
+    const bodies = await Promise.all(paths.map(async (path) => {
+      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-7`);
       if (!response.ok) throw new Error('kit');
       return response.text();
     }));
-    applyChanges(p, [{ path: KIT_FILES.css, body: css }, { path: KIT_FILES.js, body: js }], KIT_NOTE);
+    applyChanges(p, paths.map((path, i) => ({ path, body: bodies[i] })), KIT_NOTE);
     await persist();
     return true;
   } catch { return false; }
@@ -2564,6 +2565,7 @@ export async function mount(options = {}) {
     if (starter) { send(starter.textContent.trim()); return; }
     if (event.target.closest('[data-discuss-start]')) { startFromBrief(); return; }
     if (event.target.closest('[data-show-history]')) { showHistory(); return; }
+    if (event.target.closest('[data-download-zip]')) { takeAll(); return; }
     if (event.target.closest('[data-web-publish]')) { showWebPublish(); return; }
     if (event.target.closest('[data-create-photos]')) { const p = project(); if (!isBusy()) createPhotos(p); return; }
     const fixEdits = event.target.closest('[data-fix-edits]');
