@@ -1,0 +1,74 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { brandColour, siteIcon, siteManifest, structuredData, sitePage404, withSeo } from '../server/site-runtime.js';
+import { isolatedLedger } from './support/ledger.mjs';
+
+test('extras from the site itself: brand colour, an app icon with readable text, the install file, structured data', () => {
+  assert.equal(brandColour([{ path: 'assets/grandpa-kit.css', body: ':root{--brand:#1a56db}' }, { path: 'style.css', body: ':root{ --brand: #9A3412; }' }]), '#9A3412', 'the site\'s own colour, not the kit default');
+  assert.equal(brandColour([]), '#1a56db');
+  const dark = siteIcon('mama kitchen', '#9a3412');
+  assert.match(dark, /<rect width="512" height="512" rx="112" fill="#9a3412"\/>/);
+  assert.match(dark, /fill="#ffffff">M<\/text>/);
+  assert.match(siteIcon('Ëlla', '#facc15'), /fill="#111111">Ë<\/text>/, 'dark letter on a light colour');
+  assert.doesNotMatch(siteIcon('<script>', 'red;"onload'), /<script|onload/);
+  const manifest = JSON.parse(siteManifest({ name: 'Mama Kitchen Sinkor', slug: 'mama', brand: '#9a3412' }));
+  assert.deepEqual([manifest.start_url, manifest.scope, manifest.short_name, manifest.theme_color, manifest.icons[0].src], ['/s/mama/', '/s/mama/', 'Mama Kitchen', '#9a3412', '/s/mama/_grandpa/icon.svg']);
+  const page = '<body><address>12th Street, Sinkor &amp; Tubman Blvd, Monrovia</address><a href="tel:+231 886 123 456">Call</a><a href="mailto:mama@example.com?subject=hi">Email</a><table class="gk-hours"><tr><td>Mon – Fri</td><td>8:00 – 20:00</td></tr><tr><td>Sunday</td><td>Closed</td></tr></table></body>';
+  const data = JSON.parse(structuredData(page, { siteName: 'Mama Kitchen', url: 'https://x.test/s/mama/', description: 'Rice &amp; soup', picture: '', slug: 'mama' }));
+  assert.equal(data['@type'], 'LocalBusiness');
+  assert.equal(data.telephone, '+231 886 123 456');
+  assert.equal(data.email, 'mama@example.com');
+  assert.equal(data.address, '12th Street, Sinkor & Tubman Blvd, Monrovia');
+  assert.deepEqual(data.openingHours, ['Mon – Fri: 8:00 – 20:00', 'Sunday: Closed']);
+  assert.equal(data.description, 'Rice & soup');
+  assert.equal(data.logo, 'https://x.test/s/mama/_grandpa/icon.svg');
+  assert.equal(JSON.parse(structuredData('<p>Hi</p>', { siteName: 'Blog', url: 'https://x' }))['@type'], 'Organization', 'nothing local is invented');
+  assert.doesNotMatch(structuredData('<address></script><script>alert(1)</address>', { siteName: 'X', url: 'u' }), /<\/script>/i);
+  const notFound = sitePage404({ name: 'Mama Kitchen', slug: 'mama', hasKit: true });
+  assert.match(notFound, /href="\/s\/mama\/assets\/grandpa-kit\.css"/);
+  assert.match(notFound, /<a class="home" href="\/s\/mama\/">Go to the Mama Kitchen home page<\/a>/);
+});
+
+test('the page gets an icon, install file, theme colour and structured data only where it has none', () => {
+  const own = '<html><head><link rel="icon" href="x.png"><link rel="manifest" href="m.json"><meta name="theme-color" content="#000"><script type="application/ld+json">{"@type":"Restaurant"}</script></head><body></body></html>';
+  const kept = withSeo(own, { siteName: 'Mama', url: 'https://x/s/mama/', base: 'https://x/s/mama/', slug: 'mama', brand: '#9a3412' });
+  assert.doesNotMatch(kept, /_grandpa\/icon\.svg|_grandpa\/manifest|#9a3412|"LocalBusiness"|"Organization"/, 'the site\'s own extras win');
+  const added = withSeo('<html><head><title>Mama</title></head><body><p>Food</p></body></html>', { siteName: 'Mama', url: 'https://x/s/mama/', base: 'https://x/s/mama/', slug: 'mama', brand: '#9a3412', files: [{ path: 'index.html' }, { path: 'images/share.png' }] });
+  assert.match(added, /<link rel="icon" href="\/s\/mama\/_grandpa\/icon\.svg" type="image\/svg\+xml">/);
+  assert.match(added, /<link rel="manifest" href="\/s\/mama\/_grandpa\/manifest\.webmanifest">/);
+  assert.match(added, /<meta name="theme-color" content="#9a3412">/);
+  assert.match(added, /<meta property="og:image" content="https:\/\/x\/s\/mama\/images\/share\.png">/, 'the share picture when there is no photograph');
+});
+
+test('published sites serve the icon, the install file and a "page not found" page in their style', async (t) => {
+  await isolatedLedger(t);
+  Object.assign(process.env, { ACCESS_CODE: '', RATE_LIMIT_PER_MINUTE: '0' });
+  const { default: app } = await import('../server/app.js');
+  const { config } = await import('../server/config.js');
+  const previous = { accessCode: config.accessCode, rateLimitPerMinute: config.rateLimitPerMinute, building: config.building };
+  Object.assign(config, { accessCode: '', rateLimitPerMinute: 0, building: true });
+  const server = app.listen(0, '127.0.0.1'); await new Promise((resolve) => server.once('listening', resolve));
+  t.after(() => { Object.assign(config, previous); server.closeAllConnections(); server.close(); });
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const publish = (slug, files) => fetch(`${base}/api/sites`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ slug, name: 'Mama Kitchen', files }) });
+  await publish('mama-extras', [{ path: 'index.html', body: '<html><head><title>Mama</title></head><body><a href="tel:0886">Call</a></body></html>' }, { path: 'style.css', body: ':root{--brand:#9a3412}' }, { path: 'assets/grandpa-kit.css', body: ':root{}' }]);
+  const icon = await fetch(`${base}/s/mama-extras/_grandpa/icon.svg`);
+  assert.equal(icon.headers.get('content-type'), 'image/svg+xml; charset=utf-8');
+  assert.match(await icon.text(), /fill="#9a3412"/);
+  const manifest = await fetch(`${base}/s/mama-extras/_grandpa/manifest.webmanifest`);
+  assert.match(manifest.headers.get('content-type'), /application\/manifest\+json/);
+  assert.equal((await manifest.json()).name, 'Mama Kitchen');
+  const home = await (await fetch(`${base}/s/mama-extras/`)).text();
+  assert.match(home, /"telephone":"0886"/);
+  assert.match(home, /_grandpa\/icon\.svg/);
+  const missing = await fetch(`${base}/s/mama-extras/nope`);
+  assert.equal(missing.status, 404);
+  assert.match(await missing.text(), /:root\{--brand:#9a3412\}[\s\S]*This page is not here[\s\S]*Go to the Mama Kitchen home page/, 'in the site\'s own colour');
+  await publish('mama-own404', [{ path: 'index.html', body: '<h1>x</h1>' }, { path: '404.html', body: '<html><head></head><body><h1>Lost? Try our menu</h1></body></html>' }]);
+  const own = await fetch(`${base}/s/mama-own404/nothing-here`);
+  assert.equal(own.status, 404);
+  const ownText = await own.text();
+  assert.match(ownText, /Lost\? Try our menu/);
+  assert.match(ownText, /_grandpa\/site\.js/, 'the site script still runs on its own 404 page');
+  assert.equal((await fetch(`${base}/s/nobody-here/_grandpa/icon.svg`)).status, 404);
+});

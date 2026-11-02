@@ -32,7 +32,9 @@ test('search and sharing tags are added only where missing; a sitemap lists the 
   assert.match(out, /<meta property="og:title" content="Mama Kitchen — Jollof in Monrovia">/);
   assert.match(out, /<meta property="og:image" content="https:\/\/x\.test\/s\/mama\/images\/hero\.jpg">/);
   assert.match(out, /<meta name="twitter:card" content="summary_large_image">/);
-  assert.match(out, /<link rel="canonical" href="https:\/\/x\.test\/s\/mama\/"><\/head>/);
+  assert.match(out, /<link rel="canonical" href="https:\/\/x\.test\/s\/mama\/">/);
+  const data = JSON.parse(/<script type="application\/ld\+json">([\s\S]*?)<\/script><\/head>/.exec(out)[1]);
+  assert.deepEqual(data, { '@context': 'https://schema.org', '@type': 'Organization', name: 'Mama Kitchen', url: 'https://x.test/s/mama/', description: 'Fresh "jollof" rice & soup every day in Sinkor.', image: 'https://x.test/s/mama/images/hero.jpg' });
   const own = '<html><head><meta name="description" content="Mine"><meta property="og:title" content="Mine"><link rel="canonical" href="x"><meta name="twitter:card" content="summary"></head><body><p>x</p></body></html>';
   assert.equal(withSeo(own, { url: 'https://x' }), own, 'the page\'s own tags are kept');
   const inner = withSeo('<head></head><body><img src="../images/hero.jpg"><img src="missing.png"></body>', { base: 'https://x.test/s/m/', path: 'shop/index.html', files });

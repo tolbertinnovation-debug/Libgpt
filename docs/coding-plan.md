@@ -335,7 +335,15 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
   - **Games:** `App.loop` (pauses when the page is hidden), `App.sound`, `App.timer` and `App.toast`.
 
   The tool, game, dashboard and phone-app recipes tell builders to use it, and `KIT_GUIDE` documents it. A **Download as ZIP** chip now sits next to the other build chips; the ZIP itself already existed.
-- **Next:** Phase 4 (app icon, 404 page, structured data, share picture, manifest), Phase 5 (a higher quality bar with a design score), and Phase 6 (optional: a separate sites address so YouTube plays in the page and apps can install, work offline and remember data).
+- **Phase 4, professional extras added automatically (done).** Every published page gets the following, unless it has its own:
+  - an **app icon** (`/s/<address>/_grandpa/icon.svg`): the first letter of the name on the site's brand colour, read from its own stylesheet, with a contrast-chosen letter colour;
+  - an **install file** (`manifest.webmanifest`: name, colours, icon, start address) and `theme-color`;
+  - **structured data** (schema.org JSON-LD), from what the page itself says: `<address>`, `tel:` and `mailto:` links, and `.gk-hours`. It is LocalBusiness when there are local details and Organization otherwise; nothing is invented.
+  - a **share picture**: when the site has no photograph, publishing draws a 1200×630 PNG on the phone (name, first heading, brand colour) as `images/share.png`, and it becomes the og:image;
+  - a **"page not found" page**: the site's own `404.html` (with the Grandpa script), or one in its brand colour with a button home.
+
+  The builder guide asks for addresses in `<address>`, `tel:`/`mailto:` links, and the builder's own JSON-LD (Restaurant, Event, Product, Course) only with details the person gave.
+- **Next:** Phase 5 (app icon, 404 page, structured data, share picture, manifest), Phase 5 (a higher quality bar with a design score), and Phase 6 (optional: a separate sites address so YouTube plays in the page and apps can install, work offline and remember data).
 
 ### Later, each needing the owner's approval (recurring costs)
 - Grandpa choosing YouTube videos by himself needs a free YouTube Data API key (no payment card) added in Vercel.

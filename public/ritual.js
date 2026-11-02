@@ -565,6 +565,40 @@ function showWebPublish() {
     <button class="sheet-go" type="button" data-publish-go>Publish</button>`);
 }
 
+/** A 1200×630 share picture (name and first sentence on the brand colour) for sites with no photograph to show. */
+function sharePicture(p) {
+  if (p.files.some((f) => /^data:image\/(?:jpeg|png|webp)/.test(f.body || '') || f.path === 'images/share.png')) return [];
+  try {
+    const page = p.files.find((f) => f.path === 'index.html')?.body || '';
+    const css = p.files.filter((f) => /\.(?:css|html?)$/.test(f.path) && !isKitFile(f.path)).map((f) => f.body).join('\n');
+    const brand = (/--brand\s*:\s*(#[0-9a-f]{3,8})\b/i.exec(css) || [])[1] || '#1a56db';
+    const accent = (/--accent\s*:\s*(#[0-9a-f]{3,8})\b/i.exec(css) || [])[1] || '#f59e0b';
+    const clean = (html) => String(html || '').replace(/<[^>]*>/g, ' ').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    const line = clean((/<h1\b[^>]*>([\s\S]*?)<\/h1>/i.exec(page) || [])[1]) || clean((/<p\b[^>]*>([\s\S]*?)<\/p>/i.exec(page) || [])[1]);
+    const canvas = document.createElement('canvas');
+    canvas.width = 1200; canvas.height = 630;
+    const g = canvas.getContext('2d');
+    const gradient = g.createLinearGradient(0, 0, 1200, 630);
+    gradient.addColorStop(0, brand); gradient.addColorStop(1, '#0b1220');
+    g.fillStyle = gradient; g.fillRect(0, 0, 1200, 630);
+    g.fillStyle = accent; g.fillRect(80, 470, 120, 10);
+    g.fillStyle = '#ffffff'; g.textBaseline = 'top';
+    g.font = '800 76px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif';
+    const wrap = (text, x, y, width, height, max) => {
+      const words = String(text).split(' '); let row = '', rows = 0;
+      for (const word of words) {
+        const next = row ? `${row} ${word}` : word;
+        if (g.measureText(next).width > width && row) { g.fillText(row, x, y + rows * height); rows += 1; row = word; if (rows >= max) return; } else row = next;
+      }
+      if (row && rows < max) g.fillText(row, x, y + rows * height);
+    };
+    wrap(p.name || 'Our website', 80, 90, 1040, 88, 2);
+    g.font = '500 40px system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif'; g.fillStyle = 'rgba(255,255,255,.88)';
+    if (line && line !== p.name) wrap(line, 80, 290, 1040, 54, 3);
+    return [{ path: 'images/share.png', body: canvas.toDataURL('image/png') }];
+  } catch { return []; }
+}
+
 async function publishToWeb() {
   const p = project();
   if (!p || isBusy()) return;
@@ -581,7 +615,7 @@ async function publishToWeb() {
   renderThread();
   try {
     const response = await fetch('/api/sites', { method: 'POST', headers: { 'Content-Type': 'application/json', ...deps.headers() },
-      body: JSON.stringify({ slug, name: p.name, token: p.publish?.token || '', files: p.files.map(({ path, body }) => ({ path, body })) }) });
+      body: JSON.stringify({ slug, name: p.name, token: p.publish?.token || '', files: [...p.files.map(({ path, body }) => ({ path, body })), ...sharePicture(p)] }) });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || 'Publishing could not finish.');
     const first = !p.publish;
