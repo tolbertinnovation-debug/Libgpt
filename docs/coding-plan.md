@@ -304,6 +304,30 @@ The owner asked for videos with a proper player, and for photos to be found and 
 - **Published sites.** A browser test showed YouTube's player stays a black box inside the published sites' sandbox, while it plays on a normal page. So inside the sandbox, tapping the player **opens the video on YouTube** (the app on a phone), and the caption says "Tap to watch on YouTube". Older YouTube embeds the builder wrote are turned into players the same way.
 - **Limits:** at most 600 free searches a day across the app, the usual rate limit, and results remembered for a day.
 
+## Engineering Playbook: Phases 1 and 2 (done)
+
+The owner asked for stronger coding, so that Grandpa can choose how to build any website or web software and make it beautiful and professional.
+
+- **Phase 1, project recipes** (`public/build-recipes.js`, shared by the browser and the server). There are 14 recipes:
+  - business, restaurant, shop, booking, portfolio, church/school/NGO, event, landing page, blog, web tool, game, dashboard or tracker, course or docs, and phone app.
+  - Each recipe sets the pages and screens, the sections and components, the data features (forms, bookings, cart, Manage lists), the engineering (app state, screens, game loop, honest limits of the sandbox) and the design direction.
+  - It is chosen from the person's words. On ties the more specific recipe wins, and business is the last resort.
+  - The conversation card shows **Type of project** with a menu to change it. The chosen type is sent as "Project type: …", which always wins.
+  - The single builder, the team planner and every front-end team builder receive the recipe. The backend and cloud builders do not.
+- **Phase 2, Grandpa Kit 6.**
+  - Design tokens: a fluid type scale (`--step--1` … `--step-5`), an 8px spacing scale (`--s-1` … `--s-9`), and brand and accent shades computed with `color-mix()`.
+  - Button text colour chosen in code for contrast (`--on-brand`, `--on-accent`).
+  - Eight free font pairings (`data-gk-fonts`), loaded by the kit, with system fonts when offline.
+  - New components:
+    - an eyebrow label and badge;
+    - a sticky header with a real phone menu (aria-expanded, Escape, and the current page marked);
+    - testimonials, steps, timeline, tabs with arrow keys, a popup (`<dialog>`), a logo strip and a stats band;
+    - product cards and article cards;
+    - a phone-app bottom bar.
+  - **Design rules** for every builder: tokens only, 60-30-10 colour, WCAG AA, at most two fonts, 60–75 character lines, an eyebrow, heading, lead and one primary action per section, consistent radius and shadow, image sizes against layout jumps, and 44px touch targets.
+  - **+ Section** gains testimonials, How it works, Our story (timeline) and Sign up for news.
+- **Next:** Phase 3 (an app toolkit for real web software, and download as ZIP), Phase 4 (app icon, 404 page, structured data, share picture, manifest), Phase 5 (a higher quality bar with a design score), and Phase 6 (optional: a separate sites address so YouTube plays in the page and apps can install, work offline and remember data).
+
 ### Later, each needing the owner's approval (recurring costs)
 - Grandpa choosing YouTube videos by himself needs a free YouTube Data API key (no payment card) added in Vercel.
 - Email or SMS alerts for new orders and bookings.

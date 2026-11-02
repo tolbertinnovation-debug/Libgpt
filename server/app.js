@@ -30,6 +30,7 @@ import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, fi
 import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, bookingTimes, slotProblem, ENTRY_KINDS, ENTRY_STATUSES } from './site-data.js';
 import { siteRuntime, withRuntime, withSeo, sitemapFor } from './site-runtime.js';
 import { searchPhotos, fetchPhoto, youtubeInfo, searchWords } from './media-search.js';
+import { chooseRecipe, RECIPES } from '../public/build-recipes.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
 import {
   DEFAULT_LANGUAGE,
@@ -838,6 +839,8 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     buildPrompt({
       pictures: false,
       runtime:req.body?.buildRuntime==='fullstack'?'fullstack':'static',
+      // The project recipe, from what the person asked (a "Project type:" line wins).
+      recipe: chooseRecipe((Array.isArray(req.body?.messages) ? req.body.messages : []).filter((m) => m?.role === 'user' && typeof m.content === 'string').map((m) => m.content).join('\n').slice(0, 12000)),
     }),
     '',
     // Phase 3: what the site is (worked out from its files in the browser), so
@@ -1380,7 +1383,9 @@ app.post('/api/build/discuss', rateLimit, requireAccess, runtime.middleware('orc
     });
     const answer = readDiscussReply(raw);
     if (!answer) { res.status(502).json({ error: 'I could not put that into words just now. Try again.' }); return; }
-    res.json(answer);
+    // The kind of project, so the person can see it and change it before building.
+    const recipe = chooseRecipe(`${messages.filter((m) => m.role === 'user').map((m) => m.content).join('\n')}\n${answer.brief || ''}`);
+    res.json({ ...answer, recipe: { id: recipe.id, name: recipe.name }, recipes: RECIPES.map((r) => ({ id: r.id, name: r.name })) });
   } catch (error) {
     if (controller.signal.aborted) return;
     console.error('[build-discuss]', error?.status, safeDiagnostic(String(error?.message || error)));

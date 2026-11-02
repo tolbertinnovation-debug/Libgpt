@@ -612,14 +612,14 @@ async function unpublishFromWeb() {
 
 /* ---- The Grandpa Kit ----------------------------------------------------- */
 /** Add the shared design kit to a project once, so builders can use its sections and effects. */
-const KIT_VERSION = 'Grandpa Kit 5';
+const KIT_VERSION = 'Grandpa Kit 6';
 async function ensureKit(p) {
   // An older kit is replaced by the current one (only the kit ever changes the kit).
   const kit = (p?.files || []).filter((f) => isKitFile(f.path));
   if (!p || (kit.length === 2 && kit.every((f) => String(f.body).startsWith(`/* ${KIT_VERSION} `)))) return true;
   try {
     const [css, js] = await Promise.all([KIT_FILES.css, KIT_FILES.js].map(async (path) => {
-      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-5`);
+      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-6`);
       if (!response.ok) throw new Error('kit');
       return response.text();
     }));
@@ -1708,7 +1708,11 @@ async function discuss(said) {
   try {
     const conversation = p.messages.filter((m) => m.content && (m.role === 'user' || m.discussion)).map(({ role, content }) => ({ role, content }));
     const answer = await teamRequest('/api/build/discuss', { messages: conversation }, controller.signal);
-    p.messages.push({ role: 'assistant', content: answer.reply, discussion: { ready: Boolean(answer.ready), brief: answer.brief || '', title: answer.title || '', suggestions: answer.suggestions || [] } });
+    p.messages.push({ role: 'assistant', content: answer.reply, discussion: { ready: Boolean(answer.ready), brief: answer.brief || '', title: answer.title || '', suggestions: answer.suggestions || [],
+      recipe: answer.recipe?.id ? { id: String(answer.recipe.id), name: String(answer.recipe.name || '') } : null,
+      recipes: Array.isArray(answer.recipes) ? answer.recipes.slice(0, 30).map((r) => ({ id: String(r.id), name: String(r.name) })) : [],
+      // A type chosen earlier in this conversation is kept.
+      recipeChoice: lastDiscussion(p)?.recipeChoice || '' } });
     if (answer.title && !p.named) p.name = answer.title;
   } catch (error) {
     if (error.name !== 'AbortError') {
@@ -1731,7 +1735,9 @@ async function startFromBrief(said = 'Start building') {
   if (agreed.title && !p.named) { p.name = agreed.title; p.named = true; }
   const added = (p.materials || []).filter((path) => p.files.some((f) => f.path === path));
   await ensureKit(p);
-  const brief = added.length ? `${agreed.brief}\n\nFiles the person added, already in the project. Use each where it belongs, by this exact path, and never rewrite them:\n${added.map((path) => `- ${path}`).join('\n')}` : agreed.brief;
+  const typed = (agreed.recipes || []).find((r) => r.id === (agreed.recipeChoice || agreed.recipe?.id));
+  const base = typed ? `Project type: ${typed.name}.\n${agreed.brief}` : agreed.brief;
+  const brief = added.length ? `${base}\n\nFiles the person added, already in the project. Use each where it belongs, by this exact path, and never rewrite them:\n${added.map((path) => `- ${path}`).join('\n')}` : base;
   await buildTheWholeThing(brief, false, { messageText: said });
 }
 
@@ -1740,8 +1746,12 @@ function discussionHtml(discussion, latest) {
   const brief = escapeHtml(discussion.brief || '');
   const chips = (discussion.suggestions || []).filter((s) => !START_BUILDING.test(s))
     .map((s) => `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('');
+  const chosen = discussion.recipeChoice || discussion.recipe?.id || '';
+  const recipe = (discussion.recipes || []).length ? `<label class="build-recipe"><span>Type of project</span><select data-recipe-select aria-label="Type of project">
+      ${chosen ? '' : '<option value="">Let Grandpa decide</option>'}${discussion.recipes.map((r) => `<option value="${escapeHtml(r.id)}"${r.id === chosen ? ' selected' : ''}>${escapeHtml(r.name)}</option>`).join('')}</select></label>` : '';
   return `<div class="build-brief${discussion.ready ? ' is-ready' : ''}">
     ${brief ? `<details${discussion.ready ? ' open' : ''}><summary>What I'll build</summary><p class="build-brief-text">${brief}</p></details>` : ''}
+    ${recipe}
     ${chips ? `<div class="build-chips">${chips}</div>` : ''}
     <div class="build-brief-actions">
       <button class="build-start${discussion.ready ? '' : ' is-quiet'}" type="button" data-discuss-start>${discussion.ready ? 'Start building' : 'Skip questions and start building'}</button>
@@ -2467,6 +2477,14 @@ export async function mount(options = {}) {
     if (button) setMode(button.dataset.mode);
   });
 
+  // The type of project chosen in the conversation card.
+  el.build.addEventListener('change', (event) => {
+    const select = event.target.closest('[data-recipe-select]');
+    const agreed = select && lastDiscussion(project());
+    if (!agreed) return;
+    agreed.recipeChoice = select.value;
+    persist();
+  });
   el.build.addEventListener('click', async (event) => {
     const view = event.target.closest('[data-view]');
     if (view) { ensureView(view.dataset.view); return; }

@@ -1,4 +1,4 @@
-/* Grandpa Kit 5 — gallery viewer, sliders, reveal on scroll, dark mode, language switch,
+/* Grandpa Kit 6 — gallery viewer, sliders, reveal on scroll, dark mode, language switch,
    counters, back to top and page loader. Everything works without it; it only adds. */
 (function () {
   'use strict';
@@ -6,6 +6,30 @@
   var reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
   var store = { get: function (k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set: function (k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
   root.classList.add('gk-js');
+
+  // Font pairings: <html data-gk-fonts="…"> loads two free fonts (the page falls back to system fonts offline).
+  var FONTS = { modern: ['Plus Jakarta Sans:wght@600;800', 'Inter:wght@400;600'], classic: ['Playfair Display:wght@600;800', 'Source Sans 3:wght@400;600'],
+    friendly: ['Nunito:wght@400;700;800'], bold: ['Montserrat:wght@700;800', 'Open Sans:wght@400;600'], elegant: ['Cormorant Garamond:wght@500;700', 'Lato:wght@400;700'],
+    tech: ['Space Grotesk:wght@500;700', 'Inter:wght@400;600'], editorial: ['Merriweather:wght@700;900', 'Source Sans 3:wght@400;600'], warm: ['Fraunces:wght@600;800', 'Work Sans:wght@400;600'] };
+  var pairing = FONTS[root.getAttribute('data-gk-fonts')];
+  if (pairing && !document.querySelector('link[data-gk-fonts]')) {
+    var link = document.createElement('link');
+    link.rel = 'stylesheet'; link.setAttribute('data-gk-fonts', '');
+    link.href = 'https://fonts.googleapis.com/css2?' + pairing.map(function (f) { return 'family=' + f.replace(/ /g, '+'); }).join('&') + '&display=swap';
+    document.head.appendChild(link);
+  }
+
+  // Readable text on the brand and accent colours, worked out from the colours themselves.
+  function onColour(name) {
+    var probe = document.createElement('span'); probe.style.color = 'var(' + name + ')'; probe.style.display = 'none';
+    (document.body || root).appendChild(probe);
+    var m = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(getComputedStyle(probe).color || ''); probe.parentNode.removeChild(probe);
+    if (!m) return;
+    var lum = [m[1], m[2], m[3]].map(function (v) { v = v / 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+    var L = 0.2126 * lum[0] + 0.7152 * lum[1] + 0.0722 * lum[2];
+    // Contrast with white is 1.05/(L+0.05); with near-black (#111) it is (L+0.05)/0.0566.
+    root.style.setProperty(name === '--brand' ? '--on-brand' : '--on-accent', 1.05 / (L + 0.05) >= (L + 0.05) / 0.0566 ? '#fff' : '#111');
+  }
 
   function ready(fn) { if (document.readyState !== 'loading') fn(); else document.addEventListener('DOMContentLoaded', fn); }
 
@@ -159,6 +183,50 @@
     // Print or save as PDF: [data-gk-print] prints the page, or only the element named in it ("#certificate")
     document.querySelectorAll('[data-gk-print]').forEach(function (button) {
       button.addEventListener('click', function (e) { e.preventDefault(); window.GrandpaPrint(button.getAttribute('data-gk-print')); });
+    });
+
+    onColour('--brand'); onColour('--accent');
+
+    // Phone menu: .gk-nav-toggle opens .gk-nav (Escape and a chosen link close it)
+    document.querySelectorAll('.gk-nav-toggle').forEach(function (toggle) {
+      var nav = document.getElementById(toggle.getAttribute('aria-controls') || '') || (toggle.closest('.gk-header') || document).querySelector('.gk-nav');
+      if (!nav) return;
+      toggle.setAttribute('aria-expanded', 'false');
+      var set = function (open) { nav.classList.toggle('is-open', open); toggle.setAttribute('aria-expanded', String(open)); };
+      toggle.addEventListener('click', function () { set(!nav.classList.contains('is-open')); });
+      nav.addEventListener('click', function (e) { if (e.target.closest('a')) set(false); });
+      document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && nav.classList.contains('is-open')) { set(false); toggle.focus(); } });
+    });
+    // The current page is marked in the menu.
+    var here = location.pathname.split('/').pop() || 'index.html';
+    document.querySelectorAll('.gk-nav a[href]').forEach(function (a) { if ((a.getAttribute('href') || '').split('#')[0] === here) a.setAttribute('aria-current', 'page'); });
+
+    // Tabs: [data-gk-tabs] with .gk-tab-list buttons and .gk-tab-panel panels, in order
+    document.querySelectorAll('[data-gk-tabs]').forEach(function (box, n) {
+      var buttons = Array.prototype.slice.call(box.querySelectorAll('.gk-tab-list button'));
+      var panels = Array.prototype.slice.call(box.querySelectorAll('.gk-tab-panel'));
+      if (!buttons.length || buttons.length !== panels.length) return;
+      box.querySelector('.gk-tab-list').setAttribute('role', 'tablist');
+      var show = function (i, focus) {
+        buttons.forEach(function (b, k) { b.setAttribute('aria-selected', String(k === i)); b.tabIndex = k === i ? 0 : -1; });
+        panels.forEach(function (p, k) { p.hidden = k !== i; });
+        if (focus) buttons[i].focus();
+      };
+      buttons.forEach(function (b, i) {
+        b.type = 'button'; b.setAttribute('role', 'tab'); b.id = b.id || 'gk-tab-' + n + '-' + i;
+        panels[i].setAttribute('role', 'tabpanel'); panels[i].setAttribute('aria-labelledby', b.id);
+        b.addEventListener('click', function () { show(i); });
+        b.addEventListener('keydown', function (e) { if (e.key === 'ArrowRight') show((i + 1) % buttons.length, true); if (e.key === 'ArrowLeft') show((i - 1 + buttons.length) % buttons.length, true); });
+      });
+      show(0);
+    });
+
+    // Popup windows: [data-gk-open="#id"] opens <dialog class="gk-modal" id="id">; [data-gk-close] closes it
+    document.querySelectorAll('[data-gk-open]').forEach(function (button) {
+      var dialog = document.querySelector(button.getAttribute('data-gk-open'));
+      if (!dialog || typeof dialog.showModal !== 'function') return;
+      button.addEventListener('click', function (e) { e.preventDefault(); dialog.showModal(); });
+      dialog.addEventListener('click', function (e) { if (e.target === dialog || e.target.closest('[data-gk-close]')) dialog.close(); });
     });
 
     // Year: [data-gk-year]
