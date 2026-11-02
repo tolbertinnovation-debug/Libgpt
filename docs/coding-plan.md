@@ -279,7 +279,33 @@ The owner approved this order: A design, B publish on Grandpa, C database, D man
     - published pages run in an opaque-origin sandbox.
 - **Speed of the data features.** Forms, sign-in and Manage now read only a site's name, key and page list (`siteStore.meta`), instead of loading the whole website (up to 4 MB) from the database on every request.
 
+## Free photographs and YouTube videos (no keys, no money)
+
+The owner asked for videos with a proper player, and for photos to be found and placed when building, without money.
+
+- **Free real photographs** (`server/media-search.js`). After every build or change, each `<img data-picture>` is first matched with a real photograph:
+  - It searches **Wikimedia Commons**, with **Openverse** as a quick backup. Only licences that allow business use are accepted: CC0, CC BY, CC BY-SA and public domain.
+  - Photos must be at least 700 px wide; SVG, TIFF and GIF files are left out.
+  - The builder writes `data-photo-search="2–4 words"` for this. Without them, words are taken from the description.
+  - The photo is downloaded by its id (never by an address the browser sends), made web-sized on the phone (1280 px, about 180 KB), and its credit is saved.
+  - `credits.html` lists every photographer and licence, and a **Photo credits** link is added to every footer.
+  - A photo is **created with Muse Image only when no free one is found**, and only while the owner's Pictures allowance is above 0. With it at 0, nothing is ever paid for.
+- **Edit → tap a picture → Or find a free photograph.** Search by words, see small previews, and tap one to use it. The credit is added automatically.
+- **YouTube videos, embedded and never copied.**
+  - The builder writes `<a class="gk-player" href="…watch?v=ID" data-youtube="ID">` for a link the person gave.
+  - Where a video would help and none was given, it leaves a place: `<div class="gk-player" data-video-search="…">`, at most two per site.
+  - After the build, every player is checked with YouTube's free **oEmbed**. It gets its real title and channel, and a video whose owner does not allow embedding is taken out with a note.
+  - Each empty place gets a card in the chat: **Find on YouTube** (opens a YouTube search), a box to paste the link, **Use this video**, and **No video here**.
+  - **+ Section** has a **Video** section too.
+- **The player** (Grandpa Kit 5):
+  - a poster picture, a ▶ button, the title and channel; several videos go in a `.gk-videos` grid;
+  - nothing loads from YouTube until someone taps play;
+  - on a normal page it plays in place with YouTube's privacy-enhanced player.
+- **Published sites.** A browser test showed YouTube's player stays a black box inside the published sites' sandbox, while it plays on a normal page. So inside the sandbox, tapping the player **opens the video on YouTube** (the app on a phone), and the caption says "Tap to watch on YouTube". Older YouTube embeds the builder wrote are turned into players the same way.
+- **Limits:** at most 600 free searches a day across the app, the usual rate limit, and results remembered for a day.
+
 ### Later, each needing the owner's approval (recurring costs)
+- Grandpa choosing YouTube videos by himself needs a free YouTube Data API key (no payment card) added in Vercel.
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).

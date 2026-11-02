@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="theme-color" content="#faf3e0">
+<title>Manage your website</title>
+<link rel="icon" href="/logo.png">
+<style>
+:root{--bg:#faf3e0;--raised:#fffdf7;--line:#e6d8bb;--text:#2e1f1a;--soft:#6b5346;--accent:#c77818;--good:#2f7d4f;--bad:#b3261e;--chip:#f1e4c8}
+@media (prefers-color-scheme:dark){:root{--bg:#1d1411;--raised:#2a1d18;--line:#4a372e;--text:#f6ead6;--soft:#c9b29d;--accent:#e39a3c;--good:#6fcf97;--bad:#ff8a80;--chip:#3a2a22}}
+*{box-sizing:border-box}
+html,body{overflow-x:hidden}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:640px;margin:0 auto;padding:20px 16px 64px}
+h1{font-size:1.35rem;margin:0}
+h2{font-size:1.1rem;margin:0 0 10px}
+a{color:var(--accent)}
+.lead{color:var(--soft);margin:2px 0 16px;word-break:break-all}
+.card{background:var(--raised);border:1px solid var(--line);border-radius:14px;padding:14px;margin:0 0 12px}
+label{display:block;font-weight:600;margin:10px 0 4px}
+input,textarea,select{width:100%;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+textarea{min-height:64px;resize:vertical}
+button,.button{font:inherit;font-weight:600;min-height:44px;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.danger{color:var(--bad)}
+button:disabled{opacity:.6;cursor:wait}
+.full{width:100%}
+.row{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+.tabs{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+.tabs button{flex:0 0 auto;border-radius:999px;min-height:40px}
+.tabs button[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 12px}
+.chips button{min-height:36px;padding:4px 12px;border-radius:999px;background:var(--chip);border-color:transparent}
+.chips button[aria-pressed="true"]{background:var(--text);color:var(--bg)}
+.entry .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline;flex-wrap:wrap}
+.badge{display:inline-block;font-size:.8rem;font-weight:700;padding:2px 10px;border-radius:999px;background:var(--chip)}
+.badge.new{background:var(--accent);color:#fff}
+.when{color:var(--soft);font-size:.85rem}
+dl{display:grid;grid-template-columns:minmax(80px,auto) 1fr;gap:4px 12px;margin:10px 0 0}
+dt{color:var(--soft)}dd{margin:0;white-space:pre-wrap;word-break:break-word}
+.entry.done{opacity:.7}
+.note{color:var(--soft);font-size:.9rem;margin:6px 0 0}
+.msg{margin:10px 0 0;font-weight:600}.msg.error{color:var(--bad)}.msg.ok{color:var(--good)}
+.list-row{border:1px solid var(--line);border-radius:10px;padding:10px;margin:8px 0;display:grid;gap:6px}
+.list-row .row{margin-top:0}
+.list-row label{margin:0;display:grid;gap:2px;font-weight:500;font-size:.85rem;color:var(--soft)}
+.list-row label input{font-size:1rem;color:var(--text)}
+.list-row .row button{min-height:36px;padding:4px 10px}
+.bars{display:grid;gap:4px;margin:8px 0 0;padding:0;list-style:none}
+.bars li{display:grid;grid-template-columns:92px 1fr 40px;gap:8px;align-items:center;font-size:.9rem}
+.bars .bar{height:10px;border-radius:5px;background:var(--accent);min-width:2px}
+.stat{font-size:1.6rem;font-weight:800}
+.empty{color:var(--soft);text-align:center;padding:24px 8px}
+[hidden]{display:none!important}
+.check{display:flex;gap:10px;align-items:center}.check input{width:auto;transform:scale(1.3)}
+.agenda-day{margin:16px 0 6px;font-size:1rem}
+.doc-pair{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.doc-sheet{background:#fff;color:#111;border:1px solid var(--line);border-radius:10px;padding:24px;margin:8px 0 0;font-size:15px}
+.doc-sheet .note{color:#555}
+.doc-head{display:flex;justify-content:space-between;gap:16px;border-bottom:2px solid #111;padding-bottom:12px;margin-bottom:14px;flex-wrap:wrap}
+.doc-head h2{margin:0;font-size:1.3rem}.doc-contact{margin:2px 0 0;color:#444;white-space:pre-wrap}
+.doc-meta{text-align:right}.doc-type{font-size:1.2rem;letter-spacing:.08em}
+.doc-to p{margin:2px 0 14px;white-space:pre-wrap}
+.doc-sheet table{width:100%;border-collapse:collapse}
+.doc-sheet th,.doc-sheet td{text-align:left;padding:8px 6px;border-bottom:1px solid #ddd;vertical-align:top}
+.doc-sheet th:nth-child(n+2),.doc-sheet td:nth-child(n+2){text-align:right;white-space:nowrap}
+.doc-sheet tfoot td{font-weight:800;border-bottom:0;border-top:2px solid #111}
+.doc-sheet tfoot td:first-child{text-align:right}
+.doc-notes{margin:16px 0 0;white-space:pre-wrap}
+@media print{
+  @page{margin:14mm}
+  body{background:#fff;color:#111}
+  main{max-width:none;padding:0}
+  .no-print{display:none!important}
+  .doc-sheet{border:0;padding:0;margin:0}
+}
+</style>
+</head>
+<body>
+<main id="app"><p class="note">Opening…</p></main>
+<script src="/manage.js?v=manage-4" type="module"></script>
+</body>
+</html>

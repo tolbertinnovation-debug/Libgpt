@@ -3925,3 +3925,10 @@ body {
 .quality-list li.is-fix strong { color: #b3261e; }
 .quality-list li.is-warn strong { color: #8a5a00; }
 .quality-list li.is-info strong { color: var(--muted, #6b5346); }
+
+/* Video places waiting for a YouTube link */
+.video-places { display: grid; gap: 10px; margin: 8px 0 0; }
+.video-place { border: 1px dashed var(--line, #e6d8bb); border-radius: 12px; padding: 10px 12px; display: grid; gap: 8px; justify-items: start; }
+.video-place p { margin: 0; }
+.video-place .history-actions { width: 100%; }
+.video-place input { flex: 1 1 220px; min-width: 0; }

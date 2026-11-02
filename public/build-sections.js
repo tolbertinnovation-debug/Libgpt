@@ -23,9 +23,9 @@ export const SECTIONS = Object.freeze({
   <div class="gk-container">
     <h2 class="gk-reveal">Gallery</h2>
     <div class="gk-gallery gk-reveal" data-gk-gallery>
-      <img src="images/gallery-1.jpg" alt="Our work" data-picture="A bright, professional photograph of the business at work" loading="lazy">
-      <img src="images/gallery-2.jpg" alt="Our place" data-picture="A welcoming photograph of the shop or workplace, warm daylight" loading="lazy">
-      <img src="images/gallery-3.jpg" alt="Happy customer" data-picture="A happy customer being served, natural light, candid" loading="lazy">
+      <img src="images/gallery-1.jpg" alt="Our work" data-photo-search="small business work" data-picture="A bright, professional photograph of the business at work" loading="lazy">
+      <img src="images/gallery-2.jpg" alt="Our place" data-photo-search="shop interior" data-picture="A welcoming photograph of the shop or workplace, warm daylight" loading="lazy">
+      <img src="images/gallery-3.jpg" alt="Happy customer" data-photo-search="customer service" data-picture="A happy customer being served, natural light, candid" loading="lazy">
     </div>
   </div>
 </section>` },
@@ -33,9 +33,9 @@ export const SECTIONS = Object.freeze({
   <div class="gk-container">
     <div class="gk-slider gk-reveal" data-gk-slider data-gk-auto="5000">
       <div class="gk-slides">
-        <img src="images/slide-1.jpg" alt="Slide one" data-picture="A wide, striking photograph that shows what the business offers" style="width:100%;aspect-ratio:16/9;object-fit:cover">
-        <img src="images/slide-2.jpg" alt="Slide two" data-picture="A wide photograph of satisfied customers, golden hour light" style="width:100%;aspect-ratio:16/9;object-fit:cover">
-        <img src="images/slide-3.jpg" alt="Slide three" data-picture="A wide photograph of the team's skilled hands at work" style="width:100%;aspect-ratio:16/9;object-fit:cover">
+        <img src="images/slide-1.jpg" alt="Slide one" data-photo-search="market stall" data-picture="A wide, striking photograph that shows what the business offers" style="width:100%;aspect-ratio:16/9;object-fit:cover">
+        <img src="images/slide-2.jpg" alt="Slide two" data-photo-search="happy customers" data-picture="A wide photograph of satisfied customers, golden hour light" style="width:100%;aspect-ratio:16/9;object-fit:cover">
+        <img src="images/slide-3.jpg" alt="Slide three" data-photo-search="hands working craft" data-picture="A wide photograph of the team's skilled hands at work" style="width:100%;aspect-ratio:16/9;object-fit:cover">
       </div>
     </div>
   </div>
@@ -97,6 +97,12 @@ export const SECTIONS = Object.freeze({
     <ul class="gk-docs gk-reveal">
       <li><a href="#" data-gk-print>Print or save this page as a PDF<small>Add your own PDF files with + in the chat, then ask Grandpa to list them here.</small></a></li>
     </ul>
+  </div>
+</section>` },
+  video: { label: 'Video (paste a YouTube link after)', html: `<section class="gk-section">
+  <div class="gk-container">
+    <h2 class="gk-reveal">Watch</h2>
+    <div class="gk-player" data-video-search="about our business"></div>
   </div>
 </section>` },
   whatsapp: { label: 'WhatsApp button (add your number)', html: `<a class="gk-whatsapp" href="https://wa.me/231770000000" aria-label="Chat on WhatsApp">${WHATSAPP_SVG}</a>` },

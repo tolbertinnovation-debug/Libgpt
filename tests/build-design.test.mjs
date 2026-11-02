@@ -7,7 +7,7 @@ import { TEAM_PLAN_PROMPT, workerInstruction } from '../server/build-team.js';
 import { DISCUSS_PROMPT } from '../server/build-discuss.js';
 
 test('every builder works to the same design standard: backgrounds, motion, photographs, video', () => {
-  for (const rule of [/rich background/, /IntersectionObserver adds the class is-visible/, /prefers-reduced-motion: no-preference/, /never hides it/, /data-picture="a detailed description/, /youtube-nocookie\.com\/embed/, /Never invent a video, picture or file URL/, /CSS variables in :root/]) {
+  for (const rule of [/rich background/, /IntersectionObserver adds the class is-visible/, /prefers-reduced-motion: no-preference/, /never hides it/, /data-picture="a detailed description/, /class="gk-player" href="https:\/\/www\.youtube\.com\/watch\?v=ID" data-youtube="ID"/, /data-video-search=/, /data-photo-search=/, /Never invent a YouTube ID, video, picture or file URL/, /CSS variables in :root/]) {
     assert.match(DESIGN_STANDARD, rule);
   }
   assert.ok(buildPrompt().includes(DESIGN_STANDARD), 'the single builder');

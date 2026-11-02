@@ -1,4 +1,4 @@
-/* Grandpa Kit 4 — gallery viewer, sliders, reveal on scroll, dark mode, language switch,
+/* Grandpa Kit 5 — gallery viewer, sliders, reveal on scroll, dark mode, language switch,
    counters, back to top and page loader. Everything works without it; it only adds. */
 (function () {
   'use strict';
@@ -117,6 +117,43 @@
       var note = document.createElement('div'); note.className = 'gk-note'; note.setAttribute('role', 'status');
       note.textContent = 'The cart works once the website is published. Orders will appear in Manage.';
       document.body.appendChild(note); setTimeout(function () { if (note.parentNode) note.parentNode.removeChild(note); }, 3500);
+    });
+
+    // Video players: [data-youtube]. They play in the page with YouTube's privacy-enhanced player.
+    // Inside a sandboxed page (Grandpa's preview, a published site) YouTube cannot play, so the
+    // link opens the video in YouTube (the app on a phone) instead.
+    var sandboxed = String(window.origin) === 'null';
+    if (sandboxed) document.querySelectorAll('.gk-video iframe, iframe[src*="youtube.com/embed/"], iframe[src*="youtube-nocookie.com/embed/"]').forEach(function (frame) {
+      var m = /\/embed\/([\w-]{11})/.exec(frame.getAttribute('src') || '');
+      if (!m) return;
+      var link = document.createElement('a');
+      link.className = 'gk-player'; link.href = 'https://www.youtube.com/watch?v=' + m[1]; link.setAttribute('data-youtube', m[1]);
+      link.setAttribute('data-title', frame.getAttribute('title') || 'Video'); link.target = '_blank'; link.rel = 'noopener';
+      link.innerHTML = '<img src="https://i.ytimg.com/vi/' + m[1] + '/hqdefault.jpg" alt=""><span class="gk-play" aria-hidden="true"></span><span class="gk-player-caption"><strong></strong></span>';
+      link.querySelector('strong').textContent = frame.getAttribute('title') || 'Watch the video';
+      var box = frame.closest('.gk-video') || frame;
+      box.parentNode.replaceChild(link, box);
+    });
+    document.querySelectorAll('.gk-player[data-youtube]').forEach(function (player) {
+      var id = player.getAttribute('data-youtube');
+      if (!/^[\w-]{11}$/.test(id)) return;
+      player.setAttribute('aria-label', 'Play video: ' + (player.getAttribute('data-title') || 'video'));
+      if (sandboxed) {
+        player.setAttribute('target', '_blank');
+        var note = player.querySelector('.gk-player-caption small');
+        if (note) note.textContent = (player.getAttribute('data-channel') ? player.getAttribute('data-channel') + ' · ' : '') + 'Tap to watch on YouTube';
+        return;
+      }
+      player.addEventListener('click', function (e) {
+        if (player.classList.contains('is-playing')) return;
+        e.preventDefault();
+        var frame = document.createElement('iframe');
+        frame.src = 'https://www.youtube-nocookie.com/embed/' + id + '?autoplay=1&rel=0&playsinline=1&modestbranding=1';
+        frame.title = player.getAttribute('data-title') || 'Video';
+        frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
+        frame.allowFullscreen = true;
+        player.appendChild(frame); player.classList.add('is-playing');
+      });
     });
 
     // Print or save as PDF: [data-gk-print] prints the page, or only the element named in it ("#certificate")

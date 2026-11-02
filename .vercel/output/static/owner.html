@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self'; connect-src 'self'; base-uri 'none'; form-action 'none'">
+<meta name="theme-color" content="#faf3e0">
+<title>Owner Controls</title>
+<link rel="icon" href="logo.png">
+<style>
+:root{--bg:#faf3e0;--raised:#fffdf7;--line:#e6d8bb;--text:#2e1f1a;--soft:#6b5346;--accent:#c77818;--good:#2f7d4f;--bad:#b3261e;--bar:#ead9b8}
+@media (prefers-color-scheme:dark){:root{--bg:#1d1411;--raised:#2a1d18;--line:#4a372e;--text:#f6ead6;--soft:#c9b29d;--accent:#e39a3c;--good:#6fcf97;--bad:#ff8a80;--bar:#4a372e}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:520px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:1.4rem;margin:0 0 4px}
+.lead{color:var(--soft);margin:0 0 20px}
+.card{background:var(--raised);border:1px solid var(--line);border-radius:14px;padding:16px;margin:0 0 16px}
+label{display:block;font-weight:600;margin:0 0 6px}
+input{width:100%;font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
+button{font:inherit;font-weight:600;min-height:48px;padding:10px 16px;border-radius:10px;border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;width:100%}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.danger{background:var(--bad);border-color:var(--bad);color:#fff;font-size:1.1rem;min-height:64px}
+button.go{background:var(--good);border-color:var(--good);color:#fff;font-size:1.1rem;min-height:64px}
+button:disabled{opacity:.6;cursor:wait}
+.row{display:flex;gap:8px;margin-top:12px}
+.row button{flex:1}
+.state{font-size:1.25rem;font-weight:700;margin:0 0 4px}
+.state.running{color:var(--good)}.state.paused{color:var(--bad)}
+.note{color:var(--soft);font-size:.9rem;margin:6px 0 0}
+.msg{margin:12px 0 0;font-weight:600}.msg.error{color:var(--bad)}.msg.ok{color:var(--good)}
+.spend{display:grid;gap:12px;margin:0;padding:0;list-style:none}
+.spend .top{display:flex;justify-content:space-between;gap:8px}
+.meter{height:8px;border-radius:4px;background:var(--bar);overflow:hidden;margin-top:4px}
+.meter span{display:block;height:100%;background:var(--accent)}
+.meter span.full{background:var(--bad)}
+dl{display:grid;grid-template-columns:1fr auto;gap:6px 12px;margin:0}dt{color:var(--soft)}dd{margin:0;font-weight:600;text-align:right}
+.limits{display:grid;gap:10px}.limits label{display:grid;grid-template-columns:1fr 120px;align-items:center;gap:8px;font-weight:600;margin:0}.limits input{text-align:right}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <h1>Owner Controls</h1>
+  <p class="lead">Grandpa AI's emergency pause and today's spending. Only your admin password opens it.</p>
+
+  <section class="card" id="sign-in">
+    <form id="unlock" autocomplete="on">
+      <input type="text" name="username" value="grandpa-ai-owner" autocomplete="username" hidden>
+      <label for="token">Admin password</label>
+      <input id="token" name="password" type="password" autocomplete="current-password" minlength="32" required spellcheck="false" autocapitalize="off">
+      <p class="note">The password you saved in Vercel as RITUAL_ADMIN_TOKEN. It stays in this page only and is forgotten when you close or lock it.</p>
+      <div class="row"><button class="primary" type="submit" id="open">Open controls</button></div>
+    </form>
+    <p class="msg" id="sign-in-msg" role="alert" hidden></p>
+  </section>
+
+  <div id="controls" hidden>
+    <section class="card" aria-live="polite">
+      <p class="state" id="state">Checking…</p>
+      <p class="note" id="state-note"></p>
+      <div class="row"><button class="danger" id="pause" type="button">Pause all paid features</button></div>
+      <div class="row"><button class="go" id="resume" type="button" hidden>Resume paid features</button></div>
+      <p class="msg" id="control-msg" role="status" hidden></p>
+    </section>
+
+    <section class="card">
+      <h2 style="font-size:1.05rem;margin:0 0 12px">Today's spending <span class="note" id="day"></span></h2>
+      <ul class="spend" id="spend"></ul>
+      <p class="note">Limits reset at midnight UTC. Amounts are what Grandpa AI has reserved; your OpenAI bill can differ slightly.</p>
+    </section>
+
+    <section class="card">
+      <h2 style="font-size:1.05rem;margin:0 0 4px">Daily limits</h2>
+      <p class="note" style="margin:0 0 12px">The most Grandpa AI may spend each day, in US dollars. Every feature needs its own amount, and each fits inside the total. Set $0 to switch a feature off.</p>
+      <form id="limits" class="limits">
+        <label>All features (total) <input id="limit-total" type="number" inputmode="decimal" min="0" max="10" step="0.05" required></label>
+        <label>Chat <input id="limit-chat" type="number" inputmode="decimal" min="0" max="10" step="0.05" required></label>
+        <label>Research <input id="limit-research" type="number" inputmode="decimal" min="0" max="10" step="0.05" required></label>
+        <label>Coding agent <input id="limit-build" type="number" inputmode="decimal" min="0" max="10" step="0.05" required></label>
+        <label>Pictures <input id="limit-images" type="number" inputmode="decimal" min="0" max="10" step="0.05" required></label>
+        <label>Documents <input id="limit-documents" type="number" inputmode="decimal" min="0" max="10" step="0.05" required></label>
+        <label>Library <input id="limit-library" type="number" inputmode="decimal" min="0" max="10" step="0.05" required></label>
+        <label>Voice <input id="limit-voice" type="number" inputmode="decimal" min="0" max="10" step="0.05" required></label>
+        <label>Live Talk <input id="limit-livetalk" type="number" inputmode="decimal" min="0" max="10" step="0.05" required></label>
+        <label>Meta Llama <input id="limit-backup" type="number" inputmode="decimal" min="0" max="10" step="0.05" required></label>
+        <p class="note" style="margin:0">Meta Llama answers everyday chat first to save OpenAI credit, and stands in when OpenAI fails or today's Chat limit is reached. When this amount is used up, OpenAI answers. $0 keeps Llama off.</p>
+        <p class="note" id="limits-month"></p>
+        <div class="row"><button class="primary" type="submit" id="limits-save">Save limits</button></div>
+      </form>
+      <p class="msg" id="limits-msg" role="status" hidden></p>
+    </section>
+
+    <section class="card">
+      <h2 style="font-size:1.05rem;margin:0 0 12px">Right now</h2>
+      <dl>
+        <dt>Paid requests running</dt><dd id="active">–</dd>
+        <dt>Requests this minute</dt><dd id="calls">–</dd>
+        <dt>Most at once</dt><dd id="concurrency">–</dd>
+        <dt>Updated</dt><dd id="updated">–</dd>
+      </dl>
+      <div class="row"><button type="button" id="refresh">Refresh</button><button type="button" id="lock">Lock</button></div>
+    </section>
+  </div>
+</main>
+<script type="module" src="owner.js?v=owner-6"></script>
+</body>
+</html>

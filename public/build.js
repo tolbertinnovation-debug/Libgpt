@@ -851,7 +851,8 @@ export function pendingPictures(files = [], limit = 8) {
       const path = resolveProjectPath(file.path, src[2] ?? src[3] ?? '');
       const description = (about[2] ?? about[3] ?? '').trim();
       if (!path || have.has(path) || wanted.has(path) || !description || !/\.(?:jpe?g|png|webp)$/i.test(path)) continue;
-      wanted.set(path, { path, about: description.slice(0, 600), page: file.path });
+      const search = /\bdata-photo-search\s*=\s*("([^"]*)"|'([^']*)')/i.exec(tag);
+      wanted.set(path, { path, about: description.slice(0, 600), page: file.path, search: (search ? (search[2] ?? search[3] ?? '') : '').trim().slice(0, 80) });
     }
   }
   return [...wanted.values()].slice(0, limit);
