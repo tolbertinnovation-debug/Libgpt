@@ -1,4 +1,4 @@
-/* Grandpa Kit 6 — professional sections and effects for websites built in Grandpa AI.
+/* Grandpa Kit 7 — professional sections and effects for websites built in Grandpa AI.
    Override anything in your own stylesheet; set your colours with --brand and --accent. */
 :root{--brand:#1a56db;--accent:#f59e0b;--ink:#0f172a;--muted:#475569;--surface:#ffffff;--tint:#f1f5f9;--dark:#0b1220;--on-dark:#e2e8f0;--radius:14px;--shadow:0 10px 30px rgba(15,23,42,.10);--font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--heading:var(--font);--space:clamp(48px,8vw,96px);--max:1120px}
 [data-gk-style="modern"]{--radius:14px;--shadow:0 10px 30px rgba(15,23,42,.10)}
@@ -210,3 +210,14 @@ h1,h2,h3{font-family:var(--heading);line-height:1.15}
 .gk-appbar a{display:grid;justify-items:center;gap:2px;min-width:64px;padding:6px;color:var(--muted);text-decoration:none;font-size:var(--step--1);font-weight:600}
 .gk-appbar a[aria-current="page"]{color:var(--brand)}
 @media (prefers-reduced-motion:reduce){.gk-product,.gk-post,.gk-btn{transition:none}}
+/* App toolkit pieces (assets/grandpa-app.js): tables, charts, form messages */
+.gk-table-wrap{overflow-x:auto;border-radius:var(--radius);border:1px solid var(--line)}
+.gk-table{width:100%;border-collapse:collapse;background:var(--surface);color:var(--ink)}
+.gk-table th,.gk-table td{padding:var(--s-3) var(--s-4);text-align:left;border-bottom:1px solid var(--line);white-space:nowrap}
+.gk-table th button{font:inherit;font-weight:700;background:none;border:0;color:inherit;cursor:pointer;padding:0;min-height:32px}
+.gk-table tbody tr:nth-child(even){background:color-mix(in srgb,var(--tint) 60%,transparent)}
+.gk-chart{width:100%;max-width:560px;height:auto;color:var(--ink)}
+.gk-field-error{display:block;color:#b91c1c;font-weight:600;min-height:1em}
+[aria-invalid="true"]{border-color:#b91c1c!important}
+[data-screen][hidden]{display:none!important}
+body:has(.gk-appbar) .gk-note{bottom:calc(84px + env(safe-area-inset-bottom))}

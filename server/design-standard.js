@@ -26,10 +26,10 @@ DESIGN RULES (what separates professional from amateur)
 // The Grandpa Kit is added to every project as two shared files. Builders use
 // its classes instead of writing these effects again, so they look
 // professional and behave the same on every site.
-export const KIT_PATHS = Object.freeze(['assets/grandpa-kit.css', 'assets/grandpa-kit.js']);
+export const KIT_PATHS = Object.freeze(['assets/grandpa-kit.css', 'assets/grandpa-kit.js', 'assets/grandpa-app.js']);
 export const isKitPath = (path) => KIT_PATHS.includes(String(path || '').replace(/^\.\//, ''));
 
-export const KIT_GUIDE = `GRANDPA KIT (already in the project: assets/grandpa-kit.css and assets/grandpa-kit.js; never write, plan or change these two files)
+export const KIT_GUIDE = `GRANDPA KIT (already in the project: assets/grandpa-kit.css, assets/grandpa-kit.js and assets/grandpa-app.js; never write, plan or change these files)
 Link both on every page: <link rel="stylesheet" href="assets/grandpa-kit.css"> before your own stylesheet, and <script src="assets/grandpa-kit.js" defer></script>. Use ../ in pages inside folders. Set the brand with CSS variables in your own stylesheet (:root { --brand: ...; --accent: ...; }).
 - Style preset on <html>: data-gk-style="modern" | "bold" | "elegant" | "friendly" | "corporate" (fonts, corners, shadows). Dark mode: <button class="gk-theme-toggle" data-gk-theme-toggle aria-pressed="false">Dark mode</button>.
 - Layout: .gk-container, .gk-section (add .is-tint or .is-dark), .gk-grid of .gk-card (an .gk-icon with an inline SVG at the top), .gk-lead, .gk-buttons with .gk-btn and .gk-btn.is-ghost.
@@ -57,6 +57,14 @@ KIT 6 DESIGN SYSTEM AND COMPONENTS
 - Product card: <article class="gk-product" data-gk-item><img …><div><h3 data-gk-field="name">…</h3><p class="gk-price-tag" data-gk-field="price">…</p><p data-gk-field="note">…</p><button class="gk-btn" type="button" data-gk-add>Add to order</button></div></article> inside a .gk-grid with data-gk-list="products".
 - Article card: <article class="gk-post"><img …><div><small>Date · 4 min read</small><h3><a href="…">Title</a></h3><p>Excerpt</p></div></article>.
 - Phone-app projects: <nav class="gk-appbar"> with 3–5 links (icon + label), and padding-bottom on the body so content is not hidden behind it.
+APP TOOLKIT for web software (tools, quizzes, games, dashboards, phone-style apps): add <script src="assets/grandpa-app.js" defer></script> before your own script and use window.GrandpaApp (as const App = window.GrandpaApp inside DOMContentLoaded). Never write your own versions of these.
+- State: const store = App.store({ items: [] }, { remember: 'my-app' }); store.subscribe(draw); store.set({ items: [...] }) or store.set((s) => ({ count: s.count + 1 })). remember keeps it on the device (in the published sandbox only for the open tab); store.kept says where.
+- Safe rendering: App.render('#list', App.html\`<li>\${item.name}</li>\`) escapes every value (arrays are joined; App.raw(markup) only for markup you wrote). Never build HTML from user text with + or innerHTML directly.
+- Screens: <section data-screen="home">…</section><section data-screen="add" hidden>…</section>, links to #home/#add (in .gk-appbar or [data-screen-nav]), then App.screens({ start: 'home', add(screen) { … } }).
+- Forms: App.form('#add-form', { rules: { amount: { required: true, number: true, min: 1 } }, onSubmit(values, form) { … } }) shows friendly messages beside each field.
+- Data views: App.table('#table', { columns: [{ key: 'name', label: 'Name' }, { key: 'total', label: 'Total', format: (v) => App.format.money(v) }], rows, search: true }); App.chart('#chart', { type: 'bar'|'line'|'pie', labels, values, title }); App.csv(rows, 'report.csv').
+- Formatting: App.format.money(n, 'LRD'), App.format.number(n), App.format.date(d), App.format.percent(0.4).
+- Games: const loop = App.loop((dt) => update(dt), () => draw()); loop.start(); App.sound(440, 0.15) after a tap; App.timer(60, (left) => …, () => …); App.toast('Saved').
 GRANDPA DATA AND MANAGE (the published site saves forms, and the owner changes content on a private Manage page; no other service is needed)
 - Every contact, booking, order or sign-up form: <form class="gk-form" data-gk-form="message" | "booking" | "order" | "signup">, each field with a <label> and a clear name attribute (name, phone, email, date, time, people, item, quantity, address, message), required on what is needed, type="tel"/"email"/"date"/"time" where right, and a <button class="gk-btn" type="submit">. Optional: data-gk-success="Thank you text". Never add action or method, never use mailto: forms or an outside form service, and never ask for card numbers or passwords.
 - Content the owner will want to change without a rebuild (prices, menu, products, opening hours, a notice) is marked so Manage can edit it:

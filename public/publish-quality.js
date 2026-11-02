@@ -6,7 +6,7 @@ import { mapElements } from './visual-edit.js?v=kit-1';
 const ATTRS = /([^\s"'<>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
 const SAFE_FRAMES = /^https:\/\/(?:www\.)?(?:youtube(?:-nocookie)?\.com|player\.vimeo\.com|(?:www\.)?openstreetmap\.org|(?:www\.)?google\.com\/maps|maps\.google\.com)\//i;
 const SAFE_SCRIPTS = /^https:\/\/(?:cdn\.jsdelivr\.net|cdnjs\.cloudflare\.com|unpkg\.com)\//i;
-const isKit = (path) => /^assets\/grandpa-kit\.(?:css|js)$/.test(path);
+const isKit = (path) => /^assets\/grandpa-(?:kit\.(?:css|js)|app\.js)$/.test(path);
 export const BIG_PICTURE = 400_000;
 const bytesOf = (body) => (/^data:[^;]+;base64,/.test(body) ? Math.round((body.length - body.indexOf(',') - 1) * 0.75) : body.length);
 const kb = (n) => (n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)} MB` : `${Math.round(n / 1000)} KB`);
