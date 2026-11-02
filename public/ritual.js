@@ -34,6 +34,7 @@ import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
 import { historyEntries, compareFiles } from './build-history.js?v=phase5-1';
 import { SECTIONS, KIT_FILES, ensureKitLinks } from './build-sections.js?v=kit-1';
 import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js?v=quality-1';
+import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, creditsPage, linkCredits } from './build-media.js?v=media-1';
 import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=kit-1';
 
 const $ = (id) => document.getElementById(id);
@@ -202,7 +203,7 @@ function renderThread() {
       : turn.undoAt && index === latestUndo && !inPlan.has(index) ? `<button class="build-chip" type="button" data-undo="${index}">Undo this change</button>` : '';
     const talk = turn.discussion ? discussionHtml(turn.discussion, !p.team && !p.background && !builtFiles(p).length && index === p.messages.length - 1) : '';
     return `<div class="build-turn build-turn-ai">
-      ${stepLabel}<div class="prose">${renderMarkdown(turn.content || '')}</div>${todo}${proposal}${editedHtml(turn, index)}${lookedHtml(turn.looked)}${undo}${talk}
+      ${stepLabel}<div class="prose">${renderMarkdown(turn.content || '')}</div>${todo}${proposal}${editedHtml(turn, index)}${lookedHtml(turn.looked)}${turn.videoPlaces ? videoPlacesHtml(turn, index) : ''}${undo}${talk}
     </div>`;
   }).join('') + live + fixHint(p);
   el.thread.scrollTop = el.thread.scrollHeight;
@@ -215,12 +216,12 @@ function fixHint(p) {
   const chips = ['Check for problems and fix them', ...(deps.vision ? ['Look at it on a phone and fix what is wrong'] : ['Make it look better on phones']), 'What is in my website?']
     .map((s) => `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('');
   const versions = (p.versions || []).length ? '<button class="build-chip" type="button" data-show-history>See versions</button>' : '';
-  const photos = state.canDraw ? pendingPictures(p.files).length : 0;
+  const photos = (state.canDraw || deps.freeMedia) ? pendingPictures(p.files).length : 0;
   const publishChip = deps.publishing ? `<button class="build-chip${p.publish && !publishedChanged(p) ? '' : ' is-primary'}" type="button" data-web-publish>${p.publish ? (publishedChanged(p) ? 'Update the published website' : 'Your live website') : 'Publish on the web'}</button>` : '';
   const pages = builtFiles(p).filter((f) => /\.html?$/i.test(f.path) && !/^data:/.test(f.body || ''));
   const policyChip = pages.length && !pages.some((f) => /(^|\/)(privacy|privacy-policy)\.html?$/i.test(f.path))
     ? `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(POLICY_REQUEST)}">Add privacy, terms and refund pages</button>` : '';
-  const photoChip = photos ? `<button class="build-chip" type="button" data-create-photos>Create the ${photos === 1 ? 'photograph' : `${photos} photographs`} this site needs</button>` : '';
+  const photoChip = photos ? `<button class="build-chip" type="button" data-create-photos>Add the ${photos === 1 ? 'photograph' : `${photos} photographs`} this site needs</button>` : '';
   return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${publishChip}${photoChip}${chips}${policyChip}${versions}</div></div>`;
 }
 
@@ -611,14 +612,14 @@ async function unpublishFromWeb() {
 
 /* ---- The Grandpa Kit ----------------------------------------------------- */
 /** Add the shared design kit to a project once, so builders can use its sections and effects. */
-const KIT_VERSION = 'Grandpa Kit 4';
+const KIT_VERSION = 'Grandpa Kit 5';
 async function ensureKit(p) {
   // An older kit is replaced by the current one (only the kit ever changes the kit).
   const kit = (p?.files || []).filter((f) => isKitFile(f.path));
   if (!p || (kit.length === 2 && kit.every((f) => String(f.body).startsWith(`/* ${KIT_VERSION} `)))) return true;
   try {
     const [css, js] = await Promise.all([KIT_FILES.css, KIT_FILES.js].map(async (path) => {
-      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-4`);
+      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-5`);
       if (!response.ok) throw new Error('kit');
       return response.text();
     }));
@@ -730,6 +731,7 @@ function showPictureSheet(id, { insert = false } = {}) {
   openSheet(insert ? 'Add a picture' : 'Picture', `
     ${current && /^data:image\//.test(current.body) ? `<img class="pic-current" src="${escapeHtml(current.body)}" alt="">` : ''}
     <button class="sheet-go" type="button" data-pic-upload>${insert ? 'Choose a picture from your phone' : 'Replace with a picture from your phone'}</button>
+    ${deps.freeMedia ? `<p class="sheet-note">Or find a free photograph:</p><div class="history-actions"><input id="pic-search" class="pic-alt" type="search" maxlength="80" value="${escapeHtml(attr('data-photo-search') || attr('alt') || '')}" placeholder="For example: jollof rice"><button class="build-chip" type="button" data-pic-search>Search</button></div><div id="pic-free-results"></div>` : ''}
     ${choices ? `<p class="sheet-note">${insert ? 'Or use one already in your website:' : 'Or use another picture from your website:'}</p><div class="pic-choices">${choices}</div>` : ''}
     ${insert ? '' : `<p class="sheet-note">Size</p><div class="history-actions">${Object.keys(PICTURE_SIZES).map((size) => `<button class="build-chip" type="button" data-pic-size="${size}">${size[0].toUpperCase() + size.slice(1)}</button>`).join('')}</div>
     <p class="sheet-note">Description, for people who cannot see it</p>
@@ -1196,24 +1198,177 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * The photographs the pages ask for (<img src="images/…" data-picture="…">),
  * created with the owner's Pictures allowance after the files are written.
  */
+/* ---- Free photographs and YouTube videos ---------------------------------- */
+const mediaHeaders = () => ({ ...deps.headers() });
+
+/** A free photograph for a search (Wikimedia Commons, Openverse), web-sized, with its credit. */
+async function freePhoto(query, avoid = new Set(), signal) {
+  const response = await fetch(`/api/media/photos?q=${encodeURIComponent(query)}`, { headers: mediaHeaders(), signal });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'The free photo library could not be reached.');
+  const pick = (body.results || []).find((r) => !avoid.has(r.id));
+  return pick ? downloadPhoto(pick.id, signal) : null;
+}
+async function downloadPhoto(id, signal) {
+  const response = await fetch(`/api/media/photo?id=${encodeURIComponent(id)}`, { headers: mediaHeaders(), signal });
+  if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || 'The photo could not be downloaded.'); }
+  let credit = null;
+  try { credit = JSON.parse(decodeURIComponent(response.headers.get('X-Photo-Credit') || '')); } catch { credit = null; }
+  if (!credit) throw new Error('The photo came without its credit, so it was not used.');
+  const small = await shrink(await response.blob(), { longEdge: 1280, want: 180_000 });
+  return { body: small.url, credit: { ...credit, id } };
+}
+
+/** credits.html and a "Photo credits" link on every page, for the free photos still in the site. */
+function creditFiles(p, credits) {
+  const have = new Set(p.files.map((f) => f.path));
+  const live = Object.fromEntries(Object.entries(credits).filter(([path]) => have.has(path)));
+  if (!Object.keys(live).length) return [];
+  const pages = p.files.filter((f) => /\.html?$/i.test(f.path) && f.path !== 'credits.html' && !/^data:/.test(f.body || ''));
+  return [{ path: 'credits.html', body: creditsPage(live, p.name) },
+    ...pages.map((f) => ({ path: f.path, body: linkCredits(f.body, f.path) })).filter((f) => f.body !== p.files.find((x) => x.path === f.path).body)];
+}
+
+/** Photographs the pages ask for: a free real photo first; a created one (Pictures allowance) only when none is found. */
 async function createPhotos(p, { limit = 6 } = {}) {
-  if (!p || !state.canDraw) return 0;
-  const wanted = pendingPictures(p.files, limit);
+  if (!p) return 0;
+  await settleVideos(p);
+  const wanted = (deps.freeMedia || state.canDraw) ? pendingPictures(p.files, limit) : [];
   if (!wanted.length) return 0;
   const busy = state.streaming;
   if (!busy) state.streaming = new AbortController();
+  const found = [], credits = {};
   let drawn = [];
   try {
-    drawn = await drawPictures(wanted, { signal: state.streaming.signal, longEdge: 1280, want: 180_000 });
-  } catch (error) { if (error.name !== 'AbortError') deps.toast(error.message || 'The photographs could not be created.'); }
+    if (deps.freeMedia) {
+      const used = new Set(Object.values(p.credits || {}).map((c) => c.id));
+      for (const [at, want] of wanted.entries()) {
+        mark(wanted.length > 1 ? `Finding free photographs — ${at + 1} of ${wanted.length}…` : 'Finding a free photograph…');
+        renderThread();
+        try {
+          const photo = await freePhoto(want.search || want.about, used, state.streaming.signal);
+          if (photo) { found.push({ path: want.path, body: photo.body }); credits[want.path] = photo.credit; used.add(photo.credit.id); }
+        } catch (error) { if (error.name === 'AbortError') throw error; }
+      }
+    }
+    const rest = wanted.filter((w) => !found.some((f) => f.path === w.path));
+    if (rest.length && state.canDraw) drawn = await drawPictures(rest, { signal: state.streaming.signal, longEdge: 1280, want: 180_000 });
+  } catch (error) { if (error.name !== 'AbortError') deps.toast(error.message || 'The photographs could not be added.'); }
   finally { if (!busy) state.streaming = null; unmark(liveToken); }
-  if (drawn.length) {
-    applyChanges(p, drawn, 'Before: creating the photographs');
-    p.messages.push({ role: 'assistant', content: `I created ${drawn.length === 1 ? 'a photograph' : `${drawn.length} photographs`} for your website: ${drawn.map((d) => d.path).join(', ')}. Tap one in Preview → Edit to replace it with your own.` });
+  const changes = [...found, ...drawn];
+  if (changes.length) {
+    applyChanges(p, changes, 'Before: adding the photographs');
+    if (found.length) {
+      p.credits = { ...(p.credits || {}), ...credits };
+      const extra = creditFiles(p, p.credits);
+      if (extra.length) applyChanges(p, extra, 'Before: adding the photo credits');
+    }
+    const missing = wanted.length - changes.length;
+    p.messages.push({ role: 'assistant', content: [
+      found.length ? `I found ${found.length === 1 ? 'a free photograph' : `${found.length} free photographs`} for your website (${found.map((f) => f.path).join(', ')}). Their credits are on credits.html, as the licences ask.` : '',
+      drawn.length ? `I created ${drawn.length === 1 ? 'a photograph' : `${drawn.length} photographs`}: ${drawn.map((d) => d.path).join(', ')}.` : '',
+      missing ? `${missing === 1 ? 'One picture still needs' : `${missing} pictures still need`} a photo: tap it in Preview → Edit to find a free photo or use your own.` : 'Tap any photo in Preview → Edit to change it.',
+    ].filter(Boolean).join(' ') });
     await persist();
   }
   if (p === project()) render();
-  return drawn.length;
+  return changes.length;
+}
+
+/** YouTube players get their real title and channel; videos that cannot be shown elsewhere are taken out; empty places get a card. */
+async function settleVideos(p) {
+  if (!deps.freeMedia || !p) return;
+  p.videoChecked = p.videoChecked || {};
+  const changes = new Map();
+  const body = (path) => changes.get(path) ?? p.files.find((f) => f.path === path).body;
+  const notes = [];
+  for (const id of playersIn(p.files).filter((v) => !p.videoChecked[v])) {
+    try {
+      const response = await fetch(`/api/media/youtube?url=${encodeURIComponent(id)}`, { headers: mediaHeaders() });
+      const info = await response.json().catch(() => ({}));
+      if (response.ok) {
+        for (const page of p.files.filter((f) => /\.html?$/i.test(f.path))) { const next = settlePlayers(body(page.path), info); if (next !== body(page.path)) changes.set(page.path, next); }
+        p.videoChecked[id] = info.title;
+      } else if (response.status === 404 || response.status === 422) {
+        for (const page of p.files.filter((f) => /\.html?$/i.test(f.path))) { const next = unplaceVideo(body(page.path), id); if (next !== body(page.path)) changes.set(page.path, next); }
+        notes.push(info.error || 'A video could not be used.');
+      }
+    } catch { /* checked again next time */ }
+  }
+  if (changes.size) applyChanges(p, [...changes].map(([path, text]) => ({ path, body: text })), 'Before: checking the videos');
+  const places = pendingVideos(p.files);
+  const open = p.messages.some((m) => m.videoPlaces?.some((v) => !v.done && !v.skipped));
+  if (places.length && !open) p.messages.push({ role: 'assistant', content: `${notes.length ? `${notes.join(' ')} ` : ''}Your website has ${places.length === 1 ? 'a place' : `${places.length} places`} for a video. Find one on YouTube, copy its link (Share → Copy link) and paste it here; it will play in a professional player on your site.`, videoPlaces: places.map((v) => ({ ...v })) });
+  else if (notes.length) p.messages.push({ role: 'assistant', content: notes.join(' ') });
+  if (changes.size || places.length || notes.length) await persist();
+}
+
+function videoPlacesHtml(turn, index) {
+  return `<div class="video-places">${turn.videoPlaces.map((v, i) => v.done ? `<p class="build-brief-note">✓ Video added: ${escapeHtml(v.done)}</p>`
+    : v.skipped ? '<p class="build-brief-note">Video place removed.</p>'
+    : `<div class="video-place"><p><strong>${escapeHtml(v.search)}</strong> <small>(${escapeHtml(v.page)})</small></p>
+      <a class="build-chip" href="https://www.youtube.com/results?search_query=${encodeURIComponent(v.search)}" target="_blank" rel="noopener">Find on YouTube</a>
+      <div class="history-actions"><input class="pic-alt" type="url" inputmode="url" placeholder="Paste the YouTube link here" id="video-link-${index}-${i}" aria-label="YouTube link for ${escapeHtml(v.search)}">
+      <button class="build-chip is-primary" type="button" data-video-use="${index}:${i}">Use this video</button><button class="build-chip" type="button" data-video-skip="${index}:${i}">No video here</button></div></div>`).join('')}</div>`;
+}
+
+async function useVideo(index, i, skip = false) {
+  const p = project();
+  const place = p?.messages[index]?.videoPlaces?.[i];
+  const page = place && p.files.find((f) => f.path === place.page);
+  if (!page) return;
+  if (isBusy()) { deps.toast('Wait a moment: Grandpa is still working on your website.'); return; }
+  if (skip) {
+    applyChanges(p, [{ path: page.path, body: dropVideoPlace(page.body, place.search) }], 'Before: removing a video place');
+    place.skipped = true; await persist(); render(); return;
+  }
+  const link = String($(`video-link-${index}-${i}`)?.value || '').trim();
+  if (!youtubeId(link)) { deps.toast('Paste a YouTube link, for example https://youtu.be/…'); return; }
+  try {
+    const response = await fetch(`/api/media/youtube?url=${encodeURIComponent(link)}`, { headers: mediaHeaders() });
+    const info = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(info.error || 'That video could not be used.');
+    const next = placeVideo(page.body, place.search, info);
+    if (next === page.body) throw new Error('The place for this video is no longer in the page.');
+    applyChanges(p, [{ path: page.path, body: next }], `Before: adding the video "${info.title}"`);
+    p.videoChecked = { ...(p.videoChecked || {}), [info.id]: info.title };
+    place.done = info.title;
+    await persist(); render();
+    deps.toast('Video added.');
+  } catch (error) { deps.toast(error.message); }
+}
+
+/** Edit → picture → find a free photo by words. */
+async function searchFreePhotos() {
+  const box = $('pic-free-results');
+  const query = String($('pic-search')?.value || '').trim();
+  if (!box || query.length < 2) { deps.toast('Type what the photo should show.'); return; }
+  box.innerHTML = '<p class="sheet-note">Searching free photographs…</p>';
+  try {
+    const response = await fetch(`/api/media/photos?q=${encodeURIComponent(query)}`, { headers: mediaHeaders() });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || 'The free photo library could not be reached.');
+    box.innerHTML = (body.results || []).length ? `<div class="pic-choices">${body.results.map((r) => `<button class="pic-choice" type="button" data-pic-free="${escapeHtml(r.id)}" title="${escapeHtml(`${r.title} — ${r.creator}, ${r.licence}`)}"><img src="${escapeHtml(r.preview || r.thumb)}" alt="${escapeHtml(r.title)}" loading="lazy" referrerpolicy="no-referrer"></button>`).join('')}</div><p class="sheet-note">Free to use; the credit is added to credits.html.</p>`
+      : '<p class="sheet-note">No free photographs found. Try other words, for example "rice dish" instead of a brand name.</p>';
+  } catch (error) { box.innerHTML = `<p class="sheet-note">${escapeHtml(error.message)}</p>`; }
+}
+
+async function useFreePhoto(id) {
+  const p = project();
+  if (!p) return;
+  deps.toast('Adding the photo…');
+  try {
+    const photo = await downloadPhoto(id);
+    const base = (photo.credit.title || 'photo').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'photo';
+    const taken = new Set(p.files.map((f) => f.path));
+    let path = `images/${base}.jpg`;
+    for (let n = 2; taken.has(path); n += 1) path = `images/${base}-${n}.jpg`;
+    applyChanges(p, [{ path, body: photo.body }], 'Before adding a free photo');
+    p.credits = { ...(p.credits || {}), [path]: photo.credit };
+    await usePicture(path);
+    const extra = creditFiles(project(), project().credits);
+    if (extra.length) { applyChanges(project(), extra, 'Before: adding the photo credits'); await persist(); }
+  } catch (error) { deps.toast(error.message); }
 }
 
 async function drawPictures(wanted, {signal, longEdge=720, want=90_000}={}) {
@@ -2400,6 +2555,10 @@ export async function mount(options = {}) {
     if (event.target.closest('[data-undo-plan]')) { undoTo([...(project()?.messages || [])].reverse().find((m) => m.todo?.undoAt && !m.todo.undone)); return; }
     const say = event.target.closest('[data-discuss-say]');
     if (say) { send(say.dataset.discussSay); return; }
+    const videoUse = event.target.closest('[data-video-use]');
+    if (videoUse) { const [a, b] = videoUse.dataset.videoUse.split(':').map(Number); useVideo(a, b); return; }
+    const videoSkip = event.target.closest('[data-video-skip]');
+    if (videoSkip) { const [a, b] = videoSkip.dataset.videoSkip.split(':').map(Number); useVideo(a, b, true); return; }
 
     if (event.target.closest('#build-menu-btn')) {
       const open = el.menu.hidden;
@@ -2489,6 +2648,9 @@ export async function mount(options = {}) {
     const use = event.target.closest('[data-pic-use]');
     if (use) { usePicture(use.dataset.picUse); return; }
     if (event.target.closest('[data-pic-upload]')) { uploadPicture(); return; }
+    if (event.target.closest('[data-pic-search]')) { searchFreePhotos(); return; }
+    const free = event.target.closest('[data-pic-free]');
+    if (free) { useFreePhoto(free.dataset.picFree); return; }
     const size = event.target.closest('[data-pic-size]');
     if (size) { changePicture('size', size.dataset.picSize); return; }
     if (event.target.closest('[data-pic-alt]')) { changePicture('alt', $('pic-alt')?.value || ''); return; }

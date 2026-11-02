@@ -1,4 +1,4 @@
-/* Grandpa Kit 4 — professional sections and effects for websites built in Grandpa AI.
+/* Grandpa Kit 5 — professional sections and effects for websites built in Grandpa AI.
    Override anything in your own stylesheet; set your colours with --brand and --accent. */
 :root{--brand:#1a56db;--accent:#f59e0b;--ink:#0f172a;--muted:#475569;--surface:#ffffff;--tint:#f1f5f9;--dark:#0b1220;--on-dark:#e2e8f0;--radius:14px;--shadow:0 10px 30px rgba(15,23,42,.10);--font:system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;--heading:var(--font);--space:clamp(48px,8vw,96px);--max:1120px}
 [data-gk-style="modern"]{--radius:14px;--shadow:0 10px 30px rgba(15,23,42,.10)}
@@ -122,3 +122,18 @@ h1,h2,h3{font-family:var(--heading);line-height:1.15}
 .gk-search-empty{color:var(--muted)}
 .gk-slot-hint{display:block;color:var(--muted);font-weight:400}
 .gk-note{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:80;background:#111;color:#fff;padding:12px 18px;border-radius:12px;max-width:calc(100% - 32px);box-shadow:var(--shadow)}
+/* Video player: <a class="gk-player" href="https://www.youtube.com/watch?v=ID" data-youtube="ID">…</a>; several in .gk-videos */
+.gk-player{position:relative;display:block;aspect-ratio:16/9;border-radius:var(--radius);overflow:hidden;background:#000;color:#fff;text-decoration:none;box-shadow:var(--shadow)}
+.gk-player:not([data-youtube]){display:none}
+.gk-player img{width:100%;height:100%;object-fit:cover;display:block;transition:transform .4s ease,opacity .3s ease;opacity:.92}
+.gk-player:hover img,.gk-player:focus-visible img{transform:scale(1.03);opacity:1}
+.gk-play{position:absolute;left:50%;top:50%;width:76px;height:76px;margin:-38px 0 0 -38px;border-radius:50%;background:rgba(0,0,0,.6);box-shadow:0 0 0 4px rgba(255,255,255,.85);transition:transform .2s ease,background .2s ease}
+.gk-play::after{content:"";position:absolute;left:31px;top:23px;border-style:solid;border-width:15px 0 15px 24px;border-color:transparent transparent transparent #fff}
+.gk-player:hover .gk-play,.gk-player:focus-visible .gk-play{transform:scale(1.08);background:var(--accent)}
+.gk-player-caption{position:absolute;left:0;right:0;bottom:0;padding:28px 16px 12px;background:linear-gradient(transparent,rgba(0,0,0,.8));display:grid;gap:2px;text-align:left}
+.gk-player-caption strong{font-size:1.02rem;line-height:1.3}.gk-player-caption small{opacity:.85}
+.gk-player iframe{position:absolute;inset:0;width:100%;height:100%;border:0}
+.gk-player.is-playing .gk-play,.gk-player.is-playing .gk-player-caption,.gk-player.is-playing img{display:none}
+.gk-videos{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr))}
+.gk-credit-link{font-size:.85rem;opacity:.8}
+.gk-player+.gk-player,.gk-player+.gk-videos,.gk-videos+.gk-player{margin-top:18px}

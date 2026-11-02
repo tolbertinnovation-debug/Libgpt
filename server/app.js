@@ -29,6 +29,7 @@ import QRCode from 'qrcode';
 import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, findSiteFile, siteFileBody } from './site-store.js';
 import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, bookingTimes, slotProblem, ENTRY_KINDS, ENTRY_STATUSES } from './site-data.js';
 import { siteRuntime, withRuntime, withSeo, sitemapFor } from './site-runtime.js';
+import { searchPhotos, fetchPhoto, youtubeInfo, searchWords } from './media-search.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
 import {
   DEFAULT_LANGUAGE,
@@ -362,6 +363,8 @@ app.get('/api/config', async (_req, res) => {
     sync: Boolean(syncStore),
     // Phase B: sites can be published at /s/<address> on this host.
     publishing: Boolean(siteStore) && config.building,
+    // Free photographs (Wikimedia Commons, Openverse) and YouTube links for websites; no keys, no cost.
+    freeMedia: config.building,
     // Meta's Llama stands by for chat when OpenAI cannot answer.
     backupModel: llamaConfig().ready,
     // The advanced voice reads answers when Live Talk's realtime model is available.
@@ -1761,6 +1764,37 @@ const syncFailed = (res, error) => {
   if (!error.status) console.error('[sync]', error.message);
   res.status(error.status || 500).json({ error: error.status ? error.message : 'Sync could not finish. Your chats are still saved on this device.' });
 };
+// ---- free photographs and YouTube videos for websites --------------------------
+// No keys and no money: open photo libraries (licences that allow business use,
+// with credits) and YouTube's public oEmbed. A daily ceiling keeps the free
+// services' goodwill.
+const MEDIA_PER_DAY = 600;
+let mediaDay = { day: '', count: 0 };
+function mediaAllowance(req, res, next) {
+  if (!config.building) { res.status(404).json({ error: 'Building websites is not switched on here.' }); return; }
+  const day = new Date().toISOString().slice(0, 10);
+  if (mediaDay.day !== day) mediaDay = { day, count: 0 };
+  if (++mediaDay.count > MEDIA_PER_DAY) { res.status(429).json({ error: 'The free photo and video searches are used up for today. Try again tomorrow.' }); return; }
+  next();
+}
+const mediaFailed = (res, error) => { if (!error.status) console.error('[media]', error.message); res.status(error.status || 502).json({ error: error.status ? error.message : 'The photo library could not be reached. Try again in a moment.' }); };
+app.get('/api/media/photos', rateLimit, requireAccess, mediaAllowance, async (req, res) => {
+  const q = String(req.query.q || '').trim();
+  try { res.json({ query: q, results: await searchPhotos(q.split(/\s+/).length > 6 ? searchWords(q) : q) }); } catch (error) { mediaFailed(res, error); }
+});
+app.get('/api/media/photo', rateLimit, requireAccess, mediaAllowance, async (req, res) => {
+  try {
+    const { type, bytes, credit } = await fetchPhoto(String(req.query.id || ''));
+    res.setHeader('Content-Type', type);
+    res.setHeader('X-Photo-Credit', encodeURIComponent(JSON.stringify(credit)));
+    res.setHeader('Cache-Control', 'private, max-age=3600');
+    res.send(bytes);
+  } catch (error) { mediaFailed(res, error); }
+});
+app.get('/api/media/youtube', rateLimit, requireAccess, mediaAllowance, async (req, res) => {
+  try { res.json(await youtubeInfo(String(req.query.url || ''))); } catch (error) { mediaFailed(res, error); }
+});
+
 // ---- publishing websites at /s/<address> (Phase B) ----------------------------
 const siteStore = governanceConnection ? createPostgresSiteStore({ connectionString: governanceConnection })
   : (config.serverless ? null : createMemorySiteStore());

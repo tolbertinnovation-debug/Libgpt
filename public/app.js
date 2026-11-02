@@ -27,7 +27,7 @@ import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary, loadJournal } from './library.js';
 import { Dictation, canRecord } from './dictate.js?v=voice-fix-1';
 import { RecordedEar, canListenByRecording } from './hearing.js?v=meta-media-1';
-import * as ritual from './ritual.js?v=quality-1';
+import * as ritual from './ritual.js?v=media-1';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 import { mountSupport } from './support.js?v=phase3-sync-1';
@@ -3969,6 +3969,7 @@ async function boot() {
         vision: Boolean(config.vision),
         // Phase B: sites can be published at /s/<address>.
         publishing: Boolean(config.publishing),
+        freeMedia: Boolean(config.freeMedia),
         onMode: (mode) => {
           const building = mode === 'build';
           el.input.placeholder = building
