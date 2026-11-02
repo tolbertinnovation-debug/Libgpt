@@ -343,7 +343,15 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
   - a **"page not found" page**: the site's own `404.html` (with the Grandpa script), or one in its brand colour with a button home.
 
   The builder guide asks for addresses in `<address>`, `tel:`/`mailto:` links, and the builder's own JSON-LD (Restaurant, Event, Product, Course) only with details the person gave.
-- **Next:** Phase 5 (app icon, 404 page, structured data, share picture, manifest), Phase 5 (a higher quality bar with a design score), and Phase 6 (optional: a separate sites address so YouTube plays in the page and apps can install, work offline and remember data).
+- **Phase 5, a higher quality bar (done).**
+  - The free quality check has a fifth area, **Design**, measured from the CSS and never guessed:
+    - **colour contrast** for the main text pairs (body, muted, text on dark sections) and every rule that sets both a text and a background colour. Kit defaults are combined with the site's `:root` overrides, `var()` is resolved, a rule is flagged under 4.5:1 and marked Fix under 3:1, and backgrounds it cannot read are not guessed;
+    - more than three fonts, more than 14 colours, and more than 18 spacing sizes;
+    - **layout jumps**: pictures with no width and height, no inline aspect-ratio and no CSS aspect-ratio, listed under Speed.
+
+    Ask Grandpa to fix these includes the Design findings.
+  - Grandpa's phone look now also gives a **design score** (1–10) for hierarchy, spacing, contrast, consistency and pictures. Below 7 it gives up to three concrete improvements, which join the existing single automatic repair as "Design: …". The chat shows "Design score n/10". The repair path is the one already used for visual problems; it was not run against the paid vision model in testing.
+- **Next:** Phase 6 (app icon, 404 page, structured data, share picture, manifest), Phase 5 (a higher quality bar with a design score), and Phase 6 (optional: a separate sites address so YouTube plays in the page and apps can install, work offline and remember data).
 
 ### Later, each needing the owner's approval (recurring costs)
 - Grandpa choosing YouTube videos by himself needs a free YouTube Data API key (no payment card) added in Vercel.

@@ -7,8 +7,11 @@ import { isolatedLedger } from './support/ledger.mjs';
 const JPEG = `data:image/jpeg;base64,${'/9j/'.repeat(50)}`;
 
 test('the visual review is checked, and only real pictures are accepted', () => {
-  assert.deepEqual(readLook('{"ok":true,"problems":[]}'), { ok: true, problems: [] });
-  assert.deepEqual(readLook({ ok: true, problems: ['The logo is huge.', '', 5, 'a', 'b', 'c'] }), { ok: false, problems: ['The logo is huge.', 'a', 'b', 'c'] }, 'problems decide, not the flag');
+  assert.deepEqual(readLook('{"ok":true,"problems":[]}'), { ok: true, problems: [], score: null, improve: [] });
+  assert.deepEqual(readLook({ ok: true, problems: [], score: 5.4, improve: ['Bigger hero heading', '', 'More space between sections', 'x', 'y'] }), { ok: true, problems: [], score: 5, improve: ['Bigger hero heading', 'More space between sections', 'x'] }, 'a design score, and improvements only below 7');
+  assert.deepEqual(readLook({ problems: [], score: 9, improve: ['nitpick'] }).improve, [], 'a good design gets no improvements');
+  assert.equal(readLook({ problems: [], score: 42 }).score, 10);
+  assert.deepEqual(readLook({ ok: true, problems: ['The logo is huge.', '', 5, 'a', 'b', 'c'] }), { ok: false, problems: ['The logo is huge.', 'a', 'b', 'c'], score: null, improve: [] }, 'problems decide, not the flag');
   assert.equal(readLook('nonsense'), null);
   assert.equal(readSnapshot(JPEG), JPEG);
   assert.equal(readSnapshot('data:image/svg+xml;base64,PHN2Zz4='), '', 'no SVG (it could carry script)');
@@ -45,7 +48,7 @@ test('/api/build/look sends the picture to Muse Spark and returns what it saw', 
   assert.equal((await post({ image: 'not a picture' })).status, 400);
   const response = await post({ image: JPEG, request: 'Put the logo in the header', summary: 'Project: Mama Rice Shop' });
   assert.equal(response.status, 200, await response.clone().text());
-  assert.deepEqual(await response.json(), { ok: false, problems: ['The heading overlaps the logo.'] });
+  assert.deepEqual(await response.json(), { ok: false, problems: ['The heading overlaps the logo.'], score: null, improve: [] });
   const body = sent[0];
   assert.equal(body.model, 'muse-spark-1.3');
   assert.deepEqual(body.response_format, { type: 'json_object' });

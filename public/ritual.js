@@ -33,7 +33,7 @@ import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=
 import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
 import { historyEntries, compareFiles } from './build-history.js?v=phase5-1';
 import { SECTIONS, KIT_FILES, ensureKitLinks } from './build-sections.js?v=kit-1';
-import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js?v=quality-1';
+import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js?v=quality-2';
 import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, creditsPage, linkCredits } from './build-media.js?v=media-1';
 import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=kit-1';
 
@@ -203,7 +203,7 @@ function renderThread() {
       : turn.undoAt && index === latestUndo && !inPlan.has(index) ? `<button class="build-chip" type="button" data-undo="${index}">Undo this change</button>` : '';
     const talk = turn.discussion ? discussionHtml(turn.discussion, !p.team && !p.background && !builtFiles(p).length && index === p.messages.length - 1) : '';
     return `<div class="build-turn build-turn-ai">
-      ${stepLabel}<div class="prose">${renderMarkdown(turn.content || '')}</div>${todo}${proposal}${editedHtml(turn, index)}${lookedHtml(turn.looked)}${turn.videoPlaces ? videoPlacesHtml(turn, index) : ''}${undo}${talk}
+      ${stepLabel}<div class="prose">${renderMarkdown(turn.content || '')}</div>${todo}${proposal}${editedHtml(turn, index)}${lookedHtml(turn.looked, turn.lookScore)}${turn.videoPlaces ? videoPlacesHtml(turn, index) : ''}${undo}${talk}
     </div>`;
   }).join('') + live + fixHint(p);
   el.thread.scrollTop = el.thread.scrollHeight;
@@ -897,6 +897,10 @@ async function lookAt(turn, request = '') {
     if (!image) { turn.looked = null; return []; }
     const verdict = await teamRequest('/api/build/look', { image, request: String(request).slice(0, 1500), summary: summarize(p) });
     problems = Array.isArray(verdict.problems) ? verdict.problems : [];
+    // Phase 5: a design score; below 7 the suggested improvements join the one automatic fix.
+    turn.lookScore = Number.isFinite(verdict.score) ? verdict.score : null;
+    const improve = turn.lookScore !== null && turn.lookScore < 7 && Array.isArray(verdict.improve) ? verdict.improve.slice(0, 3) : [];
+    problems = [...problems, ...improve.map((item) => `Design: ${item}`)];
     turn.looked = problems.length ? problems : 'ok';
   } catch {
     turn.looked = null;   // a look that could not happen is not a failure of the build
@@ -906,10 +910,11 @@ async function lookAt(turn, request = '') {
   return problems;
 }
 
-function lookedHtml(looked) {
+function lookedHtml(looked, score = null) {
+  const scored = Number.isFinite(score) ? ` Design score ${score}/10.` : '';
   if (looked === 'looking') return '<p class="proposal-checking">Looking at the page on a phone screen…</p>';
-  if (looked === 'ok') return '<p class="proposal-done">Looked at it on a phone screen: it looks right.</p>';
-  if (Array.isArray(looked) && looked.length) return `<div class="proposal-faults"><strong>Seen on the phone screen:</strong><ul>${looked.map((p) => `<li>${escapeHtml(p)}</li>`).join('')}</ul></div>`;
+  if (looked === 'ok') return `<p class="proposal-done">Looked at it on a phone screen: it looks right.${scored}</p>`;
+  if (Array.isArray(looked) && looked.length) return `<div class="proposal-faults"><strong>Seen on the phone screen:${scored}</strong><ul>${looked.map((p) => `<li>${escapeHtml(p)}</li>`).join('')}</ul></div>`;
   return '';
 }
 

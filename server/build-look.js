@@ -7,9 +7,11 @@ Look the way a visitor would. Report only real, visible problems that make the p
 
 Do not report matters of taste, small spacing, or things you cannot see.
 
+Then score the design as a professional designer would, from 1 to 10, on five points: clear hierarchy (one obvious heading and main action per section), consistent spacing and alignment, readable contrast and comfortable text size, consistency (the same colours, corners, fonts and button styles), and pictures that are sharp and fit. 9–10 is polished and professional, 7–8 is good, 5–6 looks amateur, 1–4 is poor. Below 7, give up to three concrete improvements a developer can make (for example 'Give the sections more space above and below' or 'Make the hero heading much larger than the text under it').
+
 Reply ONLY with one JSON object:
-{"ok": true or false, "problems": ["Each problem in one short plain sentence that says where it is, e.g. 'The logo in the header is so big it pushes the menu off the screen.'"]}
-"ok" is true and "problems" is empty when the page looks fine. At most four problems.`;
+{"ok": true or false, "problems": ["Each problem in one short plain sentence that says where it is, e.g. 'The logo in the header is so big it pushes the menu off the screen.'"], "score": 1-10, "improve": ["Only when the score is below 7"]}
+"ok" is true and "problems" is empty when nothing looks broken. At most four problems.`;
 
 /** The model's verdict, checked. */
 export function readLook(raw) {
@@ -18,7 +20,10 @@ export function readLook(raw) {
   if (!parsed || typeof parsed !== 'object') return null;
   const problems = (Array.isArray(parsed.problems) ? parsed.problems : [])
     .map((p) => (typeof p === 'string' ? p.replace(/\s+/g, ' ').trim().slice(0, 200) : '')).filter(Boolean).slice(0, 4);
-  return { ok: problems.length === 0, problems };
+  const score = Number.isFinite(Number(parsed.score)) ? Math.min(10, Math.max(1, Math.round(Number(parsed.score)))) : null;
+  const improve = score !== null && score < 7 ? (Array.isArray(parsed.improve) ? parsed.improve : [])
+    .map((p) => (typeof p === 'string' ? p.replace(/\s+/g, ' ').trim().slice(0, 200) : '')).filter(Boolean).slice(0, 3) : [];
+  return { ok: problems.length === 0, problems, score, improve };
 }
 
 /** A phone-width JPEG data URL of reasonable size, or ''. */
