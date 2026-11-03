@@ -28,7 +28,7 @@ import { STEPS_PROMPT, readSteps } from './build-steps.js';
 import QRCode from 'qrcode';
 import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, findSiteFile, siteFileBody } from './site-store.js';
 import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, bookingTimes, slotProblem, ENTRY_KINDS, ENTRY_STATUSES } from './site-data.js';
-import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404 } from './site-runtime.js';
+import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404, isAppSite, withAppRegistration, appServiceWorker, appPage } from './site-runtime.js';
 import { searchPhotos, fetchPhoto, youtubeInfo, searchWords, searchVideos } from './media-search.js';
 import { chooseRecipe, RECIPES } from '../public/build-recipes.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
@@ -1859,7 +1859,8 @@ app.post('/api/sites', rateLimit, requireAccess, async (req, res) => {
   const slug = typeof req.body?.slug === 'string' && req.body.slug ? req.body.slug.trim().toLowerCase() : slugFrom(req.body?.name);
   try {
     const result = await siteStore.publish({ slug, name: req.body?.name, files: req.body?.files, token: typeof req.body?.token === 'string' ? req.body.token : '' });
-    res.json({ ...result, url: siteBase(req, result.slug) });
+    const files = Array.isArray(req.body?.files) ? req.body.files : [];
+    res.json({ ...result, url: siteBase(req, result.slug), ...(isAppSite(files) ? { appUrl: `${siteBase(req, result.slug)}_grandpa/app`, installable: Boolean(SITES_HOST) } : {}) });
   } catch (error) { siteFailed(res, error); }
 });
 app.delete('/api/sites/:slug', rateLimit, requireAccess, async (req, res) => {
@@ -1872,7 +1873,7 @@ app.delete('/api/sites/:slug', rateLimit, requireAccess, async (req, res) => {
 });
 app.get('/api/sites/:slug/qr.svg', rateLimit, async (req, res) => {
   if (!validSlug(req.params.slug)) { res.status(400).end(); return; }
-  const svg = await QRCode.toString(siteBase(req, req.params.slug), { type: 'svg', margin: 2, errorCorrectionLevel: 'M', color: { dark: '#111111', light: '#ffffff' } });
+  const svg = await QRCode.toString(`${siteBase(req, req.params.slug)}${req.query.app === '1' ? '_grandpa/app' : ''}`, { type: 'svg', margin: 2, errorCorrectionLevel: 'M', color: { dark: '#111111', light: '#ffffff' } });
   res.setHeader('Content-Type', 'image/svg+xml');
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.send(svg);
@@ -2079,7 +2080,23 @@ app.get('/s/:slug/_grandpa/:extra(icon.svg|manifest.webmanifest)', async (req, r
   if (!site) { res.status(404).end(); return; }
   const brand = brandColour(site.files);
   if (req.params.extra === 'icon.svg') { res.type('image/svg+xml').send(siteIcon(site.name, brand)); return; }
-  res.type('application/manifest+json').send(siteManifest({ name: site.name, slug: site.slug, brand, path: onSitesHost(req) ? `/${site.slug}/` : '' }));
+  res.type('application/manifest+json').send(siteManifest({ name: site.name, slug: site.slug, brand, path: onSitesHost(req) ? `/${site.slug}/` : '', app: isAppSite(site.files) }));
+});
+// Apps (Phase A1), only for sites the person made as an app or web app: an offline helper, and a
+// "Get the app" page. Installing needs the sites address (a sandboxed page cannot install).
+app.get('/s/:slug/_grandpa/sw.js', async (req, res) => {
+  const site = onSitesHost(req) && siteStore && validSlug(req.params.slug) ? await siteStore.get(req.params.slug).catch(() => null) : null;
+  if (!site || !isAppSite(site.files)) { res.status(404).end(); return; }
+  res.set({ ...siteHeaders(req), 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': `/${site.slug}/` });
+  res.type('text/javascript; charset=utf-8').send(appServiceWorker({ slug: site.slug, version: site.updatedAt, paths: site.files.map((f) => f.path) }));
+});
+app.get('/s/:slug/_grandpa/app', async (req, res) => {
+  res.set({ ...siteHeaders(req), 'Cache-Control': 'no-cache' });
+  const site = siteStore && validSlug(req.params.slug) ? await siteStore.get(req.params.slug).catch(() => null) : null;
+  if (!site || !isAppSite(site.files)) { res.status(404).type('html').send(notFoundPage('There is no app at this address.')); return; }
+  const appUrl = `${siteBase(req, site.slug)}_grandpa/app`;
+  const qr = await QRCode.toString(appUrl, { type: 'svg', margin: 2, errorCorrectionLevel: 'M', color: { dark: '#111111', light: '#ffffff' } }).catch(() => '');
+  res.type('html').send(appPage({ name: site.name, slug: site.slug, brand: brandColour(site.files), siteUrl: siteBase(req, site.slug), qr, installable: Boolean(SITES_HOST) }));
 });
 // Videos and sound are sent in parts when the browser asks (Safari plays a video only that way, and seeking needs it).
 function sendMedia(req, res, type, body) {
@@ -2110,7 +2127,8 @@ app.get('/s/:slug/*', async (req, res) => {
     const { type, body } = siteFileBody(file);
     if (type.startsWith('text/html')) {
       const pageUrl = `${siteBase(req, site.slug)}${file.path === 'index.html' ? '' : file.path}`;
-      res.type(type).send(withRuntime(withSeo(body.toString('utf8'), { siteName: site.name, url: pageUrl, base: siteBase(req, site.slug), path: file.path, files: site.files, slug: site.slug, brand: brandColour(site.files) }), site.slug));
+      const page = withRuntime(withSeo(body.toString('utf8'), { siteName: site.name, url: pageUrl, base: siteBase(req, site.slug), path: file.path, files: site.files, slug: site.slug, brand: brandColour(site.files) }), site.slug);
+      res.type(type).send(onSitesHost(req) && isAppSite(site.files) ? withAppRegistration(page, site.slug) : page);
       return;
     }
     if (/^(?:video|audio)\//.test(type)) { sendMedia(req, res, type, body); return; }

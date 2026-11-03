@@ -34,6 +34,7 @@ import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
 import { historyEntries, compareFiles } from './build-history.js?v=phase5-1';
 import { SECTIONS, KIT_FILES, ensureKitLinks } from './build-sections.js?v=kit-1';
 import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js?v=quality-3';
+import { wantsApp, markApp } from './build-app.js?v=app-1';
 import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, replacePlayer, creditsPage, linkCredits } from './build-media.js?v=media-3';
 import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=kit-1';
 
@@ -534,33 +535,63 @@ async function shrinkPictures(p) {
   render();
 }
 
+/** Did the person make an app or web app (not an ordinary website)? Their choice on the publish sheet wins. */
+function projectIsApp(p) {
+  const d = lastDiscussion(p);
+  const brief = d?.brief || (p?.messages || []).find((m) => m.role === 'user')?.content || p?.name || '';
+  return wantsApp({ installable: p?.installable, recipeId: d?.recipeChoice || d?.recipe?.id || '', brief, files: p?.files || [] });
+}
+
+/** The choice on the publish sheet: shown when apps can be installed (the sites address is set up). */
+function appChoiceHtml(p) {
+  if (!deps.sitesHost) return '';
+  return `<label class="publish-app"><input type="checkbox" id="publish-app"${projectIsApp(p) ? ' checked' : ''}>
+      <span><strong>Installable app</strong><small>People can add it to their phone or computer, open it like an app and use it offline. For apps and web apps, not ordinary websites.</small></span></label>`;
+}
+
+function getAppHtml(pub) {
+  if (!pub.appUrl) return '';
+  return `<div class="publish-app-box">
+      <p class="sheet-note"><strong>Get the app.</strong> People install it from this page on Android phones, iPhones and Windows or Mac computers:</p>
+      <p class="publish-url"><a href="${escapeHtml(pub.appUrl)}" target="_blank" rel="noopener">${escapeHtml(pub.appUrl)}</a></p>
+      <img class="publish-qr" src="/api/sites/${encodeURIComponent(pub.slug)}/qr.svg?app=1" alt="QR code for the Get the app page" width="200" height="200">
+      <div class="history-actions"><button class="build-chip" type="button" data-publish-copy-app>Copy app link</button><a class="build-chip" href="${escapeHtml(pub.appUrl)}" target="_blank" rel="noopener">Open</a></div>
+      <p class="sheet-note">Test it on your own phone: scan the QR code with the camera and tap Install the app.</p></div>`;
+}
+
 function showWebPublish() {
   const p = project();
   if (!p) return;
   if (!deps.publishing) { openSheet('Publish', '<p class="sheet-note">Publishing is not set up on this host yet.</p>'); return; }
   const pub = p.publish;
+  const app = projectIsApp(p);
+  const what = pub?.appUrl ? 'app' : 'website';
   if (pub?.url) {
-    openSheet('Your website is live', `
+    const changed = publishedChanged(p) || Boolean(pub.app) !== app;
+    openSheet(`Your ${what} is live`, `
       <p class="sheet-note">Anyone can open it at this address:</p>
       <p class="publish-url"><a href="${escapeHtml(pub.url)}" target="_blank" rel="noopener">${escapeHtml(pub.url)}</a></p>
-      <img class="publish-qr" src="/api/sites/${encodeURIComponent(pub.slug)}/qr.svg" alt="QR code for ${escapeHtml(pub.url)}" width="200" height="200">
+      ${pub.appUrl ? '' : `<img class="publish-qr" src="/api/sites/${encodeURIComponent(pub.slug)}/qr.svg" alt="QR code for ${escapeHtml(pub.url)}" width="200" height="200">`}
       <div class="history-actions">
         <button class="build-chip" type="button" data-publish-copy>Copy link</button>
         ${navigator.share ? '<button class="build-chip" type="button" data-publish-share>Share</button>' : ''}
         <a class="build-chip" href="${escapeHtml(pub.url)}" target="_blank" rel="noopener">Open</a>
       </div>
+      ${getAppHtml(pub)}
       <a class="sheet-go publish-manage" href="/manage/${encodeURIComponent(pub.slug)}#key=${encodeURIComponent(pub.token || '')}" target="_blank" rel="noopener noreferrer">Manage: messages, bookings, orders and prices</a>
-      <p class="sheet-note">See what visitors send through the website's forms, change prices, menu, hours and notices, and set a passcode so the business owner can manage it on their own phone.</p>
-      ${publishedChanged(p) ? '<p class="sheet-note">You have changed the website since it was published.</p><button class="sheet-go" type="button" data-publish-go>Update the published website</button>' : '<p class="sheet-note">The published website matches your latest version.</p>'}
+      <p class="sheet-note">See what visitors send through the ${what}'s forms, change prices, menu, hours and notices, and set a passcode so the owner can manage it on their own phone.</p>
+      ${appChoiceHtml(p)}
+      ${changed ? `<p class="sheet-note">You have changed the ${what} since it was published.</p><button class="sheet-go" type="button" data-publish-go>Update the published ${app ? 'app' : 'website'}</button>` : `<p class="sheet-note">The published ${what} matches your latest version.</p>`}
       ${qualityHtml(p)}
-      <button class="build-chip pic-remove" type="button" data-publish-remove>Take the website down</button>`);
+      <button class="build-chip pic-remove" type="button" data-publish-remove>Take the ${what} down</button>`);
     return;
   }
-  openSheet('Publish your website', `
-    <p class="sheet-note">Your website gets a public address that anyone can open, share and scan as a QR code. You can update it or take it down at any time.</p>
+  openSheet(app ? 'Publish your app' : 'Publish your website', `
+    <p class="sheet-note">${app ? 'Your app' : 'Your website'} gets a public address that anyone can open, share and scan as a QR code. You can update it or take it down at any time.</p>
     <label class="sheet-note" for="publish-slug">Address</label>
-    <div class="publish-address"><span>${escapeHtml(location.host)}/s/</span><input id="publish-slug" class="pic-alt" maxlength="40" value="${escapeHtml(slugFromName(p.name) || 'my-website')}" autocapitalize="off" spellcheck="false"></div>
+    <div class="publish-address"><span>${escapeHtml(deps.sitesHost ? `${deps.sitesHost}/` : `${location.host}/s/`)}</span><input id="publish-slug" class="pic-alt" maxlength="40" value="${escapeHtml(slugFromName(p.name) || 'my-website')}" autocapitalize="off" spellcheck="false"></div>
     <p class="sheet-note">3 to 40 letters, numbers and dashes.</p>
+    ${appChoiceHtml(p)}
     ${qualityHtml(p)}
     <button class="sheet-go" type="button" data-publish-go>Publish</button>`);
 }
@@ -603,6 +634,9 @@ async function publishToWeb() {
   const p = project();
   if (!p || isBusy()) return;
   const slug = p.publish?.slug || String($('publish-slug')?.value || '').trim().toLowerCase();
+  const choice = $('publish-app');
+  if (choice) p.installable = choice.checked;
+  const app = projectIsApp(p);
   if (!/^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])$/.test(slug)) { deps.toast('Choose an address of 3 to 40 letters, numbers and dashes.'); return; }
   closeSheet();
   const mine = mark('Checking the website before publishing…');
@@ -615,12 +649,15 @@ async function publishToWeb() {
   renderThread();
   try {
     const response = await fetch('/api/sites', { method: 'POST', headers: { 'Content-Type': 'application/json', ...deps.headers() },
-      body: JSON.stringify({ slug, name: p.name, token: p.publish?.token || '', files: [...p.files.map(({ path, body }) => ({ path, body })), ...sharePicture(p)] }) });
+      body: JSON.stringify({ slug, name: p.name, token: p.publish?.token || '', files: markApp([...p.files.map(({ path, body }) => ({ path, body })), ...sharePicture(p)], app) }) });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || 'Publishing could not finish.');
     const first = !p.publish;
-    p.publish = { slug: result.slug, url: result.url, token: result.token || p.publish?.token, publishedAt: Date.now(), fingerprint: sourceFingerprint(p.files) };
-    p.messages.push({ role: 'assistant', content: first ? `Your website is live at ${result.url} — share the link or the QR code. You can update it or take it down any time.` : `The published website is updated: ${result.url}` });
+    p.publish = { slug: result.slug, url: result.url, token: result.token || p.publish?.token, publishedAt: Date.now(), fingerprint: sourceFingerprint(p.files), app, appUrl: result.appUrl || '' };
+    const what = app ? 'app' : 'website';
+    p.messages.push({ role: 'assistant', content: first
+      ? (result.appUrl ? `Your app is live at ${result.url}. People can install it on their phone or computer from ${result.appUrl} (the QR code opens that page). Try it on your own phone first.` : `Your ${what} is live at ${result.url} — share the link or the QR code. You can update it or take it down any time.`)
+      : `The published ${what} is updated: ${result.url}${result.appUrl ? `. Installed copies update themselves the next time they open with internet.` : ''}` });
     await persist();
     unmark(working); render();
     showWebPublish();
@@ -2587,6 +2624,13 @@ export async function mount(options = {}) {
   });
 
   // The type of project chosen in the conversation card.
+  // On the live sheet, changing "Installable app" offers the update that applies it.
+  el.sheetBody.addEventListener('change', (event) => {
+    const p = project();
+    if (event.target.id !== 'publish-app' || !p?.publish) return;
+    p.installable = event.target.checked;
+    persist(); showWebPublish();
+  });
   el.build.addEventListener('change', (event) => {
     const select = event.target.closest('[data-recipe-select]');
     const agreed = select && lastDiscussion(project());
@@ -2773,6 +2817,7 @@ export async function mount(options = {}) {
     if (event.target.closest('[data-quality-fix]')) { const p = project(); const ask = p && qualityRequest(qualityReport(p.files)); if (ask && !isBusy()) { closeSheet(); send(ask); } return; }
     if (event.target.closest('[data-shrink-pictures]')) { const p = project(); if (p && !isBusy()) { closeSheet(); shrinkPictures(p).then(() => showWebPublish()); } return; }
     if (event.target.closest('[data-publish-remove]')) { unpublishFromWeb(); return; }
+    if (event.target.closest('[data-publish-copy-app]')) { const url = project()?.publish?.appUrl; if (url) navigator.clipboard?.writeText(url).then(() => deps.toast('App link copied.'), () => deps.toast(url)); return; }
     if (event.target.closest('[data-publish-copy]')) { const url = project()?.publish?.url; if (url) navigator.clipboard?.writeText(url).then(() => deps.toast('Link copied.'), () => deps.toast(url)); return; }
     if (event.target.closest('[data-publish-share]')) { const p = project(); if (p?.publish) navigator.share?.({ title: p.name, url: p.publish.url }).catch(() => {}); return; }
     const addKey = event.target.closest('[data-add-section]');

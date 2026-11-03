@@ -62,7 +62,7 @@ Must have: a hero with the main promise and one primary button (Call, WhatsApp o
 Design: confident and clean (style modern or corporate), the brand colour on buttons and accents only, real photographs of the work.` },
   { id: 'app', name: 'Phone app (installable web app)', words: /\b(app|application|mobile app|android|iphone|ios|install(?:able)?|offline|pwa|software)\b/,
     guide: `A web app that feels like a phone app: a bottom navigation bar with 3–5 screens, a top bar with the screen title, large touch targets, screens switched without page loads.
-Engineering: the APP TOOLKIT (App.store with remember, App.screens with the .gk-appbar, App.form), a web app manifest (manifest.webmanifest with name, colours and an SVG icon) and theme-color, safe-area padding (env(safe-area-inset-bottom)), no hover-only actions. Say honestly that installing and working offline need the app on its own address; on the published Grandpa address it runs in the browser.
+Engineering: the APP TOOLKIT (App.store with remember, App.screens with the .gk-appbar, App.form), safe-area padding (env(safe-area-inset-bottom)), no hover-only actions, and every screen usable offline once loaded (no data that only comes from the network unless the app needs it). When published, Grandpa makes it an installable app itself: the install file, the app icon, offline saving and a Get the app page with install steps for Android, iPhone and Windows. Never write a manifest, a service worker or install code.
 Design: native-feeling (style modern), system fonts, cards and lists, smooth screen transitions with reduced-motion respected.` },
 ];
 
