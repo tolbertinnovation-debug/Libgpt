@@ -152,7 +152,7 @@ export function previewAssetUrl(file) {
   const body=String(file?.body || '');
   if(/^data:/i.test(body)) return body;
   const extension=String(file?.path || '').split('.').pop().toLowerCase();
-  const mime={svg:'image/svg+xml',css:'text/css',js:'text/javascript',mjs:'text/javascript',json:'application/json',txt:'text/plain',html:'text/html',htm:'text/html'}[extension];
+  const mime={svg:'image/svg+xml',css:'text/css',js:'text/javascript',mjs:'text/javascript',json:'application/json',txt:'text/plain',vtt:'text/vtt',html:'text/html',htm:'text/html'}[extension];
   return mime ? `data:${mime};charset=utf-8,${encodeURIComponent(body)}` : '';
 }
 

@@ -36,17 +36,26 @@ export function pendingVideos(files = []) {
   for (const page of pages(files)) {
     for (const el of mapElements(page.body)) {
       const search = attr(page.body, el, 'data-video-search');
-      if (search && !attr(page.body, el, 'data-youtube')) out.push({ page: page.path, search: search.trim().slice(0, 120) });
+      if (!search || attr(page.body, el, 'data-youtube')) continue;
+      // A playlist place (data-video-count="3") is filled with several videos.
+      const count = Math.min(4, Math.max(1, parseInt(attr(page.body, el, 'data-video-count'), 10) || 1));
+      out.push(count > 1 ? { page: page.path, search: search.trim().slice(0, 120), count } : { page: page.path, search: search.trim().slice(0, 120) });
     }
   }
   return out.slice(0, 12);
 }
 
-/** The page with the first empty place for this search replaced by a player. */
-export function placeVideo(html, search, video) {
+/** The page with the first empty place for this search replaced by a player; a playlist place
+ *  (data-video-count) keeps its element and is filled with the player for each video given. */
+export function placeVideo(html, search, video, more = []) {
   const text = String(html);
   const el = mapElements(text).find((e) => attr(text, e, 'data-video-search') === search && !attr(text, e, 'data-youtube'));
-  return el ? text.slice(0, el.start) + playerMarkup(video) + text.slice(el.end) : text;
+  if (!el) return text;
+  if (attr(text, el, 'data-video-count') == null) return text.slice(0, el.start) + playerMarkup(video) + text.slice(el.end);
+  const open = text.slice(el.start, el.openEnd).replace(/\s+data-video-(?:search|count)\s*=\s*(?:"[^"]*"|'[^']*')/gi, '');
+  const tag = /^<([a-z][\w-]*)/i.exec(open)[1];
+  const players = [video, ...more].map((v) => `\n  ${playerMarkup(v)}`).join('');
+  return `${text.slice(0, el.start)}${open}${players}\n</${tag}>${text.slice(el.end)}`;
 }
 
 /** YouTube players in the pages (the builder's or the person's), by id, for checking. */

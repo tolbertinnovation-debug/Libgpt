@@ -1,4 +1,4 @@
-/* Grandpa Kit 9 — gallery viewer, sliders, reveal on scroll, dark mode, language switch,
+/* Grandpa Kit 10 — video players, playlists, gallery viewer, sliders, reveal on scroll, dark mode, language switch,
    counters, back to top and page loader. Everything works without it; it only adds. */
 (function () {
   'use strict';
@@ -158,9 +158,15 @@
       var box = frame.closest('.gk-video') || frame;
       box.parentNode.replaceChild(link, box);
     });
-    document.querySelectorAll('.gk-player[data-youtube]').forEach(function (player) {
+    function youtube(player) {
       var id = player.getAttribute('data-youtube');
-      if (!/^[\w-]{11}$/.test(id)) return;
+      if (!/^[\w-]{11}$/.test(id) || player.gkBound) return;
+      player.gkBound = true;
+      if (!player.querySelector('img')) {
+        // A bare link: give it the video's picture, play button and title.
+        player.innerHTML = '<img alt="" loading="lazy" src="https://i.ytimg.com/vi/' + id + '/hqdefault.jpg"><span class="gk-play" aria-hidden="true"></span><span class="gk-player-caption"><strong></strong></span>';
+        player.querySelector('strong').textContent = player.getAttribute('data-title') || 'Watch the video';
+      }
       player.setAttribute('aria-label', 'Play video: ' + (player.getAttribute('data-title') || 'video'));
       if (sandboxed && window.parent !== window) {
         // Inside Grandpa AI's Build preview: the app plays the video in its own window.
@@ -188,7 +194,189 @@
         frame.referrerPolicy = 'strict-origin-when-cross-origin';
         player.appendChild(frame); player.classList.add('is-playing');
       });
-    });
+    }
+
+    // Video player (Kit 10): .gk-video-player around a <video controls> (the person's own file, or one chosen
+    // on the device with input[data-gk-video-file]) gets large controls; without the script the browser's stay.
+    var ICONS = { play: 'M8 5v14l11-7z', pause: 'M6 5h4v14H6zM14 5h4v14h-4z', sound: 'M4 9v6h4l5 4V5L8 9zM16 8.5a5 5 0 0 1 0 7', mute: 'M4 9v6h4l5 4V5L8 9zM16 9l5 6M21 9l-5 6',
+      full: 'M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5', pip: 'M3 5h18v14H3zM12 12h7v5h-7z' };
+    function icon(name) { return '<svg viewBox="0 0 24 24" aria-hidden="true" class="' + (/^p(lay|ause)$/.test(name) ? 'is-solid' : '') + '"><path d="' + ICONS[name] + '"/></svg>'; }
+    function clock(t) { t = Math.max(0, Math.floor(t || 0)); var h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = t % 60; return (h ? h + ':' + (m < 10 ? '0' : '') : '') + m + ':' + (s < 10 ? '0' : '') + s; }
+    var isVideoFile = function (file) { return /^video\//.test(file.type || '') || /\.(mp4|m4v|webm|ogv|mov)$/i.test(file.name || ''); };
+    function videoPlayer(box) {
+      var v = box.querySelector('video');
+      if (!v || box.hasAttribute('data-gk-ready')) return v;
+      box.setAttribute('data-gk-ready', '');
+      var screen = document.createElement('div'); screen.className = 'gk-vp-screen';
+      v.parentNode.insertBefore(screen, v); screen.appendChild(v);
+      v.controls = false; v.setAttribute('playsinline', ''); if (!v.getAttribute('preload')) v.preload = 'metadata';
+      var cap = box.querySelector('figcaption'), name = box.getAttribute('data-title') || (cap ? cap.textContent.trim() : '') || 'video';
+      screen.insertAdjacentHTML('beforeend', '<button type="button" class="gk-play gk-vp-big"></button><p class="gk-vp-msg" role="status" hidden></p><div class="gk-vp-bar">' +
+        '<button type="button" data-vp="play"></button><span class="gk-vp-time">0:00 / 0:00</span><input type="range" min="0" max="1000" value="0" aria-label="Position in the video">' +
+        '<button type="button" data-vp="mute"></button><button type="button" data-vp="speed" aria-label="Speed: normal">1×</button><button type="button" data-vp="cc" aria-label="Subtitles" aria-pressed="false" hidden>CC</button>' +
+        '<button type="button" data-vp="pip" aria-label="Picture in picture" hidden>' + icon('pip') + '</button><button type="button" data-vp="full" aria-label="Full screen">' + icon('full') + '</button></div>');
+      var q = function (s) { return screen.querySelector(s); };
+      var seek = q('input'), time = q('.gk-vp-time'), msg = q('.gk-vp-msg'), big = q('.gk-vp-big'), seeking = false, idle;
+      var playBtn = q('[data-vp="play"]'), muteBtn = q('[data-vp="mute"]'), speedBtn = q('[data-vp="speed"]'), ccBtn = q('[data-vp="cc"]'), pipBtn = q('[data-vp="pip"]'), fullBtn = q('[data-vp="full"]');
+      big.setAttribute('aria-label', 'Play video: ' + name);
+      var say = function (text) { msg.textContent = text; msg.hidden = !text; };
+      var toggle = function () {
+        if (!v.getAttribute('src') && !v.querySelector('source')) { say('Choose a video to play.'); return; }
+        if (v.paused || v.ended) { var p = v.play(); if (p && p.catch) p.catch(function () {}); } else v.pause();
+      };
+      var draw = function () {
+        var d = isFinite(v.duration) ? v.duration : 0;
+        time.textContent = clock(v.currentTime) + ' / ' + clock(d);
+        if (!seeking) seek.value = d ? Math.round(v.currentTime / d * 1000) : 0;
+        seek.setAttribute('aria-valuetext', clock(v.currentTime) + ' of ' + clock(d));
+      };
+      var state = function () {
+        var playing = !v.paused && !v.ended;
+        box.classList.toggle('is-playing', playing);
+        playBtn.innerHTML = icon(playing ? 'pause' : 'play'); playBtn.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+        muteBtn.innerHTML = icon(v.muted ? 'mute' : 'sound'); muteBtn.setAttribute('aria-label', v.muted ? 'Sound on' : 'Mute');
+      };
+      var wake = function () { box.classList.remove('is-idle'); clearTimeout(idle); idle = setTimeout(function () { if (!v.paused) box.classList.add('is-idle'); }, 2500); };
+      ['play', 'pause', 'ended', 'volumechange'].forEach(function (e) { v.addEventListener(e, state); });
+      ['timeupdate', 'loadedmetadata', 'durationchange', 'emptied'].forEach(function (e) { v.addEventListener(e, draw); });
+      ['play', 'pause'].forEach(function (e) { v.addEventListener(e, wake); });
+      v.addEventListener('playing', function () { say(''); });
+      // A <source> that fails fires its error on the source, so listen while it passes through the video.
+      v.addEventListener('error', function () { say('This video could not be played here. Try again later, or choose another video.'); box.classList.remove('is-playing'); }, true);
+      big.addEventListener('click', toggle); playBtn.addEventListener('click', toggle); v.addEventListener('click', toggle);
+      seek.addEventListener('input', function () { seeking = true; if (isFinite(v.duration)) v.currentTime = seek.value / 1000 * v.duration; });
+      seek.addEventListener('change', function () { seeking = false; });
+      muteBtn.addEventListener('click', function () { v.muted = !v.muted; });
+      speedBtn.addEventListener('click', function () {
+        var speeds = [1, 1.25, 1.5, 2, 0.75], next = speeds[(speeds.indexOf(v.playbackRate) + 1) % speeds.length];
+        v.playbackRate = next; speedBtn.textContent = next + '×'; speedBtn.setAttribute('aria-label', 'Speed: ' + (next === 1 ? 'normal' : next + ' times'));
+      });
+      if (v.textTracks && v.textTracks.length) {
+        ccBtn.hidden = false; ccBtn.setAttribute('aria-pressed', String(v.textTracks[0].mode === 'showing'));
+        ccBtn.addEventListener('click', function () { var t = v.textTracks[0], on = t.mode !== 'showing'; t.mode = on ? 'showing' : 'hidden'; ccBtn.setAttribute('aria-pressed', String(on)); });
+      }
+      if (document.pictureInPictureEnabled && !v.disablePictureInPicture) {
+        pipBtn.hidden = false;
+        pipBtn.addEventListener('click', function () { (document.pictureInPictureElement ? document.exitPictureInPicture() : v.requestPictureInPicture()).catch(function () {}); });
+      }
+      fullBtn.addEventListener('click', function () {
+        if (document.fullscreenElement) document.exitFullscreen();
+        else if (screen.requestFullscreen) screen.requestFullscreen().catch(function () {});
+        else if (v.webkitEnterFullscreen) v.webkitEnterFullscreen();
+      });
+      screen.addEventListener('pointermove', wake); screen.addEventListener('focusin', wake);
+      screen.addEventListener('keydown', function (e) {
+        var tag = e.target.tagName;
+        if (e.key === ' ' && (tag === 'BUTTON' || tag === 'INPUT')) return;
+        if (e.key === ' ' || e.key === 'k') { e.preventDefault(); toggle(); }
+        else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && tag !== 'INPUT') { e.preventDefault(); v.currentTime = Math.max(0, v.currentTime + (e.key === 'ArrowLeft' ? -5 : 5)); }
+        else if (e.key === 'f') fullBtn.click(); else if (e.key === 'm') muteBtn.click();
+        wake();
+      });
+      // A video chosen on the device plays here; it never leaves the device.
+      if (!box.closest('.gk-playlist')) box.querySelectorAll('input[data-gk-video-file]').forEach(function (input) {
+        input.addEventListener('change', function () {
+          var file = Array.prototype.filter.call(input.files || [], isVideoFile)[0];
+          if (!file) { if (input.files && input.files.length) say('That file is not a video.'); return; }
+          if (/^blob:/.test(v.src)) URL.revokeObjectURL(v.src);
+          v.src = URL.createObjectURL(file); if (cap) cap.textContent = file.name.replace(/\.[^.]+$/, '');
+          say(''); toggle(); input.value = '';
+        });
+      });
+      state(); draw();
+      return v;
+    }
+
+    // Playlists: .gk-playlist of YouTube .gk-player links and/or [data-video-src] links to the person's video files
+    // becomes one large player with the list beside it; input[data-gk-video-file] adds videos from the device.
+    function playlist(box) {
+      var items = [], found = box.querySelectorAll('.gk-player[data-youtube], [data-video-src]'), body = document.createElement('div');
+      Array.prototype.forEach.call(found, function (el, n) {
+        var yt = el.getAttribute('data-youtube') || '';
+        items.push({ yt: /^[\w-]{11}$/.test(yt) ? yt : '', src: el.getAttribute('data-video-src') || '', title: el.getAttribute('data-title') || el.textContent.trim() || 'Video', channel: el.getAttribute('data-channel') || '', poster: el.getAttribute('data-poster') || '' });
+        if (n) el.parentNode.removeChild(el); else el.parentNode.replaceChild(body, el);
+      });
+      var picker = box.querySelector('input[data-gk-video-file]');
+      if (!items.length && !picker) { if (box.hasAttribute('data-video-search')) box.hidden = true; return; }
+      if (!items.length) box.insertBefore(body, box.firstChild);
+      body.className = 'gk-playlist-body';
+      body.innerHTML = '<div class="gk-playlist-stage"></div><ol class="gk-playlist-list" aria-label="Videos in this playlist"></ol>';
+      var stage = body.firstChild, list = body.lastChild;
+      function show(i, start) {
+        var it = items[i], el;
+        stage.innerHTML = '';
+        if (it.yt) {
+          el = document.createElement('a'); el.className = 'gk-player'; el.href = 'https://www.youtube.com/watch?v=' + it.yt; el.target = '_blank'; el.rel = 'noopener';
+          el.setAttribute('data-youtube', it.yt); el.setAttribute('data-title', it.title); el.setAttribute('data-channel', it.channel);
+          el.innerHTML = '<img alt="" src="https://i.ytimg.com/vi/' + it.yt + '/hqdefault.jpg"><span class="gk-play" aria-hidden="true"></span><span class="gk-player-caption"><strong></strong><small></small></span>';
+          el.querySelector('strong').textContent = it.title; el.querySelector('small').textContent = (it.channel ? it.channel + ' · ' : '') + 'YouTube';
+          stage.appendChild(el); youtube(el); if (start) el.click();
+        } else {
+          el = document.createElement('figure'); el.className = 'gk-video-player';
+          var v = document.createElement('video'), c = document.createElement('figcaption');
+          v.src = it.src; if (it.poster) v.poster = it.poster; c.textContent = it.title;
+          el.appendChild(v); el.appendChild(c); stage.appendChild(el); videoPlayer(el);
+          v.addEventListener('ended', function () { if (items[i + 1]) show(i + 1, true); });
+          if (start) { var p = v.play(); if (p && p.catch) p.catch(function () {}); }
+        }
+        Array.prototype.forEach.call(list.querySelectorAll('button'), function (b, n) { if (n === i) b.setAttribute('aria-current', 'true'); else b.removeAttribute('aria-current'); });
+      }
+      function drawList() {
+        list.innerHTML = '';
+        items.forEach(function (it, n) {
+          var li = document.createElement('li'), b = document.createElement('button'), pic = it.yt ? 'https://i.ytimg.com/vi/' + it.yt + '/mqdefault.jpg' : it.poster;
+          b.type = 'button'; b.innerHTML = '<span class="gk-playlist-thumb">' + (pic ? '<img alt="" loading="lazy">' : '') + '</span><span><strong></strong><small></small></span>';
+          if (pic) b.querySelector('img').src = pic;
+          b.querySelector('strong').textContent = it.title;
+          b.querySelector('small').textContent = it.local ? 'On this device' : it.channel || (n + 1) + ' of ' + items.length;
+          b.addEventListener('click', function () { show(n, true); });
+          li.appendChild(b); list.appendChild(li);
+        });
+        list.hidden = items.length < 2;
+      }
+      drawList();
+      if (items.length) show(0, false); else stage.innerHTML = '<p class="gk-vp-empty">Choose videos from your device to play them here. They stay on your device.</p>';
+      if (picker) picker.addEventListener('change', function () {
+        var start = items.length;
+        Array.prototype.filter.call(picker.files || [], isVideoFile).forEach(function (file) { items.push({ src: URL.createObjectURL(file), title: file.name.replace(/\.[^.]+$/, ''), local: true }); });
+        if (items.length > start) { drawList(); show(start, true); }
+        picker.value = '';
+      });
+      box.classList.add('is-ready');
+    }
+
+    // Video library: .gk-video-library whose videos are marked data-category gets search and category buttons.
+    function library(lib) {
+      var items = Array.prototype.slice.call(lib.querySelectorAll('[data-category]'));
+      if (!items.length) return;
+      var cats = [], chosen = '', grid = items[0].parentNode, tools = document.createElement('div'), empty = document.createElement('p');
+      items.forEach(function (el) { var c = el.getAttribute('data-category').trim(); if (c && cats.indexOf(c) < 0) cats.push(c); });
+      tools.className = 'gk-library-tools';
+      tools.innerHTML = '<input type="search" placeholder="Search videos" aria-label="Search videos"><div class="gk-chips" role="group" aria-label="Categories"></div>';
+      empty.className = 'gk-library-empty'; empty.setAttribute('role', 'status'); empty.textContent = 'No videos match. Try other words.'; empty.hidden = true;
+      var search = tools.firstChild, chips = tools.lastChild;
+      function filter() {
+        var words = search.value.trim().toLowerCase(), shown = 0;
+        items.forEach(function (el) {
+          var ok = (!chosen || el.getAttribute('data-category').trim() === chosen) && (!words || ((el.getAttribute('data-title') || '') + ' ' + el.textContent).toLowerCase().indexOf(words) >= 0);
+          el.hidden = !ok; if (ok) shown += 1;
+        });
+        empty.hidden = shown > 0;
+      }
+      ['All'].concat(cats).forEach(function (c, n) {
+        var b = document.createElement('button'); b.type = 'button'; b.className = 'gk-chip'; b.textContent = c; b.setAttribute('aria-pressed', String(!n));
+        b.addEventListener('click', function () { chosen = n ? c : ''; chips.querySelectorAll('button').forEach(function (x) { x.setAttribute('aria-pressed', String(x === b)); }); filter(); });
+        chips.appendChild(b);
+      });
+      chips.hidden = cats.length < 2;
+      search.addEventListener('input', filter);
+      if (grid === lib) { lib.insertBefore(tools, items[0]); lib.appendChild(empty); } else { grid.parentNode.insertBefore(tools, grid); grid.parentNode.insertBefore(empty, grid.nextSibling); }
+    }
+
+    document.querySelectorAll('.gk-playlist').forEach(playlist);
+    document.querySelectorAll('.gk-player[data-youtube]').forEach(youtube);
+    document.querySelectorAll('.gk-video-player').forEach(videoPlayer);
+    document.querySelectorAll('.gk-video-library').forEach(library);
 
     // Print or save as PDF: [data-gk-print] prints the page, or only the element named in it ("#certificate")
     document.querySelectorAll('[data-gk-print]').forEach(function (button) {

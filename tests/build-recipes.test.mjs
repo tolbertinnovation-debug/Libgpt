@@ -23,13 +23,15 @@ test('the right recipe for each kind of project, and the person\'s choice wins',
     'A website for FixPoint computer repair': 'business',
     'An installable mobile app for my youth group': 'app',
     'Events and programmes for our youth festival': 'event',
+    'A video library for our sermons': 'media',
+    'I want a video player app': 'media',
   };
   for (const [text, id] of Object.entries(cases)) assert.equal(chooseRecipe(text).id, id, text);
   assert.equal(chooseRecipe('hello there').id, 'general');
   assert.equal(chooseRecipe('Project type: Game.\nA website for my restaurant').id, 'game', 'an explicit type wins over the words');
   assert.equal(chooseRecipe('Project type: Nonsense.\nA restaurant').id, 'restaurant');
-  assert.equal(RECIPES.length, 14);
-  assert.equal(new Set(RECIPES.map((r) => r.id)).size, 14);
+  assert.equal(RECIPES.length, 15);
+  assert.equal(new Set(RECIPES.map((r) => r.id)).size, 15);
   for (const r of RECIPES) assert.ok(r.guide.length > 200 && /Design:/.test(r.guide), r.id);
   assert.match(recipeGuide(recipeById('restaurant')), /^PROJECT RECIPE: Restaurant or food website\n[\s\S]*their words always win/);
 });
@@ -65,6 +67,6 @@ test('the conversation before building says which kind of project it will be', a
   await original(`${base}/api/admin/budget`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-ritual-admin': admin }, body: JSON.stringify({ limits: { dailyUsd: 5, capabilityDailyUsd: { build: 1, chat: 1, backup: 1 } } }) });
   const answer = await (await original(`${base}/api/build/discuss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: [{ role: 'user', content: 'I need a site for my hair salon' }] }) })).json();
   assert.deepEqual(answer.recipe, { id: 'booking', name: 'Booking website (salon, clinic, tutor)' });
-  assert.equal(answer.recipes.length, 14);
+  assert.equal(answer.recipes.length, 15);
   assert.ok(answer.recipes.every((r) => r.id && r.name && !r.guide), 'only names go to the phone');
 });

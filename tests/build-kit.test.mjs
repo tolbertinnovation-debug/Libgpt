@@ -14,7 +14,7 @@ test('the Grandpa Kit files are valid, small, and cover every promised feature',
   const js = await readFile(new URL('../public/kit/grandpa-kit.js', import.meta.url), 'utf8');
   assert.doesNotThrow(() => new Function(js));
   // Kit 6 (design system and components): about 10 KB on the wire once compressed.
-  assert.ok(css.length < 26_000 && js.length < 26_000, 'light enough for a phone');
+  assert.ok(css.length < 30_000 && js.length < 36_000, 'light enough for a phone (about 12 KB compressed with the Kit 10 video players)');
   for (const part of ['--step-5', '--s-9', '--brand-100', '.gk-eyebrow', '.gk-header', '.gk-nav-toggle', '.gk-testimonials', '.gk-steps', '.gk-timeline', '.gk-tab-list', '.gk-modal', '.gk-stats', '.gk-logos', '.gk-product', '.gk-post', '.gk-appbar', '.gk-player']) assert.ok(css.includes(part), part);
   for (const pairing of ['modern', 'classic', 'friendly', 'bold', 'elegant', 'tech', 'editorial', 'warm']) assert.match(css, new RegExp(`data-gk-fonts="${pairing}"`)), assert.ok(js.includes(`${pairing}: [`), pairing);
   for (const hook of ['.gk-nav-toggle', '[data-gk-tabs]', '[data-gk-open]', 'showModal', '--on-accent', 'fonts.googleapis.com']) assert.ok(js.includes(hook), hook);

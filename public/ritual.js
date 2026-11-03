@@ -2,7 +2,7 @@ import {verificationStatusMarkup} from './build-verification.js';
 import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
 import {restrictPreviewDocument} from './preview-policy.js';
-import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=kit-1';
+import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=kit-2';
 import {loadPreviewGuard,previewGuardReady} from './preview-guard.js';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
@@ -22,19 +22,19 @@ import {
   applyEdits, filesFrom, forSending, highlightFile, pendingPictures, KIT_NOTE, isKitFile, looksEmpty, makeProject, previewDocument,
   previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
   loadProjectsDurable, saveProjectsDurable,
-} from './build.js?v=kit-1';
+} from './build.js?v=kit-2';
 import {buildTaskLabel,buildTaskFacts} from './build-task-state.js?v=phase2-stage6-reliability';
 import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js?v=phase2-stage6-reliability';
 import { shrink } from './photo.js';
 import {backgroundActive,sameProjectSource,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile,canRetryBackgroundCreation,backgroundConnectionMessage} from './build-workspace.js?v=phase2-stage8-poll';
 import { renderMarkdown } from './markdown.js';
-import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materials.js?v=materials-1';
+import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materials.js?v=materials-2';
 import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
 import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
 import { historyEntries, compareFiles } from './build-history.js?v=phase5-1';
 import { SECTIONS, KIT_FILES, ensureKitLinks } from './build-sections.js?v=kit-1';
-import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js?v=quality-2';
-import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, replacePlayer, creditsPage, linkCredits } from './build-media.js?v=media-2';
+import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js?v=quality-3';
+import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, replacePlayer, creditsPage, linkCredits } from './build-media.js?v=media-3';
 import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=kit-1';
 
 const $ = (id) => document.getElementById(id);
@@ -646,7 +646,7 @@ async function unpublishFromWeb() {
 
 /* ---- The Grandpa Kit ----------------------------------------------------- */
 /** Add the shared design kit to a project once, so builders can use its sections and effects. */
-const KIT_VERSION = 'Grandpa Kit 9';
+const KIT_VERSION = 'Grandpa Kit 10';
 async function ensureKit(p) {
   // An older kit is replaced by the current one (only the kit ever changes the kit).
   const kit = (p?.files || []).filter((f) => isKitFile(f.path));
@@ -654,7 +654,7 @@ async function ensureKit(p) {
   if (!p || (kit.length === paths.length && kit.every((f) => String(f.body).startsWith(`/* ${KIT_VERSION} `)))) return true;
   try {
     const bodies = await Promise.all(paths.map(async (path) => {
-      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-9`);
+      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-10`);
       if (!response.ok) throw new Error('kit');
       return response.text();
     }));
@@ -1349,12 +1349,16 @@ async function settleVideos(p) {
         const options = (found.results || []).filter((v) => !inSite.has(v.id));
         if (!options.length) continue;
         const page = p.files.find((f) => f.path === place.page);
-        const next = placeVideo(page.body, place.search, options[0]);
+        // A playlist place takes several of the videos found; each can still be changed or removed.
+        const picks = options.slice(0, place.count || 1), spare = options.slice(picks.length);
+        const next = placeVideo(page.body, place.search, picks[0], picks.slice(1));
         if (next === page.body) continue;
-        applyChanges(p, [{ path: page.path, body: next }], `Before: adding the video "${options[0].title}"`);
-        inSite.add(options[0].id);
-        p.videoChecked = { ...(p.videoChecked || {}), [options[0].id]: options[0].title };
-        chosen.push({ page: place.page, search: place.search, current: options[0], options: options.slice(0, 4) });
+        applyChanges(p, [{ path: page.path, body: next }], picks.length > 1 ? `Before: adding ${picks.length} videos about "${place.search}"` : `Before: adding the video "${picks[0].title}"`);
+        for (const v of picks) {
+          inSite.add(v.id);
+          p.videoChecked = { ...(p.videoChecked || {}), [v.id]: v.title };
+          chosen.push({ page: place.page, search: place.search, current: v, options: [v, ...spare].slice(0, 4) });
+        }
       } catch { break; }
     }
     if (chosen.length) {

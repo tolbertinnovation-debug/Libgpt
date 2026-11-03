@@ -376,6 +376,24 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
   - The window and the kit's inline player set `referrerpolicy="strict-origin-when-cross-origin"`; without it YouTube shows Error 153.
   - In browser tests, some videos show "Video unavailable" from data-centre computers even on a plain page. That is YouTube's choice for those machines, not the app.
 - **On published sites** videos play inline once the sites address (Phase 6, `SITES_HOST`) is set up.
+
+### Phase V: video players (Grandpa Kit 10) (done)
+- **Full video player** for the person's own video files: `<figure class="gk-video-player"><video controls …>`.
+  - The kit replaces the browser's controls with large ones: play, seek, time, sound, speed, subtitles (only with a `<track>`), picture-in-picture and full screen.
+  - It has keyboard keys (space/k, arrows, f, m) and shows a clear message when a video cannot play.
+  - Without the script, the browser's own controls stay.
+- **Playlists** (`.gk-playlist`): YouTube players and `data-video-src` file entries become one large player with the list beside it (below it on phones). A file that ends plays the next one.
+  - A playlist place `data-video-search="…" data-video-count="3"` is filled with up to 4 found videos from one search. Each can still be changed or removed in the chat card.
+- **Video library** (`.gk-video-library` with `data-category`): search and category buttons.
+- **Video player apps:** `input[data-gk-video-file]` plays videos chosen on the visitor's device (object URLs; nothing is uploaded).
+- **New recipe:** "Video or media website (video library, playlists, video player)". The kit guide and design rules teach builders the players; builders are told a video file is a video, not a download.
+- **The person's own clips:** `.mp4`, `.m4v` and `.webm` become `videos/…`, limited to 2.5 MB.
+  - A site holds at most 4 MB of text, stored as base64, which is a third larger. Vercel also caps a request at 4.5 MB.
+  - Longer videos belong on YouTube, and the message says so.
+- **Published sites send videos and sound in parts** (HTTP Range, 206). Safari plays video only this way, and seeking needs it (verified in Chromium: seeking failed without it).
+- **Build's preview** resolves `<video>`, `<source>`, `<track>`, `poster`, `data-video-src` and `data-poster` paths, so the person's videos play in the preview.
+- **Quality check:** a video that plays with sound by itself must be fixed. It also warns about a video with no controls and about video files over 2 MB.
+
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).

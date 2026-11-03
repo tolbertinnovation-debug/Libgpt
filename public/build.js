@@ -595,11 +595,14 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
   // page's own <img src="shop.jpg"> has to be pointed at it. Without this the
   // frame has no URL of its own to resolve the name against, and every
   // generated picture shows as a broken image.
-  html = html.replace(/(<img\b[^>]*\bsrc\s*=\s*)["']([^"']+)["']/gi, (tag, before, src) => {
+  // The same for videos, sound, subtitles, video covers and playlist entries.
+  const pointAt = (tag, before, src) => {
     const file = find(src);
     const url=file && previewAssetUrl(file);
     return url ? `${before}"${url}"` : tag;
-  });
+  };
+  html = html.replace(/(<(?:img|video|audio|source|track)\b[^>]*?\ssrc\s*=\s*)["']([^"']+)["']/gi, pointAt);
+  html = html.replace(/(\s(?:poster|data-video-src|data-poster)\s*=\s*)["']([^"'<>]+)["']/gi, pointAt);
 
   const deferredScripts = [];
   html = html.replace(/<script\b([^>]*)\bsrc\s*=\s*["']([^"']+)["']([^>]*)><\/script>/gi,
@@ -778,7 +781,9 @@ export function forSending(files = [], { focus = null } = {}) {
     }
     // Pictures and documents travel as a short note: the builder needs the
     // path to use them, never their bytes, and must never rewrite them.
-    const body = isDataFile(file)
+    const body = isDataFile(file) && /^data:video\//.test(file.body)
+      ? `[Video already in the project (${Math.ceil(file.body.length * 0.75 / 1024)} KB). Play it by this exact path in the kit's video player, for example <figure class="gk-video-player"><video controls preload="metadata" playsinline src="${file.path}"></video><figcaption>Title</figcaption></figure>. Never write this file.]`
+      : isDataFile(file)
       ? `[${/^data:image\//.test(file.body) ? 'Picture' : 'Document'} already in the project (${Math.ceil(file.body.length * 0.75 / 1024)} KB). Use it by this exact path, for example ${/^data:image\//.test(file.body) ? `<img src="${file.path}" alt="...">` : `<a href="${file.path}" download>`}. Never write this file.]`
       : file.body || '';
     const size = body.length + file.path.length;
