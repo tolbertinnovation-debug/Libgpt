@@ -68,6 +68,7 @@ async function start() {
   if (!store.get()) { showLogin(); return; }
   try {
     state.info = await api('');
+    if (state.info.appData && state.tab === 'inbox') state.tab = 'data';
     render();
     await loadTab();
   } catch (error) { if (!error.quiet) root.replaceChildren(h('h1', { text: 'Manage your website' }), h('p', { class: 'msg error', role: 'alert', text: error.message })); }
@@ -75,7 +76,7 @@ async function start() {
 
 function render() {
   const info = state.info;
-  const tabs = [['inbox', `Inbox${info.newEntries ? ` (${info.newEntries})` : ''}`], ['content', 'Prices & text'], ['shop', 'Shop & bookings'], ['visitors', 'Visitors'], ['settings', 'Settings']];
+  const tabs = [...(info.appData ? [['data', 'App data']] : []), ['inbox', `Inbox${info.newEntries ? ` (${info.newEntries})` : ''}`], ['content', 'Prices & text'], ['shop', 'Shop & bookings'], ['visitors', 'Visitors'], ['settings', 'Settings']];
   root.replaceChildren(
     h('h1', { text: info.name || slug }),
     h('p', { class: 'lead' }, h('a', { href: info.url, target: '_blank', rel: 'noopener', text: info.url })),
@@ -95,6 +96,7 @@ async function loadTab() {
     else if (state.tab === 'content') await showContent();
     else if (state.tab === 'visitors') { state.info = await api(''); showVisitors(); }
     else if (state.tab === 'shop') { state.entries = (await api('/entries?kind=booking')).entries; showShop(); }
+    else if (state.tab === 'data') { state.data = await api('/app-data'); await showData(); }
     else showSettings();
   } catch (error) { if (!error.quiet) panel().replaceChildren(h('p', { class: 'msg error', role: 'alert', text: error.message })); }
 }
@@ -370,6 +372,126 @@ function showVisitors() {
     h('ul', { class: 'bars' }, days.slice().reverse().map(([day, n]) => h('li', {}, h('span', { text: new Date(`${day}T12:00:00Z`).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' }) }),
       h('span', { class: 'bar', style: `width:${Math.round((n / most) * 100)}%` }), h('span', { text: String(n) })))),
     h('p', { class: 'note', text: 'Each time a page of your website is opened. No names, addresses or cookies are kept about visitors.' })));
+}
+
+/* ---- app data (Phase D1): the app's own database --------------------------- */
+async function db(path, { method = 'GET', body } = {}) {
+  const response = await fetch(`/api/app-db/${encodeURIComponent(slug)}${path}`, { method, headers: { 'X-App-Key': store.get(), ...(body ? { 'Content-Type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || 'That did not work. Try again.');
+  return result;
+}
+const shown = (field, value) => (value == null || value === '' ? '' : field.type === 'boolean' ? (value ? 'Yes' : 'No') : field.type === 'money' ? Number(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : field.type === 'datetime' ? when(value) : String(value));
+const csvCell = (value) => { const text = value == null ? '' : String(value); return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text; };
+function saveFile(name, text, type) {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = h('a', { href: url, download: name }); document.body.append(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+async function showData() {
+  const { schema, usage, problem, teamPasscode } = state.data;
+  if (!schema) { panel().replaceChildren(h('p', { class: 'msg error', role: 'alert', text: problem ? `This app's data design has a mistake: ${problem}. Ask Grandpa to fix data/schema.json, then publish again.` : 'This app has no database.' })); return; }
+  const tables = Object.entries(schema.tables);
+  state.table = schema.tables[state.table] ? state.table : tables[0][0];
+  const percent = (a, b) => `${Math.min(100, Math.round((a / b) * 100))}%`;
+  const mb = (n) => `${(n / 1048576).toFixed(n < 10_485_760 ? 1 : 0)} MB`;
+  const status = h('p', { class: 'msg', role: 'status' });
+  const owner = `${state.info.url}#app-key=${store.get()}`;
+  const passInput = h('input', { type: 'password', id: 'team-passcode', autocomplete: 'new-password', minlength: 6, maxlength: 64 });
+  const parts = [
+    h('div', { class: 'card' }, h('h2', { text: 'Use the app' }),
+      h('p', { class: 'note', text: 'Open the app as its owner on this phone or computer. Its data is shared by everyone who uses the app.' }),
+      h('div', { class: 'row' }, h('a', { class: 'button primary', href: owner, target: '_blank', rel: 'noopener', text: 'Open the app as owner' }))),
+    h('div', { class: 'card' }, h('h2', { text: 'How full the database is' }),
+      h('ul', { class: 'bars' },
+        h('li', {}, h('span', { text: 'Records' }), h('span', { class: 'bar', style: `width:${percent(usage.records, usage.limits.records)}` }), h('span', { text: `${usage.records.toLocaleString()} of ${usage.limits.records.toLocaleString()}` })),
+        h('li', {}, h('span', { text: 'Space' }), h('span', { class: 'bar', style: `width:${percent(usage.bytes, usage.limits.bytes)}` }), h('span', { text: `${mb(usage.bytes)} of ${mb(usage.limits.bytes)}` })),
+        h('li', {}, h('span', { text: 'Saves today' }), h('span', { class: 'bar', style: `width:${percent(usage.writesToday, usage.limits.writesPerDay)}` }), h('span', { text: `${usage.writesToday.toLocaleString()} of ${usage.limits.writesPerDay.toLocaleString()}` })))),
+    h('form', { class: 'card', onsubmit: async (event) => {
+      event.preventDefault();
+      if (passInput.value.length < 6) { message(status, 'Use at least 6 characters.'); return; }
+      try { await api('/team-passcode', { method: 'POST', body: { passcode: passInput.value } }); state.data.teamPasscode = true; passInput.value = ''; message(status, 'Saved. Give the passcode to your staff: the app asks for it the first time they open it.', true); }
+      catch (error) { if (!error.quiet) message(status, error.message); }
+    } }, h('h2', { text: 'Team passcode' }),
+    h('p', { class: 'note', text: teamPasscode ? 'Staff sign in to the app with this passcode. Changing it signs every staff phone out.' : 'Private tables can only be opened by you until you set a passcode for your staff.' }),
+    h('label', { for: 'team-passcode', text: teamPasscode ? 'New team passcode' : 'Team passcode (at least 6 characters)' }), passInput,
+    h('div', { class: 'row' }, h('button', { type: 'submit', class: 'primary', text: teamPasscode ? 'Change' : 'Set passcode' }),
+      teamPasscode ? h('button', { type: 'button', class: 'danger', text: 'Remove and sign staff out', onclick: async () => {
+        if (!confirm('Staff will no longer be able to open the private parts of the app.')) return;
+        try { await api('/team-passcode', { method: 'POST', body: { passcode: '' } }); state.data.teamPasscode = false; await showData(); } catch (error) { if (!error.quiet) message(status, error.message); }
+      } }) : null), status),
+    h('nav', { class: 'tabs', 'aria-label': 'Tables' }, tables.map(([name, t]) => h('button', { type: 'button', 'aria-selected': String(state.table === name), text: t.label, onclick: () => { state.table = name; state.search = ''; state.page = 0; showData(); } }))),
+    h('div', { id: 'records', class: 'card' }, h('p', { class: 'note', text: 'Loading…' })),
+    h('div', { class: 'card' }, h('h2', { text: 'Download' }), h('div', { class: 'row' },
+      h('button', { type: 'button', text: `⬇ ${schema.tables[state.table].label} as a spreadsheet (CSV)`, onclick: () => downloadTable(schema) }),
+      h('button', { type: 'button', text: '⬇ Everything (backup)', onclick: async () => {
+        try { const all = await api('/app-data/export'); saveFile(`${slug}-data-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(all, null, 1), 'application/json'); } catch (error) { if (!error.quiet) alert(error.message); }
+      } }))),
+  ];
+  panel().replaceChildren(...parts);
+  await showRecords(schema);
+}
+
+async function showRecords(schema) {
+  const box = document.getElementById('records');
+  const table = schema.tables[state.table], fields = Object.entries(table.fields);
+  const page = state.page || 0;
+  try {
+    const query = new URLSearchParams({ limit: '50', offset: String(page * 50), sort: '-created', ...(state.search ? { q: state.search } : {}) });
+    const { records, total } = await db(`/t/${state.table}?${query}`);
+    const search = h('input', { type: 'search', placeholder: `Search ${table.label}`, 'aria-label': `Search ${table.label}`, value: state.search || '', onchange: (e) => { state.search = e.target.value; state.page = 0; showRecords(schema); } });
+    box.replaceChildren(...[
+      h('div', { class: 'row' }, h('h2', { text: `${table.label} (${total})` }), h('button', { type: 'button', class: 'primary', text: '+ Add', onclick: () => editRecord(schema, null) })), search,
+      records.length ? h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
+        h('thead', {}, h('tr', {}, fields.map(([, f]) => h('th', { text: f.label })), h('th', { text: 'Added' }), h('th', {}))),
+        h('tbody', {}, records.map((r) => h('tr', {}, fields.map(([k, f]) => h('td', { text: shown(f, r[k]) })), h('td', { text: when(r.created) }),
+          h('td', {}, h('button', { type: 'button', text: 'Edit', onclick: () => editRecord(schema, r) }), h('button', { type: 'button', class: 'danger', text: 'Delete', onclick: async () => {
+            if (!confirm('Delete this record? This cannot be undone.')) return;
+            try { await db(`/t/${state.table}/${encodeURIComponent(r.id)}`, { method: 'DELETE' }); await showRecords(schema); } catch (error) { alert(error.message); }
+          } }))))))) : h('p', { class: 'note', text: state.search ? 'Nothing matches.' : 'No records yet. They appear here as people use the app.' }),
+      total > 50 ? h('div', { class: 'row' },
+        h('button', { type: 'button', text: '← Newer', disabled: page === 0, onclick: () => { state.page = page - 1; showRecords(schema); } }),
+        h('span', { class: 'note', text: `${page * 50 + 1}–${Math.min(total, page * 50 + 50)} of ${total}` }),
+        h('button', { type: 'button', text: 'Older →', disabled: (page + 1) * 50 >= total, onclick: () => { state.page = page + 1; showRecords(schema); } })) : null].filter(Boolean));
+  } catch (error) { box.replaceChildren(h('p', { class: 'msg error', role: 'alert', text: error.message })); }
+}
+
+/** Add or change one record, with an input for each field of its type. */
+function editRecord(schema, record) {
+  const box = document.getElementById('records'), table = schema.tables[state.table];
+  const status = h('p', { class: 'msg', role: 'status' });
+  const inputs = Object.entries(table.fields).map(([k, f]) => {
+    const value = record?.[k] ?? '';
+    const input = f.type === 'choice' ? h('select', { id: `f-${k}` }, h('option', { value: '', text: '—' }), f.options.map((o) => h('option', { value: o, text: o, selected: o === value })))
+      : f.type === 'boolean' ? h('select', { id: `f-${k}` }, h('option', { value: '', text: '—' }), h('option', { value: 'true', text: 'Yes', selected: value === true }), h('option', { value: 'false', text: 'No', selected: value === false }))
+      : f.type === 'longtext' ? h('textarea', { id: `f-${k}`, rows: 3, text: String(value) })
+      : h('input', { id: `f-${k}`, value: f.type === 'datetime' && value ? String(value).slice(0, 16) : String(value),
+        type: { number: 'number', integer: 'number', money: 'number', date: 'date', datetime: 'datetime-local', time: 'time', email: 'email', phone: 'tel', url: 'url' }[f.type] || 'text',
+        step: f.type === 'money' ? '0.01' : f.type === 'number' ? 'any' : undefined });
+    return [k, f, input];
+  });
+  box.replaceChildren(h('form', { onsubmit: async (event) => {
+    event.preventDefault();
+    const body = {};
+    for (const [k, f, input] of inputs) { const v = input.value; body[k] = v === '' ? null : f.type === 'boolean' ? v === 'true' : ['number', 'integer', 'money'].includes(f.type) ? Number(v) : f.type === 'datetime' ? new Date(v).toISOString() : v; }
+    try {
+      await db(record ? `/t/${state.table}/${encodeURIComponent(record.id)}` : `/t/${state.table}`, { method: record ? 'PATCH' : 'POST', body });
+      await showRecords(schema);
+    } catch (error) { message(status, error.message); }
+  } }, h('h2', { text: record ? `Change ${table.label}` : `Add to ${table.label}` }),
+  inputs.map(([k, f, input]) => [h('label', { for: `f-${k}`, text: `${f.label}${f.required ? ' *' : ''}` }), input]),
+  status, h('div', { class: 'row' }, h('button', { type: 'submit', class: 'primary', text: 'Save' }), h('button', { type: 'button', text: 'Cancel', onclick: () => showRecords(schema) }))));
+}
+
+async function downloadTable(schema) {
+  const table = schema.tables[state.table], fields = Object.entries(table.fields);
+  try {
+    const rows = [];
+    for (let offset = 0; offset < 20_000; offset += 500) { const { records, total } = await db(`/t/${state.table}?limit=500&offset=${offset}&sort=created`); rows.push(...records); if (rows.length >= total || !records.length) break; }
+    const csv = [['id', ...fields.map(([, f]) => f.label), 'created', 'updated'], ...rows.map((r) => [r.id, ...fields.map(([k]) => r[k]), r.created, r.updated])].map((line) => line.map(csvCell).join(',')).join('\n');
+    saveFile(`${slug}-${state.table}-${new Date().toISOString().slice(0, 10)}.csv`, `﻿${csv}`, 'text/csv');
+  } catch (error) { alert(error.message); }
 }
 
 /* ---- settings ------------------------------------------------------------ */

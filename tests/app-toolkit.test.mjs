@@ -18,8 +18,8 @@ function load({ storage = null, name = '', path = '' } = {}) {
 test('the app toolkit is part of the kit, small, and documented for builders', () => {
   assert.equal(KIT_FILES.app, 'assets/grandpa-app.js');
   assert.ok(isKitFile('assets/grandpa-app.js') && KIT_PATHS.includes('assets/grandpa-app.js'), 'protected like the rest of the kit');
-  assert.ok(source.startsWith('/* Grandpa Kit 11 '), 'versioned with the kit, so old projects get it');
-  assert.ok(source.length < 20_000);
+  assert.ok(source.startsWith('/* Grandpa Kit 12 '), 'versioned with the kit, so old projects get it');
+  assert.ok(source.length < 40_000, 'about 10 KB compressed with the app database client');
   assert.doesNotMatch(source, /form\.elements\[/, 'fields are read with namedItem: a field called "item" would otherwise read the collection\'s own method (found in a browser test)');
   for (const api of ['App.store(', 'App.render(', 'App.html`', 'App.screens(', 'App.form(', 'App.table(', 'App.chart(', 'App.csv(', 'App.format.money(', 'App.loop(', 'App.sound(', 'App.timer(', 'App.toast(']) assert.ok(KIT_GUIDE.includes(api), api);
   for (const id of ['tool', 'game', 'dashboard', 'app']) assert.match(recipeById(id).guide, /APP TOOLKIT|App\.loop/, id);
@@ -31,6 +31,9 @@ test('safe rendering escapes everything people type; formatting and charts are c
   assert.equal(App.html`<li>${name}</li>`.text, '<li>&lt;img src=x onerror=alert(1)&gt;</li>');
   assert.equal(App.html`<ul>${['a', '<b>'].map((x) => App.html`<li>${x}</li>`)}</ul>`.text, '<ul><li>a</li><li>&lt;b&gt;</li></ul>', 'nested pieces are kept, values escaped');
   assert.equal(App.html`${App.raw('<b>ok</b>')}${null}${false}`.text, '<b>ok</b>');
+  const target = { innerHTML: '' };
+  App.render(target, ['<b>', 'x'].map((v) => App.html`<li>${v}</li>`).concat('<i>'));
+  assert.equal(target.innerHTML, '<li>&lt;b&gt;</li><li>x</li>&lt;i&gt;', 'a list of pieces is joined, plain text still escaped');
   assert.equal(App.format.money(1050, 'LRD'), 'LRD 1,050');
   assert.equal(App.format.money(12.5), 'LRD 12.50');
   assert.equal(App.format.percent(0.426), '43%');

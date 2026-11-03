@@ -1,4 +1,4 @@
-/* Grandpa Kit 11 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
+/* Grandpa Kit 12 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
    game loop, sounds, timers and formatting for web tools, quizzes, games, dashboards and phone-style
    apps. No build step, no outside services. window.GrandpaApp */
 (function () {
@@ -27,7 +27,9 @@
   /** Put html into an element (or a selector). */
   App.render = function (target, content) {
     var el = typeof target === 'string' ? document.querySelector(target) : target;
-    if (el) el.innerHTML = content instanceof Raw ? content.text : App.escape(content);
+    var one = function (c) { return c instanceof Raw ? c.text : App.escape(c); };
+    // A list of pieces (items.map(…App.html`…`)) is joined; anything else is shown as text.
+    if (el) el.innerHTML = Array.isArray(content) ? content.map(one).join('') : one(content);
     return el;
   };
 
@@ -257,6 +259,205 @@
     var note = document.createElement('div'); note.className = 'gk-note'; note.setAttribute('role', 'status'); note.textContent = message;
     document.body.appendChild(note); setTimeout(function () { if (note.parentNode) note.parentNode.removeChild(note); }, 3000);
   };
+
+  /* ---- database (Phase D1): App.db('sales').add(data) / list({ where, sort, limit, offset, q }) / get(id) /
+     update(id, changes) / remove(id) / summary({ by, sum, where }); App.db.onChange(fn); App.db.ready().
+     On a published app it is the app's own online database (shared by every phone and computer, kept on
+     Grandpa AI's server); in Build's preview and in downloaded copies it is a test database on this device. ---- */
+  var DB = { slug: '', mode: '', key: '', info: null, listeners: [], versions: null, local: null, schema: null, signing: null };
+  function dbStore(name, value) { try { if (value === undefined) return JSON.parse(localStorage.getItem(name) || 'null'); if (value === null) localStorage.removeItem(name); else localStorage.setItem(name, JSON.stringify(value)); } catch (e) { return null; } return null; }
+  function dbSetup() {
+    if (DB.mode) return;
+    var site = window.GrandpaSite;
+    if (site && site.slug) {
+      DB.mode = 'cloud'; DB.slug = site.slug;
+      var m = /(?:^#|&)app-key=([A-Za-z0-9_-]{32,128})/.exec(location.hash || '');
+      if (m) { dbStore('gk-db-key:' + DB.slug, m[1]); try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { location.hash = ''; } }
+      DB.key = dbStore('gk-db-key:' + DB.slug) || '';
+      window.addEventListener('online', function () { dbFlush(); });
+    } else {
+      DB.mode = 'local';
+      var given = window.GrandpaPreviewData || {};
+      DB.schema = given.schema || null;
+      var saved = given.schema ? null : dbStore('gk-db-local:' + location.pathname);
+      DB.local = saved || { seq: 0, tables: {} };
+      if (!saved && given.sample) Object.keys(given.sample).forEach(function (t) { (given.sample[t] || []).forEach(function (r) { try { dbLocalAdd(t, r); } catch (e) { if (window.console) console.warn('Sample data for ' + t + ': ' + e.message); } }); });
+    }
+  }
+  function dbError(message) { var e = new Error(message || 'Something went wrong. Try again.'); return e; }
+
+  // Test database on this device (Build's preview and downloaded copies).
+  function dbLocalCheck(table, data, partial) {
+    var t = DB.schema && DB.schema.tables && DB.schema.tables[table];
+    if (DB.schema && !t) throw dbError('This app has no table called "' + table + '". Add it to data/schema.json.');
+    if (!t) return data;
+    var out = {};
+    Object.keys(data || {}).forEach(function (k) { if (!t.fields[k] && ['id', 'created', 'updated'].indexOf(k) < 0) throw dbError('There is no field "' + k + '" in the ' + table + ' table.'); });
+    Object.keys(t.fields).forEach(function (k) {
+      var f = typeof t.fields[k] === 'string' ? { type: t.fields[k] } : t.fields[k], v = data[k], label = f.label || k.replace(/_/g, ' ');
+      if (!(k in data)) { if (f.required && !partial) throw dbError(label + ' is required.'); return; }
+      if (v === '' || v == null) { if (f.required) throw dbError(label + ' is required.'); out[k] = null; return; }
+      if (['number', 'integer', 'money'].indexOf(f.type) >= 0) { v = Number(String(v).replace(/[, ]/g, '')); if (!isFinite(v)) throw dbError(label + ': write a number.'); if (f.min != null && v < f.min) throw dbError(label + ': the smallest allowed is ' + f.min + '.'); if (f.max != null && v > f.max) throw dbError(label + ': the largest allowed is ' + f.max + '.'); }
+      if (f.type === 'choice' && (f.options || []).indexOf(String(v)) < 0) throw dbError(label + ': one of ' + (f.options || []).join(', ') + '.');
+      if (f.type === 'boolean') v = v === true || v === 'true' || v === 'yes' || v === 1;
+      out[k] = v;
+    });
+    return out;
+  }
+  function dbLocalSave() { if (!(window.GrandpaPreviewData && window.GrandpaPreviewData.schema)) dbStore('gk-db-local:' + location.pathname, DB.local); }
+  function dbLocalAdd(table, data) {
+    var rows = DB.local.tables[table] || (DB.local.tables[table] = []), at = new Date(Date.now() + DB.local.seq).toISOString();
+    var record = Object.assign({}, dbLocalCheck(table, data, false), { id: 'local-' + (++DB.local.seq), created: at, updated: at });
+    rows.push(record); return record;
+  }
+  function dbLocalList(table, opts) {
+    var rows = (DB.local.tables[table] || []).slice(), where = opts.where || {}, q = String(opts.q || '').toLowerCase();
+    rows = rows.filter(function (r) {
+      return Object.keys(where).every(function (k) {
+        var c = where[k], pairs = c !== null && typeof c === 'object' && !Array.isArray(c) ? c : { eq: c };
+        return Object.keys(pairs).every(function (op) {
+          var have = r[k], want = pairs[op], n = typeof have === 'number';
+          var a = n ? have : String(have == null ? '' : have), b = n ? Number(want) : String(want == null ? '' : want);
+          return op === 'eq' ? String(have == null ? '' : have) === String(want) : op === 'ne' ? String(have == null ? '' : have) !== String(want) : op === 'contains' ? String(have || '').toLowerCase().indexOf(String(want).toLowerCase()) >= 0
+            : op === 'in' ? want.map(String).indexOf(String(have)) >= 0 : have == null ? false : op === 'gt' ? a > b : op === 'gte' ? a >= b : op === 'lt' ? a < b : a <= b;
+        });
+      }) && (!q || JSON.stringify(r).toLowerCase().indexOf(q) >= 0);
+    });
+    var s = /^(-)?(.+)$/.exec(opts.sort || '-created');
+    rows.sort(function (x, y) { var a = x[s[2]], b = y[s[2]]; var c = a == null ? 1 : b == null ? -1 : typeof a === 'number' ? a - b : String(a).localeCompare(String(b)); return s[1] ? -c : c; });
+    var page = rows.slice(opts.offset || 0, (opts.offset || 0) + (opts.limit || 100)); page.total = rows.length; return page;
+  }
+  function dbLocal(table, op, a, b) {
+    var rows = DB.local.tables[table] || (DB.local.tables[table] = []), find = function (id) { return rows.filter(function (r) { return r.id === id; })[0]; }, result;
+    if (op === 'add') result = dbLocalAdd(table, a);
+    else if (op === 'list') return dbLocalList(table, a || {});
+    else if (op === 'get') return find(a) || null;
+    else if (op === 'update') { var r = find(a); if (!r) throw dbError('That record is not there any more.'); Object.assign(r, dbLocalCheck(table, b, true), { updated: new Date().toISOString() }); result = r; }
+    else if (op === 'remove') { var i = rows.indexOf(find(a)); if (i >= 0) rows.splice(i, 1); result = i >= 0; }
+    else if (op === 'summary') {
+      var groups = {}, o = a || {}, by = String(o.by || '').split(':');
+      dbLocalList(table, { where: o.where, limit: 1e9 }).forEach(function (r) {
+        var v = by[0] ? r[by[0]] : '', key = v == null ? '' : by[1] === 'day' ? String(v).slice(0, 10) : by[1] === 'month' ? String(v).slice(0, 7) : by[1] === 'year' ? String(v).slice(0, 4) : String(v);
+        var g = groups[key] || (groups[key] = { key: key, count: 0, sum: 0 }); g.count += 1; if (o.sum) g.sum += Number(r[o.sum]) || 0;
+      });
+      return Object.keys(groups).sort().map(function (k) { groups[k].sum = Math.round(groups[k].sum * 100) / 100; return groups[k]; });
+    }
+    dbLocalSave(); dbNotify([table]); return result;
+  }
+
+  // The app's online database.
+  function dbFetch(method, path, body) {
+    return fetch('/api/app-db/' + DB.slug + path, { method: method, headers: Object.assign({ 'X-App-Key': DB.key }, body ? { 'Content-Type': 'application/json' } : {}), body: body ? JSON.stringify(body) : undefined })
+      .then(function (r) { return r.json().catch(function () { return {}; }).then(function (data) { return { ok: r.ok, status: r.status, data: data }; }); });
+  }
+  function dbCall(method, path, body) {
+    return dbFetch(method, path, body).then(function (r) {
+      if (r.status === 401 && r.data.signIn) return dbSignIn().then(function () { return dbCall(method, path, body); });
+      if (!r.ok) throw dbError(r.data.error);
+      return r.data;
+    });
+  }
+  function dbQueue(list) { if (list === undefined) return dbStore('gk-db-queue:' + DB.slug) || []; dbStore('gk-db-queue:' + DB.slug, list.length ? list : null); return list; }
+  function dbFlush() {
+    var queue = dbQueue();
+    if (!queue.length || DB.flushing) return Promise.resolve();
+    DB.flushing = true;
+    var next = function () {
+      var item = queue[0];
+      if (!item) { DB.flushing = false; dbQueue([]); dbNotify(null); return Promise.resolve(); }
+      return dbCall(item.method, item.path, item.body).then(function () { queue.shift(); dbQueue(queue); return next(); }, function (e) {
+        DB.flushing = false;
+        if (e instanceof TypeError) return;   // still offline: keep the rest for later
+        queue.shift(); dbQueue(queue); App.toast('A change made offline could not be saved: ' + e.message); return next();
+      });
+    };
+    return next();
+  }
+  function dbCache(key, value) { var all = dbStore('gk-db-cache:' + DB.slug) || {}; if (value === undefined) return all[key]; all[key] = value; var keys = Object.keys(all); if (keys.length > 30) delete all[keys[0]]; dbStore('gk-db-cache:' + DB.slug, all); return value; }
+  function dbCloud(table, op, a, b) {
+    var base = '/t/' + encodeURIComponent(table), q = function (o) { var p = []; Object.keys(o || {}).forEach(function (k) { if (o[k] != null && o[k] !== '') p.push(k + '=' + encodeURIComponent(k === 'where' ? JSON.stringify(o[k]) : o[k])); }); return p.length ? '?' + p.join('&') : ''; };
+    if (op === 'list' || op === 'summary' || op === 'get') {
+      var path = op === 'get' ? base + '/' + encodeURIComponent(a) : op === 'summary' ? base + '/summary' + q(a) : base + q(a);
+      return dbFlush().then(function () { return dbCall('GET', path); }).then(function (data) {
+        var value = op === 'list' ? data.records : op === 'summary' ? data.groups : data.record;
+        if (op === 'list') value.total = data.total;
+        dbCache(path, { value: value, total: data.total });
+        return value;
+      }, function (e) {
+        var kept = e instanceof TypeError && dbCache(path);
+        if (!kept) throw e instanceof TypeError ? dbError('No internet connection. Connect and try again.') : e;
+        var value = kept.value; if (op === 'list') { value.total = kept.total; value.offline = true; }
+        return value;
+      });
+    }
+    var method = op === 'add' ? 'POST' : op === 'update' ? 'PATCH' : 'DELETE', path2 = op === 'add' ? base : base + '/' + encodeURIComponent(a), body = op === 'add' ? a : op === 'update' ? b : undefined;
+    return dbCall(method, path2, body).then(function (data) { dbNotify([table]); return op === 'remove' ? data.removed : data.record; }, function (e) {
+      if (!(e instanceof TypeError)) throw e;
+      // Offline: kept on this device and sent when the internet is back.
+      dbQueue(dbQueue().concat([{ method: method, path: path2, body: body }]));
+      App.toast('Saved on this phone. It will be sent when the internet is back.');
+      return op === 'remove' ? true : Object.assign({ id: op === 'add' ? 'offline-' + Date.now() : a, pending: true }, body || {});
+    });
+  }
+  /** The sign-in screen for a private app: the team passcode the owner set in Manage. */
+  function dbSignIn() {
+    if (DB.signing) return DB.signing;
+    DB.signing = new Promise(function (resolve) {
+      var box = document.createElement('div'); box.className = 'gk-lock'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+      box.innerHTML = '<form class="gk-lock-card"><h2></h2><p>This app is private. Enter the team passcode the owner gave you.</p><label>Team passcode <input type="password" autocomplete="current-password" required minlength="6"></label><p class="gk-lock-error" role="alert" hidden></p><button class="gk-btn" type="submit">Open the app</button><small>Owner: open the app from Manage → App data to use it on this phone.</small></form>';
+      box.querySelector('h2').textContent = document.title || 'Sign in';
+      var form = box.querySelector('form'), input = box.querySelector('input'), error = box.querySelector('.gk-lock-error');
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        dbFetch('POST', '/session', { passcode: input.value }).then(function (r) {
+          if (!r.ok) { error.textContent = r.data.error || 'That passcode is not right.'; error.hidden = false; return; }
+          DB.key = r.data.key; dbStore('gk-db-key:' + DB.slug, DB.key); box.parentNode.removeChild(box); DB.signing = null; resolve();
+        }, function () { error.textContent = 'No internet connection. Connect and try again.'; error.hidden = false; });
+      });
+      document.body.appendChild(box); input.focus();
+    });
+    return DB.signing;
+  }
+  function dbNotify(tables) { DB.listeners.forEach(function (fn) { try { fn(tables); } catch (e) { /* the app's own problem */ } }); }
+  function dbWatch() {
+    if (DB.watching || DB.mode !== 'cloud') return;
+    DB.watching = true;
+    var check = function () {
+      if (document.hidden || !DB.listeners.length) return;
+      dbFetch('GET', '/versions').then(function (r) {
+        if (!r.ok) return;
+        var now = r.data.versions || {}, before = DB.versions, changed = before ? Object.keys(now).filter(function (t) { return now[t] !== before[t]; }) : [];
+        DB.versions = now;
+        if (changed.length) dbNotify(changed);
+      }, function () { /* offline */ });
+    };
+    setInterval(check, 5000); document.addEventListener('visibilitychange', check); check();
+  }
+
+  App.db = function (table) {
+    dbSetup();
+    var run = function (op, a, b) {
+      if (DB.mode === 'local') { try { return Promise.resolve(dbLocal(table, op, a, b)); } catch (e) { return Promise.reject(e); } }
+      return dbCloud(table, op, a, b);
+    };
+    return {
+      add: function (data) { return run('add', data); },
+      list: function (options) { return run('list', options || {}); },
+      get: function (id) { return run('get', id); },
+      update: function (id, changes) { return run('update', id, changes); },
+      remove: function (id) { return run('remove', id); },
+      summary: function (options) { return run('summary', options || {}); },
+    };
+  };
+  /** Calls fn(changedTables) when data changes here or on another phone (checked every few seconds). */
+  App.db.onChange = function (fn) { dbSetup(); DB.listeners.push(fn); dbWatch(); return function () { DB.listeners = DB.listeners.filter(function (f) { return f !== fn; }); }; };
+  /** { mode: 'cloud' | 'local', role: 'owner' | 'team' | 'visitor', tables } */
+  App.db.ready = function () {
+    dbSetup();
+    if (DB.mode === 'local') return Promise.resolve({ mode: 'local', role: 'owner', tables: (DB.schema || {}).tables || {} });
+    return dbCall('GET', '/info').then(function (info) { return Object.assign({ mode: 'cloud' }, info); });
+  };
+  App.db.signOut = function () { dbSetup(); DB.key = ''; dbStore('gk-db-key:' + DB.slug, null); };
 
   window.GrandpaApp = App;
 })();

@@ -84,7 +84,7 @@ const scrypt = (passcode, salt) => crypto.scryptSync(passcode, salt, 32).toStrin
 const sealPasscode = (passcode) => { const salt = crypto.randomBytes(16).toString('hex'); return { salt, hash: scrypt(checkPasscode(passcode), salt) }; };
 const passcodeMatches = (sealed, passcode) => Boolean(sealed?.salt && typeof passcode === 'string' && passcode.length <= 64 && sameText(scrypt(passcode, sealed.salt), sealed.hash));
 
-function emptyAdmin() { return { passcode: null, sessions: [], content: { texts: {}, lists: {} }, settings: null, visits: {}, failures: 0, lockedUntil: 0 }; }
+function emptyAdmin() { return { passcode: null, sessions: [], content: { texts: {}, lists: {} }, settings: null, visits: {}, failures: 0, lockedUntil: 0, team: { passcode: null, sessions: [], failures: 0, lockedUntil: 0 } }; }
 
 /* ---- bookings and the shop (Phase E) ------------------------------------- */
 export const ENTRY_STATUSES = ['new', 'done', 'cancelled'];
@@ -158,6 +158,13 @@ const rules = {
     return key;
   },
   session(admin, key, now) { return typeof key === 'string' && key.length >= 32 && liveSessions(admin.sessions, now).some((s) => sameText(s.hash, sha(key))); },
+  // The app's team passcode (Phase D1): staff phones sign in to the app's database with it.
+  teamLogin(admin, passcode, now) {
+    admin.team = { ...emptyAdmin().team, ...(admin.team || {}) };
+    if (!admin.team.passcode) throw fail('The owner has not set a team passcode for this app yet. Ask them to set one in Manage → App data.', 403);
+    return rules.login(admin.team, passcode, now);
+  },
+  setTeam(admin, passcode) { admin.team = passcode ? { passcode: sealPasscode(passcode), sessions: [], failures: 0, lockedUntil: 0 } : emptyAdmin().team; return true; },
 };
 
 export function createMemorySiteData({ now = () => Date.now() } = {}) {
@@ -217,6 +224,10 @@ export function createMemorySiteData({ now = () => Date.now() } = {}) {
     async checkSession(slug, key) { return admins.has(slug) && rules.session(admins.get(slug), key, now()); },
     async logout(slug, key) { const a = admins.get(slug); if (a) a.sessions = (a.sessions || []).filter((s) => !sameText(s.hash, sha(key || ''))); return true; },
     async signOutAll(slug) { const a = admins.get(slug); if (a) a.sessions = []; return true; },
+    async setTeamPasscode(slug, passcode) { return rules.setTeam(admin(slug), passcode); },
+    async teamLogin(slug, passcode) { return rules.teamLogin(admin(slug), passcode, now()); },
+    async checkTeamSession(slug, key) { return admins.has(slug) && rules.session(admins.get(slug).team || {}, key, now()); },
+    async hasTeamPasscode(slug) { return Boolean(admins.get(slug)?.team?.passcode); },
     async removeSite(slug) { entries.delete(slug); admins.delete(slug); return true; },
   };
 }
@@ -324,6 +335,10 @@ export function createPostgresSiteData({ connectionString, pool: suppliedPool, s
     async setPasscode(slug, passcode) { const sealed = sealPasscode(passcode); return withAdmin(slug, (a) => { a.passcode = sealed; a.sessions = []; a.failures = 0; a.lockedUntil = 0; return true; }); },
     async login(slug, passcode) { return withAdmin(slug, (a) => rules.login(a, passcode, now())); },
     async checkSession(slug, key) { return transaction(async (client) => rules.session(await readAdmin(client, slug), key, now())); },
+    async setTeamPasscode(slug, passcode) { if (passcode) checkPasscode(passcode); return withAdmin(slug, (a) => rules.setTeam(a, passcode)); },
+    async teamLogin(slug, passcode) { return withAdmin(slug, (a) => rules.teamLogin(a, passcode, now())); },
+    async checkTeamSession(slug, key) { return transaction(async (client) => rules.session((await readAdmin(client, slug)).team || {}, key, now())); },
+    async hasTeamPasscode(slug) { return transaction(async (client) => Boolean((await readAdmin(client, slug)).team?.passcode)); },
     async logout(slug, key) { return withAdmin(slug, (a) => { a.sessions = (a.sessions || []).filter((s) => !sameText(s.hash, sha(key || ''))); return true; }); },
     async signOutAll(slug) { return withAdmin(slug, (a) => { a.sessions = []; return true; }); },
     async removeSite(slug) {
