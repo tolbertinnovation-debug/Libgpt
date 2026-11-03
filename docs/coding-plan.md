@@ -638,6 +638,22 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
     - no page errors.
   - `npm run build` copies the engine (`quickjs.wasm`) into the server function, and it resolves there.
 
+### Owner-paid services, P1: SMS and email from the owner's own account (done)
+- **Principle (Samuel):** paid extras go through the app owner's own account with each provider. The owner pays the provider directly and receives their own customers' money. Grandpa AI never pays for, resells or holds these. Plan: P1 SMS and email; P2 mobile-money payments (the owner's own MTN MoMo merchant account); P3 custom domains (the owner buys the domain); P4 a Play Store upload for the owner's own Google Play account.
+- **Providers:** SMS goes through Twilio, which delivers in Liberia; MTN needs an alphanumeric sender name. Email goes through Resend (free plan: 3,000 a month).
+- **Connecting:** in Manage → App data → Messages, the owner pastes their keys. These are stored as the app's sealed secret keys (`TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `SMS_FROM`, `RESEND_API_KEY`, `EMAIL_FROM`) and never shown again. The owner can disconnect at any time.
+- **Alerts:** every alert can also go to up to 5 phone numbers and 5 email addresses. A number starting with 0 gets the owner's country code (231 by default). Failures go to Activity, and the save still works.
+- **Server code:** `app.sms(to, text)` and `app.email(to, subject, text)`, at most 5 per run. In Build's preview they are listed, not sent.
+- **Daily limit:** the owner sets it to protect their bill (default 200, at most 5,000). Only messages that can actually go are counted: not connected or a wrong address fails first, free. Manage can send a test.
+- **Verified:**
+  - Tests cover:
+    - number and address checks;
+    - the exact Twilio and Resend requests, with the owner's credentials;
+    - settings and daily counts in the memory and Postgres stores;
+    - the per-run limit;
+    - the whole published story (with a stand-in provider, so nothing real is sent): nothing goes before connecting, only the owner can connect, keys are never returned, an alert reaches the owner's phone and email, server code thanks a customer, the daily limit stops more, a provider refusal is logged, the preview lists without sending, and disconnecting works.
+  - In Chromium, Manage connects Twilio without showing the token, saves alert numbers in international form and offers a test.
+
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).

@@ -311,7 +311,7 @@ function matches(record, filters, table, q) {
 
 export function createMemoryAppDb({ now = () => Date.now() } = {}) {
   const apps = new Map();
-  const app = (slug) => { if (!apps.has(slug)) apps.set(slug, { rows: new Map(), files: new Map(), activity: [], alerts: [], usage: { records: 0, bytes: 0, day: '', writes: 0, limits: {}, versions: {}, counters: {}, secrets: {}, runDay: '', runs: 0 } }); return apps.get(slug); };
+  const app = (slug) => { if (!apps.has(slug)) apps.set(slug, { rows: new Map(), files: new Map(), activity: [], alerts: [], usage: { records: 0, bytes: 0, day: '', writes: 0, limits: {}, versions: {}, counters: {}, secrets: {}, runDay: '', runs: 0, settings: {}, msgDay: '', messages: 0 } }); return apps.get(slug); };
   /** Links must point at records that exist; effects must not take a number below its minimum. All checked before anything changes. */
   const prepare = (a, schema, tbl, before, after) => {
     const t = schema?.tables[tbl];
@@ -416,6 +416,16 @@ export function createMemoryAppDb({ now = () => Date.now() } = {}) {
       a.usage.runs += 1; return a.usage.runs;
     },
     async secrets(slug) { return { ...app(slug).usage.secrets }; },
+    // Messages (SMS and email through the owner's own account): the owner's settings and today's count.
+    async settings(slug) { return { ...app(slug).usage.settings }; },
+    async setSettings(slug, settings) { app(slug).usage.settings = { ...settings }; return { ...settings }; },
+    async countMessages(slug, n, perDay) {
+      const a = app(slug), d = today(now());
+      if (a.usage.msgDay !== d) { a.usage.msgDay = d; a.usage.messages = 0; }
+      if (a.usage.messages + n > perDay) throw fail(`This app has sent its ${perDay.toLocaleString('en-US')} messages for today (the owner's daily limit, set in Manage).`, 429);
+      a.usage.messages += n; return a.usage.messages;
+    },
+    async messagesToday(slug) { const a = app(slug); return a.usage.msgDay === today(now()) ? a.usage.messages : 0; },
     async setSecret(slug, name, sealed) {
       const all = app(slug).usage.secrets;
       if (sealed == null) { delete all[name]; return true; }
@@ -478,6 +488,10 @@ const SCHEMA = [
   `ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS secrets jsonb NOT NULL DEFAULT '{}'`,
   `ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS run_day text NOT NULL DEFAULT ''`,
   'ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS runs integer NOT NULL DEFAULT 0',
+  // Messages through the owner's own SMS / email account: their settings and the day's count.
+  `ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS msg_day text NOT NULL DEFAULT ''`,
+  'ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS messages integer NOT NULL DEFAULT 0',
 ];
 
 /** SQL for one field's value, by its type (field names go in as parameters, never as text). */
@@ -699,6 +713,23 @@ export function createPostgresAppDb({ connectionString, pool: suppliedPool, scop
         await client.query('UPDATE public.grandpa_ai_app_usage SET run_day=$3, runs=$4 WHERE scope=$1 AND slug=$2', [scope, slug, d, runs + 1]);
         return runs + 1;
       });
+    },
+    async settings(slug) {
+      return transaction(async (client) => { const r = (await client.query('SELECT settings FROM public.grandpa_ai_app_usage WHERE scope=$1 AND slug=$2', [scope, slug])).rows[0]; return r ? (typeof r.settings === 'string' ? JSON.parse(r.settings) : r.settings || {}) : {}; });
+    },
+    async setSettings(slug, settings) {
+      return transaction(async (client) => { await usageRow(client, slug); await client.query('UPDATE public.grandpa_ai_app_usage SET settings=$3 WHERE scope=$1 AND slug=$2', [scope, slug, JSON.stringify(settings)]); return { ...settings }; });
+    },
+    async countMessages(slug, n, perDay) {
+      return transaction(async (client) => {
+        const u = await usageRow(client, slug), d = today(now()), sent = u.msg_day === d ? Number(u.messages) : 0;
+        if (sent + n > perDay) throw fail(`This app has sent its ${perDay.toLocaleString('en-US')} messages for today (the owner's daily limit, set in Manage).`, 429);
+        await client.query('UPDATE public.grandpa_ai_app_usage SET msg_day=$3, messages=$4 WHERE scope=$1 AND slug=$2', [scope, slug, d, sent + n]);
+        return sent + n;
+      });
+    },
+    async messagesToday(slug) {
+      return transaction(async (client) => { const r = (await client.query('SELECT msg_day, messages FROM public.grandpa_ai_app_usage WHERE scope=$1 AND slug=$2', [scope, slug])).rows[0]; return r && r.msg_day === today(now()) ? Number(r.messages) : 0; });
     },
     async secrets(slug) {
       return transaction(async (client) => { const r = (await client.query('SELECT secrets FROM public.grandpa_ai_app_usage WHERE scope=$1 AND slug=$2', [scope, slug])).rows[0]; return r ? (typeof r.secrets === 'string' ? JSON.parse(r.secrets) : r.secrets || {}) : {}; });

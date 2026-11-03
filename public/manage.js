@@ -431,10 +431,12 @@ async function showData() {
   ];
   if (state.data.accounts) parts.splice(3, 0, h('div', { id: 'accounts', class: 'card' }, h('p', { class: 'note', text: 'Loading accounts…' })));
   parts.push(h('div', { id: 'code', class: 'card', hidden: true }));
+  parts.push(h('div', { id: 'messages', class: 'card' }, h('p', { class: 'note', text: 'Loading messages…' })));
   parts.push(h('div', { id: 'activity', class: 'card' }, h('p', { class: 'note', text: 'Loading activity…' })));
   panel().replaceChildren(...parts);
   if (state.data.accounts) await showAccounts();
   showCode();
+  showMessages();
   showActivity();
   await showRecords(schema);
 }
@@ -653,6 +655,57 @@ async function showCode() {
         catch (error) { if (!error.quiet) message(status, error.message); }
       } }, h('label', { for: 'secret-name', text: 'Name (capital letters, like PAYMENT_KEY)' }), name, h('label', { for: 'secret-value', text: 'Key' }), value,
         h('div', { class: 'row' }, h('button', { type: 'submit', class: 'primary', text: 'Save key' }))), status);
+  } catch (error) { if (!error.quiet) box.replaceChildren(h('p', { class: 'msg error', role: 'alert', text: error.message })); }
+}
+
+/* ---- SMS and email through the owner's own account (Twilio / Resend) ------- */
+async function showMessages() {
+  const box = document.getElementById('messages');
+  if (!box) return;
+  try {
+    const { connected, settings, sentToday } = await api('/messages');
+    const status = h('p', { class: 'msg', role: 'status' });
+    const say = (text, ok = false) => message(box.querySelector('.msg') || status, text, ok);
+    const field = (id, label, attrs = {}) => [h('label', { for: id, text: label }), h('input', { id, autocomplete: 'off', ...attrs })];
+    const value = (id) => document.getElementById(id)?.value || '';
+    const channel = (kind, title, help, inputs, body) => h('details', { class: 'connect', open: !connected[kind] },
+      h('summary', {}, h('strong', { text: title }), ` — ${connected[kind] ? 'connected ✓' : 'not connected'}`),
+      h('p', { class: 'note', text: help }),
+      h('form', { onsubmit: async (event) => {
+        event.preventDefault();
+        try { await api(`/messages/${kind}`, { method: 'PUT', body: body() }); await showMessages(); say(`${title} is connected. Send a test to check it.`, true); } catch (error) { if (!error.quiet) say(error.message); }
+      } }, ...inputs, h('div', { class: 'row' }, h('button', { type: 'submit', class: 'primary', text: connected[kind] ? 'Replace the keys' : 'Connect' }),
+        connected[kind] ? h('button', { type: 'button', class: 'danger', text: 'Disconnect', onclick: async () => {
+          if (!confirm(`Disconnect ${title}? The app stops sending ${kind === 'sms' ? 'SMS' : 'emails'}.`)) return;
+          try { await api(`/messages/${kind}`, { method: 'DELETE' }); await showMessages(); } catch (error) { if (!error.quiet) say(error.message); }
+        } }) : null)));
+    box.replaceChildren(h('h2', { text: 'Messages (SMS and email)' }),
+      h('p', { class: 'note', text: `The app sends SMS and email from your own account with the provider, and you pay the provider directly (Grandpa AI does not charge for messages). Sent today: ${sentToday.toLocaleString()} of your limit of ${settings.messagesPerDay.toLocaleString()}.` }),
+      channel('sms', 'SMS with Twilio', 'Make a Twilio account (twilio.com), add credit, and copy the Account SID and Auth Token from the Twilio Console. For Liberia, MTN numbers need a sender name (letters, up to 11) rather than a number.',
+        [...field('twilio-sid', 'Account SID (starts with AC)', { maxlength: 34 }), ...field('twilio-token', 'Auth Token', { type: 'password', maxlength: 200 }), ...field('twilio-from', 'Sender: your Twilio number (+…) or a name like MamaShop', { maxlength: 16 })],
+        () => ({ accountSid: value('twilio-sid'), authToken: value('twilio-token'), from: value('twilio-from') })),
+      channel('email', 'Email with Resend', 'Make a Resend account (resend.com; its free plan sends 3,000 emails a month), verify your domain there, and create an API key.',
+        [...field('resend-key', 'API key (starts with re_)', { type: 'password', maxlength: 200 }), ...field('resend-from', 'Send from, like orders@yourshop.com', { maxlength: 120 })],
+        () => ({ apiKey: value('resend-key'), from: value('resend-from') })),
+      h('form', { onsubmit: async (event) => {
+        event.preventDefault();
+        try { await api('/messages/settings', { method: 'PUT', body: { alertSms: value('alert-sms'), alertEmail: value('alert-email'), country: value('msg-country'), messagesPerDay: value('msg-limit') } }); await showMessages(); say('Saved.', true); } catch (error) { if (!error.quiet) say(error.message); }
+      } }, h('h3', { text: 'Send the app\'s alerts to' }),
+        h('p', { class: 'note', text: 'Every alert (for example "Stock low" or "New order") is also sent to these people, up to 5 of each. Leave empty to show alerts only in the app.' }),
+        h('label', { for: 'alert-sms', text: 'Phone numbers (one per line)' }), h('textarea', { id: 'alert-sms', rows: 2, text: settings.alertSms.join('\n') }),
+        h('label', { for: 'alert-email', text: 'Email addresses (one per line)' }), h('textarea', { id: 'alert-email', rows: 2, text: settings.alertEmail.join('\n') }),
+        h('label', { for: 'msg-country', text: 'Country code for numbers starting with 0' }), h('input', { id: 'msg-country', inputmode: 'numeric', maxlength: 4, value: settings.country }),
+        h('label', { for: 'msg-limit', text: 'Most messages a day (protects your bill)' }), h('input', { id: 'msg-limit', type: 'number', min: 0, max: 5000, value: settings.messagesPerDay }),
+        h('div', { class: 'row' }, h('button', { type: 'submit', class: 'primary', text: 'Save' }))),
+      (connected.sms || connected.email) ? h('form', { onsubmit: async (event) => {
+        event.preventDefault();
+        const kind = value('test-channel');
+        try { const r = await api('/messages/test', { method: 'POST', body: { channel: kind, to: value('test-to') } }); say(`Test sent to ${r.to}.`, true); } catch (error) { if (!error.quiet) say(error.message); }
+      } }, h('h3', { text: 'Send a test' }),
+        h('select', { id: 'test-channel', 'aria-label': 'SMS or email' }, connected.sms ? h('option', { value: 'sms', text: 'SMS' }) : null, connected.email ? h('option', { value: 'email', text: 'Email' }) : null),
+        h('input', { id: 'test-to', 'aria-label': 'Send the test to', placeholder: '+231… or you@example.com', required: true }),
+        h('div', { class: 'row' }, h('button', { type: 'submit', text: 'Send test' }))) : null,
+      status);
   } catch (error) { if (!error.quiet) box.replaceChildren(h('p', { class: 'msg error', role: 'alert', text: error.message })); }
 }
 
