@@ -687,7 +687,11 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
       var inspect = (${checkWebsiteDocument.toString()});
       inspect(document).forEach(tell);
     }
-    post({ grandpa: 'ran', checkId:checkId });
+    // Apps with a database (Phase D4): the kit tests every table in the test database, then the check is finished.
+    var app = window.GrandpaApp, done = function () { post({ grandpa: 'ran', checkId:checkId }); };
+    if (checkId && app && app.db && typeof app.db._selfTest === 'function') {
+      Promise.resolve().then(function () { return app.db._selfTest(); }).then(function (problems) { (problems || []).slice(0, 10).forEach(tell); }, function (e) { tell('The test database check failed: ' + ((e && e.message) || e)); }).then(done, done);
+    } else done();
   });
 }());
 </script>`;

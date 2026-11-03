@@ -31,7 +31,7 @@ import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode
 import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404, isAppSite, withAppRegistration, appServiceWorker, appPage, textColourOn } from './site-runtime.js';
 import { buildApk, newSigningKey, sealKey, openKey } from './android-app.js';
 import { buildExe } from './windows-app.js';
-import { checkSchema, cleanRecord, cleanQuery, cleanSummary as cleanAppSummary, createMemoryAppDb, createPostgresAppDb, allowed as appAllowed, effectChanges, recordMatches, fillMessage, labelOf, FILE_TYPES, FILE_BYTES, FILE_ID } from './app-db.js';
+import { checkSchema, cleanRecord, cleanQuery, cleanSummary as cleanAppSummary, createMemoryAppDb, createPostgresAppDb, allowed as appAllowed, effectChanges, recordMatches, fillMessage, labelOf, FILE_TYPES, FILE_BYTES, FILE_ID, designChanges } from './app-db.js';
 import { createMemoryAppUsers, createPostgresAppUsers } from './app-users.js';
 import { searchPhotos, fetchPhoto, youtubeInfo, searchWords, searchVideos } from './media-search.js';
 import { chooseRecipe, RECIPES, projectKind } from '../public/build-recipes.js';
@@ -1870,11 +1870,18 @@ app.post('/api/sites', rateLimit, requireAccess, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const slug = typeof req.body?.slug === 'string' && req.body.slug ? req.body.slug.trim().toLowerCase() : slugFrom(req.body?.name);
   const design = Array.isArray(req.body?.files) ? req.body.files.find((f) => f?.path === 'data/schema.json') : null;
-  if (design) { try { checkSchema(String(design.body || '')); } catch (error) { res.status(400).json({ error: `The app's data design (data/schema.json) has a mistake: ${error.message}` }); return; } }
+  let nextDesign = null;
+  if (design) { try { nextDesign = checkSchema(String(design.body || '')); } catch (error) { res.status(400).json({ error: `The app's data design (data/schema.json) has a mistake: ${error.message}` }); return; } }
+  // A new version never deletes saved data; what the new design leaves out is reported (Phase D4).
+  let dataWarnings = [];
+  try {
+    const live = appDb && validSlug(slug) && await siteStore.meta(slug) ? await appSchema(slug) : null;
+    if (live?.schema) dataWarnings = designChanges(live.schema, nextDesign, await appDb.tableCounts(slug));
+  } catch { dataWarnings = []; }
   try {
     const result = await siteStore.publish({ slug, name: req.body?.name, files: req.body?.files, token: typeof req.body?.token === 'string' ? req.body.token : '' });
     const files = Array.isArray(req.body?.files) ? req.body.files : [];
-    res.json({ ...result, url: siteBase(req, result.slug), ...(isAppSite(files) ? { appUrl: `${siteBase(req, result.slug)}_grandpa/app`, installable: Boolean(SITES_HOST), ...(SITES_HOST ? { apkUrl: `${siteBase(req, result.slug)}_grandpa/app.apk`, exeUrl: `${siteBase(req, result.slug)}_grandpa/app.exe` } : {}) } : {}) });
+    res.json({ ...result, url: siteBase(req, result.slug), ...(dataWarnings.length ? { dataWarnings } : {}), ...(isAppSite(files) ? { appUrl: `${siteBase(req, result.slug)}_grandpa/app`, installable: Boolean(SITES_HOST), ...(SITES_HOST ? { apkUrl: `${siteBase(req, result.slug)}_grandpa/app.apk`, exeUrl: `${siteBase(req, result.slug)}_grandpa/app.exe` } : {}) } : {}) });
   } catch (error) { siteFailed(res, error); }
 });
 app.delete('/api/sites/:slug', rateLimit, requireAccess, async (req, res) => {
@@ -2280,6 +2287,23 @@ app.delete('/api/manage/:slug/app-invites/:code', rateLimit, manageAccess, async
 });
 app.get('/api/manage/:slug/app-activity', rateLimit, manageAccess, async (req, res) => {
   try { res.json({ activity: appDb ? await appDb.activity(req.site.slug, 300) : [], alerts: appDb ? await appDb.alerts(req.site.slug, { limit: 50 }) : [] }); } catch (error) { dataFailed(res, error); }
+});
+// Phase D4: Build checks an app's data design (and its sample records) with the same rules as publishing.
+app.post('/api/app-design/check', rateLimit, requireAccess, (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  const problems = [];
+  let schema = null;
+  try { schema = checkSchema(String(req.body?.schema || '')); } catch (error) { problems.push(`data/schema.json: ${error.message}`); }
+  if (schema && typeof req.body?.sample === 'string' && req.body.sample.trim()) {
+    let sample = null;
+    try { sample = JSON.parse(req.body.sample); } catch { problems.push('data/sample.json is not valid JSON.'); }
+    for (const [name, rows] of Object.entries(sample && typeof sample === 'object' ? sample : {})) {
+      const table = schema.tables[name];
+      if (!table || !Array.isArray(rows)) continue;
+      rows.slice(0, 50).forEach((row, i) => { try { cleanRecord(table, Object.fromEntries(Object.entries(row || {}).filter(([k]) => !['id', 'created', 'updated', 'by'].includes(k)))); } catch (error) { problems.push(`data/sample.json, ${name} record ${i + 1}: ${error.message}`); } });
+    }
+  }
+  res.json({ ok: !problems.length, problems: problems.slice(0, 10) });
 });
 // Only Grandpa AI's owner may raise one app's limits (never unlimited).
 app.post('/api/admin/app-db/:slug/limits', rateLimit, requireAgentAdmin, async (req, res) => {

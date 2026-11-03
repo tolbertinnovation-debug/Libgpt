@@ -583,6 +583,22 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
   - Manage shows the thumbnail and sales by product name, imports a spreadsheet (2 added, 2 bad rows explained) and shows the activity log and alerts;
   - no page errors.
 
+### Phase D4: the agent designs and tests the database (done)
+- **The data plan comes first.** When someone asks for an app, the planning conversation now proposes its data in plain words: each table, its fields, and who may add, change or see it, plus how people sign in (accounts).
+  - Build shows it as a "Your app's data" card under the plan. The person can ask for changes ("add a phone number to customers") before anything is built.
+  - The approved plan is added to the brief, and the builders are told to make `data/schema.json` from it exactly.
+- **Checked after every build** (the same check that already catches broken pages, so the existing automatic repair fixes it):
+  - the code uses `App.db` but there is no `data/schema.json`; the design is not valid JSON; the code uses a table the design does not have; the sample data has a table the design does not have;
+  - the server checks the design and every sample record with the same rules as the real database (`POST /api/app-design/check`);
+  - in the hidden check run, the kit tests every table in the test database as the owner: it adds a record (from the sample data, or sensible values), lists it, changes it and removes it. A field the code saves that the table does not have, a table the code lists that does not exist, a sample record that breaks a rule, or a table that cannot save a record is reported.
+- **Publishing a new version never deletes saved data.** If the new design drops a table or field that has records, or changes a field's type, the publish message says "Your saved data is safe" and lists what was left out; the data comes back if the table or field is added again.
+- **Verified:**
+  - tests check the data plan (names made safe, broken tables dropped) and its text for the builders, the design checks, the server check, and that republishing a smaller design warns, hides the table and brings it back with its records;
+  - in Chromium, at phone size: the "Your app's data" card shows the tables, fields and accounts, and saying "yes" sends the approved plan to the builders;
+  - in the check run, a clean app reports nothing; a wrong table name, a bad sample record and a table that cannot save a record are each reported;
+  - no page errors.
+- **Next (needs a decision):** Phase D5, custom server code for an app, run in a sandbox.
+
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).

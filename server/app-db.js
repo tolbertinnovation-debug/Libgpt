@@ -107,6 +107,27 @@ export const recordMatches = (record, filters, table) => matches(record, filters
 /** The alert's message with the record's values filled in. */
 export const fillMessage = (message, record, byName = '') => message.replace(/\{([a-z][a-z0-9_]*)\}/g, (_, k) => (k === 'by' ? byName : record[k] == null ? '' : String(record[k]))).slice(0, 240);
 
+/**
+ * Publishing a new version (Phase D4): what would happen to data people already saved. Data is never deleted;
+ * a table or field the new design drops is kept (and comes back if it is added again), so say so plainly.
+ */
+export function designChanges(before, after, counts = {}) {
+  const notes = [];
+  if (!before) return notes;
+  for (const [name, t] of Object.entries(before.tables)) {
+    const n = counts[name] || 0;
+    if (!n) continue;
+    const next = after?.tables[name];
+    if (!next) { notes.push(`The "${t.label}" table (${n} record${n === 1 ? '' : 's'}) is not in the new version. Its records are kept and come back if the table is added again.`); continue; }
+    for (const [f, field] of Object.entries(t.fields)) {
+      const now = next.fields[f];
+      if (!now) notes.push(`The field "${field.label}" of ${t.label} is not in the new version. Its values in ${n} record${n === 1 ? '' : 's'} are kept and come back if the field is added again.`);
+      else if (now.type !== field.type && !(numeric(now) && numeric(field))) notes.push(`The field "${field.label}" of ${t.label} changed from ${field.type} to ${now.type}. The ${n} saved record${n === 1 ? '' : 's'} keep their old values; check them in Manage → App data.`);
+    }
+  }
+  return notes.slice(0, 10);
+}
+
 // ---- Accounts and rules (Phase D2) ----------------------------------------------------
 export const RULE_WORDS = ['anyone', 'signed-in', 'team', 'own'];
 const ACTIONS = ['read', 'add', 'change', 'remove'];
@@ -376,6 +397,7 @@ export function createMemoryAppDb({ now = () => Date.now() } = {}) {
     async setLimits(slug, limits) { app(slug).usage.limits = cleanLimits(limits); return limitsOf(app(slug)); },
     async exportAll(slug) { return [...app(slug).rows.values()].map((r) => ({ table: r.tbl, ...rowOut(r.id, r.data, r.created, r.updated, r.by) })); },
     async counters(slug) { return { ...app(slug).usage.counters }; },
+    async tableCounts(slug) { const out = {}; for (const r of app(slug).rows.values()) out[r.tbl] = (out[r.tbl] || 0) + 1; return out; },
     async removeSite(slug) { apps.delete(slug); return true; },
   };
 }
@@ -595,6 +617,9 @@ export function createPostgresAppDb({ connectionString, pool: suppliedPool, scop
     async alerts(slug, { since = '', limit = 50 } = {}) {
       return transaction(async (client) => (await client.query(`SELECT * FROM public.grandpa_ai_app_alerts WHERE scope=$1 AND slug=$2${since ? ' AND at > $4::timestamptz' : ''} ORDER BY at DESC LIMIT $3`, [scope, slug, Math.min(200, limit), ...(since ? [since] : [])])).rows
         .map((r) => ({ id: r.id, at: new Date(r.at).toISOString(), message: r.message, for: typeof r.for_who === 'string' ? JSON.parse(r.for_who) : r.for_who, table: r.tbl, record: r.record_id })));
+    },
+    async tableCounts(slug) {
+      return transaction(async (client) => Object.fromEntries((await client.query('SELECT tbl, count(*)::integer AS n FROM public.grandpa_ai_app_records WHERE scope=$1 AND slug=$2 GROUP BY tbl', [scope, slug])).rows.map((r) => [r.tbl, Number(r.n)])));
     },
     async counters(slug) {
       return transaction(async (client) => { const r = (await client.query('SELECT counters FROM public.grandpa_ai_app_usage WHERE scope=$1 AND slug=$2', [scope, slug])).rows[0]; return r ? (typeof r.counters === 'string' ? JSON.parse(r.counters) : r.counters) : {}; });

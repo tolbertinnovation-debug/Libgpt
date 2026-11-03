@@ -22,7 +22,7 @@ import {
   applyEdits, filesFrom, forSending, highlightFile, pendingPictures, KIT_NOTE, isKitFile, looksEmpty, makeProject, previewDocument,
   previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
   loadProjectsDurable, saveProjectsDurable,
-} from './build.js?v=kit-2';
+} from './build.js?v=kit-3';
 import {buildTaskLabel,buildTaskFacts} from './build-task-state.js?v=phase2-stage6-reliability';
 import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js?v=phase2-stage6-reliability';
 import { shrink } from './photo.js';
@@ -36,6 +36,7 @@ import { SECTIONS, KIT_FILES, ensureKitLinks } from './build-sections.js?v=kit-1
 import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js?v=quality-3';
 import { wantsApp, markApp } from './build-app.js?v=app-1';
 import { kindLine } from './build-recipes.js?v=kind-1';
+import { designIssues } from './build-data-check.js?v=data-1';
 import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, replacePlayer, creditsPage, linkCredits } from './build-media.js?v=media-3';
 import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=kit-1';
 
@@ -659,7 +660,7 @@ async function publishToWeb() {
     const what = app ? 'app' : 'website';
     p.messages.push({ role: 'assistant', content: first
       ? (result.appUrl ? `Your app is live at ${result.url}. People can install it on their phone or computer from ${result.appUrl} (the QR code opens that page). Try it on your own phone first.` : `Your ${what} is live at ${result.url} — share the link or the QR code. You can update it or take it down any time.`)
-      : `The published ${what} is updated: ${result.url}${result.appUrl ? `. Installed copies update themselves the next time they open with internet.` : ''}` });
+      : `The published ${what} is updated: ${result.url}${result.appUrl ? `. Installed copies update themselves the next time they open with internet.` : ''}${Array.isArray(result.dataWarnings) && result.dataWarnings.length ? `\n\nYour saved data is safe. Note:\n${result.dataWarnings.map((w) => `- ${w}`).join('\n')}` : ''}` });
     await persist();
     unmark(working); render();
     showWebPublish();
@@ -685,7 +686,7 @@ async function unpublishFromWeb() {
 
 /* ---- The Grandpa Kit ----------------------------------------------------- */
 /** Add the shared design kit to a project once, so builders can use its sections and effects. */
-const KIT_VERSION = 'Grandpa Kit 14';
+const KIT_VERSION = 'Grandpa Kit 15';
 async function ensureKit(p) {
   // An older kit is replaced by the current one (only the kit ever changes the kit).
   const kit = (p?.files || []).filter((f) => isKitFile(f.path));
@@ -693,7 +694,7 @@ async function ensureKit(p) {
   if (!p || (kit.length === paths.length && kit.every((f) => String(f.body).startsWith(`/* ${KIT_VERSION} `)))) return true;
   try {
     const bodies = await Promise.all(paths.map(async (path) => {
-      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-14`);
+      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-15`);
       if (!response.ok) throw new Error('kit');
       return response.text();
     }));
@@ -1780,11 +1781,23 @@ async function runAndWatch(files, entryPath = '', width = 390, cancelled = () =>
   }
 }
 
+/** The app's data design (Phase D4): what the code uses, then the server's own checks of the design and sample records. */
+async function dataIssues(files) {
+  const issues = designIssues(files);
+  const design = files.find((f) => f.path === 'data/schema.json');
+  if (!design || issues.some((i) => /not valid JSON/.test(i))) return issues;
+  try {
+    const response = await fetch('/api/app-design/check', { method: 'POST', headers: { 'Content-Type': 'application/json', ...deps.headers() }, body: JSON.stringify({ schema: design.body, sample: files.find((f) => f.path === 'data/sample.json')?.body || '' }) });
+    if (response.ok) issues.push(...((await response.json()).problems || []));
+  } catch { /* offline: the design is checked again at publish */ }
+  return issues;
+}
+
 /** Everything wrong with the project, as sentences a model can act on. */
 async function faultsIn(files, expectedPaths = [], cancelled = () => false) {
   activeChecks += 1;
   try {
-    const faults = [...danglingLinks(files), ...looksEmpty(files), ...projectIssues(files, expectedPaths)];
+    const faults = [...danglingLinks(files), ...looksEmpty(files), ...projectIssues(files, expectedPaths), ...await dataIssues(files)];
     if (previewState(files).can) {
       const pages = files.filter(file => /\.html?$/i.test(file.path));
       for (const page of pages) {
@@ -1857,6 +1870,8 @@ async function discuss(said) {
     const conversation = p.messages.filter((m) => m.content && (m.role === 'user' || m.discussion)).map(({ role, content }) => ({ role, content }));
     const answer = await teamRequest('/api/build/discuss', { messages: conversation }, controller.signal);
     p.messages.push({ role: 'assistant', content: answer.reply, discussion: { ready: Boolean(answer.ready), brief: answer.brief || '', title: answer.title || '', suggestions: answer.suggestions || [],
+      // Phase D4: the app's data, in plain words, for the person to approve before anything is built.
+      data: Array.isArray(answer.data) ? answer.data.slice(0, 12) : [], accounts: String(answer.accounts || '').slice(0, 200),
       recipe: answer.recipe?.id ? { id: String(answer.recipe.id), name: String(answer.recipe.name || '') } : null,
       recipes: Array.isArray(answer.recipes) ? answer.recipes.slice(0, 30).map((r) => ({ id: String(r.id), name: String(r.name) })) : [],
       // App or website, from the person's words; a choice made on the card is kept.
@@ -1886,9 +1901,25 @@ async function startFromBrief(said = 'Start building') {
   const added = (p.materials || []).filter((path) => p.files.some((f) => f.path === path));
   await ensureKit(p);
   const typed = (agreed.recipes || []).find((r) => r.id === (agreed.recipeChoice || agreed.recipe?.id));
-  const base = `${typed ? `Project type: ${typed.name}.\n` : ''}${kindLine(agreed.kindChoice || agreed.kind || '')}\n${agreed.brief}`;
+  const plan = dataPlanText(agreed.data, agreed.accounts);
+  const base = `${typed ? `Project type: ${typed.name}.\n` : ''}${kindLine(agreed.kindChoice || agreed.kind || '')}\n${agreed.brief}${plan ? `\n\n${plan}` : ''}`;
   const brief = added.length ? `${base}\n\nFiles the person added, already in the project. Use each where it belongs, by this exact path, and never rewrite them:\n${added.map((path) => `- ${path}`).join('\n')}` : base;
   await buildTheWholeThing(brief, false, { messageText: said });
+}
+
+/** The approved data plan as instructions for the builders (Phase D4). */
+function dataPlanText(plan = [], accounts = '') {
+  if (!Array.isArray(plan) || !plan.length) return '';
+  return `Data plan the person approved (build data/schema.json from it exactly, with these tables and fields, adding only what the screens need):\n${plan.map((t) => `- ${t.label || t.table} (table "${t.table}"): ${(t.fields || []).join('; ')}${t.who ? `. Who: ${t.who}` : ''}`).join('\n')}${accounts ? `\nAccounts: ${accounts}` : ''}`;
+}
+/** "Your app's data": every table with its fields and who may use it, before anything is built. */
+function dataPlanHtml(discussion) {
+  const plan = Array.isArray(discussion.data) ? discussion.data : [];
+  if (!plan.length) return '';
+  return `<details class="build-data-plan" open><summary>Your app's data (${plan.length} ${plan.length === 1 ? 'table' : 'tables'})</summary>
+    ${plan.map((t) => `<div class="build-data-table"><strong>${escapeHtml(t.label || t.table)}</strong><ul>${(t.fields || []).map((f) => `<li>${escapeHtml(f)}</li>`).join('')}</ul>${t.who ? `<small>${escapeHtml(t.who)}</small>` : ''}</div>`).join('')}
+    ${discussion.accounts ? `<p class="build-brief-note">Accounts: ${escapeHtml(discussion.accounts)}</p>` : ''}
+    <p class="build-brief-note">Want a change? Say it, for example "add a phone number to customers". Your data is kept on Grandpa's server and stays when you publish a new version.</p></details>`;
 }
 
 function discussionHtml(discussion, latest) {
@@ -1907,6 +1938,7 @@ function discussionHtml(discussion, latest) {
     ${brief ? `<details${discussion.ready ? ' open' : ''}><summary>What I'll build</summary><p class="build-brief-text">${brief}</p></details>` : ''}
     ${making}
     ${recipe}
+    ${dataPlanHtml(discussion)}
     ${chips ? `<div class="build-chips">${chips}</div>` : ''}
     <div class="build-brief-actions">
       <button class="build-start${discussion.ready ? '' : ' is-quiet'}" type="button" data-discuss-start>${discussion.ready ? 'Start building' : 'Skip questions and start building'}</button>
