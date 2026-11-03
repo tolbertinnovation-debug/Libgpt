@@ -1,4 +1,4 @@
-/* Grandpa Kit 12 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
+/* Grandpa Kit 13 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
    game loop, sounds, timers and formatting for web tools, quizzes, games, dashboards and phone-style
    apps. No build step, no outside services. window.GrandpaApp */
 (function () {
@@ -307,11 +307,11 @@
   function dbLocalSave() { if (!(window.GrandpaPreviewData && window.GrandpaPreviewData.schema)) dbStore('gk-db-local:' + location.pathname, DB.local); }
   function dbLocalAdd(table, data) {
     var rows = DB.local.tables[table] || (DB.local.tables[table] = []), at = new Date(Date.now() + DB.local.seq).toISOString();
-    var record = Object.assign({}, dbLocalCheck(table, data, false), { id: 'local-' + (++DB.local.seq), created: at, updated: at });
+    var record = Object.assign({}, dbLocalCheck(table, data, false), { id: 'local-' + (++DB.local.seq), created: at, updated: at, by: null });
     rows.push(record); return record;
   }
-  function dbLocalList(table, opts) {
-    var rows = (DB.local.tables[table] || []).slice(), where = opts.where || {}, q = String(opts.q || '').toLowerCase();
+  function dbLocalList(table, opts, mine) {
+    var rows = (DB.local.tables[table] || []).filter(mine || function () { return true; }), where = opts.where || {}, q = String(opts.q || '').toLowerCase();
     rows = rows.filter(function (r) {
       return Object.keys(where).every(function (k) {
         var c = where[k], pairs = c !== null && typeof c === 'object' && !Array.isArray(c) ? c : { eq: c };
@@ -327,16 +327,28 @@
     rows.sort(function (x, y) { var a = x[s[2]], b = y[s[2]]; var c = a == null ? 1 : b == null ? -1 : typeof a === 'number' ? a - b : String(a).localeCompare(String(b)); return s[1] ? -c : c; });
     var page = rows.slice(opts.offset || 0, (opts.offset || 0) + (opts.limit || 100)); page.total = rows.length; return page;
   }
+  /** In the preview: what the signed-in test account may do ('all', 'own' or 'none'); the owner may do everything. */
+  function localMay(table, action) {
+    var t = DB.schema && DB.schema.tables && DB.schema.tables[table], u = DB.localUser;
+    if (!t || !u) return 'all';
+    var access = t.access || 'team', from = { team: ['team'], 'public-read': action === 'read' ? ['anyone'] : ['team'], 'public-add': action === 'add' ? ['anyone'] : ['team'], public: ['anyone'] }[access];
+    var list = t.rules ? [].concat(t.rules[action] || ['team']) : from;
+    if (list.indexOf('anyone') >= 0 || list.indexOf('signed-in') >= 0 || list.indexOf(u.role) >= 0) return 'all';
+    return list.indexOf('own') >= 0 ? 'own' : 'none';
+  }
   function dbLocal(table, op, a, b) {
-    var rows = DB.local.tables[table] || (DB.local.tables[table] = []), find = function (id) { return rows.filter(function (r) { return r.id === id; })[0]; }, result;
-    if (op === 'add') result = dbLocalAdd(table, a);
-    else if (op === 'list') return dbLocalList(table, a || {});
+    var may = localMay(table, op === 'list' || op === 'get' || op === 'summary' ? 'read' : op === 'update' ? 'change' : op);
+    if (may === 'none') throw dbError('Your account is not allowed to do that here. Ask the app\'s owner.');
+    var mine = function (r) { return may !== 'own' || (r && DB.localUser && r.by === DB.localUser.id); };
+    var rows = (DB.local.tables[table] || (DB.local.tables[table] = [])).filter(mine), all = DB.local.tables[table], find = function (id) { return rows.filter(function (r) { return r.id === id; })[0]; }, result;
+    if (op === 'add') { result = dbLocalAdd(table, a); result.by = DB.localUser ? DB.localUser.id : null; }
+    else if (op === 'list') return dbLocalList(table, a || {}, mine);
     else if (op === 'get') return find(a) || null;
     else if (op === 'update') { var r = find(a); if (!r) throw dbError('That record is not there any more.'); Object.assign(r, dbLocalCheck(table, b, true), { updated: new Date().toISOString() }); result = r; }
-    else if (op === 'remove') { var i = rows.indexOf(find(a)); if (i >= 0) rows.splice(i, 1); result = i >= 0; }
+    else if (op === 'remove') { var i = all.indexOf(find(a)); if (i >= 0) all.splice(i, 1); result = i >= 0; }
     else if (op === 'summary') {
       var groups = {}, o = a || {}, by = String(o.by || '').split(':');
-      dbLocalList(table, { where: o.where, limit: 1e9 }).forEach(function (r) {
+      dbLocalList(table, { where: o.where, limit: 1e9 }, mine).forEach(function (r) {
         var v = by[0] ? r[by[0]] : '', key = v == null ? '' : by[1] === 'day' ? String(v).slice(0, 10) : by[1] === 'month' ? String(v).slice(0, 7) : by[1] === 'year' ? String(v).slice(0, 4) : String(v);
         var g = groups[key] || (groups[key] = { key: key, count: 0, sum: 0 }); g.count += 1; if (o.sum) g.sum += Number(r[o.sum]) || 0;
       });
@@ -399,10 +411,17 @@
       return op === 'remove' ? true : Object.assign({ id: op === 'add' ? 'offline-' + Date.now() : a, pending: true }, body || {});
     });
   }
-  /** The sign-in screen for a private app: the team passcode the owner set in Manage. */
+  /** Signing in to a private app: the account screen when the app has accounts, otherwise the team passcode. */
   function dbSignIn() {
     if (DB.signing) return DB.signing;
     DB.signing = new Promise(function (resolve) {
+      authInfo(true).then(function (info) { if (info.accounts) authScreen(info, resolve); else teamScreen(resolve); }, function () { teamScreen(resolve); });
+    });
+    return DB.signing;
+  }
+  /** The team passcode the owner set in Manage (staff phones). */
+  function teamScreen(resolve) {
+    (function () {
       var box = document.createElement('div'); box.className = 'gk-lock'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
       box.innerHTML = '<form class="gk-lock-card"><h2></h2><p>This app is private. Enter the team passcode the owner gave you.</p><label>Team passcode <input type="password" autocomplete="current-password" required minlength="6"></label><p class="gk-lock-error" role="alert" hidden></p><button class="gk-btn" type="submit">Open the app</button><small>Owner: open the app from Manage → App data to use it on this phone.</small></form>';
       box.querySelector('h2').textContent = document.title || 'Sign in';
@@ -411,12 +430,11 @@
         e.preventDefault();
         dbFetch('POST', '/session', { passcode: input.value }).then(function (r) {
           if (!r.ok) { error.textContent = r.data.error || 'That passcode is not right.'; error.hidden = false; return; }
-          DB.key = r.data.key; dbStore('gk-db-key:' + DB.slug, DB.key); box.parentNode.removeChild(box); DB.signing = null; resolve();
+          DB.key = r.data.key; dbStore('gk-db-key:' + DB.slug, DB.key); DB.info = null; box.parentNode.removeChild(box); DB.signing = null; resolve();
         }, function () { error.textContent = 'No internet connection. Connect and try again.'; error.hidden = false; });
       });
       document.body.appendChild(box); input.focus();
-    });
-    return DB.signing;
+    })();
   }
   function dbNotify(tables) { DB.listeners.forEach(function (fn) { try { fn(tables); } catch (e) { /* the app's own problem */ } }); }
   function dbWatch() {
@@ -454,10 +472,106 @@
   /** { mode: 'cloud' | 'local', role: 'owner' | 'team' | 'visitor', tables } */
   App.db.ready = function () {
     dbSetup();
-    if (DB.mode === 'local') return Promise.resolve({ mode: 'local', role: 'owner', tables: (DB.schema || {}).tables || {} });
-    return dbCall('GET', '/info').then(function (info) { return Object.assign({ mode: 'cloud' }, info); });
+    if (DB.mode === 'local') return Promise.resolve({ mode: 'local', role: DB.localUser ? DB.localUser.role : 'owner', user: DB.localUser || { id: 'owner', name: 'Owner (preview)', login: '', role: 'owner' }, accounts: (DB.schema || {}).accounts || null, tables: (DB.schema || {}).tables || {} });
+    return authInfo(true).then(function (info) { return Object.assign({ mode: 'cloud' }, info); });
   };
-  App.db.signOut = function () { dbSetup(); DB.key = ''; dbStore('gk-db-key:' + DB.slug, null); };
+  App.db.signOut = function () { return App.auth.signOut(); };
+  /* ---- accounts (Phase D2): App.auth.user() / require() / signIn({ login, password }) / signUp({ name, login, password, code }) /
+     signOut() / changePassword(old, new) / onChange(fn). Apps with "accounts" in data/schema.json; the kit shows the
+     sign-in and create-account screen itself. In Build's preview you start as the owner and test accounts stay on this device. ---- */
+  var AUTH = { listeners: [] };
+  function authInfo(fresh) {
+    dbSetup();
+    // In Build's preview you are the owner until you sign in as a test account.
+    if (DB.mode === 'local') return Promise.resolve({ accounts: (DB.schema || {}).accounts || null, user: DB.localUser || { id: 'owner', name: 'Owner (preview)', login: '', role: 'owner' }, role: DB.localUser ? DB.localUser.role : 'owner' });
+    if (DB.info && !fresh) return Promise.resolve(DB.info);
+    return dbFetch('GET', '/info').then(function (r) { if (!r.ok) throw dbError(r.data.error); DB.info = r.data; return r.data; });
+  }
+  function authChanged(user) { DB.info = null; AUTH.listeners.forEach(function (fn) { try { fn(user); } catch (e) { /* the app's own problem */ } }); dbNotify(null); }
+  function authKeep(result) { DB.key = result.token; dbStore('gk-db-key:' + DB.slug, DB.key); authChanged(result.user); return result.user; }
+  function authPost(path, body) { return dbFetch('POST', path, body).then(function (r) { if (!r.ok) throw dbError(r.data.error); return r.data; }); }
+  // Test accounts in Build's preview (never sent anywhere).
+  function localAccounts() { return DB.localAccounts || (DB.localAccounts = []); }
+  App.auth = {
+    user: function () { return authInfo().then(function (i) { return i.user || null; }); },
+    signIn: function (o) {
+      dbSetup(); o = o || {};
+      if (DB.mode === 'local') {
+        var found = localAccounts().filter(function (u) { return u.login === String(o.login || '').trim().toLowerCase() && u.password === o.password; })[0];
+        if (!found) return Promise.reject(dbError('That phone number or username and password do not match.'));
+        DB.localUser = found.user; authChanged(found.user); return Promise.resolve(found.user);
+      }
+      return authPost('/signin', { login: o.login, password: o.password }).then(authKeep);
+    },
+    signUp: function (o) {
+      dbSetup(); o = o || {};
+      if (DB.mode === 'local') {
+        var acc = (DB.schema || {}).accounts || { defaultRole: 'member' }, login = String(o.login || '').trim().toLowerCase();
+        if (String(o.name || '').trim().length < 2) return Promise.reject(dbError('Write your name.'));
+        if (login.length < 3) return Promise.reject(dbError('Use your phone number, or a username of 3 to 40 letters and numbers.'));
+        if (String(o.password || '').length < 6) return Promise.reject(dbError('Choose a password of 6 to 72 characters.'));
+        if (localAccounts().some(function (u) { return u.login === login; })) return Promise.reject(dbError('An account with that phone number or username already exists. Sign in instead.'));
+        var user = { id: 'preview-' + (localAccounts().length + 1), name: String(o.name).trim(), login: login, role: acc.defaultRole };
+        localAccounts().push({ login: login, password: o.password, user: user });
+        DB.localUser = user; authChanged(user); return Promise.resolve(user);
+      }
+      return authPost('/signup', { name: o.name, login: o.login, password: o.password, code: o.code }).then(authKeep);
+    },
+    signOut: function () {
+      dbSetup();
+      if (DB.mode === 'local') { DB.localUser = null; authChanged(null); return Promise.resolve(); }
+      // Signing out clears this phone's copy and starts the app afresh, so nothing private stays on the screen.
+      var done = function () { DB.key = ''; dbStore('gk-db-key:' + DB.slug, null); dbStore('gk-db-cache:' + DB.slug, null); dbStore('gk-db-queue:' + DB.slug, null); location.reload(); };
+      return authPost('/signout').then(done, done);
+    },
+    changePassword: function (old, password) {
+      dbSetup();
+      if (DB.mode === 'local') return Promise.resolve();
+      return authPost('/password', { old: old, password: password }).then(function (r) { DB.key = r.token; dbStore('gk-db-key:' + DB.slug, DB.key); });
+    },
+    /** Resolves with the signed-in person, showing the sign-in screen first if nobody is. */
+    require: function () { return App.auth.user().then(function (user) { return user || dbSignIn().then(function () { return App.auth.user(); }); }); },
+    onChange: function (fn) { AUTH.listeners.push(fn); return function () { AUTH.listeners = AUTH.listeners.filter(function (f) { return f !== fn; }); }; },
+  };
+
+  /** The account screen: sign in, or create an account (when the app allows), or the staff team passcode. */
+  function authScreen(info, resolve) {
+    var acc = info.accounts, canJoin = acc.signup !== 'off';
+    var box = document.createElement('div'); box.className = 'gk-lock'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+    box.innerHTML = '<div class="gk-lock-card"><h2></h2>'
+      + (canJoin ? '<div class="gk-segmented" role="group"><button type="button" data-auth="in" aria-pressed="true">Sign in</button><button type="button" data-auth="up" aria-pressed="false">Create account</button></div>' : '')
+      + '<form><label data-only="up" hidden>Your name <input name="name" autocomplete="name"></label>'
+      + '<label>Phone number or username <input name="login" autocomplete="username" required></label>'
+      + '<label>Password <input name="password" type="password" autocomplete="current-password" required minlength="6"></label>'
+      + '<label data-only="up" hidden>Invite code<span class="gk-auth-optional"> (only if the owner gave you one)</span> <input name="code" autocapitalize="characters" autocomplete="off"></label>'
+      + '<p class="gk-lock-error" role="alert" hidden></p><button class="gk-btn" type="submit">Sign in</button></form>'
+      + '<small>Forgot your password? Ask the app\'s owner to reset it.' + (info.teamPasscode ? ' Staff with the team passcode: <a href="#" data-auth="team">use it here</a>.' : '') + '</small></div>';
+    box.querySelector('h2').textContent = document.title || 'Sign in';
+    var form = box.querySelector('form'), error = box.querySelector('.gk-lock-error'), button = form.querySelector('button'), mode = 'in';
+    if (acc.signup === 'invite') box.querySelector('.gk-auth-optional').textContent = ' (from the app\'s owner)';
+    var setMode = function (m) {
+      mode = m; error.hidden = true;
+      box.querySelectorAll('[data-only="up"]').forEach(function (el) { el.hidden = m !== 'up'; });
+      box.querySelectorAll('[data-auth="in"],[data-auth="up"]').forEach(function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-auth') === m)); });
+      form.name.required = m === 'up'; form.code.required = m === 'up' && acc.signup === 'invite';
+      form.password.setAttribute('autocomplete', m === 'up' ? 'new-password' : 'current-password');
+      button.textContent = m === 'up' ? 'Create account' : 'Sign in';
+    };
+    box.addEventListener('click', function (e) {
+      var t = e.target.closest && e.target.closest('[data-auth]'); if (!t) return;
+      e.preventDefault();
+      if (t.getAttribute('data-auth') === 'team') { box.parentNode.removeChild(box); teamScreen(resolve); } else setMode(t.getAttribute('data-auth'));
+    });
+    form.addEventListener('submit', function (e) {
+      e.preventDefault(); button.disabled = true;
+      var o = { name: form.name.value, login: form.login.value, password: form.password.value, code: form.code.value };
+      (mode === 'up' ? App.auth.signUp(o) : App.auth.signIn(o)).then(function () { box.parentNode.removeChild(box); DB.signing = null; resolve(); }, function (err) {
+        error.textContent = err instanceof TypeError ? 'No internet connection. Connect and try again.' : err.message; error.hidden = false; button.disabled = false;
+      });
+    });
+    document.body.appendChild(box); form.login.focus();
+  }
+
 
   window.GrandpaApp = App;
 })();

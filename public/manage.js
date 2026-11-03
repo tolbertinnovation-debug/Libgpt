@@ -429,8 +429,52 @@ async function showData() {
         try { const all = await api('/app-data/export'); saveFile(`${slug}-data-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(all, null, 1), 'application/json'); } catch (error) { if (!error.quiet) alert(error.message); }
       } }))),
   ];
+  if (state.data.accounts) parts.splice(3, 0, h('div', { id: 'accounts', class: 'card' }, h('p', { class: 'note', text: 'Loading accounts…' })));
   panel().replaceChildren(...parts);
+  if (state.data.accounts) await showAccounts();
   await showRecords(schema);
+}
+
+/* ---- the app's accounts (Phase D2) ---------------------------------------- */
+async function showAccounts() {
+  const box = document.getElementById('accounts');
+  try {
+    const { accounts, users, invites } = await api('/app-users');
+    state.users = Object.fromEntries(users.map((u) => [u.id, u.name]));
+    const status = h('p', { class: 'msg', role: 'status' });
+    const roleChoice = (value, onchange, label) => h('select', { 'aria-label': label, onchange }, accounts.roles.map((r) => h('option', { value: r, text: r, selected: r === value })));
+    const change = async (id, body, done) => { try { await api(`/app-users/${encodeURIComponent(id)}`, { method: 'PATCH', body }); message(status, done, true); await showAccounts(); } catch (error) { if (!error.quiet) message(status, error.message); } };
+    let inviteRole = accounts.roles[0];
+    box.replaceChildren(
+      h('h2', { text: `App users (${users.length})` }),
+      h('p', { class: 'note', text: accounts.signup === 'open' ? `Anyone can create an account; new accounts are "${accounts.defaultRole}". Give staff an invite code to make them staff.` : accounts.signup === 'invite' ? 'People need an invite code from you to create an account.' : 'Only people you invite can join.' }),
+      users.length ? h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
+        h('thead', {}, h('tr', {}, h('th', { text: 'Name' }), h('th', { text: 'Phone or username' }), h('th', { text: 'Role' }), h('th', { text: 'Joined' }), h('th', {}))),
+        h('tbody', {}, users.map((u) => h('tr', {},
+          h('td', { text: `${u.name}${u.disabled ? ' (switched off)' : ''}` }), h('td', { text: u.login }),
+          h('td', {}, roleChoice(u.role, (e) => change(u.id, { role: e.target.value }, `${u.name} is now ${e.target.value}.`), `Role of ${u.name}`)),
+          h('td', { text: when(u.created) }),
+          h('td', {},
+            h('button', { type: 'button', text: 'Reset password', onclick: () => {
+              const password = prompt(`New password for ${u.name} (at least 6 characters). Tell them, and they can change it in the app.`);
+              if (password) change(u.id, { password }, `Password reset. Give ${u.name} the new password.`);
+            } }),
+            h('button', { type: 'button', text: u.disabled ? 'Switch on' : 'Switch off', onclick: () => change(u.id, { disabled: !u.disabled }, u.disabled ? `${u.name} can sign in again.` : `${u.name} is signed out and cannot sign in.`) }),
+            h('button', { type: 'button', class: 'danger', text: 'Delete', onclick: async () => {
+              if (!confirm(`Delete ${u.name}'s account? What they added stays in the app.`)) return;
+              try { await api(`/app-users/${encodeURIComponent(u.id)}`, { method: 'DELETE' }); await showAccounts(); } catch (error) { if (!error.quiet) message(status, error.message); }
+            } }))))))) : h('p', { class: 'note', text: 'No accounts yet. They appear here when people create one in the app.' }),
+      h('h3', { text: 'Invite codes' }),
+      h('p', { class: 'note', text: 'Someone who creates an account with a code gets its role. Delete a code to stop it working.' }),
+      invites.length ? h('ul', { class: 'invites' }, invites.map((i) => h('li', {}, h('strong', { text: i.code }), ` → ${i.role} `,
+        h('button', { type: 'button', text: 'Copy', onclick: async (e) => { try { await navigator.clipboard.writeText(i.code); e.target.textContent = 'Copied'; } catch { prompt('Copy this code', i.code); } } }),
+        h('button', { type: 'button', class: 'danger', text: 'Delete', onclick: async () => { try { await api(`/app-invites/${encodeURIComponent(i.code)}`, { method: 'DELETE' }); await showAccounts(); } catch (error) { if (!error.quiet) message(status, error.message); } } })))) : null,
+      h('div', { class: 'row' }, roleChoice(inviteRole, (e) => { inviteRole = e.target.value; }, 'Role for the new invite code'),
+        h('button', { type: 'button', class: 'primary', text: 'Make an invite code', onclick: async () => {
+          try { const { invite } = await api('/app-invites', { method: 'POST', body: { role: inviteRole } }); message(status, `New code ${invite.code} for ${invite.role}. Share it with the person.`, true); await showAccounts(); } catch (error) { if (!error.quiet) message(status, error.message); }
+        } })),
+      status);
+  } catch (error) { if (!error.quiet) box.replaceChildren(h('p', { class: 'msg error', role: 'alert', text: error.message })); }
 }
 
 async function showRecords(schema) {
@@ -440,12 +484,13 @@ async function showRecords(schema) {
   try {
     const query = new URLSearchParams({ limit: '50', offset: String(page * 50), sort: '-created', ...(state.search ? { q: state.search } : {}) });
     const { records, total } = await db(`/t/${state.table}?${query}`);
+    if (state.data.accounts && !state.users) state.users = Object.fromEntries(((await api('/app-users').catch(() => ({ users: [] }))).users || []).map((u) => [u.id, u.name]));
     const search = h('input', { type: 'search', placeholder: `Search ${table.label}`, 'aria-label': `Search ${table.label}`, value: state.search || '', onchange: (e) => { state.search = e.target.value; state.page = 0; showRecords(schema); } });
     box.replaceChildren(...[
       h('div', { class: 'row' }, h('h2', { text: `${table.label} (${total})` }), h('button', { type: 'button', class: 'primary', text: '+ Add', onclick: () => editRecord(schema, null) })), search,
       records.length ? h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
-        h('thead', {}, h('tr', {}, fields.map(([, f]) => h('th', { text: f.label })), h('th', { text: 'Added' }), h('th', {}))),
-        h('tbody', {}, records.map((r) => h('tr', {}, fields.map(([k, f]) => h('td', { text: shown(f, r[k]) })), h('td', { text: when(r.created) }),
+        h('thead', {}, h('tr', {}, fields.map(([, f]) => h('th', { text: f.label })), h('th', { text: 'Added' }), state.users ? h('th', { text: 'By' }) : null, h('th', {}))),
+        h('tbody', {}, records.map((r) => h('tr', {}, fields.map(([k, f]) => h('td', { text: shown(f, r[k]) })), h('td', { text: when(r.created) }), state.users ? h('td', { text: state.users[r.by] || '' }) : null,
           h('td', {}, h('button', { type: 'button', text: 'Edit', onclick: () => editRecord(schema, r) }), h('button', { type: 'button', class: 'danger', text: 'Delete', onclick: async () => {
             if (!confirm('Delete this record? This cannot be undone.')) return;
             try { await db(`/t/${state.table}/${encodeURIComponent(r.id)}`, { method: 'DELETE' }); await showRecords(schema); } catch (error) { alert(error.message); }

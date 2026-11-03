@@ -23,6 +23,7 @@ export function checkSchema(input) {
   if (!raw || typeof raw !== 'object' || !raw.tables || typeof raw.tables !== 'object' || Array.isArray(raw.tables)) throw fail('data/schema.json needs "tables": { "name": { "fields": { … } } }.');
   const names = Object.keys(raw.tables);
   if (!names.length || names.length > 20) throw fail('An app database has 1 to 20 tables.');
+  const accounts = checkAccounts(raw.accounts);
   const tables = {};
   for (const name of names) {
     if (!NAME.test(name)) throw fail(`Table name "${String(name).slice(0, 40)}": use lower-case letters, digits and _ (start with a letter).`);
@@ -45,9 +46,59 @@ export function checkSchema(input) {
       if (['text', 'longtext'].includes(d.type)) field.max = Math.min(d.type === 'longtext' ? 10_000 : 500, Math.max(1, Number(d.max) || (d.type === 'longtext' ? 5_000 : 200)));
       fields[f] = field;
     }
-    tables[name] = { label: String(t.label || name.replace(/_/g, ' ')).slice(0, 60), access, fields };
+    tables[name] = { label: String(t.label || name.replace(/_/g, ' ')).slice(0, 60), access, fields, rules: checkRules(name, t.rules, access, accounts) };
   }
-  return { tables };
+  return accounts ? { tables, accounts } : { tables };
+}
+
+// ---- Accounts and rules (Phase D2) ----------------------------------------------------
+export const RULE_WORDS = ['anyone', 'signed-in', 'team', 'own'];
+const ACTIONS = ['read', 'add', 'change', 'remove'];
+/** "accounts": { "signup": "open" | "invite" | "off", "roles": ["staff", "customer"], "defaultRole": "customer" } */
+export function checkAccounts(input) {
+  if (input == null) return null;
+  if (typeof input !== 'object' || Array.isArray(input)) throw fail('accounts must be { "signup": "open", "roles": [...], "defaultRole": "..." }.');
+  const signup = input.signup || 'open';
+  if (!['open', 'invite', 'off'].includes(signup)) throw fail('accounts.signup must be open, invite or off.');
+  const roles = Array.isArray(input.roles) && input.roles.length ? [...new Set(input.roles.map(String))] : ['member'];
+  if (roles.length > 10) throw fail('Use at most 10 roles.');
+  for (const role of roles) if (!/^[a-z][a-z0-9_]{0,20}$/.test(role) || RULE_WORDS.includes(role) || role === 'owner') throw fail(`Role "${role.slice(0, 30)}": lower-case letters, digits and _ (not owner, anyone, signed-in, team or own; the app's owner is always allowed everything).`);
+  const defaultRole = input.defaultRole || roles[roles.length - 1];
+  if (!roles.includes(defaultRole)) throw fail('accounts.defaultRole must be one of the roles.');
+  return { signup, roles, defaultRole };
+}
+/** Who may read, add, change and remove: lists of anyone, signed-in, team, own and role names. Without rules, the table's access says. */
+function checkRules(table, input, access, accounts) {
+  const from = { team: { read: ['team'], add: ['team'], change: ['team'], remove: ['team'] }, 'public-read': { read: ['anyone'], add: ['team'], change: ['team'], remove: ['team'] },
+    'public-add': { read: ['team'], add: ['anyone'], change: ['team'], remove: ['team'] }, public: { read: ['anyone'], add: ['anyone'], change: ['anyone'], remove: ['anyone'] } }[access];
+  if (input == null) return from;
+  if (typeof input !== 'object' || Array.isArray(input)) throw fail(`Table ${table}: rules must be { "read": [...], "add": [...], "change": [...], "remove": [...] }.`);
+  const out = {};
+  for (const action of ACTIONS) {
+    const list = input[action] == null ? ['team'] : Array.isArray(input[action]) ? input[action].map(String) : [String(input[action])];
+    for (const who of list) {
+      if (who === 'own' && action === 'add') throw fail(`Table ${table}: "own" cannot be used for add (a record is not anyone's until it is added).`);
+      if (!RULE_WORDS.includes(who) && !(accounts && accounts.roles.includes(who))) throw fail(`Table ${table}, rule ${action}: "${who.slice(0, 30)}" is not ${accounts ? 'anyone, signed-in, team, own or a role' : 'anyone, signed-in, team or own (add "accounts" to use roles)'}.`);
+      if (['signed-in', 'own'].includes(who) && !accounts) throw fail(`Table ${table}: "${who}" needs "accounts" in data/schema.json.`);
+    }
+    out[action] = [...new Set(list)];
+  }
+  return out;
+}
+/**
+ * What this person may do: 'all', 'own' (only records they added) or 'none'.
+ * who = { kind: 'owner' | 'team' | 'user' | 'visitor', role, id }.
+ */
+export function allowed(table, action, who) {
+  if (who.kind === 'owner') return 'all';
+  const list = table.rules[action] || [];
+  if (list.includes('anyone')) return 'all';
+  if (who.kind === 'team' && (list.includes('team') || list.includes('signed-in'))) return 'all';
+  if (who.kind === 'user') {
+    if (list.includes('signed-in') || list.includes(who.role)) return 'all';
+    if (list.includes('own')) return 'own';
+  }
+  return 'none';
 }
 
 /** A record checked against its table: the cleaned values, or a clear message. `partial` is for updates. */
@@ -107,7 +158,7 @@ export function cleanQuery(table, { where = {}, sort = '', limit = 100, offset =
 }
 
 const numeric = (f) => ['number', 'integer', 'money'].includes(f?.type);
-const rowOut = (id, data, created, updated) => ({ id, created: new Date(created).toISOString(), updated: new Date(updated).toISOString(), ...data });
+const rowOut = (id, data, created, updated, by = null) => ({ id, created: new Date(created).toISOString(), updated: new Date(updated).toISOString(), by: by || null, ...data });
 const newId = () => crypto.randomBytes(9).toString('base64url');
 const today = (now) => new Date(now).toISOString().slice(0, 10);
 const groupKey = (value, part) => (value == null ? '' : part === 'day' ? String(value).slice(0, 10) : part === 'month' ? String(value).slice(0, 7) : part === 'year' ? String(value).slice(0, 4) : String(value));
@@ -152,15 +203,15 @@ export function createMemoryAppDb({ now = () => Date.now() } = {}) {
   const bump = (a, tbl) => { a.usage.versions[tbl] = (a.usage.versions[tbl] || 0) + 1; };
   return {
     durable: false,
-    async add(slug, tbl, data) {
+    async add(slug, tbl, data, by = null) {
       const a = app(slug), size = Buffer.byteLength(JSON.stringify(data));
       write(a, 1, size);
       const id = newId(), t = now();
-      a.rows.set(`${tbl}/${id}`, { tbl, id, data, size, created: t, updated: t });
+      a.rows.set(`${tbl}/${id}`, { tbl, id, data, size, created: t, updated: t, by });
       bump(a, tbl);
-      return rowOut(id, data, t, t);
+      return rowOut(id, data, t, t, by);
     },
-    async get(slug, tbl, id) { const r = app(slug).rows.get(`${tbl}/${id}`); return r ? rowOut(r.id, r.data, r.created, r.updated) : null; },
+    async get(slug, tbl, id) { const r = app(slug).rows.get(`${tbl}/${id}`); return r ? rowOut(r.id, r.data, r.created, r.updated, r.by) : null; },
     async update(slug, tbl, id, data) {
       const a = app(slug), r = a.rows.get(`${tbl}/${id}`);
       if (!r) return null;
@@ -168,7 +219,7 @@ export function createMemoryAppDb({ now = () => Date.now() } = {}) {
       write(a, 0, size - r.size);
       Object.assign(r, { data: merged, size, updated: Math.max(now(), r.updated + 1) });
       bump(a, tbl);
-      return rowOut(r.id, r.data, r.created, r.updated);
+      return rowOut(r.id, r.data, r.created, r.updated, r.by);
     },
     async remove(slug, tbl, id) {
       const a = app(slug), r = a.rows.get(`${tbl}/${id}`);
@@ -177,7 +228,7 @@ export function createMemoryAppDb({ now = () => Date.now() } = {}) {
       return true;
     },
     async list(slug, tbl, query, table) {
-      const all = [...app(slug).rows.values()].filter((r) => r.tbl === tbl).map((r) => rowOut(r.id, r.data, r.created, r.updated)).filter((r) => matches(r, query.filters, table, query.q));
+      const all = [...app(slug).rows.values()].filter((r) => r.tbl === tbl && (!query.by || r.by === query.by)).map((r) => rowOut(r.id, r.data, r.created, r.updated, r.by)).filter((r) => matches(r, query.filters, table, query.q));
       const { field, desc } = query.sort, num = numeric(table.fields[field]);
       all.sort((x, y) => { const a = x[field], b = y[field]; const c = a == null ? (b == null ? 0 : 1) : b == null ? -1 : num ? a - b : String(a).localeCompare(String(b)); return (desc && a != null && b != null ? -c : c) || (x.id < y.id ? -1 : 1); });
       return { records: all.slice(query.offset, query.offset + query.limit), total: all.length };
@@ -191,7 +242,7 @@ export function createMemoryAppDb({ now = () => Date.now() } = {}) {
     async versions(slug) { return { ...app(slug).usage.versions }; },
     async usage(slug) { const a = app(slug); return { records: a.usage.records, bytes: a.usage.bytes, writesToday: a.usage.day === today(now()) ? a.usage.writes : 0, limits: limitsOf(a) }; },
     async setLimits(slug, limits) { app(slug).usage.limits = cleanLimits(limits); return limitsOf(app(slug)); },
-    async exportAll(slug) { return [...app(slug).rows.values()].map((r) => ({ table: r.tbl, ...rowOut(r.id, r.data, r.created, r.updated) })); },
+    async exportAll(slug) { return [...app(slug).rows.values()].map((r) => ({ table: r.tbl, ...rowOut(r.id, r.data, r.created, r.updated, r.by) })); },
     async removeSite(slug) { apps.delete(slug); return true; },
   };
 }
@@ -216,6 +267,8 @@ const SCHEMA = [
     PRIMARY KEY (scope, slug, tbl, id)
   )`,
   'CREATE INDEX IF NOT EXISTS grandpa_ai_app_records_by_time ON public.grandpa_ai_app_records (scope, slug, tbl, created_at)',
+  // Phase D2: who added each record (an app account's id), for "own" rules.
+  'ALTER TABLE public.grandpa_ai_app_records ADD COLUMN IF NOT EXISTS by_user text',
   `CREATE TABLE IF NOT EXISTS public.grandpa_ai_app_usage (
     scope text NOT NULL, slug text NOT NULL,
     records integer NOT NULL DEFAULT 0, bytes bigint NOT NULL DEFAULT 0, day text NOT NULL DEFAULT '', writes integer NOT NULL DEFAULT 0,
@@ -264,9 +317,10 @@ export function createPostgresAppDb({ connectionString, pool: suppliedPool, scop
     await client.query(`UPDATE public.grandpa_ai_app_usage SET records=records+$3, bytes=bytes+$4, day=$5, writes=$6,
       versions=jsonb_set(versions, ARRAY[$7::text], to_jsonb(COALESCE((versions->>$7)::integer, 0) + 1)) WHERE scope=$1 AND slug=$2`, [scope, slug, records, bytes, d, writes + 1, tbl]);
   };
-  const out = (r) => rowOut(r.id, typeof r.data === 'string' ? JSON.parse(r.data) : r.data, r.created_at, r.updated_at);
+  const out = (r) => rowOut(r.id, typeof r.data === 'string' ? JSON.parse(r.data) : r.data, r.created_at, r.updated_at, r.by_user);
   const whereSql = (table, query, params) => {
     const parts = [];
+    if (query.by) { params.push(query.by); parts.push(`by_user = $${params.length}`); }
     for (const { field, op, value } of query.filters) {
       const key = field === 'created' || field === 'updated' ? '' : (params.push(field), `$${params.length}`);
       const col = fieldSql(table, field, key), num = numeric(table.fields[field]) ;
@@ -285,11 +339,11 @@ export function createPostgresAppDb({ connectionString, pool: suppliedPool, scop
   };
   return {
     durable: true,
-    async add(slug, tbl, data) {
+    async add(slug, tbl, data, by = null) {
       const size = Buffer.byteLength(JSON.stringify(data)), id = newId();
       return transaction(async (client) => {
         await write(client, slug, tbl, 1, size);
-        return out((await client.query('INSERT INTO public.grandpa_ai_app_records (scope, slug, tbl, id, data, size) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *', [scope, slug, tbl, id, JSON.stringify(data), size])).rows[0]);
+        return out((await client.query('INSERT INTO public.grandpa_ai_app_records (scope, slug, tbl, id, data, size, by_user) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *', [scope, slug, tbl, id, JSON.stringify(data), size, by])).rows[0]);
       });
     },
     async get(slug, tbl, id) {
