@@ -34,7 +34,7 @@ import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
 import { historyEntries, compareFiles } from './build-history.js?v=phase5-1';
 import { SECTIONS, KIT_FILES, ensureKitLinks } from './build-sections.js?v=kit-1';
 import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js?v=quality-2';
-import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, creditsPage, linkCredits } from './build-media.js?v=media-1';
+import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, replacePlayer, creditsPage, linkCredits } from './build-media.js?v=media-2';
 import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=kit-1';
 
 const $ = (id) => document.getElementById(id);
@@ -203,7 +203,7 @@ function renderThread() {
       : turn.undoAt && index === latestUndo && !inPlan.has(index) ? `<button class="build-chip" type="button" data-undo="${index}">Undo this change</button>` : '';
     const talk = turn.discussion ? discussionHtml(turn.discussion, !p.team && !p.background && !builtFiles(p).length && index === p.messages.length - 1) : '';
     return `<div class="build-turn build-turn-ai">
-      ${stepLabel}<div class="prose">${renderMarkdown(turn.content || '')}</div>${todo}${proposal}${editedHtml(turn, index)}${lookedHtml(turn.looked, turn.lookScore)}${turn.videoPlaces ? videoPlacesHtml(turn, index) : ''}${undo}${talk}
+      ${stepLabel}<div class="prose">${renderMarkdown(turn.content || '')}</div>${todo}${proposal}${editedHtml(turn, index)}${lookedHtml(turn.looked, turn.lookScore)}${turn.videoPlaces ? videoPlacesHtml(turn, index) : ''}${turn.videoChoices ? videoChoicesHtml(turn, index) : ''}${undo}${talk}
     </div>`;
   }).join('') + live + fixHint(p);
   el.thread.scrollTop = el.thread.scrollHeight;
@@ -646,7 +646,7 @@ async function unpublishFromWeb() {
 
 /* ---- The Grandpa Kit ----------------------------------------------------- */
 /** Add the shared design kit to a project once, so builders can use its sections and effects. */
-const KIT_VERSION = 'Grandpa Kit 8';
+const KIT_VERSION = 'Grandpa Kit 9';
 async function ensureKit(p) {
   // An older kit is replaced by the current one (only the kit ever changes the kit).
   const kit = (p?.files || []).filter((f) => isKitFile(f.path));
@@ -654,7 +654,7 @@ async function ensureKit(p) {
   if (!p || (kit.length === paths.length && kit.every((f) => String(f.body).startsWith(`/* ${KIT_VERSION} `)))) return true;
   try {
     const bodies = await Promise.all(paths.map(async (path) => {
-      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-8`);
+      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-9`);
       if (!response.ok) throw new Error('kit');
       return response.text();
     }));
@@ -1336,11 +1336,60 @@ async function settleVideos(p) {
     } catch { /* checked again next time */ }
   }
   if (changes.size) applyChanges(p, [...changes].map(([path, text]) => ({ path, body: text })), 'Before: checking the videos');
-  const places = pendingVideos(p.files);
+  let places = pendingVideos(p.files);
+  // With a YouTube key, Grandpa finds and places the videos himself; the person can change or remove each one.
+  if (places.length && deps.videoSearch) {
+    const chosen = [];
+    const inSite = new Set(playersIn(p.files));
+    for (const place of places) {
+      try {
+        const response = await fetch(`/api/media/youtube-search?q=${encodeURIComponent(place.search)}`, { headers: mediaHeaders() });
+        const found = await response.json().catch(() => ({}));
+        if (!response.ok) { notes.push(found.error || 'A video could not be found.'); break; }
+        const options = (found.results || []).filter((v) => !inSite.has(v.id));
+        if (!options.length) continue;
+        const page = p.files.find((f) => f.path === place.page);
+        const next = placeVideo(page.body, place.search, options[0]);
+        if (next === page.body) continue;
+        applyChanges(p, [{ path: page.path, body: next }], `Before: adding the video "${options[0].title}"`);
+        inSite.add(options[0].id);
+        p.videoChecked = { ...(p.videoChecked || {}), [options[0].id]: options[0].title };
+        chosen.push({ page: place.page, search: place.search, current: options[0], options: options.slice(0, 4) });
+      } catch { break; }
+    }
+    if (chosen.length) {
+      p.messages.push({ role: 'assistant', content: `I found ${chosen.length === 1 ? 'a video' : `${chosen.length} videos`} on YouTube for your website and put ${chosen.length === 1 ? 'it' : 'them'} in. Change or remove any of them below.`, videoChoices: chosen });
+      places = pendingVideos(p.files);
+    }
+  }
   const open = p.messages.some((m) => m.videoPlaces?.some((v) => !v.done && !v.skipped));
   if (places.length && !open) p.messages.push({ role: 'assistant', content: `${notes.length ? `${notes.join(' ')} ` : ''}Your website has ${places.length === 1 ? 'a place' : `${places.length} places`} for a video. Find one on YouTube, copy its link (Share → Copy link) and paste it here; it will play in a professional player on your site.`, videoPlaces: places.map((v) => ({ ...v })) });
   else if (notes.length) p.messages.push({ role: 'assistant', content: notes.join(' ') });
   if (changes.size || places.length || notes.length) await persist();
+}
+
+function videoChoicesHtml(turn, index) {
+  return `<div class="video-choices">${turn.videoChoices.map((c, i) => c.removed ? '<p class="build-brief-note">Video removed.</p>' : `<div class="video-choice">
+      <img src="https://i.ytimg.com/vi/${escapeHtml(c.current.id)}/mqdefault.jpg" alt="" width="120" height="68" loading="lazy">
+      <div><strong>${escapeHtml(c.current.title)}</strong><small>${escapeHtml(c.current.channel || '')} · ${escapeHtml(c.page)}</small>
+      <div class="history-actions">${c.options.filter((o) => o.id !== c.current.id).slice(0, 3).map((o) => `<button class="build-chip" type="button" data-video-swap="${index}:${i}:${escapeHtml(o.id)}" title="${escapeHtml(o.title)}">Use: ${escapeHtml(o.title.slice(0, 38))}${o.title.length > 38 ? '…' : ''}</button>`).join('')}
+      <button class="build-chip" type="button" data-video-remove="${index}:${i}">Remove</button></div></div></div>`).join('')}</div>`;
+}
+
+async function changeChosenVideo(index, i, newId) {
+  const p = project();
+  const choice = p?.messages[index]?.videoChoices?.[i];
+  const page = choice && p.files.find((f) => f.path === choice.page);
+  if (!page) return;
+  if (isBusy()) { deps.toast('Wait a moment: Grandpa is still working on your website.'); return; }
+  const video = newId ? choice.options.find((o) => o.id === newId) : null;
+  if (newId && !video) return;
+  const next = replacePlayer(page.body, choice.current.id, video);
+  if (next === page.body) { deps.toast('That video is no longer in the page.'); return; }
+  applyChanges(p, [{ path: page.path, body: next }], video ? `Before: changing the video to "${video.title}"` : 'Before: removing a video');
+  if (video) choice.current = video; else choice.removed = true;
+  await persist(); render();
+  deps.toast(video ? 'Video changed.' : 'Video removed.');
 }
 
 function videoPlacesHtml(turn, index) {
@@ -1376,6 +1425,22 @@ async function useVideo(index, i, skip = false) {
     await persist(); render();
     deps.toast('Video added.');
   } catch (error) { deps.toast(error.message); }
+}
+
+/** A video from the preview plays here, in the app (YouTube cannot play inside the preview's sandbox). */
+function showVideoWindow(id, title = '') {
+  if (!/^[\w-]{11}$/.test(String(id || ''))) return;
+  document.querySelector('.video-window')?.remove();
+  const box = document.createElement('div');
+  box.className = 'video-window'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', title || 'Video');
+  box.innerHTML = `<div class="video-window-frame"><iframe src="https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&playsinline=1&modestbranding=1" title="${escapeHtml(title || 'Video')}" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe></div>
+    <div class="video-window-bar"><span>${escapeHtml(title)}</span><button type="button" class="build-chip" data-video-close>Close</button></div>`;
+  const close = () => { box.remove(); document.removeEventListener('keydown', onKey); };
+  const onKey = (e) => { if (e.key === 'Escape') close(); };
+  box.addEventListener('click', (e) => { if (e.target === box || e.target.closest('[data-video-close]')) close(); });
+  document.addEventListener('keydown', onKey);
+  document.body.appendChild(box);
+  box.querySelector('[data-video-close]').focus();
 }
 
 /** Edit → picture → find a free photo by words. */
@@ -2616,6 +2681,10 @@ export async function mount(options = {}) {
     if (say) { send(say.dataset.discussSay); return; }
     const videoUse = event.target.closest('[data-video-use]');
     if (videoUse) { const [a, b] = videoUse.dataset.videoUse.split(':').map(Number); useVideo(a, b); return; }
+    const videoSwap = event.target.closest('[data-video-swap]');
+    if (videoSwap) { const [a, b, id] = videoSwap.dataset.videoSwap.split(':'); changeChosenVideo(Number(a), Number(b), id); return; }
+    const videoRemove = event.target.closest('[data-video-remove]');
+    if (videoRemove) { const [a, b] = videoRemove.dataset.videoRemove.split(':').map(Number); changeChosenVideo(a, b, null); return; }
     const videoSkip = event.target.closest('[data-video-skip]');
     if (videoSkip) { const [a, b] = videoSkip.dataset.videoSkip.split(':').map(Number); useVideo(a, b, true); return; }
 
@@ -2777,6 +2846,7 @@ export async function mount(options = {}) {
       if(pendingPreviewScroll)el.previewFrame.contentWindow.postMessage({grandpa:'scroll-to',hash:pendingPreviewScroll.hash},'*');
     }else if(data?.grandpa==='download-file' && file){downloadFile(file);}
     else if(data?.grandpa==='fault' && typeof data.what==='string'){deps.toast(data.what.slice(0,400));}
+    else if(data?.grandpa==='play-video'){showVideoWindow(data.id,data.title);}
     else if(data?.grandpa==='visual-edit'){
       if(data.type==='ready' && state.editMode && !data.count)deps.toast('There is no text on this page that can be edited by hand.');
       else applyVisualEdit(data);

@@ -1,4 +1,4 @@
-/* Grandpa Kit 8 — gallery viewer, sliders, reveal on scroll, dark mode, language switch,
+/* Grandpa Kit 9 — gallery viewer, sliders, reveal on scroll, dark mode, language switch,
    counters, back to top and page loader. Everything works without it; it only adds. */
 (function () {
   'use strict';
@@ -162,6 +162,14 @@
       var id = player.getAttribute('data-youtube');
       if (!/^[\w-]{11}$/.test(id)) return;
       player.setAttribute('aria-label', 'Play video: ' + (player.getAttribute('data-title') || 'video'));
+      if (sandboxed && window.parent !== window) {
+        // Inside Grandpa AI's Build preview: the app plays the video in its own window.
+        player.addEventListener('click', function (e) {
+          e.preventDefault();
+          window.parent.postMessage({ grandpa: 'play-video', id: id, title: String(player.getAttribute('data-title') || '').slice(0, 200) }, '*');
+        });
+        return;
+      }
       if (sandboxed) {
         player.setAttribute('target', '_blank');
         var note = player.querySelector('.gk-player-caption small');
@@ -176,6 +184,8 @@
         frame.title = player.getAttribute('data-title') || 'Video';
         frame.allow = 'autoplay; encrypted-media; picture-in-picture; fullscreen';
         frame.allowFullscreen = true;
+        // YouTube refuses to play without knowing which site it is on (error 153).
+        frame.referrerPolicy = 'strict-origin-when-cross-origin';
         player.appendChild(frame); player.classList.add('is-playing');
       });
     });

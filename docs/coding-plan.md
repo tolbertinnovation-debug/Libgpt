@@ -365,8 +365,17 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
 
   To switch it on, add `sites.libgrandpaai.com` under Vercel → Project → Settings → Domains, add the DNS record Vercel shows (a CNAME for `sites`), set `SITES_HOST=sites.libgrandpaai.com` in Environment Variables, and redeploy. (app icon, 404 page, structured data, share picture, manifest), Phase 5 (a higher quality bar with a design score), and Phase 6 (optional: a separate sites address so YouTube plays in the page and apps can install, work offline and remember data).
 
-### Later, each needing the owner's approval (recurring costs)
-- Grandpa choosing YouTube videos by himself needs a free YouTube Data API key (no payment card) added in Vercel.
+### Videos found automatically, and played in Build's preview (done)
+- **Grandpa finds and places videos himself** when `YOUTUBE_API_KEY` (the free YouTube Data API key, with no payment card) is set in Vercel.
+  - After a build, each empty `data-video-search` place is searched on YouTube by the server, so the key never reaches the browser.
+  - The search uses strict safe search and asks only for embeddable, syndicated videos. The details call then keeps only public, processed, embeddable videos of at least 30 seconds, ranked by relevance with 1–20 minute videos first.
+  - The best video goes into the player automatically. A chat card shows it with up to three **Use: …** alternatives and **Remove**.
+  - Results are remembered for a day. There is a daily ceiling of 90 searches (`VIDEO_SEARCHES_PER_DAY`, at most 95, under Google's free ~100), and a used-up quota says so.
+  - Without the key, the Find on YouTube and paste-link card remains.
+- **Videos play in Build's preview.** The preview's sandbox blocks YouTube, so the kit (Kit 9) sends a checked `play-video` message (an 11-character id and a short title, from the preview frame only), and the app plays it in a **video window** outside the sandbox.
+  - The window and the kit's inline player set `referrerpolicy="strict-origin-when-cross-origin"`; without it YouTube shows Error 153.
+  - In browser tests, some videos show "Video unavailable" from data-centre computers even on a plain page. That is YouTube's choice for those machines, not the app.
+- **On published sites** videos play inline once the sites address (Phase 6, `SITES_HOST`) is set up.
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).

@@ -29,7 +29,7 @@ import QRCode from 'qrcode';
 import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, findSiteFile, siteFileBody } from './site-store.js';
 import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, bookingTimes, slotProblem, ENTRY_KINDS, ENTRY_STATUSES } from './site-data.js';
 import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404 } from './site-runtime.js';
-import { searchPhotos, fetchPhoto, youtubeInfo, searchWords } from './media-search.js';
+import { searchPhotos, fetchPhoto, youtubeInfo, searchWords, searchVideos } from './media-search.js';
 import { chooseRecipe, RECIPES } from '../public/build-recipes.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
 import {
@@ -396,6 +396,8 @@ app.get('/api/config', async (_req, res) => {
     sitesHost: SITES_HOST,
     // Free photographs (Wikimedia Commons, Openverse) and YouTube links for websites; no keys, no cost.
     freeMedia: config.building,
+    // Grandpa finds and places YouTube videos himself when the owner has added a (free) YouTube Data API key.
+    videoSearch: config.building && Boolean(process.env.YOUTUBE_API_KEY),
     // Meta's Llama stands by for chat when OpenAI cannot answer.
     backupModel: llamaConfig().ready,
     // The advanced voice reads answers when Live Talk's realtime model is available.
@@ -1825,6 +1827,17 @@ app.get('/api/media/photo', rateLimit, requireAccess, mediaAllowance, async (req
     res.setHeader('Cache-Control', 'private, max-age=3600');
     res.send(bytes);
   } catch (error) { mediaFailed(res, error); }
+});
+// Video searches spend the free YouTube quota (about 100 a day), so they have their own daily ceiling.
+const VIDEO_SEARCHES_PER_DAY = Math.max(0, Math.min(95, Number(process.env.VIDEO_SEARCHES_PER_DAY) || 90));
+let videoDay = { day: '', count: 0 };
+app.get('/api/media/youtube-search', rateLimit, requireAccess, mediaAllowance, async (req, res) => {
+  if (!process.env.YOUTUBE_API_KEY) { res.status(503).json({ error: 'Video search is not set up on this site.' }); return; }
+  const day = new Date().toISOString().slice(0, 10);
+  if (videoDay.day !== day) videoDay = { day, count: 0 };
+  if (videoDay.count >= VIDEO_SEARCHES_PER_DAY) { res.status(429).json({ error: 'The video searches are used up for today. Paste a YouTube link instead, or try again tomorrow.' }); return; }
+  videoDay.count += 1;
+  try { res.json({ results: await searchVideos(String(req.query.q || '')) }); } catch (error) { mediaFailed(res, error); }
 });
 app.get('/api/media/youtube', rateLimit, requireAccess, mediaAllowance, async (req, res) => {
   try { res.json(await youtubeInfo(String(req.query.url || ''))); } catch (error) { mediaFailed(res, error); }
