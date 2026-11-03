@@ -74,6 +74,13 @@ export function dropVideoPlace(html, search) {
   return el ? text.slice(0, el.start) + text.slice(el.end) : text;
 }
 
+/** The page with the player for one video swapped for another (Change), or removed (newVideo null). */
+export function replacePlayer(html, oldId, newVideo) {
+  const text = String(html);
+  const el = mapElements(text).find((e) => attr(text, e, 'data-youtube') === oldId);
+  return el ? text.slice(0, el.start) + (newVideo ? playerMarkup(newVideo) : '') + text.slice(el.end) : text;
+}
+
 /** A player for a video that cannot be shown here becomes an empty place again. */
 export function unplaceVideo(html, id, search = 'a video for this section') {
   const text = String(html);

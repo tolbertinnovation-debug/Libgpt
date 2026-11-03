@@ -18,7 +18,7 @@ function load({ storage = null, name = '', path = '' } = {}) {
 test('the app toolkit is part of the kit, small, and documented for builders', () => {
   assert.equal(KIT_FILES.app, 'assets/grandpa-app.js');
   assert.ok(isKitFile('assets/grandpa-app.js') && KIT_PATHS.includes('assets/grandpa-app.js'), 'protected like the rest of the kit');
-  assert.ok(source.startsWith('/* Grandpa Kit 8 '), 'versioned with the kit, so old projects get it');
+  assert.ok(source.startsWith('/* Grandpa Kit 9 '), 'versioned with the kit, so old projects get it');
   assert.ok(source.length < 20_000);
   assert.doesNotMatch(source, /form\.elements\[/, 'fields are read with namedItem: a field called "item" would otherwise read the collection\'s own method (found in a browser test)');
   for (const api of ['App.store(', 'App.render(', 'App.html`', 'App.screens(', 'App.form(', 'App.table(', 'App.chart(', 'App.csv(', 'App.format.money(', 'App.loop(', 'App.sound(', 'App.timer(', 'App.toast(']) assert.ok(KIT_GUIDE.includes(api), api);

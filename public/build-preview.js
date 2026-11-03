@@ -34,9 +34,11 @@ export function createPreviewMessageLimiter(frame, now=Date.now) {
   return event=>{
     const d=event?.data,t=now();
     if(event?.source!==frame || event.origin!=='null' || !d || typeof d!=='object' || Array.isArray(d) || d.checkId || !Number.isFinite(t) || t<start)return false;
-    if(!['navigate','download-file','fault','visual-edit'].includes(d.grandpa))return false;
+    if(!['navigate','download-file','fault','visual-edit','play-video'].includes(d.grandpa))return false;
     // Hand edits from the page editor: text for one numbered element, or the editor saying it is ready.
-    if(d.grandpa==='visual-edit'){
+    // A video player in the page asks the app to play its YouTube video (it cannot play inside the sandbox).
+    if(d.grandpa==='play-video'){if(typeof d.id!=='string' || !/^[\w-]{11}$/.test(d.id) || (d.title!==undefined && (typeof d.title!=='string' || d.title.length>200)))return false;}
+    else if(d.grandpa==='visual-edit'){
       if(d.type==='ready'){if(!Number.isInteger(d.count))return false;}
       else if(d.type==='image' || d.type==='insert-image'){if(!Number.isInteger(d.id) || d.id<0)return false;}
       else if(d.type==='part'){if(!Number.isInteger(d.id) || d.id<0 || !['up','down','copy','delete','section'].includes(d.action))return false;}

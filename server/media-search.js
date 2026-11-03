@@ -142,3 +142,32 @@ export function youtubeInfo(link, { fetcher = fetch } = {}) {
     return { id, title: plain(body.title).slice(0, 160) || 'Video', channel: plain(body.author_name).slice(0, 80), thumb: `https://i.ytimg.com/vi/${id}/hqdefault.jpg` };
   });
 }
+
+/* ---- YouTube search with the owner's free YouTube Data API key ------------- */
+// The key stays on the server (YOUTUBE_API_KEY). Search costs 100 of the free
+// 10,000 daily units, the details call 1; nothing is ever charged.
+const isoSeconds = (iso) => { const m = /^PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?$/.exec(String(iso || '')); return m ? (Number(m[1] || 0) * 3600) + (Number(m[2] || 0) * 60) + Number(m[3] || 0) : 0; };
+
+/** Safe, embeddable YouTube videos for a search, best first (sensible lengths preferred). */
+export function searchVideos(query, { key = process.env.YOUTUBE_API_KEY, fetcher = fetch, limit = 4 } = {}) {
+  const q = String(query || '').replace(/\s+/g, ' ').trim().slice(0, 100);
+  if (!key) return Promise.reject(fail('Video search is not set up on this site.', 503));
+  if (q.length < 2) return Promise.reject(fail('Say what the video should show.', 400));
+  return remembered(`ytsearch:${q.toLowerCase()}:${limit}`, async () => {
+    const search = await fetcher(`https://www.googleapis.com/youtube/v3/search?${new URLSearchParams({ part: 'snippet', type: 'video', q, maxResults: '10', safeSearch: 'strict', videoEmbeddable: 'true', videoSyndicated: 'true', relevanceLanguage: 'en', key })}`, { signal: AbortSignal.timeout(9000) });
+    if (search.status === 403) throw fail('The YouTube key has used its free searches for today, or it is not allowed. Try again tomorrow.', 429);
+    if (!search.ok) throw fail('YouTube search did not answer. Try again in a moment.', 502);
+    const ids = ((await search.json()).items || []).map((item) => item.id?.videoId).filter((id) => /^[\w-]{11}$/.test(id || ''));
+    if (!ids.length) return [];
+    const details = await fetcher(`https://www.googleapis.com/youtube/v3/videos?${new URLSearchParams({ part: 'snippet,contentDetails,status', id: ids.join(','), key })}`, { signal: AbortSignal.timeout(9000) });
+    if (!details.ok) throw fail('YouTube did not answer. Try again in a moment.', 502);
+    const order = new Map(ids.map((id, i) => [id, i]));
+    return ((await details.json()).items || [])
+      .filter((v) => v.status?.embeddable && v.status?.privacyStatus === 'public' && v.status?.uploadStatus === 'processed' && !v.contentDetails?.regionRestriction?.blocked?.includes('LR'))
+      .map((v) => ({ id: v.id, title: plain(v.snippet?.title).slice(0, 160) || 'Video', channel: plain(v.snippet?.channelTitle).slice(0, 80), seconds: isoSeconds(v.contentDetails?.duration), thumb: `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg` }))
+      .filter((v) => v.seconds >= 30)
+      // Relevance first, but a 1–20 minute video beats a very short or very long one.
+      .sort((a, b) => ((a.seconds >= 60 && a.seconds <= 1200 ? 0 : 5) + order.get(a.id)) - ((b.seconds >= 60 && b.seconds <= 1200 ? 0 : 5) + order.get(b.id)))
+      .slice(0, limit);
+  });
+}
