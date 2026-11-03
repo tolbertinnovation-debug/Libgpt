@@ -114,6 +114,34 @@ const syncBodies = express.json({ limit: '4400kb' });
 const siteFormBodies = express.text({ type: () => true, limit: '32kb' });
 app.use((req, res, next) => (req.path.startsWith('/api/site-data/') ? siteFormBodies
   : req.path.startsWith('/api/sync/') || req.path === '/api/sites' ? syncBodies : smallBodies)(req, res, next));
+// ---- published websites on their own address (Phase 6) ---------------------
+// With SITES_HOST set (e.g. sites.libgrandpaai.com, added to the project in
+// Vercel), published sites live at https://SITES_HOST/<address>/. A separate
+// address is a separate origin: the sites cannot read Grandpa AI's storage or
+// cookies (its cookies are host-only), so they no longer need the strict
+// sandbox, and YouTube, saved app data and "Add to home screen" work. Nothing
+// else of Grandpa AI is served there. Old /s/<address>/ links forward.
+const SITES_HOST = String(process.env.SITES_HOST || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+const onSitesHost = (req) => Boolean(SITES_HOST) && String(req.hostname || '').toLowerCase() === SITES_HOST;
+app.use((req, res, next) => {
+  if (!onSitesHost(req)) {
+    // A visitor opening an old link goes to the new address (the app's own fetches are left alone).
+    if (SITES_HOST && req.method === 'GET' && /^\/s\/[a-z0-9-]{3,40}(?:\/|$)/.test(req.path) && req.get('sec-fetch-dest') === 'document' && !/\/_grandpa\//.test(req.path)) {
+      res.redirect(301, `https://${SITES_HOST}/${req.originalUrl.slice(3)}`); return;
+    }
+    next(); return;
+  }
+  // On the sites address: published sites and their send-only addresses, nothing else.
+  if (/^\/(?:s\/|api\/site-data\/|api\/site-slots\/)/.test(req.path)) { next(); return; }
+  const match = /^\/([a-z0-9-]{3,40})(\/.*)?$/.exec(req.path);
+  if (match && validSlug(match[1])) {
+    if (!match[2]) { res.redirect(301, `/${match[1]}/${req.originalUrl.slice(req.path.length)}`); return; }
+    req.url = `/s/${match[1]}${match[2]}${req.originalUrl.slice(req.path.length)}`;
+    next(); return;
+  }
+  res.status(404).set({ 'Content-Type': 'text/html; charset=utf-8', 'X-Content-Type-Options': 'nosniff' })
+    .send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Websites made with Grandpa AI</title><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;text-align:center;padding:24px"><div><h1>Websites made with Grandpa AI</h1><p>Open a website with its full address, for example sites…/mama-kitchen/.</p></div>');
+});
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
 
 // ---- simple per-IP rate limit -------------------------------------------
@@ -365,6 +393,7 @@ app.get('/api/config', async (_req, res) => {
     sync: Boolean(syncStore),
     // Phase B: sites can be published at /s/<address> on this host.
     publishing: Boolean(siteStore) && config.building,
+    sitesHost: SITES_HOST,
     // Free photographs (Wikimedia Commons, Openverse) and YouTube links for websites; no keys, no cost.
     freeMedia: config.building,
     // Meta's Llama stands by for chat when OpenAI cannot answer.
@@ -1808,6 +1837,8 @@ const siteData = governanceConnection ? createPostgresSiteData({ connectionStrin
   : (config.serverless ? null : createMemorySiteData());
 const siteFailed = (res, error) => { if (!error.status) console.error('[sites]', error.message); res.status(error.status || 500).json({ error: error.status ? error.message : 'Publishing could not finish. Your files are still saved on this device.' }); };
 const publicBase = (req) => `${(req.get('x-forwarded-proto') || req.protocol || 'https').split(',')[0]}://${req.get('host')}`;
+/** A published site's public address: on the sites address when it is set up, else /s/ on this host. */
+const siteBase = (req, slug) => (SITES_HOST ? `https://${SITES_HOST}/${slug}/` : `${publicBase(req)}/s/${slug}/`);
 
 app.post('/api/sites', rateLimit, requireAccess, async (req, res) => {
   if (!siteStore || !config.building) { res.status(503).json({ error: 'Publishing needs the app database, which is not set up on this host.' }); return; }
@@ -1815,7 +1846,7 @@ app.post('/api/sites', rateLimit, requireAccess, async (req, res) => {
   const slug = typeof req.body?.slug === 'string' && req.body.slug ? req.body.slug.trim().toLowerCase() : slugFrom(req.body?.name);
   try {
     const result = await siteStore.publish({ slug, name: req.body?.name, files: req.body?.files, token: typeof req.body?.token === 'string' ? req.body.token : '' });
-    res.json({ ...result, url: `${publicBase(req)}/s/${result.slug}/` });
+    res.json({ ...result, url: siteBase(req, result.slug) });
   } catch (error) { siteFailed(res, error); }
 });
 app.delete('/api/sites/:slug', rateLimit, requireAccess, async (req, res) => {
@@ -1828,7 +1859,7 @@ app.delete('/api/sites/:slug', rateLimit, requireAccess, async (req, res) => {
 });
 app.get('/api/sites/:slug/qr.svg', rateLimit, async (req, res) => {
   if (!validSlug(req.params.slug)) { res.status(400).end(); return; }
-  const svg = await QRCode.toString(`${publicBase(req)}/s/${req.params.slug}/`, { type: 'svg', margin: 2, errorCorrectionLevel: 'M', color: { dark: '#111111', light: '#ffffff' } });
+  const svg = await QRCode.toString(siteBase(req, req.params.slug), { type: 'svg', margin: 2, errorCorrectionLevel: 'M', color: { dark: '#111111', light: '#ffffff' } });
   res.setHeader('Content-Type', 'image/svg+xml');
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.send(svg);
@@ -1888,7 +1919,7 @@ app.post('/api/site-data/:slug', siteLimit, async (req, res) => {
   const finish = (status, message, ref = '') => {
     if (!wantsPage) { res.status(status).json(status < 300 ? { ok: true, ...(ref ? { ref } : {}) } : { error: message }); return; }
     if (ref) message += ` Your reference is ${ref}.`;
-    res.set(SITE_HEADERS).set('Cache-Control', 'no-store').status(status).type('html').send(notFoundPage(message).replace('<h1>Page not found</h1>', `<h1>${status < 300 ? 'Thank you' : 'Not sent'}</h1>`)
+    res.set(siteHeaders(req)).set('Cache-Control', 'no-store').status(status).type('html').send(notFoundPage(message).replace('<h1>Page not found</h1>', `<h1>${status < 300 ? 'Thank you' : 'Not sent'}</h1>`)
       .replace('</p></div>', `</p><p><a href="/s/${req.params.slug}/">Back to the website</a></p></div>`));
   };
   if (!siteStore || !siteData || !validSlug(req.params.slug)) { finish(404, 'There is no website at this address.'); return; }
@@ -1942,7 +1973,7 @@ app.post('/api/manage/:slug/login', rateLimit, async (req, res) => {
 app.get('/api/manage/:slug', rateLimit, manageAccess, async (req, res) => {
   try {
     const summary = await siteData.summary(req.site.slug);
-    res.json({ slug: req.site.slug, name: req.site.name, url: `${publicBase(req)}/s/${req.site.slug}/`, publisher: req.sitePublisher,
+    res.json({ slug: req.site.slug, name: req.site.name, url: siteBase(req, req.site.slug), publisher: req.sitePublisher,
       pages: req.site.pages, kinds: ENTRY_KINDS, ...summary });
   } catch (error) { dataFailed(res, error); }
 });
@@ -1973,7 +2004,7 @@ app.get('/api/manage/:slug/export', rateLimit, manageAccess, async (req, res) =>
   try {
     const [summary, entries] = await Promise.all([siteData.summary(req.site.slug), siteData.listEntries(req.site.slug, { limit: 5000 })]);
     res.setHeader('Content-Disposition', `attachment; filename="${req.site.slug}-backup-${new Date().toISOString().slice(0, 10)}.json"`);
-    res.json({ kind: 'grandpa-site-backup', version: 1, exportedAt: new Date().toISOString(), site: { slug: req.site.slug, name: req.site.name, url: `${publicBase(req)}/s/${req.site.slug}/` },
+    res.json({ kind: 'grandpa-site-backup', version: 1, exportedAt: new Date().toISOString(), site: { slug: req.site.slug, name: req.site.name, url: siteBase(req, req.site.slug) },
       content: summary.content, settings: summary.settings, visits: summary.visits, entries });
   } catch (error) { dataFailed(res, error); }
 });
@@ -2009,6 +2040,8 @@ app.get('/manage/:slug', (_req, res) => {
 // Published sites: public, and sandboxed. The CSP sandbox gives each page an
 // opaque origin, so a site's own scripts can never read this app's storage,
 // cookies or access code, however they were written.
+// On the sites address the origin itself keeps sites apart from Grandpa AI, so no sandbox is needed there.
+const siteHeaders = (req) => (onSitesHost(req) ? { ...SITE_HEADERS, 'Content-Security-Policy': "frame-ancestors 'self'" } : SITE_HEADERS);
 const SITE_HEADERS = {
   'Content-Security-Policy': "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads; frame-ancestors 'self'",
   'X-Content-Type-Options': 'nosniff',
@@ -2020,7 +2053,7 @@ const notFoundPage = (message) => `<!doctype html><html lang="en"><head><meta ch
 // Without the trailing slash, a page's relative links would resolve one folder too high.
 app.get('/s/:slug', (req, res, next) => (req.path.endsWith('/') ? next() : res.redirect(301, `/s/${encodeURIComponent(req.params.slug)}/`)));
 app.get('/s/:slug/_grandpa/site.js', siteLimit, async (req, res) => {
-  res.set({ ...SITE_HEADERS, 'Cache-Control': 'no-store' });
+  res.set({ ...siteHeaders(req), 'Cache-Control': 'no-store' });
   if (!validSlug(req.params.slug)) { res.status(404).end(); return; }
   // One request per page view: it counts the visit and carries the owner's saved content.
   const content = siteData ? await siteData.visitAndContent(req.params.slug).catch(() => null) : null;
@@ -2028,21 +2061,21 @@ app.get('/s/:slug/_grandpa/site.js', siteLimit, async (req, res) => {
 });
 // Professional extras for every published site: an app icon and an install file (Phase 4).
 app.get('/s/:slug/_grandpa/:extra(icon.svg|manifest.webmanifest)', async (req, res) => {
-  res.set({ ...SITE_HEADERS, 'Cache-Control': 'public, max-age=300' });
+  res.set({ ...siteHeaders(req), 'Cache-Control': 'public, max-age=300' });
   const site = siteStore && validSlug(req.params.slug) ? await siteStore.get(req.params.slug).catch(() => null) : null;
   if (!site) { res.status(404).end(); return; }
   const brand = brandColour(site.files);
   if (req.params.extra === 'icon.svg') { res.type('image/svg+xml').send(siteIcon(site.name, brand)); return; }
-  res.type('application/manifest+json').send(siteManifest({ name: site.name, slug: site.slug, brand }));
+  res.type('application/manifest+json').send(siteManifest({ name: site.name, slug: site.slug, brand, path: onSitesHost(req) ? `/${site.slug}/` : '' }));
 });
 app.get('/s/:slug/*', async (req, res) => {
-  res.set(SITE_HEADERS);
+  res.set(siteHeaders(req));
   if (!siteStore || !validSlug(req.params.slug)) { res.status(404).type('html').send(notFoundPage('There is no website at this address.')); return; }
   try {
     const site = await siteStore.get(req.params.slug);
     if (!site) { res.status(404).type('html').send(notFoundPage('There is no website at this address.')); return; }
     const file = findSiteFile(site.files, req.params[0] || '');
-    if (!file && req.params[0] === 'sitemap.xml') { res.type('application/xml; charset=utf-8').send(sitemapFor(site, `${publicBase(req)}/s/${site.slug}/`)); return; }
+    if (!file && req.params[0] === 'sitemap.xml') { res.type('application/xml; charset=utf-8').send(sitemapFor(site, siteBase(req, site.slug))); return; }
     if (!file) {
       // The site's own "page not found" page, or one in its style.
       const own = site.files.find((f) => f.path === '404.html');
@@ -2052,8 +2085,8 @@ app.get('/s/:slug/*', async (req, res) => {
     }
     const { type, body } = siteFileBody(file);
     if (type.startsWith('text/html')) {
-      const pageUrl = `${publicBase(req)}/s/${site.slug}/${file.path === 'index.html' ? '' : file.path}`;
-      res.type(type).send(withRuntime(withSeo(body.toString('utf8'), { siteName: site.name, url: pageUrl, base: `${publicBase(req)}/s/${site.slug}/`, path: file.path, files: site.files, slug: site.slug, brand: brandColour(site.files) }), site.slug));
+      const pageUrl = `${siteBase(req, site.slug)}${file.path === 'index.html' ? '' : file.path}`;
+      res.type(type).send(withRuntime(withSeo(body.toString('utf8'), { siteName: site.name, url: pageUrl, base: siteBase(req, site.slug), path: file.path, files: site.files, slug: site.slug, brand: brandColour(site.files) }), site.slug));
       return;
     }
     res.type(type).send(body);

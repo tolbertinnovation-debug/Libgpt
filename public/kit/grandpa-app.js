@@ -1,4 +1,4 @@
-/* Grandpa Kit 7 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
+/* Grandpa Kit 8 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
    game loop, sounds, timers and formatting for web tools, quizzes, games, dashboards and phone-style
    apps. No build step, no outside services. window.GrandpaApp */
 (function () {
@@ -32,7 +32,11 @@
   };
 
   /* ---- state: one store, listeners redraw from it ---- */
-  function memory(key) {
+  // On the shared sites address every published site has the same origin, so saved keys carry the site's address.
+  var parts = String((typeof location !== 'undefined' && location.pathname) || '').split('/');
+  var SITE = (parts[1] === 's' ? parts[2] : parts[1]) || '';
+  function memory(name) {
+    var key = (SITE ? SITE + ':' : '') + name;
     // Published Grandpa sites run in a sandbox where localStorage is blocked; window.name keeps
     // data for this tab only. Elsewhere localStorage keeps it on this device.
     return {
