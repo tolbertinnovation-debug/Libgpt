@@ -464,6 +464,24 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
 - **Not verifiable here:** a real Windows 10/11 PC with Edge and SmartScreen. Test on a Windows computer.
 - **What people will see:** SmartScreen's "Windows protected your PC" (More info → Run anyway), because the program is not code-signed; signing needs a paid certificate, which is not used. The "Install the app" button from Phase A1 has no warning and remains the recommended way on Windows.
 
+### Apps look like apps, websites like websites (done)
+- **The owner's rule:** when the person asks for an app, Grandpa makes only an app; when they ask for a website, only a website. Before this, every builder was told "ONE PROMPT, A COMPLETE WEBSITE" and given the website rules (hero, sections, footer, scroll animations, 4–8 pages), so apps came out as websites.
+- **`projectKind` (public/build-recipes.js)** decides:
+  - the choice on the conversation card (`Make: an app.` / `Make: a website.`) wins;
+  - then whichever the person named first ("app", "application" but not "application form", "mobile app", "web app", "android", "iphone", "software", versus "website", "site", "web page", "landing page", "blog");
+  - then the project type (App, Web tool, Game and Dashboard are apps).
+  - The conversation card shows **Make: An app / A website**, and the choice also sets the "Installable app" default.
+- **An app gets the APP STANDARD instead of the website standard,** in every builder, the single builder and the team. The team planner gets "ONE PROMPT, A COMPLETE APP": one page of 3–6 screens.
+  - The standard covers the app shell (app bar with title and Back, tabs, screens), the main job on the first screen, lists of rows, summary tiles, an Add button with bottom sheets, segmented filters, empty states, and data kept with App.store.
+  - It forbids hero banners, marketing sections, about, contact, FAQ and gallery pages, footers, scroll animations and decorative photographs.
+  - A website-type recipe used for an app (for example a restaurant ordering app) is told its pages become screens.
+- **Kit 11** adds the app shell:
+  - `.gk-app`, `.gk-app-bar`, `.gk-app-main`, `.gk-list` / `.gk-row` / `.gk-avatar`, `.gk-stats-row` / `.gk-stat`, `.gk-fab`, `.gk-sheet`, `.gk-segmented`, `.gk-empty` and `.gk-app-label`;
+  - a side rail instead of bottom tabs at 900 px and wider;
+  - App.screens now sets the bar's title from the screen's `data-title`, and shows Back only on screens that are not tabs.
+- **Verified in Chromium** (Pixel 7 and 1280×800) on an app written to the standard: the title follows the screen, Back appears only on inner screens and goes back, the tabs sit at the bottom on phones with a side rail on computers, Add opens a bottom sheet, and there are no page errors.
+- **Not yet verified:** a full build with the AI model (a paid call); the owner tests it.
+
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).

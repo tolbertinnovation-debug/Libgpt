@@ -69,4 +69,7 @@ test('the conversation before building says which kind of project it will be', a
   assert.deepEqual(answer.recipe, { id: 'booking', name: 'Booking website (salon, clinic, tutor)' });
   assert.equal(answer.recipes.length, 15);
   assert.ok(answer.recipes.every((r) => r.id && r.name && !r.guide), 'only names go to the phone');
+  assert.equal(answer.kind, 'website', 'a site for a salon is a website');
+  const asked = await (await original(`${base}/api/build/discuss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: [{ role: 'user', content: 'I need an app to book my salon customers' }] }) })).json();
+  assert.equal(asked.kind, 'app', 'the person said app');
 });

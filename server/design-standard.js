@@ -26,6 +26,20 @@ DESIGN RULES (what separates professional from amateur)
 // The Grandpa Kit is added to every project as two shared files. Builders use
 // its classes instead of writing these effects again, so they look
 // professional and behave the same on every site.
+// Apps are not websites. When the person asks for an app (or a tool, game or dashboard), every
+// builder gets these rules instead of the website standard above.
+export const APP_STANDARD = `APP STANDARD (this is an APP, not a website: it must look and work like a real installed phone and computer app)
+- Never build website parts: no hero banner, no marketing headline or sales copy, no eyebrow labels, no "Get started" sections, no testimonials, pricing tables, gallery, FAQ, about or contact pages, no website header menu, no footer, no scroll-reveal animations, no decorative stock photographs. Only what the app needs to do its job.
+- The shell: <body class="gk-app"> with <header class="gk-app-bar"> (a back button <button data-app-back aria-label="Back">, the screen title <h1 data-app-title>, at most two icon buttons), <main class="gk-app-main"> holding one <section data-screen="name" data-title="Screen title"> per screen, and <nav class="gk-appbar"> with 3–5 tabs (inline SVG icon + short label) linking to #screen names. The kit turns the tab bar into a side rail on computers and shows the title and back button for each screen.
+- The first screen is the app's main job, working immediately: the list, the totals, the game board, the calculator, the player. Never a welcome page. With no data yet, show a clear empty state (.gk-empty: icon, one sentence, one button) and sample data only if the person asked for it.
+- App parts: lists of rows (<ul class="gk-list"><li class="gk-row"> with a .gk-avatar or icon, a .gk-row-main title and small subtitle, and a .gk-row-end value), summary tiles (.gk-stats-row of .gk-stat), section labels (.gk-app-label), one floating Add button for the main action (<button class="gk-fab" aria-label="Add …">), forms in bottom sheets (<dialog class="gk-sheet"> opened with showModal), filters as a segmented control (.gk-segmented with aria-pressed buttons) or chips, a search field above long lists, a Settings screen when the app has choices, App.toast after saving, and a confirmation before deleting.
+- Behaviour: App.screens for screens (no page loads), App.store with remember for data (it stays on the device and works offline), App.form for forms, App.table / App.chart for reports, App.csv for exports. Everything works without internet.
+- Look: compact and calm like a native app: system font, body 16px, screen titles 20px, neutral grey background with white cards and lists, the brand colour for the app bar, active tab, selected items and the Add button, 12–16px corners, soft shadows, 44px+ touch targets, safe-area padding. Only the screen content scrolls; the app bar and tabs stay put.
+- Files: index.html with assets/app.css and assets/app.js (or inline), one HTML page for the whole app unless the person asked for more.`;
+
+/** The design rules for what is being made. */
+export const designRules = (kind) => (kind === 'app' ? APP_STANDARD : DESIGN_STANDARD);
+
 export const KIT_PATHS = Object.freeze(['assets/grandpa-kit.css', 'assets/grandpa-kit.js', 'assets/grandpa-app.js']);
 export const isKitPath = (path) => KIT_PATHS.includes(String(path || '').replace(/^\.\//, ''));
 
@@ -62,7 +76,7 @@ KIT 6 DESIGN SYSTEM AND COMPONENTS
 - Stats band: <div class="gk-stats"><div><strong data-gk-count="500">500</strong><span>customers served</span></div>…</div> (only true numbers). Partner logos: <div class="gk-logos"> of <img> or SVG.
 - Product card: <article class="gk-product" data-gk-item><img …><div><h3 data-gk-field="name">…</h3><p class="gk-price-tag" data-gk-field="price">…</p><p data-gk-field="note">…</p><button class="gk-btn" type="button" data-gk-add>Add to order</button></div></article> inside a .gk-grid with data-gk-list="products".
 - Article card: <article class="gk-post"><img …><div><small>Date · 4 min read</small><h3><a href="…">Title</a></h3><p>Excerpt</p></div></article>.
-- Phone-app projects: <nav class="gk-appbar"> with 3–5 links (icon + label), and padding-bottom on the body so content is not hidden behind it.
+- Apps (APP STANDARD): <body class="gk-app">, <header class="gk-app-bar"> with <button data-app-back aria-label="Back"> and <h1 data-app-title>, <main class="gk-app-main"> of <section data-screen data-title>, <nav class="gk-appbar"> tabs; .gk-list of .gk-row (.gk-avatar, .gk-row-main, .gk-row-end), .gk-stats-row of .gk-stat, .gk-app-label, .gk-fab, <dialog class="gk-sheet">, .gk-segmented, .gk-empty. The kit spaces everything for the bars; never add body padding for them.
 APP TOOLKIT for web software (tools, quizzes, games, dashboards, phone-style apps): add <script src="assets/grandpa-app.js" defer></script> before your own script and use window.GrandpaApp (as const App = window.GrandpaApp inside DOMContentLoaded). Never write your own versions of these.
 - State: const store = App.store({ items: [] }, { remember: 'my-app' }); store.subscribe(draw); store.set({ items: [...] }) or store.set((s) => ({ count: s.count + 1 })). remember keeps it on the device (in the published sandbox only for the open tab); store.kept says where.
 - Safe rendering: App.render('#list', App.html\`<li>\${item.name}</li>\`) escapes every value (arrays are joined; App.raw(markup) only for markup you wrote). Never build HTML from user text with + or innerHTML directly.

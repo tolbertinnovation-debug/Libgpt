@@ -51,7 +51,7 @@ test('plans accept a bounded retired list',()=>{
 test('planning without saved requirements is unchanged: one call, original message',async()=>{
  const calls=[];
  await generateTeamPlan({asked:'Build a school site.',model:'m',complete:async request=>{calls.push(request.messages);return JSON.stringify(planWith(['Show the school name']));}});
- assert.equal(calls.length,1);assert.match(calls[0][1].content,/^Build a school site\.\n\nPROJECT RECIPE: Church, school or NGO website\n/,'the original message, then the recipe');
+ assert.equal(calls.length,1);assert.match(calls[0][1].content,/^Build a school site\.\n\nMake: a website\.\nPROJECT RECIPE: Church, school or NGO website\n/,'the original message, then app or website, then the recipe');
 });
 
 test('a replan that drops a requirement gets one repair request, then keeps it or retires it',async()=>{

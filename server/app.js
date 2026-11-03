@@ -32,7 +32,7 @@ import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, s
 import { buildApk, newSigningKey, sealKey, openKey } from './android-app.js';
 import { buildExe } from './windows-app.js';
 import { searchPhotos, fetchPhoto, youtubeInfo, searchWords, searchVideos } from './media-search.js';
-import { chooseRecipe, RECIPES } from '../public/build-recipes.js';
+import { chooseRecipe, RECIPES, projectKind } from '../public/build-recipes.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
 import {
   DEFAULT_LANGUAGE,
@@ -867,6 +867,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
   let searched = !building && Boolean(reader) && !llamaAll
     && !carryingOn
     && (req.body?.search === true || (research !== 'off' && needsLookingUp(routedQuestion, new Date(), research === 'always')));
+  const askedText = () => (Array.isArray(req.body?.messages) ? req.body.messages : []).filter((m) => m?.role === 'user' && typeof m.content === 'string').map((m) => m.content).join('\n').slice(0, 12000);
   const buildingPrompt = () => [
     // Only told it can draw where it really can.
     QUALITY_PROMPT,
@@ -874,7 +875,9 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       pictures: false,
       runtime:req.body?.buildRuntime==='fullstack'?'fullstack':'static',
       // The project recipe, from what the person asked (a "Project type:" line wins).
-      recipe: chooseRecipe((Array.isArray(req.body?.messages) ? req.body.messages : []).filter((m) => m?.role === 'user' && typeof m.content === 'string').map((m) => m.content).join('\n').slice(0, 12000)),
+      recipe: chooseRecipe(askedText()),
+      // App or website, as the person said (the "Make:" line from the conversation card wins).
+      kind: projectKind(askedText()),
     }),
     '',
     // Phase 3: what the site is (worked out from its files in the browser), so
@@ -1418,8 +1421,11 @@ app.post('/api/build/discuss', rateLimit, requireAccess, runtime.middleware('orc
     const answer = readDiscussReply(raw);
     if (!answer) { res.status(502).json({ error: 'I could not put that into words just now. Try again.' }); return; }
     // The kind of project, so the person can see it and change it before building.
-    const recipe = chooseRecipe(`${messages.filter((m) => m.role === 'user').map((m) => m.content).join('\n')}\n${answer.brief || ''}`);
-    res.json({ ...answer, recipe: { id: recipe.id, name: recipe.name }, recipes: RECIPES.map((r) => ({ id: r.id, name: r.name })) });
+    const said = messages.filter((m) => m.role === 'user').map((m) => m.content).join('\n');
+    const recipe = chooseRecipe(`${said}\n${answer.brief || ''}`);
+    // App or website: the person's own words decide (the brief is Grandpa's summary, used only if they named neither).
+    const kind = projectKind(said, recipe) === 'app' || (!/\b(?:apps?|web ?sites?|sites?)\b/i.test(said) && projectKind(answer.brief || '', recipe) === 'app') ? 'app' : 'website';
+    res.json({ ...answer, recipe: { id: recipe.id, name: recipe.name }, recipes: RECIPES.map((r) => ({ id: r.id, name: r.name })), kind });
   } catch (error) {
     if (controller.signal.aborted) return;
     console.error('[build-discuss]', error?.status, safeDiagnostic(String(error?.message || error)));
@@ -2560,7 +2566,7 @@ export const buildAgentServices={
  generate:(agent,instruction,files,signal,plan,targetPath)=>runInRole(agent,'generate',async()=>{
   const context=targetPath ? generationContext(files,{targetPath,plan,instruction}) : fitProject(files,90000);
   return complete({model:await pickModel(undefined,'story'),
-   messages:[{role:'system',content:buildPrompt({runtime:plan?.runtime || 'static'})},{role:'user',content:`${instruction}\n\n${projectContext(context.kept)}${context.dropped.length?`\n\nExisting files omitted from this call (preserve them; do not recreate or remove them): ${context.dropped.join(', ')}`:''}`}],maxTokens:16000,temperature:.3,signal});
+   messages:[{role:'system',content:buildPrompt({runtime:plan?.runtime || 'static',kind:projectKind(instruction)})},{role:'user',content:`${instruction}\n\n${projectContext(context.kept)}${context.dropped.length?`\n\nExisting files omitted from this call (preserve them; do not recreate or remove them): ${context.dropped.join(', ')}`:''}`}],maxTokens:16000,temperature:.3,signal});
  }),
  review:(asked,plan,files,issues,signal,priorFindings=[])=>runInRole('reviewer','review',async()=>{
   const packed=fitProject(files,130000);
