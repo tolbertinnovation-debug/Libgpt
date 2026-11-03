@@ -654,6 +654,29 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
     - the whole published story (with a stand-in provider, so nothing real is sent): nothing goes before connecting, only the owner can connect, keys are never returned, an alert reaches the owner's phone and email, server code thanks a customer, the daily limit stops more, a provider refusal is logged, the preview lists without sending, and disconnecting works.
   - In Chromium, Manage connects Twilio without showing the token, saves alert numbers in international form and offers a test.
 
+### Owner-paid services, P2: mobile money through the owner's own MTN MoMo account (done)
+- **How it works:** MTN MoMo Collections ("request to pay"). The customer approves on their own phone and the money goes straight to the app owner's MoMo merchant account. Grandpa AI never holds, receives or charges anything; MTN's own fees apply.
+- **Connecting** (Manage → App data → Payments): the Collections subscription key, API user and API key, stored as sealed app secrets (`MOMO_*`) and never shown again.
+  - The test system is the default: MTN's sandbox, `sandbox.momodeveloper.mtn.com`, in euros, with no real money.
+  - Live means MTN Liberia (`proxy.momoapi.mtn.com`, target `mtnliberia`) in LRD or USD. It needs a merchant account approved by MTN Liberia (Lonestar), and switching to it asks the owner to confirm.
+  - The owner sets a daily limit on payment requests (default 500).
+- **The amount always comes from server code:** `app.pay.request({ phone, amount, note, table, record, field })` (at most 3 per run). The request is recorded with a new UUID, which is MTN's reference.
+- **Following a payment:** the page uses `App.pay.wait(id)` / `App.pay.status(id)` (Kit 17), and `GET /api/app-db/:slug/payments/:id` reports progress without the phone number. While a payment is pending, the server asks MTN at most every 3 seconds.
+- **When MTN reports success:** the payment settles once (an atomic pending → successful/failed), the record's yes/no field is set through the normal checks, so alerts fire, and the activity log records it.
+- **In Build's preview:** nothing is charged, payments count as paid at once, and MTN is never called.
+- **Not yet confirmed:** whether MTN Liberia currently opens merchant API access. Owners start on the free test system.
+- **Verified:**
+  - Tests cover:
+    - request and settings checks;
+    - the exact MTN token, request-to-pay and status calls for the test system and live, with token caching;
+    - payments and daily counts in the memory and Postgres stores, with a single settle;
+    - the whole published story, with a stand-in MTN so no real money moves: not connected, owner-only connecting, the amount taken from the database, pending then successful, the order marked paid once with its alert, a refused payment leaves the order unpaid, Manage shows payments without keys, live uses MTN Liberia, and the preview never calls MTN.
+  - In Chromium, at phone size:
+    - the preview checkout shows paid;
+    - published, the customer sees "Approve the payment on your phone", then "Paid ✓ LRD 3600", and the order is marked paid;
+    - Manage connects to the test system without showing keys and lists the payment;
+    - no page errors.
+
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).

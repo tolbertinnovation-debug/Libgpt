@@ -30,6 +30,7 @@ export const ACTION_LIMITS = Object.freeze({
   dbCalls: 100,
   fetches: 3,
   messages: 5,
+  payments: 3,
   fetchMs: 5000,
   fetchBytes: 512 * 1024,
   inputBytes: 64 * 1024,
@@ -198,6 +199,7 @@ globalThis.__grandpaApp = Object.freeze({
   db: __table,
   fetch: (url, options) => __host('fetch', String(url), options || {}).then((r) => Object.freeze({ ...r, json() { return JSON.parse(r.text); } })),
   sms: (to, text) => __host('sms', String(to), String(text)),
+  pay: Object.freeze({ request: (details) => __host('pay', details || {}), status: (id) => __host('payStatus', String(id)) }),
   email: (to, subject, text) => __host('email', String(to), String(subject), String(text)),
   user: __user ? Object.freeze(__user) : null,
   secrets: Object.freeze(__secrets || {}),
@@ -210,7 +212,7 @@ globalThis.__grandpaApp = Object.freeze({
  * (and its checks) on the host; `fetch` is safeFetch (or a stand-in in tests).
  * Resolves { ok: true, result, logs, ms } or { ok: false, error, detail, logs, ms } — never throws for the app's own mistakes.
  */
-export async function runAction({ files, name, input = null, user = null, secrets = {}, db, fetch = safeFetch, messages = null, limits = {} }) {
+export async function runAction({ files, name, input = null, user = null, secrets = {}, db, fetch = safeFetch, messages = null, payments = null, limits = {} }) {
   const L = { ...ACTION_LIMITS, ...limits }, started = Date.now(), logs = [];
   const source = files.get(name);
   if (source == null) return { ok: false, status: 404, error: `This app has no server code called "${String(name).slice(0, 40)}".`, logs, ms: 0 };
@@ -218,7 +220,7 @@ export async function runAction({ files, name, input = null, user = null, secret
   try { inputJson = JSON.stringify(input ?? null); } catch { return { ok: false, status: 400, error: 'What was sent to the server code is not plain data.', logs, ms: 0 }; }
   if (Buffer.byteLength(inputJson) > L.inputBytes) return { ok: false, status: 413, error: 'What was sent to the server code must be under 64 KB.', logs, ms: 0 };
 
-  let cpu = 0, enteredAt = 0, finished = false, dbCalls = 0, fetches = 0, sent = 0;
+  let cpu = 0, enteredAt = 0, finished = false, dbCalls = 0, fetches = 0, sent = 0, asked = 0;
   const vm = await QuickJS.create({ wasm: await engine(), memoryLimit: L.memoryBytes, interruptHandler: () => finished || cpu + (Date.now() - enteredAt) > L.cpuMs });
   const inGuest = (work) => { enteredAt = Date.now(); try { return work(); } finally { cpu += Date.now() - enteredAt; } };
   const drain = () => { if (!finished) inGuest(() => vm.executePendingJobs()); };
@@ -242,6 +244,14 @@ export async function runAction({ files, name, input = null, user = null, secret
           if (!messages) throw fail('Messages are not available here.');
           if (++sent > L.messages) throw fail(`Server code can send at most ${L.messages} messages in one run.`);
           return kind === 'sms' ? messages.sms(rest[0], rest[1]) : messages.email(rest[0], rest[1], rest[2]);
+        });
+      } else if (kind === 'pay' || kind === 'payStatus') {
+        // Mobile money through the app owner's own MoMo account; see app-payments.js.
+        settle(() => {
+          if (!payments) throw fail('Payments are not available here.');
+          if (kind === 'payStatus') return payments.status(rest[0]);
+          if (++asked > L.payments) throw fail(`Server code can ask for at most ${L.payments} payments in one run.`);
+          return payments.request(rest[0] && typeof rest[0] === 'object' ? rest[0] : {});
         });
       } else settle(() => { throw fail('Unknown request.'); });
       return deferred.handle;

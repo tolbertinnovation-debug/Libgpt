@@ -432,11 +432,13 @@ async function showData() {
   if (state.data.accounts) parts.splice(3, 0, h('div', { id: 'accounts', class: 'card' }, h('p', { class: 'note', text: 'Loading accounts…' })));
   parts.push(h('div', { id: 'code', class: 'card', hidden: true }));
   parts.push(h('div', { id: 'messages', class: 'card' }, h('p', { class: 'note', text: 'Loading messages…' })));
+  parts.push(h('div', { id: 'payments', class: 'card' }, h('p', { class: 'note', text: 'Loading payments…' })));
   parts.push(h('div', { id: 'activity', class: 'card' }, h('p', { class: 'note', text: 'Loading activity…' })));
   panel().replaceChildren(...parts);
   if (state.data.accounts) await showAccounts();
   showCode();
   showMessages();
+  showPayments();
   showActivity();
   await showRecords(schema);
 }
@@ -705,6 +707,50 @@ async function showMessages() {
         h('select', { id: 'test-channel', 'aria-label': 'SMS or email' }, connected.sms ? h('option', { value: 'sms', text: 'SMS' }) : null, connected.email ? h('option', { value: 'email', text: 'Email' }) : null),
         h('input', { id: 'test-to', 'aria-label': 'Send the test to', placeholder: '+231… or you@example.com', required: true }),
         h('div', { class: 'row' }, h('button', { type: 'submit', text: 'Send test' }))) : null,
+      status);
+  } catch (error) { if (!error.quiet) box.replaceChildren(h('p', { class: 'msg error', role: 'alert', text: error.message })); }
+}
+
+/* ---- Mobile money through the owner's own MTN MoMo account ---------------- */
+async function showPayments() {
+  const box = document.getElementById('payments');
+  if (!box) return;
+  try {
+    const { connected, settings, payments } = await api('/payments');
+    const status = h('p', { class: 'msg pay-status', role: 'status' });
+    const say = (text, ok = false) => { const target = box.querySelector('.pay-status') || status; message(target, text, ok); target.classList.add('pay-status'); }
+    const value = (id) => document.getElementById(id)?.value || '';
+    const field = (id, label, attrs = {}) => [h('label', { for: id, text: label }), h('input', { id, autocomplete: 'off', ...attrs })];
+    const live = settings.momoEnv === 'live';
+    box.replaceChildren(h('h2', { text: 'Payments (MTN MoMo)' }),
+      h('p', { class: 'note', text: 'Customers pay with MTN Mobile Money and approve on their own phone. The money goes straight to your MoMo merchant account: Grandpa AI never holds it and takes nothing. MTN\'s own fees apply.' }),
+      h('p', { class: `msg ${live ? 'ok' : ''}`, text: connected ? (live ? `Connected: LIVE payments in ${settings.currency} (real money).` : 'Connected to MTN\'s TEST system: no real money moves (amounts are in euros there).') : 'Not connected.' }),
+      h('details', { open: !connected }, h('summary', { text: connected ? 'Replace the keys' : 'Connect your MoMo account' }),
+        h('p', { class: 'note', text: 'Start with the test system: make a free account at momodeveloper.mtn.com, subscribe to "Collections", and make a test API user and key. For real payments you need a MoMo merchant account approved by MTN Liberia (Lonestar); they give you live keys.' }),
+        h('form', { onsubmit: async (event) => {
+          event.preventDefault();
+          try { await api('/payments/momo', { method: 'PUT', body: { subscriptionKey: value('momo-sub'), apiUser: value('momo-user'), apiKey: value('momo-key') } }); await showPayments(); say('Connected. Try a payment in the app.', true); } catch (error) { if (!error.quiet) say(error.message); }
+        } }, ...field('momo-sub', 'Collections subscription key (Primary Key, 32 characters)', { type: 'password', maxlength: 32 }), ...field('momo-user', 'API user (id like 1f2e3d4c-…)', { maxlength: 36 }), ...field('momo-key', 'API key', { type: 'password', maxlength: 200 }),
+          h('div', { class: 'row' }, h('button', { type: 'submit', class: 'primary', text: 'Save keys' }),
+            connected ? h('button', { type: 'button', class: 'danger', text: 'Disconnect', onclick: async () => {
+              if (!confirm('Disconnect MoMo? The app stops taking payments.')) return;
+              try { await api('/payments/momo', { method: 'DELETE' }); await showPayments(); } catch (error) { if (!error.quiet) say(error.message); }
+            } }) : null))),
+      h('form', { onsubmit: async (event) => {
+        event.preventDefault();
+        if (value('momo-env') === 'live' && !live && !confirm('Switch to LIVE payments? Customers will pay real money into your MoMo account. Use the live keys MTN Liberia gave you.')) return;
+        try { await api('/payments/settings', { method: 'PUT', body: { momoEnv: value('momo-env'), currency: value('momo-currency'), paymentsPerDay: value('momo-limit') } }); await showPayments(); say('Saved.', true); } catch (error) { if (!error.quiet) say(error.message); }
+      } }, h('label', { for: 'momo-env', text: 'Payments' }),
+        h('select', { id: 'momo-env' }, h('option', { value: 'sandbox', text: 'Test system (no real money)', selected: !live }), h('option', { value: 'live', text: 'Live — MTN Liberia (real money)', selected: live })),
+        h('label', { for: 'momo-currency', text: 'Currency for live payments' }),
+        h('select', { id: 'momo-currency' }, ['LRD', 'USD'].map((c) => h('option', { value: c, text: c, selected: settings.currency === c }))),
+        h('label', { for: 'momo-limit', text: 'Most payment requests a day' }), h('input', { id: 'momo-limit', type: 'number', min: 0, max: 10000, value: settings.paymentsPerDay }),
+        h('div', { class: 'row' }, h('button', { type: 'submit', class: 'primary', text: 'Save' }))),
+      h('h3', { text: 'Recent payments' }),
+      payments.length ? h('ul', { class: 'activity' }, payments.map((p) => h('li', {}, h('span', { class: 'note', text: when(p.created) }), ` ${p.currency} ${Number(p.amount).toLocaleString()} from ${p.phone} — `,
+        h('strong', { text: p.status === 'successful' ? 'paid ✓' : p.status === 'failed' ? `failed${p.reason ? ` (${p.reason})` : ''}` : 'waiting for the customer' }), p.env === 'sandbox' ? ' (test)' : '', p.note ? ` · ${p.note}` : '',
+        p.status === 'pending' ? h('button', { type: 'button', text: 'Check', onclick: async () => { try { await api(`/payments/${p.id}/check`, { method: 'POST' }); await showPayments(); } catch (error) { if (!error.quiet) say(error.message); } } }) : null)))
+        : h('p', { class: 'note', text: 'No payments yet.' }),
       status);
   } catch (error) { if (!error.quiet) box.replaceChildren(h('p', { class: 'msg error', role: 'alert', text: error.message })); }
 }
