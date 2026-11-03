@@ -205,6 +205,8 @@ const TYPES = { html: 'text/html; charset=utf-8', htm: 'text/html; charset=utf-8
 /** The file a request asks for: a path, a folder's index.html, or a page without .html. */
 export function findSiteFile(files, requested = '') {
   const path = String(requested || '').replace(/^\/+/, '');
+  // An app's server code (Phase D5) runs on the server; it is never sent to visitors.
+  if (/^server(?:\/|$)/i.test(path)) return null;
   const byPath = new Map(files.map((f) => [f.path, f]));
   const candidates = path === '' || path.endsWith('/') ? [`${path}index.html`] : [path, `${path}.html`, `${path}/index.html`];
   for (const candidate of candidates) if (byPath.has(candidate)) return byPath.get(candidate);

@@ -9,7 +9,10 @@ import { postgresPoolOptions } from './postgres-options.js';
 import { postgresTransaction } from './postgres-transaction.js';
 import { governanceScope } from './governance-postgres.js';
 
-export const LIMITS = Object.freeze({ records: 20_000, bytes: 25 * 1024 * 1024, writesPerDay: 3_000 });
+export const LIMITS = Object.freeze({ records: 20_000, bytes: 25 * 1024 * 1024, writesPerDay: 3_000, runsPerDay: 2_000 });
+/** Server code (Phase D5): at most this many secret keys per app. */
+export const SECRETS_KEPT = 20;
+export const SECRET_NAME = /^[A-Z][A-Z0-9_]{0,39}$/;
 export const TYPES = ['text', 'longtext', 'number', 'integer', 'money', 'boolean', 'date', 'datetime', 'time', 'choice', 'email', 'phone', 'url', 'image', 'file', 'autonumber', 'link'];
 export const FILE_ID = /^f_[A-Za-z0-9_-]{24}$/;
 export const ACCESS = ['team', 'public-read', 'public-add', 'public'];
@@ -308,7 +311,7 @@ function matches(record, filters, table, q) {
 
 export function createMemoryAppDb({ now = () => Date.now() } = {}) {
   const apps = new Map();
-  const app = (slug) => { if (!apps.has(slug)) apps.set(slug, { rows: new Map(), files: new Map(), activity: [], alerts: [], usage: { records: 0, bytes: 0, day: '', writes: 0, limits: {}, versions: {}, counters: {} } }); return apps.get(slug); };
+  const app = (slug) => { if (!apps.has(slug)) apps.set(slug, { rows: new Map(), files: new Map(), activity: [], alerts: [], usage: { records: 0, bytes: 0, day: '', writes: 0, limits: {}, versions: {}, counters: {}, secrets: {}, runDay: '', runs: 0 } }); return apps.get(slug); };
   /** Links must point at records that exist; effects must not take a number below its minimum. All checked before anything changes. */
   const prepare = (a, schema, tbl, before, after) => {
     const t = schema?.tables[tbl];
@@ -348,6 +351,17 @@ export function createMemoryAppDb({ now = () => Date.now() } = {}) {
       a.rows.set(`${tbl}/${id}`, { tbl, id, data, size, created: t, updated: t, by });
       bump(a, tbl);
       return rowOut(id, data, t, t, by);
+    },
+    /** Build's preview (Phase D5): a record copied in as it is, with its id, times and author. */
+    async seed(slug, tbl, record, schema = null) {
+      const a = app(slug), { id, created, updated, by, linked, ...data } = record || {};
+      if (typeof id !== 'string' || !id || id.length > 60) return false;
+      // Automatic numbers carry on after the highest one copied in.
+      for (const [f, field] of Object.entries(schema?.tables[tbl]?.fields || {})) if (field.type === 'autonumber') { const n = Number(/(\d+)\D*$/.exec(String(data[f] ?? ''))?.[1]); if (Number.isFinite(n)) a.usage.counters[`${tbl}.${f}`] = Math.max(a.usage.counters[`${tbl}.${f}`] ?? field.start, n + 1); }
+      const size = Buffer.byteLength(JSON.stringify(data)), t = now();
+      a.rows.set(`${tbl}/${id}`, { tbl, id, data, size, created: Date.parse(created) || t, updated: Date.parse(updated) || t, by: typeof by === 'string' ? by : null });
+      a.usage.records += 1; a.usage.bytes += size;
+      return true;
     },
     async get(slug, tbl, id) { const r = app(slug).rows.get(`${tbl}/${id}`); return r ? rowOut(r.id, r.data, r.created, r.updated, r.by) : null; },
     async update(slug, tbl, id, data, schema = null) {
@@ -393,7 +407,21 @@ export function createMemoryAppDb({ now = () => Date.now() } = {}) {
       return [...groups.values()].map((g) => ({ ...g, sum: Math.round(g.sum * 100) / 100 })).sort((x, y) => (x.key < y.key ? -1 : 1)).slice(0, 400);
     },
     async versions(slug) { return { ...app(slug).usage.versions }; },
-    async usage(slug) { const a = app(slug); return { records: a.usage.records, bytes: a.usage.bytes, writesToday: a.usage.day === today(now()) ? a.usage.writes : 0, limits: limitsOf(a) }; },
+    async usage(slug) { const a = app(slug); return { records: a.usage.records, bytes: a.usage.bytes, writesToday: a.usage.day === today(now()) ? a.usage.writes : 0, runsToday: a.usage.runDay === today(now()) ? a.usage.runs : 0, limits: limitsOf(a) }; },
+    // Server code (Phase D5): runs per day, and the owner's secret keys (stored sealed; opened only for the app's code).
+    async countRun(slug) {
+      const a = app(slug), d = today(now());
+      if (a.usage.runDay !== d) { a.usage.runDay = d; a.usage.runs = 0; }
+      if (a.usage.runs >= limitsOf(a).runsPerDay) throw fail('This app\'s server code has run too often today. It will work again tomorrow.', 429);
+      a.usage.runs += 1; return a.usage.runs;
+    },
+    async secrets(slug) { return { ...app(slug).usage.secrets }; },
+    async setSecret(slug, name, sealed) {
+      const all = app(slug).usage.secrets;
+      if (sealed == null) { delete all[name]; return true; }
+      if (!(name in all) && Object.keys(all).length >= SECRETS_KEPT) throw fail(`An app can keep at most ${SECRETS_KEPT} secret keys.`);
+      all[name] = sealed; return true;
+    },
     async setLimits(slug, limits) { app(slug).usage.limits = cleanLimits(limits); return limitsOf(app(slug)); },
     async exportAll(slug) { return [...app(slug).rows.values()].map((r) => ({ table: r.tbl, ...rowOut(r.id, r.data, r.created, r.updated, r.by) })); },
     async counters(slug) { return { ...app(slug).usage.counters }; },
@@ -405,7 +433,7 @@ export function createMemoryAppDb({ now = () => Date.now() } = {}) {
 /** Limits the owner of Grandpa AI may raise for one app (never unlimited). */
 export function cleanLimits(input = {}) {
   const out = {};
-  for (const [k, most] of [['records', 1_000_000], ['bytes', 1024 * 1024 * 1024], ['writesPerDay', 200_000]]) if (input[k] != null) {
+  for (const [k, most] of [['records', 1_000_000], ['bytes', 1024 * 1024 * 1024], ['writesPerDay', 200_000], ['runsPerDay', 100_000]]) if (input[k] != null) {
     const n = Math.floor(Number(input[k]));
     if (!Number.isFinite(n) || n < 1 || n > most) throw fail(`${k} must be between 1 and ${most}.`);
     out[k] = n;
@@ -446,6 +474,10 @@ const SCHEMA = [
     PRIMARY KEY (scope, slug)
   )`,
   `ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS counters jsonb NOT NULL DEFAULT '{}'`,
+  // Phase D5: server code runs per day, and the owner's sealed secret keys.
+  `ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS secrets jsonb NOT NULL DEFAULT '{}'`,
+  `ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS run_day text NOT NULL DEFAULT ''`,
+  'ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS runs integer NOT NULL DEFAULT 0',
 ];
 
 /** SQL for one field's value, by its type (field names go in as parameters, never as text). */
@@ -657,7 +689,27 @@ export function createPostgresAppDb({ connectionString, pool: suppliedPool, scop
     async usage(slug) {
       return transaction(async (client) => {
         const r = (await client.query('SELECT * FROM public.grandpa_ai_app_usage WHERE scope=$1 AND slug=$2', [scope, slug])).rows[0];
-        return r ? { records: Number(r.records), bytes: Number(r.bytes), writesToday: r.day === today(now()) ? Number(r.writes) : 0, limits: limitsOf(r) } : { records: 0, bytes: 0, writesToday: 0, limits: { ...LIMITS } };
+        return r ? { records: Number(r.records), bytes: Number(r.bytes), writesToday: r.day === today(now()) ? Number(r.writes) : 0, runsToday: r.run_day === today(now()) ? Number(r.runs) : 0, limits: limitsOf(r) } : { records: 0, bytes: 0, writesToday: 0, runsToday: 0, limits: { ...LIMITS } };
+      });
+    },
+    async countRun(slug) {
+      return transaction(async (client) => {
+        const u = await usageRow(client, slug), d = today(now()), runs = u.run_day === d ? Number(u.runs) : 0;
+        if (runs >= limitsOf(u).runsPerDay) throw fail('This app\'s server code has run too often today. It will work again tomorrow.', 429);
+        await client.query('UPDATE public.grandpa_ai_app_usage SET run_day=$3, runs=$4 WHERE scope=$1 AND slug=$2', [scope, slug, d, runs + 1]);
+        return runs + 1;
+      });
+    },
+    async secrets(slug) {
+      return transaction(async (client) => { const r = (await client.query('SELECT secrets FROM public.grandpa_ai_app_usage WHERE scope=$1 AND slug=$2', [scope, slug])).rows[0]; return r ? (typeof r.secrets === 'string' ? JSON.parse(r.secrets) : r.secrets || {}) : {}; });
+    },
+    async setSecret(slug, name, sealed) {
+      return transaction(async (client) => {
+        const u = await usageRow(client, slug), all = typeof u.secrets === 'string' ? JSON.parse(u.secrets) : { ...(u.secrets || {}) };
+        if (sealed == null) delete all[name];
+        else { if (!(name in all) && Object.keys(all).length >= SECRETS_KEPT) throw fail(`An app can keep at most ${SECRETS_KEPT} secret keys.`); all[name] = sealed; }
+        await client.query('UPDATE public.grandpa_ai_app_usage SET secrets=$3 WHERE scope=$1 AND slug=$2', [scope, slug, JSON.stringify(all)]);
+        return true;
       });
     },
     async setLimits(slug, limits) {

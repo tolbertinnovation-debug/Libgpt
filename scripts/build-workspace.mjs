@@ -22,6 +22,9 @@ for(const directory of await functionsAt('.vercel/output/functions')){
   await cp(path.join(relative,'package.json'),path.join(directory,relative,'package.json'));
   for(const file of files)await cp(path.join(relative,'files',file),path.join(directory,relative,'files',file));
  }
+ // The sandbox for apps' server code (Phase D5) loads its engine with require.resolve('quickjs-wasi/quickjs.wasm').
+ await mkdir(path.join(directory,'node_modules/quickjs-wasi'),{recursive:true});
+ for(const file of ['package.json','quickjs.wasm'])await cp(path.join('node_modules/quickjs-wasi',file),path.join(directory,'node_modules/quickjs-wasi',file));
  for(const folder of ['data','_libs/data','_chunks/data'])await cp('node_modules/pdfkit/js/data',path.join(directory,folder),{recursive:true});
  await cp('node_modules/pdfkit/js/standard-fonts',path.join(directory,'standard-fonts'),{recursive:true});
  const packageFile=path.join(directory,'package.json');

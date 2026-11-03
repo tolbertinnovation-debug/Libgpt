@@ -2,7 +2,7 @@ import {verificationStatusMarkup} from './build-verification.js';
 import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
 import {restrictPreviewDocument} from './preview-policy.js';
-import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=kit-2';
+import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=code-1';
 import {loadPreviewGuard,previewGuardReady} from './preview-guard.js';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
@@ -36,7 +36,7 @@ import { SECTIONS, KIT_FILES, ensureKitLinks } from './build-sections.js?v=kit-1
 import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js?v=quality-3';
 import { wantsApp, markApp } from './build-app.js?v=app-1';
 import { kindLine } from './build-recipes.js?v=kind-1';
-import { designIssues } from './build-data-check.js?v=data-1';
+import { designIssues } from './build-data-check.js?v=code-1';
 import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, replacePlayer, creditsPage, linkCredits } from './build-media.js?v=media-3';
 import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=kit-1';
 
@@ -686,7 +686,7 @@ async function unpublishFromWeb() {
 
 /* ---- The Grandpa Kit ----------------------------------------------------- */
 /** Add the shared design kit to a project once, so builders can use its sections and effects. */
-const KIT_VERSION = 'Grandpa Kit 15';
+const KIT_VERSION = 'Grandpa Kit 16';
 async function ensureKit(p) {
   // An older kit is replaced by the current one (only the kit ever changes the kit).
   const kit = (p?.files || []).filter((f) => isKitFile(f.path));
@@ -694,7 +694,7 @@ async function ensureKit(p) {
   if (!p || (kit.length === paths.length && kit.every((f) => String(f.body).startsWith(`/* ${KIT_VERSION} `)))) return true;
   try {
     const bodies = await Promise.all(paths.map(async (path) => {
-      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-15`);
+      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-16`);
       if (!response.ok) throw new Error('kit');
       return response.text();
     }));
@@ -1787,7 +1787,7 @@ async function dataIssues(files) {
   const design = files.find((f) => f.path === 'data/schema.json');
   if (!design || issues.some((i) => /not valid JSON/.test(i))) return issues;
   try {
-    const response = await fetch('/api/app-design/check', { method: 'POST', headers: { 'Content-Type': 'application/json', ...deps.headers() }, body: JSON.stringify({ schema: design.body, sample: files.find((f) => f.path === 'data/sample.json')?.body || '' }) });
+    const response = await fetch('/api/app-design/check', { method: 'POST', headers: { 'Content-Type': 'application/json', ...deps.headers() }, body: JSON.stringify({ schema: design.body, sample: files.find((f) => f.path === 'data/sample.json')?.body || '', actions: files.filter((f) => /^server\/[a-z][a-z0-9_-]{0,39}\.js$/.test(f.path)).map(({ path, body }) => ({ path, body })) }) });
     if (response.ok) issues.push(...((await response.json()).problems || []));
   } catch { /* offline: the design is checked again at publish */ }
   return issues;
@@ -1945,6 +1945,18 @@ function discussionHtml(discussion, latest) {
       ${discussion.ready ? '<span class="build-brief-note">Or tell me what to change.</span>' : ''}
     </div>
   </div>`;
+}
+
+/** The app's server code (Phase D5) in the preview: run on Grandpa's server against the preview's test database. */
+async function runPreviewServer(p, data, frame) {
+  const reply = (answer) => { try { frame?.postMessage({ grandpa: 'server-result', id: data.id, ...answer }, '*'); } catch { /* the preview moved on */ } };
+  const files = (p?.files || []).filter((f) => /^server\/[a-z][a-z0-9_-]{0,39}\.js$/.test(f.path)).map(({ path, body }) => ({ path, body }));
+  const schema = (p?.files || []).find((f) => f.path === 'data/schema.json')?.body || '';
+  try {
+    const response = await fetch('/api/app-actions/try', { method: 'POST', headers: { 'Content-Type': 'application/json', ...deps.headers() }, body: JSON.stringify({ name: data.name, input: data.input ?? null, files, schema, tables: data.tables || {}, user: data.user || null }) });
+    const result = await response.json().catch(() => ({ error: 'The server code could not be run just now.' }));
+    reply(response.ok ? { ok: true, result: result.result ?? null, logs: result.logs || [], tables: result.tables || {} } : { ok: false, error: result.error || 'The server code failed.', logs: result.logs || [], tables: result.tables || {} });
+  } catch { reply({ ok: false, error: 'No internet connection. The server code needs the internet, even in the preview.' }); }
 }
 
 async function teamRequest(path, body, signal) {
@@ -2940,6 +2952,7 @@ export async function mount(options = {}) {
     }else if(data?.grandpa==='download-file' && file){downloadFile(file);}
     else if(data?.grandpa==='fault' && typeof data.what==='string'){deps.toast(data.what.slice(0,400));}
     else if(data?.grandpa==='play-video'){showVideoWindow(data.id,data.title);}
+    else if(data?.grandpa==='server-run'){runPreviewServer(p,data,event.source);}
     else if(data?.grandpa==='visual-edit'){
       if(data.type==='ready' && state.editMode && !data.count)deps.toast('There is no text on this page that can be edited by hand.');
       else applyVisualEdit(data);

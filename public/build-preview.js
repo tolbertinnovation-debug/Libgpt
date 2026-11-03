@@ -34,7 +34,15 @@ export function createPreviewMessageLimiter(frame, now=Date.now) {
   return event=>{
     const d=event?.data,t=now();
     if(event?.source!==frame || event.origin!=='null' || !d || typeof d!=='object' || Array.isArray(d) || d.checkId || !Number.isFinite(t) || t<start)return false;
-    if(!['navigate','download-file','fault','visual-edit','play-video'].includes(d.grandpa))return false;
+    if(!['navigate','download-file','fault','visual-edit','play-video','server-run'].includes(d.grandpa))return false;
+    // The app's server code (Phase D5), run against the preview's test database.
+    if(d.grandpa==='server-run'){
+      if(typeof d.id!=='string' || !/^[\w-]{1,40}$/.test(d.id) || typeof d.name!=='string' || !/^[a-z][a-z0-9_-]{0,39}$/.test(d.name))return false;
+      try{if(JSON.stringify(d.input??null).length>65536 || JSON.stringify(d.tables??{}).length>1500000)return false;}catch{return false;}
+      if(t-start>=1000){start=t;count=0;}
+      if(count>=20)return false;
+      count++;return true;
+    }
     // Hand edits from the page editor: text for one numbered element, or the editor saying it is ready.
     // A video player in the page asks the app to play its YouTube video (it cannot play inside the sandbox).
     if(d.grandpa==='play-video'){if(typeof d.id!=='string' || !/^[\w-]{11}$/.test(d.id) || (d.title!==undefined && (typeof d.title!=='string' || d.title.length>200)))return false;}

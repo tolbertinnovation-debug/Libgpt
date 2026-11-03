@@ -14,7 +14,7 @@ const video = (id, title = `Video ${id}`) => ({ id: id.padEnd(11, 'x').slice(0, 
 test('Kit 10 has the video player, playlists, the video library and videos from the device', async () => {
   const js = await readFile(new URL('../public/kit/grandpa-kit.js', import.meta.url), 'utf8');
   const css = await readFile(new URL('../public/kit/grandpa-kit.css', import.meta.url), 'utf8');
-  assert.ok(js.startsWith('/* Grandpa Kit 15 ') && css.startsWith('/* Grandpa Kit 15 '));
+  assert.ok(js.startsWith('/* Grandpa Kit 16 ') && css.startsWith('/* Grandpa Kit 16 '));
   for (const hook of ['.gk-video-player', '.gk-playlist', '.gk-video-library', 'input[data-gk-video-file]', 'requestPictureInPicture', 'textTracks', 'webkitEnterFullscreen', 'createObjectURL', 'aria-valuetext', "'ended'"]) assert.ok(js.includes(hook), hook);
   for (const part of ['.gk-vp-screen', '.gk-vp-bar', '.gk-vp-big', '.gk-playlist-list', '.gk-library-tools', '.gk-chip[aria-pressed="true"]']) assert.ok(css.includes(part), part);
   assert.match(css, /\.gk-vp-bar button\{[^}]*min-width:40px;height:40px/, 'controls large enough to tap');
