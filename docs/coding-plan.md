@@ -698,6 +698,38 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
     - the whole story: owner-only, the domain opens the site and its pages at the root and nothing else, an unknown domain opens nothing, and removing it stops it.
   - In Chromium, Manage adds a domain, shows the A record, then shows "working" once DNS is set.
 
+### Owner-paid services, P4: Google Play bundle for the owner's own developer account (done)
+- **For apps only:** in Manage → Settings → "Put the app on Google Play", the owner downloads an Android App Bundle (`.aab`, the only format Play takes for new apps) and uploads it to their own Google Play developer account. They pay Google once (US$25) for the account; Grandpa AI charges nothing. Only the owner can download it, so nobody else can put their app on Play.
+- **The template:** `scripts/android-shell/build-bundle.sh` builds `server/android/shell-aab.js` once, using aapt2 `--proto-format`, d8 and bundletool, all free from Google. The live server needs none of these tools.
+  - It targets **Android 16 (API 36)**, as Play requires for new apps and updates from 31 August 2026.
+  - The shell now handles Android 15+ edge-to-edge drawing: window insets keep the page clear of the bars, the cut-out and the keyboard, and the bars show the app's colour.
+  - It handles back through `OnBackInvokedCallback`, which Android 16 requires for apps that target it.
+  - The direct-download APK template (`shell-apk.js`, API 34) is unchanged.
+- **Per app (`server/android-bundle.js`):**
+  - A small protobuf editor writes the package id, name, version code and name into aapt2's manifest. Everything else stays byte for byte.
+  - The app's icon and its address (`assets/app.json`) are written in.
+  - The bundle gets a JAR signature (MANIFEST.MF / UPLOAD.SF / UPLOAD.RSA, PKCS#7 SHA-256 with RSA) from the app's **own upload key**. The key is made once, sealed and kept, so Play always sees the same one. Play App Signing then signs the app for phones with Google's key.
+  - The version code is minutes since 2026, so each download is higher.
+- **App id:**
+  - The suggestion comes from the address (mama-shop → `com.mamashop.app`), and the owner can choose their own; it can never change after the first upload.
+  - It is never the direct-download app's id, because a phone holding one app would refuse the other (they are signed with different keys).
+- **Downloads in Manage:** the bundle, a 512×512 store icon, the upload certificate (kept in case Google is ever asked to reset the upload key), and the Play Console steps (internal testing, Play App Signing, store listing, privacy policy, data safety, content rating, review). The app opens its address, so a new publish here needs no new bundle.
+- **Verified:**
+  - **Google's and Java's tools, on the bundle made by the server:**
+    - `bundletool validate` passes;
+    - `jarsigner -verify` reports "jar verified" (its strict mode notes only the self-signed upload key, which is normal for Android);
+    - `bundletool build-apks` (what Play does) makes a universal APK that `aapt2` reads as `com.mamakitchen.app`, the version, target 36 and "Mama Kitchen" with its address, and that `apksigner` accepts.
+  - Tests cover:
+    - app id rules and versions;
+    - the template's API 36 manifest, and a byte-for-byte protobuf round trip;
+    - each app's id, name, version, icon and address;
+    - the signature: every digest, and UPLOAD.SF verified against the upload certificate;
+    - jarsigner, when Java is installed;
+    - owner-only downloads, one upload key per app, the certificate and the icon, and that websites are refused.
+  - In Chromium, Manage suggests the id, downloads the bundle, says which version, and explains a wrong id.
+  - Fixed: Manage cards no longer show a stray "null".
+  - **Not yet tried on a real phone or in Play Console** (no device here): the first owner upload is the real test.
+
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).

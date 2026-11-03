@@ -40,6 +40,8 @@ async function api(path, { method = 'GET', body } = {}) {
 }
 
 function message(box, text, ok = false) { box.textContent = text; box.className = `msg ${ok ? 'ok' : 'error'}`; }
+/** replaceChildren, skipping empty parts (replaceChildren itself would write them as the word "null"). */
+const fill = (box, ...parts) => box.replaceChildren(...parts.flat(Infinity).filter((p) => p !== null && p !== undefined && p !== false));
 
 /* ---- signing in ---------------------------------------------------------- */
 function showLogin(reason = '') {
@@ -641,7 +643,7 @@ async function showCode() {
     const name = h('input', { id: 'secret-name', autocomplete: 'off', maxlength: 40, placeholder: 'PAYMENT_KEY', pattern: '[A-Z][A-Z0-9_]*', required: true });
     const value = h('input', { id: 'secret-value', type: 'password', autocomplete: 'off', maxlength: 4000, required: true });
     box.hidden = false;
-    box.replaceChildren(h('h2', { text: 'Server code' }),
+    fill(box, h('h2', { text: 'Server code' }),
       h('p', { class: 'note', text: `Parts of the app that run on Grandpa's server, in a sandbox. Used ${runsToday.toLocaleString()} of ${runsPerDay.toLocaleString()} times today. Mistakes are listed under Activity.` }),
       actions.length ? h('ul', { class: 'activity' }, actions.map((a) => h('li', {}, h('strong', { text: a.name }), ` — can be used by ${a.who}`))) : h('p', { class: 'note', text: 'This version of the app has no server code.' }),
       h('h3', { text: 'Secret keys' }),
@@ -681,7 +683,7 @@ async function showMessages() {
           if (!confirm(`Disconnect ${title}? The app stops sending ${kind === 'sms' ? 'SMS' : 'emails'}.`)) return;
           try { await api(`/messages/${kind}`, { method: 'DELETE' }); await showMessages(); } catch (error) { if (!error.quiet) say(error.message); }
         } }) : null)));
-    box.replaceChildren(h('h2', { text: 'Messages (SMS and email)' }),
+    fill(box, h('h2', { text: 'Messages (SMS and email)' }),
       h('p', { class: 'note', text: `The app sends SMS and email from your own account with the provider, and you pay the provider directly (Grandpa AI does not charge for messages). Sent today: ${sentToday.toLocaleString()} of your limit of ${settings.messagesPerDay.toLocaleString()}.` }),
       channel('sms', 'SMS with Twilio', 'Make a Twilio account (twilio.com), add credit, and copy the Account SID and Auth Token from the Twilio Console. For Liberia, MTN numbers need a sender name (letters, up to 11) rather than a number.',
         [...field('twilio-sid', 'Account SID (starts with AC)', { maxlength: 34 }), ...field('twilio-token', 'Auth Token', { type: 'password', maxlength: 200 }), ...field('twilio-from', 'Sender: your Twilio number (+…) or a name like MamaShop', { maxlength: 16 })],
@@ -722,7 +724,7 @@ async function showPayments() {
     const value = (id) => document.getElementById(id)?.value || '';
     const field = (id, label, attrs = {}) => [h('label', { for: id, text: label }), h('input', { id, autocomplete: 'off', ...attrs })];
     const live = settings.momoEnv === 'live';
-    box.replaceChildren(h('h2', { text: 'Payments (MTN MoMo)' }),
+    fill(box, h('h2', { text: 'Payments (MTN MoMo)' }),
       h('p', { class: 'note', text: 'Customers pay with MTN Mobile Money and approve on their own phone. The money goes straight to your MoMo merchant account: Grandpa AI never holds it and takes nothing. MTN\'s own fees apply.' }),
       h('p', { class: `msg ${live ? 'ok' : ''}`, text: connected ? (live ? `Connected: LIVE payments in ${settings.currency} (real money).` : 'Connected to MTN\'s TEST system: no real money moves (amounts are in euros there).') : 'Not connected.' }),
       h('details', { open: !connected }, h('summary', { text: connected ? 'Replace the keys' : 'Connect your MoMo account' }),
@@ -825,12 +827,63 @@ function showSettings() {
     h('p', { class: 'note', text: 'One file with everything visitors sent, your prices and text, booking and shop settings, and visitor counts.' }),
     h('div', { class: 'row' }, download, h('button', { type: 'button', text: 'Restore prices, text and settings', onclick: () => restoreInput.click() })), restoreInput, backupStatus));
   parts.push(h('div', { id: 'domains', class: 'card' }, h('p', { class: 'note', text: 'Loading your own address…' })));
+  parts.push(h('div', { id: 'play', class: 'card', hidden: true }));
   parts.push(h('button', { type: 'button', class: 'full', text: 'Sign out on this phone', onclick: async () => {
     if (!info.publisher) await api('/logout', { method: 'POST' }).catch(() => {});
     store.set(''); showLogin();
   } }));
   panel().replaceChildren(...parts);
   showDomains();
+  showPlay();
+}
+
+/* ---- Google Play: a bundle for the owner's own developer account ----------- */
+async function download(path, fallbackName) {
+  const response = await fetch(`/api/manage/${encodeURIComponent(slug)}${path}`, { headers: { 'X-Site-Key': store.get() } });
+  if (response.status === 401) { store.set(''); showLogin(); throw Object.assign(new Error('Sign in again.'), { quiet: true }); }
+  if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || 'That did not work. Try again.');
+  const name = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') || '')?.[1] || fallbackName;
+  const url = URL.createObjectURL(await response.blob());
+  const a = h('a', { href: url, download: name }); document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  return { name, version: response.headers.get('x-app-version') || '' };
+}
+async function showPlay() {
+  const box = document.getElementById('play');
+  if (!box) return;
+  try {
+    const info = await api('/play');
+    if (!info.app) { box.hidden = true; return; }
+    const remember = `gk-play-package:${slug}`;
+    let saved = ''; try { saved = localStorage.getItem(remember) || ''; } catch { saved = ''; }
+    const status = h('p', { class: 'msg play-status', role: 'status' });
+    const say = (text, ok = false) => message(box.querySelector('.play-status') || status, text, ok);
+    const input = h('input', { id: 'play-package', autocomplete: 'off', spellcheck: 'false', maxlength: 150, value: saved || info.defaultPackage });
+    const step = (text) => h('li', { text });
+    box.hidden = false;
+    fill(box, h('h2', { text: 'Put the app on Google Play' }),
+      h('p', { class: 'note', text: 'Grandpa makes the file Google Play takes (an app bundle, .aab). You upload it to your own Google Play developer account: Google charges you once (US$25) for the account, and Grandpa AI charges nothing.' }),
+      info.available ? null : h('p', { class: 'msg error', text: 'Google Play files are not available on this host yet.' }),
+      h('label', { for: 'play-package', text: 'App id on Google Play' }), input,
+      h('p', { class: 'note', text: 'Like com.yourbusiness.app. Choose it once: after the first upload it can never change.' }),
+      h('div', { class: 'row' },
+        h('button', { type: 'button', class: 'primary', text: '⬇ Download the app bundle (.aab)', disabled: !info.available, onclick: async () => {
+          try { try { localStorage.setItem(remember, input.value.trim()); } catch { /* not kept */ }
+            const got = await download(`/play.aab?package=${encodeURIComponent(input.value.trim())}`, `${slug}.aab`); say(`Downloaded ${got.name} (version ${got.version}). Upload it in Play Console.`, true); }
+          catch (error) { if (!error.quiet) say(error.message); }
+        } }),
+        h('button', { type: 'button', text: '⬇ Store icon (512 × 512)', disabled: !info.available, onclick: async () => { try { await download('/play-icon.png', `${slug}-play-icon.png`); } catch (error) { if (!error.quiet) say(error.message); } } }),
+        h('button', { type: 'button', text: '⬇ Upload certificate', disabled: !info.available, onclick: async () => { try { await download('/play-upload-certificate', `${slug}-upload-certificate.pem`); say('Keep this file. Google asks for it only if you ever need to reset your upload key.', true); } catch (error) { if (!error.quiet) say(error.message); } } })),
+      h('h3', { text: 'In Google Play Console (play.google.com/console)' }),
+      h('ol', {},
+        step('Create a developer account (US$25 once, paid to Google), then "Create app" with your app\'s name.'),
+        step('Test and release → Testing → Internal testing (try it on your own phones first) or Production → Create new release.'),
+        step('Accept "Play App Signing" (Google keeps the key phones check), then upload the .aab you downloaded here.'),
+        step('Fill in the store listing (description, the store icon, phone screenshots) and App content: a privacy policy link, data safety, content rating and target audience.'),
+        step('Send it for review. Google decides; apps with real features (not only a copy of a website) pass more easily.'),
+        step('After you publish a new version of the app here, nothing is needed: the app opens your address, so it updates itself. Download a new bundle only to change its name or icon on Play (each download has a higher version number).')),
+      status);
+  } catch (error) { if (!error.quiet) box.replaceChildren(h('p', { class: 'msg error', role: 'alert', text: error.message })); }
 }
 
 /* ---- Your own address: a domain the owner bought (they pay the registrar) ---- */
@@ -844,7 +897,7 @@ async function showDomains() {
     const input = h('input', { id: 'domain-name', autocomplete: 'off', placeholder: 'mamashop.com', maxlength: 253, required: true });
     const records = (d) => h('table', { class: 'data' }, h('thead', {}, h('tr', {}, h('th', { text: 'Type' }), h('th', { text: 'Name / Host' }), h('th', { text: 'Value' }))),
       h('tbody', {}, d.records.map((r) => h('tr', {}, h('td', { text: r.type }), h('td', { text: r.name }), h('td', {}, h('code', { text: r.value }))))));
-    box.replaceChildren(h('h2', { text: 'Your own address (domain)' }),
+    fill(box, h('h2', { text: 'Your own address (domain)' }),
       h('p', { class: 'note', text: `Your site is at ${sitesUrl}. You can also open it at your own domain, like mamashop.com: buy the domain from any registrar (for example Namecheap), where you pay them directly. Grandpa AI does not charge for this.` }),
       ...domains.map((d) => h('div', { class: 'domain' },
         h('p', {}, h('strong', { text: d.name }), ' — ', d.verified && d.configured ? h('a', { href: `https://${d.name}/`, target: '_blank', rel: 'noopener', text: 'working ✓ open it' }) : h('span', { text: 'waiting for its DNS records' })),
