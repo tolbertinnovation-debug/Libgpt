@@ -22,6 +22,9 @@ for(const directory of await functionsAt('.vercel/output/functions')){
   await cp(path.join(relative,'package.json'),path.join(directory,relative,'package.json'));
   for(const file of files)await cp(path.join(relative,'files',file),path.join(directory,relative,'files',file));
  }
+ // Manage (/manage/<site>) is sent by the server from public/manage.html; static files are not in the function bundle.
+ await mkdir(path.join(directory,'public'),{recursive:true});
+ await cp('public/manage.html',path.join(directory,'public','manage.html'));
  // The sandbox for apps' server code (Phase D5) loads its engine with require.resolve('quickjs-wasi/quickjs.wasm').
  await mkdir(path.join(directory,'node_modules/quickjs-wasi'),{recursive:true});
  for(const file of ['package.json','quickjs.wasm'])await cp(path.join('node_modules/quickjs-wasi',file),path.join(directory,'node_modules/quickjs-wasi',file));
