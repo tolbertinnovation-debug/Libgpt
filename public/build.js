@@ -604,6 +604,16 @@ export function previewDocument(files = [], entryPath = '', { checkId = '', navi
   html = html.replace(/(<(?:img|video|audio|source|track)\b[^>]*?\ssrc\s*=\s*)["']([^"']+)["']/gi, pointAt);
   html = html.replace(/(\s(?:poster|data-video-src|data-poster)\s*=\s*)["']([^"'<>]+)["']/gi, pointAt);
 
+  // An app with a database (data/schema.json) gets a test database in the preview, filled from data/sample.json.
+  const design = files.find((file) => file.path === 'data/schema.json');
+  if (design) {
+    let data = null;
+    try { data = { schema: JSON.parse(design.body), sample: JSON.parse(files.find((file) => file.path === 'data/sample.json')?.body || '{}') }; } catch { data = null; }
+    if (data) {
+      const tag = `<script>window.GrandpaPreviewData=${JSON.stringify(data).replace(/</g, '\\u003c')};</script>`;
+      html = /<head\b[^>]*>/i.test(html) ? html.replace(/<head\b[^>]*>/i, (head) => head + tag) : tag + html;
+    }
+  }
   const deferredScripts = [];
   html = html.replace(/<script\b([^>]*)\bsrc\s*=\s*["']([^"']+)["']([^>]*)><\/script>/gi,
     (tag, before, src, after) => {

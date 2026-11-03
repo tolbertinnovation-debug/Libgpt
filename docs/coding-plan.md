@@ -482,6 +482,36 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
 - **Verified in Chromium** (Pixel 7 and 1280×800) on an app written to the standard: the title follows the screen, Back appears only on inner screens and goes back, the tabs sit at the bottom on phones with a side rail on computers, Add opens a bottom sheet, and there are no page errors.
 - **Not yet verified:** a full build with the AI model (a paid call); the owner tests it.
 
+### Phase D1: every app gets its own database (done)
+- **The design:** an app describes its tables in `data/schema.json`. That allows 1–20 tables of up to 40 fields, of types text, longtext, number, integer, money, boolean, date, datetime, time, choice, email, phone and url, with required, min/max and max length.
+  - Each table has an access rule: `team` (default: owner and staff), `public-read` (a menu), `public-add` (orders, sign-ups) or `public`.
+  - A publish with a broken design is refused with a clear message.
+- **The data** lives in Grandpa AI's own Postgres (`grandpa_ai_app_records`, `grandpa_ai_app_usage`), fully separate per app, and is checked against the design on every save (`server/app-db.js`).
+  - Queries: filters eq/ne/gt/gte/lt/lte/contains/in on known fields only, sorting, paging and text search. Field names are always SQL parameters.
+  - Totals: count and sum grouped by a field or by day/month/year.
+  - The in-memory test store and Postgres give identical results (tested against PGlite).
+- **Limits per app:** 20,000 records, 25 MB and 3,000 saves a day. Only Grandpa AI's owner can change one app's limits (`POST /api/admin/app-db/:slug/limits`, never unlimited). Taking an app down deletes its data.
+- **Who may do what:**
+  - The owner is identified by the publishing phone's key or a Manage session.
+  - Staff sign in with the **team passcode** the owner sets in Manage (scrypt, 30-day sessions, lock after 8 wrong tries; changing it signs staff out). A staff key does not open Manage.
+  - Visitors may do only what a table's access allows, and the change counts only cover tables they may read.
+- **`App.db` in the app toolkit (Kit 12):**
+  - It provides add, list, get, update, remove, summary, `App.db.onChange` (polls every 5 s while visible) and `App.db.ready`.
+  - On a published app it uses the online database. Private apps show a sign-in screen for the team passcode, and the owner opens the app from Manage with `#app-key=…`, which is stored and removed from the address.
+  - Offline, saves are queued on the phone and sent when the internet is back, and the last lists are shown from the phone.
+  - In Build's preview it is a test database with the same checks, filled from `data/sample.json`; the published app starts empty.
+  - `App.render` now joins lists of pieces.
+- **Manage → App data:** usage against the limits, "Open the app as owner", the team passcode, and a spreadsheet view of every table (search, add, edit, delete, paging), plus CSV of a table and a JSON backup of everything.
+- **Builders** learn it in the kit guide (APP DATABASE), the app rules use App.db for records (App.store only for this device's choices), and the App and Dashboard types use it.
+- **Verified in Chromium against the real server:**
+  - the preview shows the sample data, adds records and applies the same checks;
+  - a published private app shows the sign-in screen to a stranger, opens for the owner from the Manage link, and starts empty;
+  - staff sign in (a wrong passcode is refused) and see the owner's new sale within seconds;
+  - a sale added offline is kept on the phone and reaches the database when back online;
+  - Manage shows, adds and downloads the records as CSV;
+  - no page errors.
+- **Not yet verified:** a full build with the AI model, which the owner tests.
+
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).

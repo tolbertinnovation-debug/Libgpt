@@ -31,6 +31,7 @@ import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode
 import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404, isAppSite, withAppRegistration, appServiceWorker, appPage, textColourOn } from './site-runtime.js';
 import { buildApk, newSigningKey, sealKey, openKey } from './android-app.js';
 import { buildExe } from './windows-app.js';
+import { checkSchema, cleanRecord, cleanQuery, cleanSummary as cleanAppSummary, createMemoryAppDb, createPostgresAppDb } from './app-db.js';
 import { searchPhotos, fetchPhoto, youtubeInfo, searchWords, searchVideos } from './media-search.js';
 import { chooseRecipe, RECIPES, projectKind } from '../public/build-recipes.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
@@ -134,7 +135,7 @@ app.use((req, res, next) => {
     next(); return;
   }
   // On the sites address: published sites and their send-only addresses, nothing else.
-  if (/^\/(?:s\/|api\/site-data\/|api\/site-slots\/)/.test(req.path)) { next(); return; }
+  if (/^\/(?:s\/|api\/site-data\/|api\/site-slots\/|api\/app-db\/)/.test(req.path)) { next(); return; }
   const match = /^\/([a-z0-9-]{3,40})(\/.*)?$/.exec(req.path);
   if (match && validSlug(match[1])) {
     if (!match[2]) { res.redirect(301, `/${match[1]}/${req.originalUrl.slice(req.path.length)}`); return; }
@@ -1865,6 +1866,8 @@ app.post('/api/sites', rateLimit, requireAccess, async (req, res) => {
   if (!siteStore || !config.building) { res.status(503).json({ error: 'Publishing needs the app database, which is not set up on this host.' }); return; }
   res.setHeader('Cache-Control', 'no-store');
   const slug = typeof req.body?.slug === 'string' && req.body.slug ? req.body.slug.trim().toLowerCase() : slugFrom(req.body?.name);
+  const design = Array.isArray(req.body?.files) ? req.body.files.find((f) => f?.path === 'data/schema.json') : null;
+  if (design) { try { checkSchema(String(design.body || '')); } catch (error) { res.status(400).json({ error: `The app's data design (data/schema.json) has a mistake: ${error.message}` }); return; } }
   try {
     const result = await siteStore.publish({ slug, name: req.body?.name, files: req.body?.files, token: typeof req.body?.token === 'string' ? req.body.token : '' });
     const files = Array.isArray(req.body?.files) ? req.body.files : [];
@@ -1875,7 +1878,7 @@ app.delete('/api/sites/:slug', rateLimit, requireAccess, async (req, res) => {
   if (!siteStore) { res.status(503).json({ error: 'Publishing is not set up on this host.' }); return; }
   try {
     const removed = await siteStore.remove(req.params.slug, String(req.body?.token || ''));
-    if (removed) await siteData?.removeSite(req.params.slug).catch(() => {});
+    if (removed) { await siteData?.removeSite(req.params.slug).catch(() => {}); await appDb?.removeSite(req.params.slug).catch(() => {}); }
     res.json({ removed });
   } catch (error) { siteFailed(res, error); }
 });
@@ -1895,7 +1898,7 @@ app.delete('/api/admin/sites/:slug', rateLimit, requireAgentAdmin, async (req, r
   if (!siteStore) { res.status(503).json({ error: 'Publishing is not set up on this host.' }); return; }
   try {
     const removed = await siteStore.remove(req.params.slug, '', { admin: true });
-    if (removed) await siteData?.removeSite(req.params.slug).catch(() => {});
+    if (removed) { await siteData?.removeSite(req.params.slug).catch(() => {}); await appDb?.removeSite(req.params.slug).catch(() => {}); }
     res.json({ removed });
   } catch (error) { siteFailed(res, error); }
 });
@@ -1967,6 +1970,116 @@ app.post('/api/site-data/:slug', siteLimit, async (req, res) => {
   }
 });
 
+// ---- App databases (Phase D1) -----------------------------------------------
+// A published app with data/schema.json has its own database. Who is asking
+// decides what they may do: the owner (the publishing phone's key or a Manage
+// session), the team (signed in with the app's team passcode) or anyone. Each
+// table's access says which: team (default), public-read, public-add, public.
+const appDb = governanceConnection ? createPostgresAppDb({ connectionString: governanceConnection }) : (config.serverless ? null : createMemoryAppDb());
+const schemaCache = new Map();
+async function appSchema(slug) {
+  const meta = await siteStore.meta(slug);
+  if (!meta) return null;
+  const cached = schemaCache.get(slug);
+  if (cached?.updatedAt === meta.updatedAt) return cached.value;
+  const site = await siteStore.get(slug);
+  const file = site?.files.find((f) => f.path === 'data/schema.json');
+  let value = null;
+  try { value = file ? { site: meta, schema: checkSchema(String(file.body)) } : { site: meta, schema: null }; } catch (error) { value = { site: meta, schema: null, problem: error.message }; }
+  schemaCache.set(slug, { updatedAt: meta.updatedAt, value });
+  while (schemaCache.size > 200) schemaCache.delete(schemaCache.keys().next().value);
+  return value;
+}
+const APP_DB_HEADERS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'Content-Type, X-App-Key', 'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS', 'Cache-Control': 'no-store' };
+app.options('/api/app-db/*', (_req, res) => { res.set(APP_DB_HEADERS).status(204).end(); });
+async function appDbAccess(req, res, next) {
+  res.set(APP_DB_HEADERS);
+  if (!appDb || !siteStore || !siteData) { res.status(503).json({ error: 'App databases need the app database, which is not set up on this host.' }); return; }
+  if (!validSlug(req.params.slug)) { res.status(404).json({ error: 'There is no app at this address.' }); return; }
+  try {
+    const found = await appSchema(req.params.slug);
+    if (!found) { res.status(404).json({ error: 'There is no app at this address.' }); return; }
+    if (!found.schema) { res.status(404).json({ error: found.problem ? `This app's data design has a mistake: ${found.problem}` : 'This app has no database.' }); return; }
+    const key = String(req.get('x-app-key') || '');
+    const owner = key && (publishedBy(found.site, key) || await siteData.checkSession(found.site.slug, key));
+    const role = owner ? 'owner' : key && await siteData.checkTeamSession(found.site.slug, key) ? 'team' : 'visitor';
+    req.app_ = { slug: found.site.slug, schema: found.schema, role };
+    next();
+  } catch (error) { dataFailed(res, error); }
+}
+/** May this person do this to this table? */
+function appTable(req, res, action) {
+  const table = req.app_.schema.tables[req.params.table];
+  if (!table) { res.status(404).json({ error: `This app has no table called "${String(req.params.table).slice(0, 40)}".` }); return null; }
+  const signedIn = req.app_.role !== 'visitor';
+  const open = table.access === 'public' || (table.access === 'public-read' && action === 'read') || (table.access === 'public-add' && action === 'add');
+  if (!signedIn && !open) { res.status(401).json({ error: 'This app is private. Sign in with the team passcode.', signIn: true }); return null; }
+  return table;
+}
+app.get('/api/app-db/:slug/info', rateLimit, appDbAccess, async (req, res) => {
+  res.json({ role: req.app_.role, tables: req.app_.schema.tables, teamPasscode: await siteData.hasTeamPasscode(req.app_.slug) });
+});
+app.post('/api/app-db/:slug/session', rateLimit, appDbAccess, async (req, res) => {
+  try {
+    const key = await siteData.teamLogin(req.app_.slug, String(req.body?.passcode || ''));
+    if (!key) { res.status(401).json({ error: 'That passcode is not right.' }); return; }
+    res.json({ key, role: 'team' });
+  } catch (error) { dataFailed(res, error); }
+});
+app.get('/api/app-db/:slug/versions', siteLimit, appDbAccess, async (req, res) => {
+  try {
+    const all = await appDb.versions(req.app_.slug);
+    // Only the tables this person may read.
+    const visible = Object.entries(req.app_.schema.tables).filter(([, t]) => req.app_.role !== 'visitor' || ['public', 'public-read'].includes(t.access)).map(([name]) => name);
+    res.json({ versions: Object.fromEntries(visible.map((name) => [name, all[name] || 0])) });
+  } catch (error) { dataFailed(res, error); }
+});
+app.get('/api/app-db/:slug/t/:table/summary', siteLimit, appDbAccess, async (req, res) => {
+  const table = appTable(req, res, 'read'); if (!table) return;
+  try { res.json({ groups: await appDb.summary(req.app_.slug, req.params.table, cleanQuery(table, { where: req.query.where }), table, cleanAppSummary(table, req.query)) }); } catch (error) { dataFailed(res, error); }
+});
+app.get('/api/app-db/:slug/t/:table/:id', siteLimit, appDbAccess, async (req, res) => {
+  const table = appTable(req, res, 'read'); if (!table) return;
+  try { const record = await appDb.get(req.app_.slug, req.params.table, req.params.id); if (!record) { res.status(404).json({ error: 'That record is not there any more.' }); return; } res.json({ record }); } catch (error) { dataFailed(res, error); }
+});
+app.get('/api/app-db/:slug/t/:table', siteLimit, appDbAccess, async (req, res) => {
+  const table = appTable(req, res, 'read'); if (!table) return;
+  try { res.json(await appDb.list(req.app_.slug, req.params.table, cleanQuery(table, req.query), table)); } catch (error) { dataFailed(res, error); }
+});
+app.post('/api/app-db/:slug/t/:table', siteLimit, appDbAccess, async (req, res) => {
+  const table = appTable(req, res, 'add'); if (!table) return;
+  try { res.status(201).json({ record: await appDb.add(req.app_.slug, req.params.table, cleanRecord(table, req.body)) }); } catch (error) { dataFailed(res, error); }
+});
+app.patch('/api/app-db/:slug/t/:table/:id', siteLimit, appDbAccess, async (req, res) => {
+  const table = appTable(req, res, 'change'); if (!table) return;
+  try { const record = await appDb.update(req.app_.slug, req.params.table, req.params.id, cleanRecord(table, req.body, { partial: true })); if (!record) { res.status(404).json({ error: 'That record is not there any more.' }); return; } res.json({ record }); } catch (error) { dataFailed(res, error); }
+});
+app.delete('/api/app-db/:slug/t/:table/:id', siteLimit, appDbAccess, async (req, res) => {
+  const table = appTable(req, res, 'change'); if (!table) return;
+  try { res.json({ removed: await appDb.remove(req.app_.slug, req.params.table, req.params.id) }); } catch (error) { dataFailed(res, error); }
+});
+// The owner, in Manage: the design, the use against the limits, the team passcode and a full export.
+app.get('/api/manage/:slug/app-data', rateLimit, manageAccess, async (req, res) => {
+  try {
+    const found = appDb ? await appSchema(req.site.slug) : null;
+    res.json({ schema: found?.schema || null, problem: found?.problem || '', usage: found?.schema ? await appDb.usage(req.site.slug) : null, teamPasscode: await siteData.hasTeamPasscode(req.site.slug) });
+  } catch (error) { dataFailed(res, error); }
+});
+app.post('/api/manage/:slug/team-passcode', rateLimit, manageAccess, async (req, res) => {
+  try { await siteData.setTeamPasscode(req.site.slug, req.body?.passcode ? String(req.body.passcode) : ''); res.json({ teamPasscode: Boolean(req.body?.passcode) }); } catch (error) { dataFailed(res, error); }
+});
+app.get('/api/manage/:slug/app-data/export', rateLimit, manageAccess, async (req, res) => {
+  try {
+    const records = appDb ? await appDb.exportAll(req.site.slug) : [];
+    res.set('Content-Disposition', `attachment; filename="${req.site.slug}-data.json"`).json({ app: req.site.slug, exportedAt: new Date().toISOString(), records });
+  } catch (error) { dataFailed(res, error); }
+});
+// Only Grandpa AI's owner may raise one app's limits (never unlimited).
+app.post('/api/admin/app-db/:slug/limits', rateLimit, requireAgentAdmin, async (req, res) => {
+  if (!appDb || !validSlug(req.params.slug)) { res.status(404).json({ error: 'There is no app at this address.' }); return; }
+  try { res.json({ limits: await appDb.setLimits(req.params.slug, req.body || {}) }); } catch (error) { dataFailed(res, error); }
+});
+
 // Manage: the publishing phone's token, or a passcode the owner set from it.
 async function manageAccess(req, res, next) {
   res.setHeader('Cache-Control', 'no-store');
@@ -1995,8 +2108,9 @@ app.post('/api/manage/:slug/login', rateLimit, async (req, res) => {
 app.get('/api/manage/:slug', rateLimit, manageAccess, async (req, res) => {
   try {
     const summary = await siteData.summary(req.site.slug);
+    const data = appDb ? await appSchema(req.site.slug).catch(() => null) : null;
     res.json({ slug: req.site.slug, name: req.site.name, url: siteBase(req, req.site.slug), publisher: req.sitePublisher,
-      pages: req.site.pages, kinds: ENTRY_KINDS, ...summary });
+      pages: req.site.pages, kinds: ENTRY_KINDS, ...summary, appData: Boolean(data?.schema || data?.problem) });
   } catch (error) { dataFailed(res, error); }
 });
 app.get('/api/manage/:slug/entries', rateLimit, manageAccess, async (req, res) => {
