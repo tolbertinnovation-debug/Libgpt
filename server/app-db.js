@@ -311,7 +311,7 @@ function matches(record, filters, table, q) {
 
 export function createMemoryAppDb({ now = () => Date.now() } = {}) {
   const apps = new Map();
-  const app = (slug) => { if (!apps.has(slug)) apps.set(slug, { rows: new Map(), files: new Map(), activity: [], alerts: [], usage: { records: 0, bytes: 0, day: '', writes: 0, limits: {}, versions: {}, counters: {}, secrets: {}, runDay: '', runs: 0, settings: {}, msgDay: '', messages: 0 } }); return apps.get(slug); };
+  const app = (slug) => { if (!apps.has(slug)) apps.set(slug, { rows: new Map(), files: new Map(), activity: [], alerts: [], usage: { records: 0, bytes: 0, day: '', writes: 0, limits: {}, versions: {}, counters: {}, secrets: {}, runDay: '', runs: 0, settings: {}, msgDay: '', messages: 0, payDay: '', pays: 0 }, payments: new Map() }); return apps.get(slug); };
   /** Links must point at records that exist; effects must not take a number below its minimum. All checked before anything changes. */
   const prepare = (a, schema, tbl, before, after) => {
     const t = schema?.tables[tbl];
@@ -426,6 +426,19 @@ export function createMemoryAppDb({ now = () => Date.now() } = {}) {
       a.usage.messages += n; return a.usage.messages;
     },
     async messagesToday(slug) { const a = app(slug); return a.usage.msgDay === today(now()) ? a.usage.messages : 0; },
+    // Payments through the owner's own MoMo account: the record of each request, and today's count.
+    async countPayment(slug, perDay) {
+      const a = app(slug), d = today(now());
+      if (a.usage.payDay !== d) { a.usage.payDay = d; a.usage.pays = 0; }
+      if (a.usage.pays + 1 > perDay) throw fail(`This app has asked for its ${perDay.toLocaleString('en-US')} payments for today (the owner's daily limit, set in Manage).`, 429);
+      a.usage.pays += 1; return a.usage.pays;
+    },
+    async addPayment(slug, payment) { const t = new Date(now()).toISOString(), made = { ...payment, created: t, updated: t }; app(slug).payments.set(payment.id, made); return { ...made }; },
+    async getPayment(slug, id) { const p = app(slug).payments.get(id); return p ? { ...p } : null; },
+    /** Changes a payment that is still pending (so a payment is marked paid once only). Null when it was not pending. */
+    async settlePayment(slug, id, changes) { const p = app(slug).payments.get(id); if (!p || p.status !== 'pending') return null; Object.assign(p, changes, { updated: new Date(Math.max(now(), Date.parse(p.updated) + 1)).toISOString() }); return { ...p }; },
+    async touchPayment(slug, id) { const p = app(slug).payments.get(id); if (p) p.checked = new Date(now()).toISOString(); return Boolean(p); },
+    async payments(slug, limit = 50) { return [...app(slug).payments.values()].sort((x, y) => (x.created < y.created ? 1 : -1)).slice(0, Math.min(200, limit)).map((p) => ({ ...p })); },
     async setSecret(slug, name, sealed) {
       const all = app(slug).usage.secrets;
       if (sealed == null) { delete all[name]; return true; }
@@ -492,7 +505,18 @@ const SCHEMA = [
   `ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS settings jsonb NOT NULL DEFAULT '{}'`,
   `ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS msg_day text NOT NULL DEFAULT ''`,
   'ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS messages integer NOT NULL DEFAULT 0',
+  // Payments through the owner's own MoMo account.
+  `ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS pay_day text NOT NULL DEFAULT ''`,
+  'ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS pays integer NOT NULL DEFAULT 0',
+  `CREATE TABLE IF NOT EXISTS public.grandpa_ai_app_payments (
+    scope text NOT NULL, slug text NOT NULL, id text NOT NULL, status text NOT NULL, data jsonb NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT clock_timestamp(), updated_at timestamptz NOT NULL DEFAULT clock_timestamp(), checked_at timestamptz,
+    PRIMARY KEY (scope, slug, id)
+  )`,
+  'CREATE INDEX IF NOT EXISTS grandpa_ai_app_payments_by_time ON public.grandpa_ai_app_payments (scope, slug, created_at)',
 ];
+
+const payOut = (r) => ({ ...(typeof r.data === 'string' ? JSON.parse(r.data) : r.data), id: r.id, status: r.status, created: new Date(r.created_at).toISOString(), updated: new Date(r.updated_at).toISOString(), ...(r.checked_at ? { checked: new Date(r.checked_at).toISOString() } : {}) });
 
 /** SQL for one field's value, by its type (field names go in as parameters, never as text). */
 function fieldSql(table, field, param) {
@@ -727,6 +751,33 @@ export function createPostgresAppDb({ connectionString, pool: suppliedPool, scop
         await client.query('UPDATE public.grandpa_ai_app_usage SET msg_day=$3, messages=$4 WHERE scope=$1 AND slug=$2', [scope, slug, d, sent + n]);
         return sent + n;
       });
+    },
+    async countPayment(slug, perDay) {
+      return transaction(async (client) => {
+        const u = await usageRow(client, slug), d = today(now()), done = u.pay_day === d ? Number(u.pays) : 0;
+        if (done + 1 > perDay) throw fail(`This app has asked for its ${perDay.toLocaleString('en-US')} payments for today (the owner's daily limit, set in Manage).`, 429);
+        await client.query('UPDATE public.grandpa_ai_app_usage SET pay_day=$3, pays=$4 WHERE scope=$1 AND slug=$2', [scope, slug, d, done + 1]);
+        return done + 1;
+      });
+    },
+    async addPayment(slug, payment) {
+      return transaction(async (client) => { const { id, status, ...data } = payment; return payOut((await client.query('INSERT INTO public.grandpa_ai_app_payments (scope, slug, id, status, data) VALUES ($1,$2,$3,$4,$5) RETURNING *', [scope, slug, id, status, JSON.stringify(data)])).rows[0]); });
+    },
+    async getPayment(slug, id) {
+      return transaction(async (client) => { const r = (await client.query('SELECT * FROM public.grandpa_ai_app_payments WHERE scope=$1 AND slug=$2 AND id=$3', [scope, slug, id])).rows[0]; return r ? payOut(r) : null; });
+    },
+    async settlePayment(slug, id, changes) {
+      return transaction(async (client) => {
+        const { status, ...data } = changes;
+        const r = (await client.query("UPDATE public.grandpa_ai_app_payments SET status=$4, data=data || $5::jsonb, updated_at=clock_timestamp() WHERE scope=$1 AND slug=$2 AND id=$3 AND status='pending' RETURNING *", [scope, slug, id, status, JSON.stringify(data)])).rows[0];
+        return r ? payOut(r) : null;
+      });
+    },
+    async touchPayment(slug, id) {
+      return transaction(async (client) => (await client.query('UPDATE public.grandpa_ai_app_payments SET checked_at=clock_timestamp() WHERE scope=$1 AND slug=$2 AND id=$3', [scope, slug, id])).rowCount > 0);
+    },
+    async payments(slug, limit = 50) {
+      return transaction(async (client) => (await client.query('SELECT * FROM public.grandpa_ai_app_payments WHERE scope=$1 AND slug=$2 ORDER BY created_at DESC LIMIT $3', [scope, slug, Math.min(200, limit)])).rows.map(payOut));
     },
     async messagesToday(slug) {
       return transaction(async (client) => { const r = (await client.query('SELECT msg_day, messages FROM public.grandpa_ai_app_usage WHERE scope=$1 AND slug=$2', [scope, slug])).rows[0]; return r && r.msg_day === today(now()) ? Number(r.messages) : 0; });

@@ -31,6 +31,7 @@ import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode
 import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404, isAppSite, withAppRegistration, appServiceWorker, appPage, textColourOn } from './site-runtime.js';
 import { buildApk, newSigningKey, sealKey, openKey } from './android-app.js';
 import { MESSAGE_KEYS, MESSAGE_DEFAULTS, connected as messagesConnected, cleanMessageSettings, sendSms, sendEmail } from './app-messages.js';
+import { MOMO_KEYS, PAYMENT_DEFAULTS, PAYMENT_ID, momoConnected, cleanPaymentSettings, cleanPaymentRequest, momoClient, publicPayment } from './app-payments.js';
 import { runAction, actionFiles, actionWho, mayRun, whoText, sealSecret, openSecret, checkActions, ACTION_NAME, safeFetch } from './app-actions.js';
 import { buildExe } from './windows-app.js';
 import { checkSchema, cleanRecord, cleanQuery, cleanSummary as cleanAppSummary, createMemoryAppDb, createPostgresAppDb, allowed as appAllowed, effectChanges, recordMatches, fillMessage, labelOf, FILE_TYPES, FILE_BYTES, FILE_ID, designChanges, SECRET_NAME } from './app-db.js';
@@ -2249,7 +2250,7 @@ async function openedSecrets(slug) {
   for (const [k, v] of Object.entries(sealed)) { try { out[k] = openSecret(v, secretSeal(), slug); } catch { /* a key that cannot be opened is left out */ } }
   return out;
 }
-const messageSettings = async (slug) => ({ ...MESSAGE_DEFAULTS, ...(await appDb.settings(slug)) });
+const messageSettings = async (slug) => ({ ...MESSAGE_DEFAULTS, ...PAYMENT_DEFAULTS, ...(await appDb.settings(slug)) });
 const dryRun = async () => ({ status: 200, ok: true, text: '{}' });
 /** Sends for one app, counted against the owner's own daily limit. */
 async function appMessenger(slug) {
@@ -2274,6 +2275,68 @@ async function sendAlertMessages(slug, text) {
     }
   } catch (error) { console.error('[app-messages]', error.message); }
 }
+
+// ---- Payments: mobile money through the app owner's own MTN MoMo account -------------------------
+// The customer approves on their phone and the money goes straight to the owner; Grandpa AI never holds it.
+// The amount always comes from the app's server code. Tests swap MTN with app.locals.paymentFetch.
+const paymentFetch = (...args) => (app.locals.paymentFetch || safeFetch)(...args);
+const storedSettings = async (slug) => ({ ...MESSAGE_DEFAULTS, ...PAYMENT_DEFAULTS, ...(await appDb.settings(slug)) });
+const paymentWho = { kind: 'owner', user: { name: 'MoMo payment' } };
+async function momoFor(slug) { return momoClient(await openedSecrets(slug), await storedSettings(slug), { fetch: paymentFetch }); }
+/** Asks the customer's phone for a payment (from server code). */
+async function requestPayment(slug, schema, input, caller) {
+  const settings = await storedSettings(slug), client = await momoFor(slug);
+  const asked = cleanPaymentRequest(input, { country: settings.country, schema });
+  if (asked.table && !(await appDb.get(slug, asked.table, asked.record))) throw Object.assign(new Error('The record to mark as paid is not there.'), { status: 404 });
+  await appDb.countPayment(slug, settings.paymentsPerDay);
+  const id = await client.requestToPay({ amount: asked.amount, phone: asked.phone, note: asked.note, externalId: asked.record });
+  const payment = await appDb.addPayment(slug, { id, status: 'pending', ...asked, currency: client.currency, env: client.env, by: caller?.name || '' });
+  await appDb.log(slug, { who: caller?.name || 'Visitor', action: 'asked for a payment', table: asked.table, record: asked.record, summary: `${client.currency} ${asked.amount} from ${asked.phone}${client.env === 'sandbox' ? ' (test)' : ''}` }).catch(() => {});
+  return publicPayment(payment);
+}
+/** How a payment went: asks MTN while it is pending (at most every 3 seconds), and marks the record paid once. */
+async function checkPayment(slug, schema, id) {
+  const payment = PAYMENT_ID.test(String(id)) ? await appDb.getPayment(slug, String(id)) : null;
+  if (!payment) throw Object.assign(new Error('There is no such payment.'), { status: 404 });
+  if (payment.status !== 'pending' || (payment.checked && Date.now() - Date.parse(payment.checked) < 3000)) return publicPayment(payment);
+  await appDb.touchPayment(slug, payment.id);
+  const now = await (await momoFor(slug)).status(payment.id);
+  if (now.status === 'pending') return publicPayment(payment);
+  const settled = await appDb.settlePayment(slug, payment.id, { status: now.status, reason: now.reason, transaction: now.transaction });
+  if (!settled) return publicPayment(await appDb.getPayment(slug, payment.id));
+  if (settled.status === 'successful' && settled.table && schema?.tables[settled.table]) {
+    try { await actionDb(appDb, { slug, schema, who: paymentWho })(settled.table, 'update', settled.record, { [settled.field]: true }); }
+    catch (error) { await appDb.log(slug, { who: 'MoMo payment', action: 'could not mark paid', table: settled.table, record: settled.record, summary: String(error.message).slice(0, 200) }).catch(() => {}); }
+  }
+  await appDb.log(slug, { who: 'MoMo payment', action: settled.status === 'successful' ? 'payment received' : 'payment failed', table: settled.table, record: settled.record, summary: `${settled.currency} ${settled.amount} from ${settled.phone}${settled.reason ? ` (${settled.reason})` : ''}` }).catch(() => {});
+  return publicPayment(settled);
+}
+app.get('/api/app-db/:slug/payments/:id', siteLimit, appDbAccess, async (req, res) => {
+  try { res.json({ payment: await checkPayment(req.app_.slug, req.app_.schema, req.params.id) }); } catch (error) { dataFailed(res, error); }
+});
+app.get('/api/manage/:slug/payments', rateLimit, manageAccess, async (req, res) => {
+  if (!appDb) { res.status(503).json({ error: 'Payments need the app database.' }); return; }
+  try {
+    const settings = await storedSettings(req.site.slug), names = Object.fromEntries(Object.keys(await appDb.secrets(req.site.slug)).map((k) => [k, true]));
+    res.json({ connected: momoConnected(names), settings: { momoEnv: settings.momoEnv, currency: settings.currency, paymentsPerDay: settings.paymentsPerDay }, payments: await appDb.payments(req.site.slug, 50) });
+  } catch (error) { dataFailed(res, error); }
+});
+app.put('/api/manage/:slug/payments/momo', rateLimit, manageAccess, async (req, res) => {
+  const b = req.body || {}, values = { MOMO_SUBSCRIPTION_KEY: String(b.subscriptionKey || '').trim(), MOMO_API_USER: String(b.apiUser || '').trim(), MOMO_API_KEY: String(b.apiKey || '').trim() };
+  if (!/^[0-9a-f]{32}$/i.test(values.MOMO_SUBSCRIPTION_KEY)) { res.status(400).json({ error: 'The subscription key is the 32-character Primary Key of your Collections product (MoMo developer portal → Profile).' }); return; }
+  if (!/^[0-9a-f-]{36}$/i.test(values.MOMO_API_USER)) { res.status(400).json({ error: 'The API user is an id like 1f2e3d4c-…, 36 characters (from MTN, or made for the test system).' }); return; }
+  if (!values.MOMO_API_KEY || values.MOMO_API_KEY.length > 200) { res.status(400).json({ error: 'Paste the API key.' }); return; }
+  try { for (const [k, v] of Object.entries(values)) await appDb.setSecret(req.site.slug, k, sealSecret(v, secretSeal(), req.site.slug)); res.json({ connected: true }); } catch (error) { dataFailed(res, error); }
+});
+app.delete('/api/manage/:slug/payments/momo', rateLimit, manageAccess, async (req, res) => {
+  try { for (const k of MOMO_KEYS) await appDb.setSecret(req.site.slug, k, null); res.json({ connected: false }); } catch (error) { dataFailed(res, error); }
+});
+app.put('/api/manage/:slug/payments/settings', rateLimit, manageAccess, async (req, res) => {
+  try { const next = cleanPaymentSettings(req.body || {}, await storedSettings(req.site.slug)); await appDb.setSettings(req.site.slug, next); res.json({ settings: { momoEnv: next.momoEnv, currency: next.currency, paymentsPerDay: next.paymentsPerDay } }); } catch (error) { dataFailed(res, error); }
+});
+app.post('/api/manage/:slug/payments/:id/check', rateLimit, manageAccess, async (req, res) => {
+  try { res.json({ payment: await checkPayment(req.site.slug, (await appSchema(req.site.slug))?.schema || null, req.params.id) }); } catch (error) { dataFailed(res, error); }
+});
 
 // ---- Phase D5: the app's own server code (server/<name>.js), run in a sandbox ----------------
 const secretSeal = () => process.env.APP_SECRETS_SEAL_KEY || process.env.APP_SIGNING_SEAL_KEY || governanceConnection || 'grandpa-ai-local';
@@ -2326,7 +2389,8 @@ app.post('/api/app-db/:slug/run/:name', siteLimit, appDbAccess, async (req, res)
     await appDb.countRun(slug);
     const secrets = await openedSecrets(slug), messenger = await appMessenger(slug);
     const before = await appDb.versions(slug);
-    const outcome = await runAction({ files, name, input: req.body?.input ?? null, user: callerOf(who), secrets, db: actionDb(appDb, req.app_), messages: messenger });
+    const payments = { request: (details) => requestPayment(slug, schema, details, callerOf(who)), status: (id) => checkPayment(slug, schema, id) };
+    const outcome = await runAction({ files, name, input: req.body?.input ?? null, user: callerOf(who), secrets, db: actionDb(appDb, req.app_), messages: messenger, payments });
     const after = await appDb.versions(slug), changed = Object.keys(schema.tables).filter((t) => (after[t] || 0) !== (before[t] || 0));
     if (!outcome.ok) {
       await appDb.log(slug, { who: whoName(who), action: 'server code failed', table: name, record: '', summary: `${outcome.error}${outcome.logs.length ? ` | ${outcome.logs.slice(-3).join(' | ')}` : ''}`.slice(0, 500) }).catch(() => {});
@@ -2355,7 +2419,18 @@ app.post('/api/app-actions/try', rateLimit, requireAccess, async (req, res) => {
     const shown = [];
     const preview = { sms: async (to, text) => { shown.push(`SMS to ${to} (not sent in the preview): ${String(text).slice(0, 200)}`); return { sent: false, preview: true, channel: 'sms', to }; },
       email: async (to, subject, text) => { shown.push(`Email to ${to} (not sent in the preview): ${String(subject).slice(0, 100)}`); return { sent: false, preview: true, channel: 'email', to }; } };
-    const outcome = await runAction({ files, name, input: req.body?.input ?? null, user: user || { id: 'owner', name: 'Owner', role: 'owner' }, secrets: {}, db: actionDb(store, { slug, schema, who }, { after: false }), messages: preview });
+    const previewDb = actionDb(store, { slug, schema, who }, { after: false });
+    const pretend = {
+      request: async (details) => {
+        const asked = cleanPaymentRequest(details, { schema });
+        const id = crypto.randomUUID();
+        if (asked.table) await previewDb(asked.table, 'update', asked.record, { [asked.field]: true });
+        shown.push(`Payment of ${asked.amount} from ${asked.phone} (not charged in the preview; treated as paid)`);
+        return { id, status: 'successful', amount: asked.amount, currency: 'LRD', note: asked.note, reason: '', test: true, preview: true };
+      },
+      status: async (id) => ({ id: String(id), status: 'successful', test: true, preview: true }),
+    };
+    const outcome = await runAction({ files, name, input: req.body?.input ?? null, user: user || { id: 'owner', name: 'Owner', role: 'owner' }, secrets: {}, db: previewDb, messages: preview, payments: pretend });
     outcome.logs.push(...shown);
     const after = await store.versions(slug), changed = Object.keys(schema.tables).filter((t) => (after[t] || 0) !== (before[t] || 0));
     const all = changed.length ? await store.exportAll(slug) : [];

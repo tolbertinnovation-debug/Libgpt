@@ -1,4 +1,4 @@
-/* Grandpa Kit 16 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
+/* Grandpa Kit 17 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
    game loop, sounds, timers and formatting for web tools, quizzes, games, dashboards and phone-style
    apps. No build step, no outside services. window.GrandpaApp */
 (function () {
@@ -285,7 +285,7 @@
     }
   }
   function dbError(message) { var e = new Error(message || 'Something went wrong. Try again.'); return e; }
-  // Mistakes in the app's own code (a table or field the design does not have) are remembered for Build's check (Phase D4).
+  // The app code's own mistakes (unknown table or field), kept for Build's check.
   function codeMistake(message) { var list = window.__grandpaDbProblems = window.__grandpaDbProblems || []; if (list.length < 10 && list.indexOf(message) < 0) list.push(message); return dbError(message); }
 
   // Test database on this device (Build's preview and downloaded copies).
@@ -317,7 +317,7 @@
     });
     rows.push(record); return record;
   }
-  // Phase D3 in the preview: links must exist, effects change linked numbers (never below their minimum), alerts are raised.
+  // Preview: links must exist, effects change linked numbers (not below their minimum), alerts are raised.
   function localEffects(table, before, after) {
     var t = DB.schema && DB.schema.tables && DB.schema.tables[table], out = [];
     if (!t) return out;
@@ -370,7 +370,7 @@
     });
     page.total = rows.length; return page;
   }
-  /** In the preview: what the signed-in test account may do ('all', 'own' or 'none'); the owner may do everything. */
+  /** Preview: what the test account may do ('all', 'own' or 'none'); the owner may do all. */
   function localMay(table, action) {
     var t = DB.schema && DB.schema.tables && DB.schema.tables[table], u = DB.localUser;
     if (!t || !u) return 'all';
@@ -511,7 +511,7 @@
       summary: function (options) { return run('summary', options || {}); },
     };
   };
-  /* ---- Phase D5: the app's own server code (server/<name>.js), run on Grandpa's server in a sandbox ---- */
+  /* ---- Phase D5: the app's server code (server/<name>.js), run in a sandbox ---- */
   var serverWaiting = {}, serverListening = false;
   function serverListen() { if (serverListening) return; serverListening = true; window.addEventListener('message', function (e) {
     var d = e.data;
@@ -544,6 +544,28 @@
       window.parent.postMessage({ grandpa: 'server-run', id: id, name: name, input: sent, tables: DB.local.tables, user: DB.localUser ? { id: DB.localUser.id, name: DB.localUser.name, role: DB.localUser.role } : null }, '*');
     });
   };
+  /* ---- Mobile money (owner's MoMo account): server code starts it (app.pay.request); the page follows it here ---- */
+  App.pay = {
+    status: function (id) {
+      dbSetup();
+      if (DB.mode !== 'cloud') return Promise.resolve({ id: String(id), status: 'successful', test: true, preview: true });
+      return dbCall('GET', '/payments/' + encodeURIComponent(String(id))).then(function (d) { return d.payment; });
+    },
+    /** Checks every few seconds until successful or failed (or the time runs out). */
+    wait: function (id, options) {
+      options = options || {};
+      var until = Date.now() + (options.timeout || 180000);
+      return new Promise(function (resolve, reject) {
+        (function check() {
+          App.pay.status(id).then(function (p) {
+            if (options.onUpdate) { try { options.onUpdate(p); } catch (e) { /* the app's own problem */ } }
+            if (p.status !== 'pending' || Date.now() > until) { if (p.status === 'successful') dbNotify([]); resolve(p); return; }
+            setTimeout(check, 4000);
+          }, function (e) { if (e instanceof TypeError && Date.now() < until) setTimeout(check, 4000); else reject(e); });
+        })();
+      });
+    },
+  };
   /** Calls fn(changedTables) when data changes here or on another phone (checked every few seconds). */
   App.db.onChange = function (fn) { dbSetup(); DB.listeners.push(fn); dbWatch(); return function () { DB.listeners = DB.listeners.filter(function (f) { return f !== fn; }); }; };
   /** { mode: 'cloud' | 'local', role: 'owner' | 'team' | 'visitor', tables } */
@@ -560,7 +582,7 @@
     return { text: 'Test', longtext: 'Test', number: Math.max(1, f.min || 1), integer: Math.max(1, f.min || 1), money: Math.max(1, f.min || 1), boolean: true, date: today, datetime: new Date().toISOString(),
       time: '12:00', choice: (f.options || [])[0], email: 'test@example.com', phone: '0880000000', url: 'https://example.com' }[f.type];
   }
-  /** Every table: add a test record (from the sample data, or sensible values), list, change and remove it, as the owner. */
+  /** Each table: add, list, change and remove a test record, as the owner. */
   App.db._selfTest = function () {
     dbSetup();
     var problems = [], schema = DB.schema;
@@ -600,7 +622,7 @@
 
   /* ---- Phase D3: photos and files, alerts, the activity log ---- */
   var ALERTS = { listeners: [], seen: '' };
-  /** A photo is made smaller on the phone first (at most 1600 pixels, JPEG), so it uploads quickly and saves space. */
+  /** Photos are made smaller on the phone first (at most 1600 px, JPEG). */
   function shrink(file) {
     if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 350000 || typeof createImageBitmap !== 'function') return Promise.resolve(file);
     return createImageBitmap(file).then(function (bitmap) {
