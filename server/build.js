@@ -168,6 +168,7 @@ export function bodyForModel(path, body) {
   if (isKitPath(path)) return '[The Grandpa Kit: shared design file, already complete. Use its classes as the kit guide says; never write this file.]';
   if (!isDataBody(text)) return text;
   const picture = /^data:image\//.test(text);
+  if (/^data:video\//.test(text)) return `[Video already in the project (${Math.ceil(text.length * 0.75 / 1024)} KB). Play it by this exact path in the kit's video player, for example <figure class="gk-video-player"><video controls preload="metadata" playsinline src="${path}"></video><figcaption>Title</figcaption></figure>. Never write this file.]`;
   return `[${picture ? 'Picture' : 'Document'} already in the project (${Math.ceil(text.length * 0.75 / 1024)} KB). Use it by this exact path, for example ${picture ? `<img src="${path}" alt="...">` : `<a href="${path}" download>`}. Never write this file.]`;
 }
 

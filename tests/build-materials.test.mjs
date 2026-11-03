@@ -22,6 +22,8 @@ test('what kind of material each file is', () => {
   assert.equal(kindOf({ name: 'logo.svg', type: 'image/svg+xml' }), 'text');
   assert.equal(kindOf({ name: 'prices.csv', type: 'text/csv' }), 'text');
   assert.equal(kindOf({ name: 'brochure.pdf', type: 'application/pdf' }), 'download');
+  assert.equal(kindOf({ name: 'Choir Clip.MP4', type: 'video/mp4' }), 'video');
+  assert.equal(materialPath('Choir Clip.MP4', 'video'), 'videos/choir-clip.mp4');
   assert.equal(kindOf({ name: 'setup.exe', type: 'application/octet-stream' }), '');
   assert.match(materialsNote([{ path: 'images/logo.png', note: 'picture, 400×300' }]), /this file[\s\S]*images\/logo\.png \(picture, 400×300\)/);
 });

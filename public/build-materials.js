@@ -7,11 +7,14 @@ export const MOST_MATERIALS = 10;
 const PICTURE_SIDE = 1600;          // big enough for a full-width photo on a laptop
 const MOST_TEXT = 200_000;          // characters
 const MOST_DOWNLOAD = 5 * 1024 * 1024;
+// A published site holds at most 4 MB of text, and a video is stored as text (base64, a third larger).
+export const MOST_VIDEO = 2.5 * 1024 * 1024;
 
 const TEXT = /\.(?:txt|md|markdown|csv|tsv|json|html?|css|js|mjs|xml|svg|yaml|yml)$/i;
 const WEB = /\.(?:html?|css|js|mjs)$/i;
 const PICTURE = /^image\/(?:png|jpe?g|webp|gif|avif|bmp)$/i;
-const DOWNLOAD = /\.(?:pdf|docx?|xlsx?|pptx?|odt|ods|zip|mp3|m4a|wav|ogg|mp4|webm)$/i;
+const DOWNLOAD = /\.(?:pdf|docx?|xlsx?|pptx?|odt|ods|zip|mp3|m4a|wav|ogg)$/i;
+const VIDEO = /\.(?:mp4|m4v|webm)$/i;
 
 /** A safe file name: lower case, letters, digits and dashes, extension kept. */
 export function safeName(name, fallback = 'file') {
@@ -25,7 +28,7 @@ export function safeName(name, fallback = 'file') {
 /** Where a material goes in the project, never on top of another material. */
 export function materialPath(name, kind, taken = new Set()) {
   const file = safeName(name);
-  const folder = kind === 'picture' ? 'images/' : kind === 'download' ? 'files/' : WEB.test(file) ? '' : 'content/';
+  const folder = kind === 'picture' ? 'images/' : kind === 'video' ? 'videos/' : kind === 'download' ? 'files/' : WEB.test(file) ? '' : 'content/';
   const dot = file.lastIndexOf('.');
   const stem = dot > 0 ? file.slice(0, dot) : file, ext = dot > 0 ? file.slice(dot) : '';
   let path = `${folder}${file}`;
@@ -38,6 +41,7 @@ export function kindOf(file) {
   if (/\.svg$/i.test(name) || file?.type === 'image/svg+xml') return 'text';
   if (PICTURE.test(file?.type || '') || /\.(?:png|jpe?g|webp|gif|avif|bmp)$/i.test(name)) return 'picture';
   if (TEXT.test(name) || /^text\//.test(file?.type || '') || file?.type === 'application/json') return 'text';
+  if (VIDEO.test(name)) return 'video';
   if (DOWNLOAD.test(name)) return 'download';
   return '';
 }
@@ -66,7 +70,7 @@ async function webPicture(file) {
 /** One chosen file as a project file: { path, body, kind, note }. */
 export async function materialFromFile(file, taken = new Set()) {
   const kind = kindOf(file);
-  if (!kind) throw new Error(`${file.name} is not a file a website can use. Add pictures, text, web files, PDFs or documents.`);
+  if (!kind) throw new Error(`${file.name} is not a file a website can use. Add pictures, short videos, text, web files, PDFs or documents.`);
   if (kind === 'picture') {
     const picture = await webPicture(file);
     const name = picture.ext ? String(file.name).replace(/\.[^.]+$/, '') + '.' + picture.ext : file.name;
@@ -78,6 +82,10 @@ export async function materialFromFile(file, taken = new Set()) {
     if (body.length > MOST_TEXT) throw new Error(`${file.name} is too long to add. Keep text files under 200,000 characters.`);
     const path = materialPath(file.name, /\.svg$/i.test(file.name) ? 'picture' : kind, taken);
     return { path, body, kind, note: /\.svg$/i.test(file.name) ? 'picture (SVG)' : `text, ${body.length} characters` };
+  }
+  if (kind === 'video') {
+    if (file.size > MOST_VIDEO) throw new Error(`${file.name} is too large (${(file.size / 1048576).toFixed(1)} MB). Videos added here must be under 2.5 MB, a short clip. Put longer videos on YouTube and paste the link here instead.`);
+    return { path: materialPath(file.name, kind, taken), body: await readAs(file, 'readAsDataURL'), kind, note: `video, ${Math.ceil(file.size / 1024)} KB, for a gk-video-player` };
   }
   if (file.size > MOST_DOWNLOAD) throw new Error(`${file.name} is too large. Documents for download must be under 5 MB.`);
   const path = materialPath(file.name, kind, taken);

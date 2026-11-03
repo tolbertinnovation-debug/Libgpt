@@ -2081,6 +2081,17 @@ app.get('/s/:slug/_grandpa/:extra(icon.svg|manifest.webmanifest)', async (req, r
   if (req.params.extra === 'icon.svg') { res.type('image/svg+xml').send(siteIcon(site.name, brand)); return; }
   res.type('application/manifest+json').send(siteManifest({ name: site.name, slug: site.slug, brand, path: onSitesHost(req) ? `/${site.slug}/` : '' }));
 });
+// Videos and sound are sent in parts when the browser asks (Safari plays a video only that way, and seeking needs it).
+function sendMedia(req, res, type, body) {
+  res.type(type).set('Accept-Ranges', 'bytes');
+  const m = /^bytes=(\d*)-(\d*)$/.exec(req.get('range') || '');
+  if (!m || (!m[1] && !m[2])) { res.send(body); return; }
+  const size = body.length;
+  const start = m[1] ? Number(m[1]) : Math.max(0, size - Number(m[2]));
+  const end = m[1] && m[2] ? Math.min(Number(m[2]), size - 1) : size - 1;
+  if (start >= size || start > end) { res.status(416).set('Content-Range', `bytes */${size}`).end(); return; }
+  res.status(206).set('Content-Range', `bytes ${start}-${end}/${size}`).send(body.subarray(start, end + 1));
+}
 app.get('/s/:slug/*', async (req, res) => {
   res.set(siteHeaders(req));
   if (!siteStore || !validSlug(req.params.slug)) { res.status(404).type('html').send(notFoundPage('There is no website at this address.')); return; }
@@ -2102,6 +2113,7 @@ app.get('/s/:slug/*', async (req, res) => {
       res.type(type).send(withRuntime(withSeo(body.toString('utf8'), { siteName: site.name, url: pageUrl, base: siteBase(req, site.slug), path: file.path, files: site.files, slug: site.slug, brand: brandColour(site.files) }), site.slug));
       return;
     }
+    if (/^(?:video|audio)\//.test(type)) { sendMedia(req, res, type, body); return; }
     res.type(type).send(body);
   } catch (error) {
     console.error('[sites]', error.message);

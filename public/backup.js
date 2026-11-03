@@ -1,7 +1,7 @@
 import { MEMORY_KEY, loadMemory, readMemories, mergeMemories } from './memory.js';
 import { readDocumentSpec } from './documents.js';
 import { readTaskBrief } from './document-tasks.js';
-import { saveProjectsDurable } from './build.js?v=kit-1';
+import { saveProjectsDurable } from './build.js?v=kit-2';
 import { TEAM_ROLES, teamPath, validateTeamPlan } from './build-team.js';
 // Portable, local-only backups. Credentials and preferences are never included.
 export const BACKUP_LIMIT = 8_000_000;

@@ -91,7 +91,7 @@ export function qualityReport(files = []) {
     const size = bytesOf(String(f.body || ''));
     total += size;
     if (/^data:image\//.test(f.body || '') && size > BIG_PICTURE) add('Speed', 'warn', `The picture ${f.path} is ${kb(size)}. Smaller pictures open faster on phones.`, f.path);
-    if (/^data:video\//.test(f.body || '') && size > 8_000_000) add('Speed', 'warn', `The video ${f.path} is ${kb(size)}. Use a shorter video, or a YouTube link.`, f.path);
+    if (/^data:video\//.test(f.body || '') && size > 2_000_000) add('Speed', 'warn', `The video ${f.path} is ${kb(size)}. Use a shorter clip, or a YouTube link.`, f.path);
   }
   if (total > 3_000_000) add('Speed', 'warn', `The whole website is ${kb(total)}. Under 3 MB opens quickly on mobile data.`);
   const ratiosInCss = designItems(files, add);
@@ -121,6 +121,10 @@ export function qualityReport(files = []) {
         && !a['aria-label'] && !a['aria-labelledby'] && !a.title && !(a.id && labelled.has(a.id)) && !insideLabel(el)) unlabelled += 1;
       if (el.tag === 'button' && !innerText(text, el) && !a['aria-label'] && !a.title) emptyButtons += 1;
       if (el.tag === 'a' && !innerText(text, el) && !a['aria-label'] && !a.title && !/<img\b[^>]*\balt=["'][^"']+/i.test(text.slice(el.openEnd, el.closeStart ?? el.openEnd))) emptyLinks += 1;
+      if (el.tag === 'video') {
+        if ('autoplay' in a && !('muted' in a)) add('Accessibility', 'fix', `A video in ${file} plays with sound by itself. Videos that start on their own must be muted (add muted).`, file);
+        else if (!('autoplay' in a) && !('controls' in a)) add('Accessibility', 'warn', `A video in ${file} has no controls, so visitors cannot play it. Put it in a gk-video-player with controls.`, file);
+      }
       if (el.tag === 'iframe' && !a.title) add('Accessibility', 'warn', `An embedded frame in ${file} has no title.`, file);
       if (el.tag === 'form') {
         hasForm = true;
