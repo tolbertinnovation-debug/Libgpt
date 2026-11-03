@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Grandpa AI app template. The server copies this app for each published app and writes in its own
+     package name, name, icon and address (assets/app.json), then signs it. Never edit a copy by hand. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.grandpaai.app.template_package_name_placeholder"
+    android:versionCode="1"
+    android:versionName="1.0">
+  <uses-permission android:name="android.permission.INTERNET" />
+  <application
+      android:label="Grandpa app name placeholder, replaced for each app"
+      android:icon="@mipmap/ic_launcher"
+      android:theme="@android:style/Theme.Material.Light.NoActionBar"
+      android:usesCleartextTraffic="false"
+      android:allowBackup="true"
+      android:supportsRtl="true">
+    <activity
+        android:name="com.grandpaai.shell.MainActivity"
+        android:exported="true"
+        android:launchMode="singleTask"
+        android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboard|keyboardHidden|uiMode|density">
+      <intent-filter>
+        <action android:name="android.intent.action.MAIN" />
+        <category android:name="android.intent.category.LAUNCHER" />
+      </intent-filter>
+    </activity>
+  </application>
+</manifest>
