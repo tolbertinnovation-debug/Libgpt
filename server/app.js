@@ -31,7 +31,8 @@ import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode
 import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404, isAppSite, withAppRegistration, appServiceWorker, appPage, textColourOn } from './site-runtime.js';
 import { buildApk, newSigningKey, sealKey, openKey } from './android-app.js';
 import { buildExe } from './windows-app.js';
-import { checkSchema, cleanRecord, cleanQuery, cleanSummary as cleanAppSummary, createMemoryAppDb, createPostgresAppDb } from './app-db.js';
+import { checkSchema, cleanRecord, cleanQuery, cleanSummary as cleanAppSummary, createMemoryAppDb, createPostgresAppDb, allowed as appAllowed } from './app-db.js';
+import { createMemoryAppUsers, createPostgresAppUsers } from './app-users.js';
 import { searchPhotos, fetchPhoto, youtubeInfo, searchWords, searchVideos } from './media-search.js';
 import { chooseRecipe, RECIPES, projectKind } from '../public/build-recipes.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
@@ -1878,7 +1879,7 @@ app.delete('/api/sites/:slug', rateLimit, requireAccess, async (req, res) => {
   if (!siteStore) { res.status(503).json({ error: 'Publishing is not set up on this host.' }); return; }
   try {
     const removed = await siteStore.remove(req.params.slug, String(req.body?.token || ''));
-    if (removed) { await siteData?.removeSite(req.params.slug).catch(() => {}); await appDb?.removeSite(req.params.slug).catch(() => {}); }
+    if (removed) { await siteData?.removeSite(req.params.slug).catch(() => {}); await appDb?.removeSite(req.params.slug).catch(() => {}); await appUsers?.removeSite(req.params.slug).catch(() => {}); }
     res.json({ removed });
   } catch (error) { siteFailed(res, error); }
 });
@@ -1898,7 +1899,7 @@ app.delete('/api/admin/sites/:slug', rateLimit, requireAgentAdmin, async (req, r
   if (!siteStore) { res.status(503).json({ error: 'Publishing is not set up on this host.' }); return; }
   try {
     const removed = await siteStore.remove(req.params.slug, '', { admin: true });
-    if (removed) { await siteData?.removeSite(req.params.slug).catch(() => {}); await appDb?.removeSite(req.params.slug).catch(() => {}); }
+    if (removed) { await siteData?.removeSite(req.params.slug).catch(() => {}); await appDb?.removeSite(req.params.slug).catch(() => {}); await appUsers?.removeSite(req.params.slug).catch(() => {}); }
     res.json({ removed });
   } catch (error) { siteFailed(res, error); }
 });
@@ -1976,6 +1977,8 @@ app.post('/api/site-data/:slug', siteLimit, async (req, res) => {
 // session), the team (signed in with the app's team passcode) or anyone. Each
 // table's access says which: team (default), public-read, public-add, public.
 const appDb = governanceConnection ? createPostgresAppDb({ connectionString: governanceConnection }) : (config.serverless ? null : createMemoryAppDb());
+// Phase D2: the people who use an app sign up and sign in to it (when its design has "accounts").
+const appUsers = governanceConnection ? createPostgresAppUsers({ connectionString: governanceConnection }) : (config.serverless ? null : createMemoryAppUsers());
 const schemaCache = new Map();
 async function appSchema(slug) {
   const meta = await siteStore.meta(slug);
@@ -2001,23 +2004,71 @@ async function appDbAccess(req, res, next) {
     if (!found) { res.status(404).json({ error: 'There is no app at this address.' }); return; }
     if (!found.schema) { res.status(404).json({ error: found.problem ? `This app's data design has a mistake: ${found.problem}` : 'This app has no database.' }); return; }
     const key = String(req.get('x-app-key') || '');
-    const owner = key && (publishedBy(found.site, key) || await siteData.checkSession(found.site.slug, key));
-    const role = owner ? 'owner' : key && await siteData.checkTeamSession(found.site.slug, key) ? 'team' : 'visitor';
-    req.app_ = { slug: found.site.slug, schema: found.schema, role };
+    let who = { kind: 'visitor' };
+    if (key && (publishedBy(found.site, key) || await siteData.checkSession(found.site.slug, key))) who = { kind: 'owner' };
+    else if (key && await siteData.checkTeamSession(found.site.slug, key)) who = { kind: 'team' };
+    else if (key && found.schema.accounts && appUsers) { const user = await appUsers.session(found.site.slug, key); if (user) who = { kind: 'user', id: user.id, role: user.role, user }; }
+    req.app_ = { slug: found.site.slug, schema: found.schema, role: who.kind === 'user' ? who.role : who.kind, who, key };
     next();
   } catch (error) { dataFailed(res, error); }
 }
-/** May this person do this to this table? */
+/** May this person do this to this table? Sets req.own when only their own records are allowed. */
 function appTable(req, res, action) {
   const table = req.app_.schema.tables[req.params.table];
   if (!table) { res.status(404).json({ error: `This app has no table called "${String(req.params.table).slice(0, 40)}".` }); return null; }
-  const signedIn = req.app_.role !== 'visitor';
-  const open = table.access === 'public' || (table.access === 'public-read' && action === 'read') || (table.access === 'public-add' && action === 'add');
-  if (!signedIn && !open) { res.status(401).json({ error: 'This app is private. Sign in with the team passcode.', signIn: true }); return null; }
+  const may = appAllowed(table, action, req.app_.who);
+  if (may === 'none') {
+    if (req.app_.who.kind === 'visitor') res.status(401).json({ error: req.app_.schema.accounts ? 'Sign in to use this part of the app.' : 'This app is private. Sign in with the team passcode.', signIn: true });
+    else res.status(403).json({ error: 'Your account is not allowed to do that here. Ask the app\'s owner.' });
+    return null;
+  }
+  req.own = may === 'own' ? req.app_.who.id : '';
   return table;
 }
+/** For change and remove limited to "own": the record must be theirs. */
+async function ownRecord(req, res) {
+  if (!req.own) return true;
+  const record = await appDb.get(req.app_.slug, req.params.table, req.params.id);
+  if (record && record.by === req.own) return true;
+  res.status(record ? 403 : 404).json({ error: record ? 'You can only change what you added yourself.' : 'That record is not there any more.' });
+  return false;
+}
+const publicAccounts = (accounts) => accounts && { signup: accounts.signup, roles: accounts.roles, defaultRole: accounts.defaultRole };
 app.get('/api/app-db/:slug/info', rateLimit, appDbAccess, async (req, res) => {
-  res.json({ role: req.app_.role, tables: req.app_.schema.tables, teamPasscode: await siteData.hasTeamPasscode(req.app_.slug) });
+  // The owner and the team passcode count as signed in, so App.auth.require() lets them straight in.
+  const user = req.app_.who.user || (req.app_.who.kind === 'owner' ? { id: 'owner', name: 'Owner', login: '', role: 'owner' } : req.app_.who.kind === 'team' ? { id: 'team', name: 'Team', login: '', role: 'team' } : null);
+  res.json({ role: req.app_.role, user, accounts: publicAccounts(req.app_.schema.accounts), tables: req.app_.schema.tables, teamPasscode: await siteData.hasTeamPasscode(req.app_.slug) });
+});
+// Accounts (Phase D2): sign up, sign in, sign out, change password.
+function needsAccounts(req, res) {
+  if (req.app_.schema.accounts && appUsers) return req.app_.schema.accounts;
+  res.status(404).json({ error: 'This app has no accounts.' }); return null;
+}
+app.post('/api/app-db/:slug/signup', siteLimit, appDbAccess, async (req, res) => {
+  const accounts = needsAccounts(req, res); if (!accounts) return;
+  try {
+    const code = String(req.body?.code || '').trim();
+    const invited = code ? await appUsers.inviteRole(req.app_.slug, code) : null;
+    if (code && !invited) { res.status(403).json({ error: 'That invite code is not right.' }); return; }
+    if (!invited && accounts.signup !== 'open') { res.status(403).json({ error: accounts.signup === 'invite' ? 'You need an invite code from the app\'s owner to make an account.' : 'New accounts are made by the app\'s owner.' }); return; }
+    const role = invited && accounts.roles.includes(invited) ? invited : accounts.defaultRole;
+    res.status(201).json(await appUsers.signUp(req.app_.slug, { name: req.body?.name, login: req.body?.login, password: req.body?.password, role }));
+  } catch (error) { dataFailed(res, error); }
+});
+app.post('/api/app-db/:slug/signin', siteLimit, appDbAccess, async (req, res) => {
+  if (!needsAccounts(req, res)) return;
+  try {
+    const result = await appUsers.signIn(req.app_.slug, req.body?.login, String(req.body?.password || ''));
+    if (!result) { res.status(401).json({ error: 'That phone number or username and password do not match.' }); return; }
+    res.json(result);
+  } catch (error) { dataFailed(res, error); }
+});
+app.post('/api/app-db/:slug/signout', siteLimit, appDbAccess, async (req, res) => {
+  try { if (req.app_.who.kind === 'user') await appUsers.signOut(req.app_.slug, req.app_.key); res.json({ signedOut: true }); } catch (error) { dataFailed(res, error); }
+});
+app.post('/api/app-db/:slug/password', siteLimit, appDbAccess, async (req, res) => {
+  if (req.app_.who.kind !== 'user') { res.status(401).json({ error: 'Sign in first.', signIn: true }); return; }
+  try { res.json(await appUsers.changePassword(req.app_.slug, req.app_.who.id, String(req.body?.old || ''), req.body?.password)); } catch (error) { dataFailed(res, error); }
 });
 app.post('/api/app-db/:slug/session', rateLimit, appDbAccess, async (req, res) => {
   try {
@@ -2030,39 +2081,39 @@ app.get('/api/app-db/:slug/versions', siteLimit, appDbAccess, async (req, res) =
   try {
     const all = await appDb.versions(req.app_.slug);
     // Only the tables this person may read.
-    const visible = Object.entries(req.app_.schema.tables).filter(([, t]) => req.app_.role !== 'visitor' || ['public', 'public-read'].includes(t.access)).map(([name]) => name);
+    const visible = Object.entries(req.app_.schema.tables).filter(([, t]) => appAllowed(t, 'read', req.app_.who) !== 'none').map(([name]) => name);
     res.json({ versions: Object.fromEntries(visible.map((name) => [name, all[name] || 0])) });
   } catch (error) { dataFailed(res, error); }
 });
 app.get('/api/app-db/:slug/t/:table/summary', siteLimit, appDbAccess, async (req, res) => {
   const table = appTable(req, res, 'read'); if (!table) return;
-  try { res.json({ groups: await appDb.summary(req.app_.slug, req.params.table, cleanQuery(table, { where: req.query.where }), table, cleanAppSummary(table, req.query)) }); } catch (error) { dataFailed(res, error); }
+  try { res.json({ groups: await appDb.summary(req.app_.slug, req.params.table, { ...cleanQuery(table, { where: req.query.where }), by: req.own }, table, cleanAppSummary(table, req.query)) }); } catch (error) { dataFailed(res, error); }
 });
 app.get('/api/app-db/:slug/t/:table/:id', siteLimit, appDbAccess, async (req, res) => {
   const table = appTable(req, res, 'read'); if (!table) return;
-  try { const record = await appDb.get(req.app_.slug, req.params.table, req.params.id); if (!record) { res.status(404).json({ error: 'That record is not there any more.' }); return; } res.json({ record }); } catch (error) { dataFailed(res, error); }
+  try { const record = await appDb.get(req.app_.slug, req.params.table, req.params.id); if (!record || (req.own && record.by !== req.own)) { res.status(404).json({ error: 'That record is not there any more.' }); return; } res.json({ record }); } catch (error) { dataFailed(res, error); }
 });
 app.get('/api/app-db/:slug/t/:table', siteLimit, appDbAccess, async (req, res) => {
   const table = appTable(req, res, 'read'); if (!table) return;
-  try { res.json(await appDb.list(req.app_.slug, req.params.table, cleanQuery(table, req.query), table)); } catch (error) { dataFailed(res, error); }
+  try { res.json(await appDb.list(req.app_.slug, req.params.table, { ...cleanQuery(table, req.query), by: req.own }, table)); } catch (error) { dataFailed(res, error); }
 });
 app.post('/api/app-db/:slug/t/:table', siteLimit, appDbAccess, async (req, res) => {
   const table = appTable(req, res, 'add'); if (!table) return;
-  try { res.status(201).json({ record: await appDb.add(req.app_.slug, req.params.table, cleanRecord(table, req.body)) }); } catch (error) { dataFailed(res, error); }
+  try { res.status(201).json({ record: await appDb.add(req.app_.slug, req.params.table, cleanRecord(table, req.body), req.app_.who.kind === 'user' ? req.app_.who.id : null) }); } catch (error) { dataFailed(res, error); }
 });
 app.patch('/api/app-db/:slug/t/:table/:id', siteLimit, appDbAccess, async (req, res) => {
   const table = appTable(req, res, 'change'); if (!table) return;
-  try { const record = await appDb.update(req.app_.slug, req.params.table, req.params.id, cleanRecord(table, req.body, { partial: true })); if (!record) { res.status(404).json({ error: 'That record is not there any more.' }); return; } res.json({ record }); } catch (error) { dataFailed(res, error); }
+  try { if (!(await ownRecord(req, res))) return; const record = await appDb.update(req.app_.slug, req.params.table, req.params.id, cleanRecord(table, req.body, { partial: true })); if (!record) { res.status(404).json({ error: 'That record is not there any more.' }); return; } res.json({ record }); } catch (error) { dataFailed(res, error); }
 });
 app.delete('/api/app-db/:slug/t/:table/:id', siteLimit, appDbAccess, async (req, res) => {
-  const table = appTable(req, res, 'change'); if (!table) return;
-  try { res.json({ removed: await appDb.remove(req.app_.slug, req.params.table, req.params.id) }); } catch (error) { dataFailed(res, error); }
+  const table = appTable(req, res, 'remove'); if (!table) return;
+  try { if (!(await ownRecord(req, res))) return; res.json({ removed: await appDb.remove(req.app_.slug, req.params.table, req.params.id) }); } catch (error) { dataFailed(res, error); }
 });
 // The owner, in Manage: the design, the use against the limits, the team passcode and a full export.
 app.get('/api/manage/:slug/app-data', rateLimit, manageAccess, async (req, res) => {
   try {
     const found = appDb ? await appSchema(req.site.slug) : null;
-    res.json({ schema: found?.schema || null, problem: found?.problem || '', usage: found?.schema ? await appDb.usage(req.site.slug) : null, teamPasscode: await siteData.hasTeamPasscode(req.site.slug) });
+    res.json({ schema: found?.schema || null, problem: found?.problem || '', usage: found?.schema ? await appDb.usage(req.site.slug) : null, teamPasscode: await siteData.hasTeamPasscode(req.site.slug), accounts: publicAccounts(found?.schema?.accounts) || null });
   } catch (error) { dataFailed(res, error); }
 });
 app.post('/api/manage/:slug/team-passcode', rateLimit, manageAccess, async (req, res) => {
@@ -2073,6 +2124,38 @@ app.get('/api/manage/:slug/app-data/export', rateLimit, manageAccess, async (req
     const records = appDb ? await appDb.exportAll(req.site.slug) : [];
     res.set('Content-Disposition', `attachment; filename="${req.site.slug}-data.json"`).json({ app: req.site.slug, exportedAt: new Date().toISOString(), records });
   } catch (error) { dataFailed(res, error); }
+});
+// The owner, in Manage: the app's accounts (change a role, reset a forgotten password, switch off, delete) and invite codes.
+async function manageAccounts(req, res) {
+  const found = appDb && appUsers ? await appSchema(req.site.slug) : null;
+  if (found?.schema?.accounts) return found.schema.accounts;
+  res.status(404).json({ error: 'This app has no accounts.' }); return null;
+}
+app.get('/api/manage/:slug/app-users', rateLimit, manageAccess, async (req, res) => {
+  try { const accounts = await manageAccounts(req, res); if (!accounts) return; res.json({ accounts: publicAccounts(accounts), users: await appUsers.list(req.site.slug), invites: await appUsers.invites(req.site.slug) }); } catch (error) { dataFailed(res, error); }
+});
+app.patch('/api/manage/:slug/app-users/:id', rateLimit, manageAccess, async (req, res) => {
+  try {
+    const accounts = await manageAccounts(req, res); if (!accounts) return;
+    const changes = {};
+    if (req.body?.role !== undefined) { if (!accounts.roles.includes(String(req.body.role))) { res.status(400).json({ error: 'Choose one of the app\'s roles.' }); return; } changes.role = String(req.body.role); }
+    if (req.body?.disabled !== undefined) changes.disabled = Boolean(req.body.disabled);
+    if (req.body?.password !== undefined) changes.password = String(req.body.password);
+    res.json({ user: await appUsers.update(req.site.slug, req.params.id, changes) });
+  } catch (error) { dataFailed(res, error); }
+});
+app.delete('/api/manage/:slug/app-users/:id', rateLimit, manageAccess, async (req, res) => {
+  try { if (!(await manageAccounts(req, res))) return; res.json({ removed: await appUsers.remove(req.site.slug, req.params.id) }); } catch (error) { dataFailed(res, error); }
+});
+app.post('/api/manage/:slug/app-invites', rateLimit, manageAccess, async (req, res) => {
+  try {
+    const accounts = await manageAccounts(req, res); if (!accounts) return;
+    if (!accounts.roles.includes(String(req.body?.role || ''))) { res.status(400).json({ error: 'Choose one of the app\'s roles.' }); return; }
+    res.status(201).json({ invite: await appUsers.createInvite(req.site.slug, String(req.body.role)) });
+  } catch (error) { dataFailed(res, error); }
+});
+app.delete('/api/manage/:slug/app-invites/:code', rateLimit, manageAccess, async (req, res) => {
+  try { if (!(await manageAccounts(req, res))) return; res.json({ removed: await appUsers.removeInvite(req.site.slug, req.params.code) }); } catch (error) { dataFailed(res, error); }
 });
 // Only Grandpa AI's owner may raise one app's limits (never unlimited).
 app.post('/api/admin/app-db/:slug/limits', rateLimit, requireAgentAdmin, async (req, res) => {

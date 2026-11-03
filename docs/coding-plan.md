@@ -512,6 +512,42 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
   - no page errors.
 - **Not yet verified:** a full build with the AI model, which the owner tests.
 
+### Phase D2: accounts for the people who use an app (done)
+- **The design file can switch accounts on:** `"accounts": { "signup": "open" | "invite" | "off", "roles": [...], "defaultRole": "..." }` in `data/schema.json`.
+  - The app's owner is always allowed everything and is not a role.
+  - Staff get their role from an **invite code** the owner makes in Manage (8 characters, at most 20 codes), or the owner changes their role there.
+- **Rules per table:** `"rules": { "read", "add", "change", "remove" }`, each a list of `anyone`, `signed-in`, `team` (the team passcode), a role name, or `own` (only records the person added; not for add).
+  - Every record remembers who added it (`by`).
+  - Tables without rules keep their D1 `access` meaning.
+  - The server applies the rules to lists, totals, single records, changes, deletions and change notices, so "own" really is enforced on the server.
+  - Visitors get 401 and a sign-in prompt; signed-in people who aren't allowed get 403.
+- **Accounts** (`server/app-users.js`, tables `grandpa_ai_app_accounts`, `grandpa_ai_app_sessions` and `grandpa_ai_app_invites`):
+  - People sign in with a phone number (in any format; a leading + is kept) or a username, and a password of 6–72 characters stored only as an scrypt hash.
+  - Sessions last 60 days. Eight wrong passwords lock the account for 15 minutes.
+  - Limits: 5,000 accounts per app and 300 new accounts a day.
+  - Changing a password signs other phones out. The owner resets forgotten passwords in Manage, because email and SMS cost money.
+  - Switching an account off or resetting its password signs it out, and a new role applies straight away.
+  - Taking the app down deletes its accounts.
+- **App.auth in the app toolkit (Kit 13):** `require()`, `user()`, `signIn`, `signUp`, `signOut`, `changePassword` and `onChange`.
+  - The kit shows its own sign-in and create-account screen, with an invite-code field and a link to the team passcode.
+  - The owner (from Manage) and team-passcode phones count as signed in.
+  - Signing out clears the phone's copy and reloads, so nothing private stays on screen.
+  - In Build's preview you are the owner, and a test account there sees what a customer would, with "own" rules applied.
+- **Manage → App data → App users:** every account with its role (changeable), Reset password, Switch off/on and Delete, plus invite codes to make, copy and delete. The records table shows who added each record.
+- **Builders** learn it in the kit guide (ACCOUNTS): never their own sign-in form, password storage or user table.
+- **Verified:**
+  - Tests: rule checking, identical behaviour from the memory and Postgres account stores (lock-out, owner controls, invites), and the full server story.
+  - The tests caught a real gap, now fixed: deleting a record was checked against the change rule, not the remove rule.
+  - In Chromium against the real server:
+    - in the preview, the owner sees the sample data and a test customer sees only their own;
+    - a visitor gets the screen and creates an account;
+    - two customers each see only their own order, and staff join with an invite code and see every order;
+    - signing out shows the screen and leaves no data behind;
+    - a wrong password says so, and the phone number works in another format;
+    - Manage lists the accounts, shows who placed each order, and the owner promotes a customer to staff, who then sees every order;
+    - no page errors.
+  - This check also found and fixed the owner being asked to sign in, and Manage's squeezed role menu.
+
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).
