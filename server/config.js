@@ -70,6 +70,9 @@ export const config = {
   // default because an elder who sounds like a robot is not the product — but
   // it is a switch, for anyone who would rather not spend it.
   realVoice: !/^(0|false|no|off)$/i.test(process.env.ENABLE_REAL_VOICE?.trim() || 'true'),
+  // Reading answers aloud (text to speech) is off until the owner has a voice
+  // service that works; ENABLE_READ_ALOUD=true brings every speaking feature back.
+  readAloud: /^(1|true|yes|on)$/i.test(process.env.ENABLE_READ_ALOUD?.trim() || ''),
 
   // Hearing, as opposed to speaking.
   //

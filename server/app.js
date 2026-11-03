@@ -357,6 +357,7 @@ app.get('/api/config', async (_req, res) => {
     imagesEnabled: config.imagesEnabled,
     chatImages: chatPicturesAvailable(),
     realVoice: config.realVoice && voiceReady(),
+    readAloud: Boolean(config.readAloud),
     // Two-way live audio. Off on a serverless host without an access code, for
     // the same reason pictures are: the hourly ceiling cannot hold there.
     liveTalk: liveTalkReady(),
