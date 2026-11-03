@@ -1,7 +1,7 @@
 import {readFile,writeFile,mkdir,cp,readdir} from 'node:fs/promises';
 import path from 'node:path';
 import {spawnSync} from 'node:child_process';
-import {withSitesHost} from './vercel-routes.mjs';
+import {withSitesHost,withCustomDomains} from './vercel-routes.mjs';
 const nitro=JSON.parse(await readFile('node_modules/nitro/package.json','utf8'));
 const result=spawnSync(process.execPath,[path.resolve('node_modules/nitro',nitro.bin.nitro),'build'],{stdio:'inherit',env:process.env});
 if(result.status!==0)process.exit(result.status || 1);
@@ -37,4 +37,4 @@ for(const directory of await functionsAt('.vercel/output/functions')){
 
 // Published sites on their own address: the server decides everything there.
 const routesFile='.vercel/output/config.json';
-await writeFile(routesFile,JSON.stringify(withSitesHost(JSON.parse(await readFile(routesFile,'utf8')),process.env.SITES_HOST),null,2));
+await writeFile(routesFile,JSON.stringify(withCustomDomains(withSitesHost(JSON.parse(await readFile(routesFile,'utf8')),process.env.SITES_HOST)),null,2));
