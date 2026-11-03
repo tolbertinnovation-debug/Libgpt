@@ -70,7 +70,7 @@ test('the online store and the test store agree on every query, total and limit'
     assert.deepEqual([changed.item, changed.qty, changed.amount], ['Rice', 3, 1800], 'an update keeps the other fields');
     assert.ok(changed.updated > changed.created);
     assert.equal(await store.update('shop', 'sales', 'nope', { qty: 1 }), null);
-    assert.equal(await store.remove('shop', 'sales', made[1].id), true);
+    assert.ok(await store.remove('shop', 'sales', made[1].id), 'the removed record comes back');
     assert.equal(await store.remove('shop', 'sales', made[1].id), false);
     assert.deepEqual(await store.versions('shop'), { sales: 6 }, 'every change moves the version, so other phones refresh');
     const usage = await store.usage('shop');

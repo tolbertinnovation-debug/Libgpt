@@ -1,4 +1,4 @@
-/* Grandpa Kit 13 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
+/* Grandpa Kit 14 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
    game loop, sounds, timers and formatting for web tools, quizzes, games, dashboards and phone-style
    apps. No build step, no outside services. window.GrandpaApp */
 (function () {
@@ -308,10 +308,46 @@
   function dbLocalAdd(table, data) {
     var rows = DB.local.tables[table] || (DB.local.tables[table] = []), at = new Date(Date.now() + DB.local.seq).toISOString();
     var record = Object.assign({}, dbLocalCheck(table, data, false), { id: 'local-' + (++DB.local.seq), created: at, updated: at, by: null });
+    var t = DB.schema && DB.schema.tables && DB.schema.tables[table];
+    if (t) Object.keys(t.fields).forEach(function (k) {
+      var f = t.fields[k];
+      if (f && f.type === 'autonumber') { var key = table + '.' + k, counters = DB.local.counters || (DB.local.counters = {}), n = counters[key] != null ? counters[key] : (f.start != null ? f.start : 1); record[k] = (f.prefix || '') + String(n).padStart(f.digits || 4, '0'); counters[key] = n + 1; }
+    });
     rows.push(record); return record;
   }
-  function dbLocalList(table, opts, mine) {
-    var rows = (DB.local.tables[table] || []).filter(mine || function () { return true; }), where = opts.where || {}, q = String(opts.q || '').toLowerCase();
+  // Phase D3 in the preview: links must exist, effects change linked numbers (never below their minimum), alerts are raised.
+  function localEffects(table, before, after) {
+    var t = DB.schema && DB.schema.tables && DB.schema.tables[table], out = [];
+    if (!t) return out;
+    Object.keys(t.fields).forEach(function (k) {
+      var f = t.fields[k];
+      if (f && f.type === 'link' && after && after[k] && after[k] !== (before && before[k]) && !(DB.local.tables[f.table] || []).some(function (r) { return r.id === after[k]; })) throw dbError((f.label || k) + ': that record is not there any more.');
+    });
+    (t.effects || []).forEach(function (e) {
+      var target = t.fields[e.link] && t.fields[e.link].table, m = /^([+-])\s*(.+)$/.exec(String(e.change || '')); if (!target || !m) return;
+      var amount = function (r) { return r && r[e.link] ? (/^[a-z]/.test(m[2]) ? Number(r[m[2]]) || 0 : Number(m[2])) * (m[1] === '-' ? -1 : 1) : 0; };
+      [[before, -1], [after, 1]].forEach(function (pair) { var r = pair[0]; if (r && r[e.link]) out.push({ table: target, id: r[e.link], field: e.field, delta: pair[1] * amount(r) }); });
+    });
+    var planned = out.filter(function (c) { return c.delta; }).map(function (c) {
+      var r = (DB.local.tables[c.table] || []).filter(function (x) { return x.id === c.id; })[0]; if (!r) return null;
+      var f = DB.schema.tables[c.table].fields[c.field], min = f && typeof f === 'object' ? f.min : null, next = (Number(r[c.field]) || 0) + c.delta;
+      if (min != null && next < min && c.delta < 0) throw dbError('Not enough ' + ((f && f.label) || c.field) + ': ' + (Number(r[c.field]) || 0) + ' left.');
+      return { r: r, field: c.field, next: next, table: c.table };
+    }).filter(Boolean);
+    return function () { planned.forEach(function (p) { var was = Object.assign({}, p.r); p.r[p.field] = p.next; localAlerts(p.table, was, p.r, 'change'); }); };
+  }
+  function localAlerts(table, before, after, how) {
+    ((DB.schema || {}).alerts || []).forEach(function (a) {
+      if (a.table !== table || !after || (a.on && a.on !== 'any' && a.on !== how)) return;
+      var hit = function (r) { return Boolean(r) && dbLocalList(table, { where: a.when || {}, limit: 1 }, null, [r]).length > 0; };
+      if (!hit(after) || (how === 'change' && a.when && hit(before))) return;
+      var alert = { id: 'alert-' + (++DB.local.seq), at: new Date().toISOString(), message: String(a.message).replace(/\{([a-z][a-z0-9_]*)\}/g, function (_, k) { return k === 'by' ? (DB.localUser ? DB.localUser.name : 'Owner') : after[k] == null ? '' : String(after[k]); }), table: table, record: after.id };
+      (DB.localAlerts = DB.localAlerts || []).unshift(alert);
+      ALERTS.listeners.forEach(function (fn) { fn([alert]); });
+    });
+  }
+  function dbLocalList(table, opts, mine, source) {
+    var rows = (source || DB.local.tables[table] || []).filter(mine || function () { return true; }), where = opts.where || {}, q = String(opts.q || '').toLowerCase();
     rows = rows.filter(function (r) {
       return Object.keys(where).every(function (k) {
         var c = where[k], pairs = c !== null && typeof c === 'object' && !Array.isArray(c) ? c : { eq: c };
@@ -325,7 +361,12 @@
     });
     var s = /^(-)?(.+)$/.exec(opts.sort || '-created');
     rows.sort(function (x, y) { var a = x[s[2]], b = y[s[2]]; var c = a == null ? 1 : b == null ? -1 : typeof a === 'number' ? a - b : String(a).localeCompare(String(b)); return s[1] ? -c : c; });
-    var page = rows.slice(opts.offset || 0, (opts.offset || 0) + (opts.limit || 100)); page.total = rows.length; return page;
+    var page = rows.slice(opts.offset || 0, (opts.offset || 0) + (opts.limit || 100)), t = DB.schema && DB.schema.tables && DB.schema.tables[table];
+    String(opts.expand || '').split(',').forEach(function (k) {
+      k = k.trim(); var f = t && t.fields[k]; if (!f || f.type !== 'link') return;
+      page = page.map(function (r) { var linked = Object.assign({}, r.linked); linked[k] = (DB.local.tables[f.table] || []).filter(function (x) { return x.id === r[k]; })[0] || null; return Object.assign({}, r, { linked: linked }); });
+    });
+    page.total = rows.length; return page;
   }
   /** In the preview: what the signed-in test account may do ('all', 'own' or 'none'); the owner may do everything. */
   function localMay(table, action) {
@@ -341,11 +382,11 @@
     if (may === 'none') throw dbError('Your account is not allowed to do that here. Ask the app\'s owner.');
     var mine = function (r) { return may !== 'own' || (r && DB.localUser && r.by === DB.localUser.id); };
     var rows = (DB.local.tables[table] || (DB.local.tables[table] = [])).filter(mine), all = DB.local.tables[table], find = function (id) { return rows.filter(function (r) { return r.id === id; })[0]; }, result;
-    if (op === 'add') { result = dbLocalAdd(table, a); result.by = DB.localUser ? DB.localUser.id : null; }
+    if (op === 'add') { var applyAdd = localEffects(table, null, a); result = dbLocalAdd(table, a); result.by = DB.localUser ? DB.localUser.id : null; applyAdd(); localAlerts(table, null, result, 'add'); }
     else if (op === 'list') return dbLocalList(table, a || {}, mine);
     else if (op === 'get') return find(a) || null;
-    else if (op === 'update') { var r = find(a); if (!r) throw dbError('That record is not there any more.'); Object.assign(r, dbLocalCheck(table, b, true), { updated: new Date().toISOString() }); result = r; }
-    else if (op === 'remove') { var i = all.indexOf(find(a)); if (i >= 0) all.splice(i, 1); result = i >= 0; }
+    else if (op === 'update') { var r = find(a); if (!r) throw dbError('That record is not there any more.'); var was = Object.assign({}, r), changes = dbLocalCheck(table, b, true), applyChange = localEffects(table, was, Object.assign({}, r, changes)); Object.assign(r, changes, { updated: new Date().toISOString() }); applyChange(); localAlerts(table, was, r, 'change'); result = r; }
+    else if (op === 'remove') { var gone = find(a), i = all.indexOf(gone); if (i >= 0) { localEffects(table, gone, null)(); all.splice(i, 1); } result = i >= 0; }
     else if (op === 'summary') {
       var groups = {}, o = a || {}, by = String(o.by || '').split(':');
       dbLocalList(table, { where: o.where, limit: 1e9 }, mine).forEach(function (r) {
@@ -476,6 +517,79 @@
     return authInfo(true).then(function (info) { return Object.assign({ mode: 'cloud' }, info); });
   };
   App.db.signOut = function () { return App.auth.signOut(); };
+
+  /* ---- Phase D3: photos and files, alerts, the activity log ---- */
+  var ALERTS = { listeners: [], seen: '' };
+  /** A photo is made smaller on the phone first (at most 1600 pixels, JPEG), so it uploads quickly and saves space. */
+  function shrink(file) {
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size < 350000 || typeof createImageBitmap !== 'function') return Promise.resolve(file);
+    return createImageBitmap(file).then(function (bitmap) {
+      var scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height)), canvas = document.createElement('canvas');
+      canvas.width = Math.round(bitmap.width * scale); canvas.height = Math.round(bitmap.height * scale);
+      canvas.getContext('2d').drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      return new Promise(function (resolve) { canvas.toBlob(function (blob) { resolve(blob && blob.size < file.size ? new File([blob], file.name.replace(/\.[^.]+$/, '') + '.jpg', { type: 'image/jpeg' }) : file); }, 'image/jpeg', 0.85); });
+    }, function () { return file; });
+  }
+  /** App.db.upload(file, { table }) → { id, url }: keep the id in an image or file field of that table. */
+  App.db.upload = function (file, options) {
+    dbSetup();
+    var table = (options && options.table) || '';
+    if (!file) return Promise.reject(dbError('Choose a file first.'));
+    return shrink(file).then(function (f) {
+      if (f.size > 2 * 1024 * 1024) throw dbError('Files must be under 2 MB.');
+      if (DB.mode === 'local') {
+        return new Promise(function (resolve) {
+          var reader = new FileReader();
+          reader.onload = function () { var id = 'f_' + ('preview' + Date.now().toString(36) + Math.random().toString(36).slice(2) + 'xxxxxxxxxxxxxxxxxxxxxxxx').slice(0, 24); (DB.localFiles = DB.localFiles || {})[id] = reader.result; resolve({ id: id, url: reader.result, name: f.name, type: f.type, size: f.size }); };
+          reader.readAsDataURL(f);
+        });
+      }
+      var send = function () { return fetch('/api/app-db/' + DB.slug + '/files?table=' + encodeURIComponent(table) + '&name=' + encodeURIComponent(f.name || 'file'), { method: 'POST', headers: { 'X-App-Key': DB.key, 'Content-Type': f.type || 'application/octet-stream' }, body: f }).then(function (r) { return r.json().catch(function () { return {}; }).then(function (data) { return { ok: r.ok, status: r.status, data: data }; }); }); };
+      return send().then(function (r) {
+        if (r.status === 401 && r.data.signIn) return dbSignIn().then(send).then(function (again) { if (!again.ok) throw dbError(again.data.error); return again.data; });
+        if (!r.ok) throw dbError(r.data.error);
+        return r.data;
+      });
+    });
+  };
+  /** The address to show or download a file whose id is in a record. */
+  App.db.fileUrl = function (id) {
+    dbSetup();
+    if (!id) return '';
+    if (DB.mode === 'local') return (DB.localFiles || {})[id] || '';
+    return '/api/app-db/' + DB.slug + '/files/' + encodeURIComponent(id);
+  };
+  /** The owner's and team's activity log: [{ at, who, action, table, summary }]. */
+  App.db.activity = function () {
+    dbSetup();
+    if (DB.mode === 'local') return Promise.resolve([]);
+    return dbCall('GET', '/activity').then(function (r) { return r.activity; });
+  };
+  App.alerts = {
+    /** Recent alerts for this person ("Stock low: Rice", "New order"). */
+    list: function () {
+      dbSetup();
+      if (DB.mode === 'local') return Promise.resolve((DB.localAlerts || []).slice(0, 50));
+      return dbCall('GET', '/alerts').then(function (r) { return r.alerts; });
+    },
+    /** Calls fn(newAlerts) when new alerts arrive (checked every few seconds); without fn each is shown as a message. */
+    watch: function (fn) {
+      dbSetup();
+      var show = fn || function (list) { list.slice(0, 3).forEach(function (a) { App.toast('🔔 ' + a.message); }); };
+      ALERTS.listeners.push(show);
+      if (DB.mode === 'local') return function () { ALERTS.listeners = ALERTS.listeners.filter(function (f) { return f !== show; }); };
+      App.alerts.list().then(function (list) { ALERTS.seen = list[0] ? list[0].at : new Date().toISOString(); }, function () { ALERTS.seen = new Date().toISOString(); });
+      var stop = App.db.onChange(function (tables) {
+        if (tables && tables.indexOf('_alerts') < 0) return;
+        dbCall('GET', '/alerts?since=' + encodeURIComponent(ALERTS.seen || '')).then(function (r) {
+          if (!r.alerts.length) return;
+          ALERTS.seen = r.alerts[0].at;
+          ALERTS.listeners.forEach(function (f) { f(r.alerts); });
+        }, function () { /* offline */ });
+      });
+      return function () { stop(); ALERTS.listeners = ALERTS.listeners.filter(function (f) { return f !== show; }); };
+    },
+  };
   /* ---- accounts (Phase D2): App.auth.user() / require() / signIn({ login, password }) / signUp({ name, login, password, code }) /
      signOut() / changePassword(old, new) / onChange(fn). Apps with "accounts" in data/schema.json; the kit shows the
      sign-in and create-account screen itself. In Build's preview you start as the owner and test accounts stay on this device. ---- */

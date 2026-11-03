@@ -10,7 +10,8 @@ import { postgresTransaction } from './postgres-transaction.js';
 import { governanceScope } from './governance-postgres.js';
 
 export const LIMITS = Object.freeze({ records: 20_000, bytes: 25 * 1024 * 1024, writesPerDay: 3_000 });
-export const TYPES = ['text', 'longtext', 'number', 'integer', 'money', 'boolean', 'date', 'datetime', 'time', 'choice', 'email', 'phone', 'url'];
+export const TYPES = ['text', 'longtext', 'number', 'integer', 'money', 'boolean', 'date', 'datetime', 'time', 'choice', 'email', 'phone', 'url', 'image', 'file', 'autonumber', 'link'];
+export const FILE_ID = /^f_[A-Za-z0-9_-]{24}$/;
 export const ACCESS = ['team', 'public-read', 'public-add', 'public'];
 const NAME = /^[a-z][a-z0-9_]{0,39}$/;
 const RESERVED = new Set(['id', 'created', 'updated']);
@@ -44,12 +45,67 @@ export function checkSchema(input) {
       }
       if (['number', 'integer', 'money'].includes(d.type)) for (const k of ['min', 'max']) if (d[k] != null) { if (!Number.isFinite(Number(d[k]))) throw fail(`Table ${name}, field ${f}: ${k} must be a number.`); field[k] = Number(d[k]); }
       if (['text', 'longtext'].includes(d.type)) field.max = Math.min(d.type === 'longtext' ? 10_000 : 500, Math.max(1, Number(d.max) || (d.type === 'longtext' ? 5_000 : 200)));
+      if (d.type === 'autonumber') {
+        field.prefix = String(d.prefix ?? '').slice(0, 10);
+        if (!/^[A-Za-z0-9 #/_-]*$/.test(field.prefix)) throw fail(`Table ${name}, field ${f}: the prefix may use letters, digits, space, #, /, _ and -.`);
+        field.digits = Math.min(9, Math.max(1, Math.floor(Number(d.digits) || 4)));
+        field.start = Math.max(0, Math.floor(Number(d.start) || 1));
+        field.required = false;
+      }
+      if (d.type === 'link') { if (typeof d.table !== 'string') throw fail(`Table ${name}, field ${f}: a link needs "table": the table it points to.`); field.table = d.table; }
       fields[f] = field;
     }
     tables[name] = { label: String(t.label || name.replace(/_/g, ' ')).slice(0, 60), access, fields, rules: checkRules(name, t.rules, access, accounts) };
   }
-  return accounts ? { tables, accounts } : { tables };
+  checkFeatures(tables, raw, accounts);
+  const alerts = checkAlerts(raw.alerts, tables, accounts);
+  return { tables, ...(accounts ? { accounts } : {}), ...(alerts.length ? { alerts } : {}) };
 }
+
+// ---- Links, effects and alerts (Phase D3) ---------------------------------------------
+/** Links point at real tables; effects ("a sale lowers the stock") are checked against the fields they use. */
+function checkFeatures(tables, raw) {
+  for (const [name, t] of Object.entries(tables)) {
+    for (const [f, field] of Object.entries(t.fields)) if (field.type === 'link' && !tables[field.table]) throw fail(`Table ${name}, field ${f}: there is no table "${String(field.table).slice(0, 40)}" to link to.`);
+    const effects = raw.tables[name].effects;
+    if (effects == null) { t.effects = []; continue; }
+    if (!Array.isArray(effects) || effects.length > 10) throw fail(`Table ${name}: effects must be a list of up to 10.`);
+    t.effects = effects.map((e, i) => {
+      const where = `Table ${name}, effect ${i + 1}`;
+      const link = t.fields[e?.link];
+      if (!link || link.type !== 'link') throw fail(`${where}: "link" must be one of this table's link fields.`);
+      const target = tables[link.table], field = target.fields[e.field];
+      if (!field || !numeric(field)) throw fail(`${where}: "field" must be a number field of ${link.table}.`);
+      const m = /^([+-])\s*([a-z][a-z0-9_]{0,39}|\d+(?:\.\d+)?)$/.exec(String(e.change || ''));
+      if (!m) throw fail(`${where}: "change" is + or - and a number field of this table, like "-qty", or a number, like "+1".`);
+      if (/^[a-z]/.test(m[2]) && !numeric(t.fields[m[2]])) throw fail(`${where}: "${m[2]}" must be a number field of this table.`);
+      return { link: e.link, table: link.table, field: e.field, sign: m[1] === '-' ? -1 : 1, by: /^[a-z]/.test(m[2]) ? m[2] : Number(m[2]) };
+    });
+  }
+}
+/** "alerts": [{ "table": "products", "on": "add" | "change" | "any", "when": { "stock": { "lte": 5 } }, "message": "Stock low: {name}", "for": ["staff"] }] */
+function checkAlerts(input, tables, accounts) {
+  if (input == null) return [];
+  if (!Array.isArray(input) || input.length > 20) throw fail('alerts must be a list of up to 20.');
+  return input.map((a, i) => {
+    const where = `Alert ${i + 1}`;
+    const table = tables[a?.table];
+    if (!table) throw fail(`${where}: "table" must be one of the app's tables.`);
+    const on = a.on || 'any';
+    if (!['add', 'change', 'any'].includes(on)) throw fail(`${where}: "on" is add, change or any.`);
+    const message = String(a.message || '').slice(0, 200);
+    if (!message) throw fail(`${where} needs a "message", like "Stock low: {name}".`);
+    for (const m of message.matchAll(/\{([a-z][a-z0-9_]*)\}/g)) if (!table.fields[m[1]] && m[1] !== 'by') throw fail(`${where}: {${m[1]}} is not a field of ${a.table}.`);
+    const when = a.when == null ? null : cleanQuery(table, { where: a.when }).filters;
+    const forWho = Array.isArray(a.for) && a.for.length ? a.for.map(String) : ['team'];
+    for (const who of forWho) if (who !== 'team' && !(accounts && accounts.roles.includes(who))) throw fail(`${where}: "for" lists team or the app's roles.`);
+    return { table: a.table, on, when, message, for: forWho };
+  });
+}
+/** Does a record match an alert's conditions? */
+export const recordMatches = (record, filters, table) => matches(record, filters || [], table, '');
+/** The alert's message with the record's values filled in. */
+export const fillMessage = (message, record, byName = '') => message.replace(/\{([a-z][a-z0-9_]*)\}/g, (_, k) => (k === 'by' ? byName : record[k] == null ? '' : String(record[k]))).slice(0, 240);
 
 // ---- Accounts and rules (Phase D2) ----------------------------------------------------
 export const RULE_WORDS = ['anyone', 'signed-in', 'team', 'own'];
@@ -107,6 +163,7 @@ export function cleanRecord(table, input, { partial = false } = {}) {
   const out = {};
   for (const key of Object.keys(input)) if (!table.fields[key] && !RESERVED.has(key)) throw fail(`There is no field "${String(key).slice(0, 40)}" in this table.`);
   for (const [name, f] of Object.entries(table.fields)) {
+    if (f.type === 'autonumber') continue;   // the server numbers records itself
     if (!(name in input)) { if (f.required && !partial) throw fail(`${f.label} is required.`); continue; }
     let v = input[name];
     if (v === null || v === '' || v === undefined) { if (f.required) throw fail(`${f.label} is required.`); out[name] = null; continue; }
@@ -129,6 +186,8 @@ export function cleanRecord(table, input, { partial = false } = {}) {
       case 'email': v = String(v).trim(); if (!/^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,}$/.test(v)) throw bad('an email like name@example.com'); break;
       case 'phone': v = String(v).trim(); if (!/^\+?[\d\s()-]{4,24}$/.test(v)) throw bad('a phone number'); break;
       case 'url': v = String(v).trim(); if (!/^https?:\/\/[^\s]{3,500}$/.test(v)) throw bad('a web address starting with https://'); break;
+      case 'image': case 'file': v = String(v); if (!FILE_ID.test(v)) throw bad('upload it with App.db.upload first'); break;
+      case 'link': v = String(v); if (!/^[A-Za-z0-9_-]{1,40}$/.test(v)) throw bad('choose a record'); break;
       default: throw bad('unknown type');
     }
     out[name] = v;
@@ -172,6 +231,44 @@ export function cleanSummary(table, { by = '', sum = '' } = {}) {
   return { by: field, part, sum };
 }
 
+// ---- Phase D3 helpers shared by both stores -------------------------------------------
+/** A record's name for people: its first text field (or its number), else its id. */
+export function labelOf(table, record) {
+  if (!table || !record) return '';
+  const field = Object.entries(table.fields).find(([, f]) => ['text', 'autonumber'].includes(f.type) && record[f[0]] != null);
+  const first = Object.entries(table.fields).find(([k, f]) => ['text', 'autonumber', 'choice'].includes(f.type) && record[k] != null && record[k] !== '');
+  return String(first ? record[first[0]] : field ? record[field[0]] : record.id || '').slice(0, 80);
+}
+/** What a record's effects change elsewhere: undo the old record's, apply the new one's. */
+export function effectChanges(table, before, after) {
+  const changes = new Map();
+  const add = (record, sign) => {
+    if (!record) return;
+    for (const e of table?.effects || []) {
+      const id = record[e.link];
+      if (!id) continue;
+      const amount = typeof e.by === 'number' ? e.by : Number(record[e.by]) || 0;
+      const key = `${e.table}/${id}/${e.field}`;
+      const c = changes.get(key) || { table: e.table, id, field: e.field, delta: 0 };
+      c.delta += sign * e.sign * amount;
+      changes.set(key, c);
+    }
+  };
+  add(before, -1); add(after, 1);
+  return [...changes.values()].filter((c) => Math.abs(c.delta) > 1e-9).map((c) => ({ ...c, delta: Math.round(c.delta * 1e6) / 1e6 }));
+}
+/** The next automatic number: prefix and zero-padded count. */
+const autoValue = (field, n) => `${field.prefix || ''}${String(n).padStart(field.digits || 4, '0')}`;
+const notEnough = (schema, change, current, record) => {
+  const target = schema.tables[change.table], f = target.fields[change.field];
+  return fail(`Not enough ${f.label} for ${labelOf(target, record) || 'that record'}: ${current} left.`, 409);
+};
+export const FILE_TYPES = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'application/pdf': 'pdf', 'text/plain': 'txt', 'text/csv': 'csv',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx' };
+export const FILE_BYTES = 2 * 1024 * 1024;
+const newFileId = () => `f_${crypto.randomBytes(18).toString('base64url')}`;
+const ACTIVITY_KEPT = 2000, ALERTS_KEPT = 500;
+
 // ---- in memory (tests and local use) --------------------------------------------------
 function matches(record, filters, table, q) {
   const value = (field) => record[field];
@@ -190,7 +287,21 @@ function matches(record, filters, table, q) {
 
 export function createMemoryAppDb({ now = () => Date.now() } = {}) {
   const apps = new Map();
-  const app = (slug) => { if (!apps.has(slug)) apps.set(slug, { rows: new Map(), usage: { records: 0, bytes: 0, day: '', writes: 0, limits: {}, versions: {} } }); return apps.get(slug); };
+  const app = (slug) => { if (!apps.has(slug)) apps.set(slug, { rows: new Map(), files: new Map(), activity: [], alerts: [], usage: { records: 0, bytes: 0, day: '', writes: 0, limits: {}, versions: {}, counters: {} } }); return apps.get(slug); };
+  /** Links must point at records that exist; effects must not take a number below its minimum. All checked before anything changes. */
+  const prepare = (a, schema, tbl, before, after) => {
+    const t = schema?.tables[tbl];
+    if (!t) return [];
+    for (const [f, field] of Object.entries(t.fields)) if (field.type === 'link' && after?.[f] && after[f] !== before?.[f] && !a.rows.get(`${field.table}/${after[f]}`)) throw fail(`${field.label}: that record is not there any more.`);
+    return effectChanges(t, before, after).map((c) => {
+      const r = a.rows.get(`${c.table}/${c.id}`);
+      if (!r) return null;
+      const current = Number(r.data[c.field]) || 0, next = Math.round((current + c.delta) * 1e6) / 1e6, min = schema.tables[c.table].fields[c.field].min;
+      if (min != null && next < min && c.delta < 0) throw notEnough(schema, c, current, { id: r.id, ...r.data });
+      return { r, field: c.field, next, table: c.table };
+    }).filter(Boolean);
+  };
+  const applyEffects = (a, planned) => { for (const p of planned) { p.r.data = { ...p.r.data, [p.field]: p.next }; p.r.updated = Math.max(now(), p.r.updated + 1); bump(a, p.table); } };
   const limitsOf = (a) => ({ ...LIMITS, ...a.usage.limits });
   const write = (a, records, bytes) => {
     const l = limitsOf(a), u = a.usage, d = today(now());
@@ -203,30 +314,51 @@ export function createMemoryAppDb({ now = () => Date.now() } = {}) {
   const bump = (a, tbl) => { a.usage.versions[tbl] = (a.usage.versions[tbl] || 0) + 1; };
   return {
     durable: false,
-    async add(slug, tbl, data, by = null) {
-      const a = app(slug), size = Buffer.byteLength(JSON.stringify(data));
+    async add(slug, tbl, data, by = null, schema = null) {
+      const a = app(slug);
+      data = { ...data };
+      const fields = schema?.tables[tbl]?.fields || {};
+      const planned = prepare(a, schema, tbl, null, data);
+      for (const [f, field] of Object.entries(fields)) if (field.type === 'autonumber') { const key = `${tbl}.${f}`, n = a.usage.counters[key] ?? field.start; data[f] = autoValue(field, n); a.usage.counters[key] = n + 1; }
+      const size = Buffer.byteLength(JSON.stringify(data));
       write(a, 1, size);
+      applyEffects(a, planned);
       const id = newId(), t = now();
       a.rows.set(`${tbl}/${id}`, { tbl, id, data, size, created: t, updated: t, by });
       bump(a, tbl);
       return rowOut(id, data, t, t, by);
     },
     async get(slug, tbl, id) { const r = app(slug).rows.get(`${tbl}/${id}`); return r ? rowOut(r.id, r.data, r.created, r.updated, r.by) : null; },
-    async update(slug, tbl, id, data) {
+    async update(slug, tbl, id, data, schema = null) {
       const a = app(slug), r = a.rows.get(`${tbl}/${id}`);
       if (!r) return null;
       const merged = { ...r.data, ...data }, size = Buffer.byteLength(JSON.stringify(merged));
+      const planned = prepare(a, schema, tbl, r.data, merged);
       write(a, 0, size - r.size);
+      applyEffects(a, planned);
       Object.assign(r, { data: merged, size, updated: Math.max(now(), r.updated + 1) });
       bump(a, tbl);
       return rowOut(r.id, r.data, r.created, r.updated, r.by);
     },
-    async remove(slug, tbl, id) {
+    async remove(slug, tbl, id, schema = null) {
       const a = app(slug), r = a.rows.get(`${tbl}/${id}`);
       if (!r) return false;
+      applyEffects(a, prepare(a, schema, tbl, r.data, null));
       a.rows.delete(`${tbl}/${id}`); a.usage.records -= 1; a.usage.bytes -= r.size; bump(a, tbl);
-      return true;
+      return rowOut(r.id, r.data, r.created, r.updated, r.by);
     },
+    async getMany(slug, tbl, ids) { const a = app(slug); return [...new Set(ids)].slice(0, 500).map((id) => a.rows.get(`${tbl}/${id}`)).filter(Boolean).map((r) => rowOut(r.id, r.data, r.created, r.updated, r.by)); },
+    async putFile(slug, { name, type, data, by = null }) {
+      const a = app(slug); write(a, 0, data.length);
+      const id = newFileId(); a.files.set(id, { id, name, type, data: Buffer.from(data), size: data.length, by, created: now() }); bump(a, '_files');
+      return { id, size: data.length, type, name };
+    },
+    async getFile(slug, id) { return apps.get(slug)?.files.get(id) || null; },
+    async removeFiles(slug, ids) { const a = app(slug); for (const id of ids) { const f = a.files.get(id); if (f) { a.files.delete(id); a.usage.bytes -= f.size; } } return true; },
+    async log(slug, entry) { const a = app(slug); a.activity.unshift({ id: newId(), at: new Date(now()).toISOString(), ...entry }); a.activity.length = Math.min(a.activity.length, ACTIVITY_KEPT); return true; },
+    async activity(slug, limit = 200) { return app(slug).activity.slice(0, Math.min(500, limit)); },
+    async addAlert(slug, alert) { const a = app(slug); const made = { id: newId(), at: new Date(Math.max(now(), a.alerts[0] ? Date.parse(a.alerts[0].at) + 1 : 0)).toISOString(), message: alert.message, for: alert.for, table: alert.table || '', record: alert.record || '' }; a.alerts.unshift(made); a.alerts.length = Math.min(a.alerts.length, ALERTS_KEPT); bump(a, '_alerts'); return made; },
+    async alerts(slug, { since = '', limit = 50 } = {}) { return app(slug).alerts.filter((x) => !since || x.at > since).slice(0, Math.min(200, limit)); },
     async list(slug, tbl, query, table) {
       const all = [...app(slug).rows.values()].filter((r) => r.tbl === tbl && (!query.by || r.by === query.by)).map((r) => rowOut(r.id, r.data, r.created, r.updated, r.by)).filter((r) => matches(r, query.filters, table, query.q));
       const { field, desc } = query.sort, num = numeric(table.fields[field]);
@@ -243,6 +375,7 @@ export function createMemoryAppDb({ now = () => Date.now() } = {}) {
     async usage(slug) { const a = app(slug); return { records: a.usage.records, bytes: a.usage.bytes, writesToday: a.usage.day === today(now()) ? a.usage.writes : 0, limits: limitsOf(a) }; },
     async setLimits(slug, limits) { app(slug).usage.limits = cleanLimits(limits); return limitsOf(app(slug)); },
     async exportAll(slug) { return [...app(slug).rows.values()].map((r) => ({ table: r.tbl, ...rowOut(r.id, r.data, r.created, r.updated, r.by) })); },
+    async counters(slug) { return { ...app(slug).usage.counters }; },
     async removeSite(slug) { apps.delete(slug); return true; },
   };
 }
@@ -269,12 +402,28 @@ const SCHEMA = [
   'CREATE INDEX IF NOT EXISTS grandpa_ai_app_records_by_time ON public.grandpa_ai_app_records (scope, slug, tbl, created_at)',
   // Phase D2: who added each record (an app account's id), for "own" rules.
   'ALTER TABLE public.grandpa_ai_app_records ADD COLUMN IF NOT EXISTS by_user text',
+  // Phase D3: automatic numbers, files, the activity log and alerts.
+  `CREATE TABLE IF NOT EXISTS public.grandpa_ai_app_files (
+    scope text NOT NULL, slug text NOT NULL, id text NOT NULL, name text NOT NULL, type text NOT NULL, size integer NOT NULL, data bytea NOT NULL,
+    by_user text, created_at timestamptz NOT NULL DEFAULT now(), PRIMARY KEY (scope, slug, id)
+  )`,
+  `CREATE TABLE IF NOT EXISTS public.grandpa_ai_app_activity (
+    scope text NOT NULL, slug text NOT NULL, id text NOT NULL, at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    who text NOT NULL, action text NOT NULL, tbl text NOT NULL, record_id text NOT NULL, summary text NOT NULL, PRIMARY KEY (scope, slug, id)
+  )`,
+  'CREATE INDEX IF NOT EXISTS grandpa_ai_app_activity_by_time ON public.grandpa_ai_app_activity (scope, slug, at)',
+  `CREATE TABLE IF NOT EXISTS public.grandpa_ai_app_alerts (
+    scope text NOT NULL, slug text NOT NULL, id text NOT NULL, at timestamptz NOT NULL DEFAULT clock_timestamp(),
+    message text NOT NULL, for_who jsonb NOT NULL, tbl text NOT NULL DEFAULT '', record_id text NOT NULL DEFAULT '', PRIMARY KEY (scope, slug, id)
+  )`,
+  'CREATE INDEX IF NOT EXISTS grandpa_ai_app_alerts_by_time ON public.grandpa_ai_app_alerts (scope, slug, at)',
   `CREATE TABLE IF NOT EXISTS public.grandpa_ai_app_usage (
     scope text NOT NULL, slug text NOT NULL,
     records integer NOT NULL DEFAULT 0, bytes bigint NOT NULL DEFAULT 0, day text NOT NULL DEFAULT '', writes integer NOT NULL DEFAULT 0,
     limits jsonb NOT NULL DEFAULT '{}', versions jsonb NOT NULL DEFAULT '{}',
     PRIMARY KEY (scope, slug)
   )`,
+  `ALTER TABLE public.grandpa_ai_app_usage ADD COLUMN IF NOT EXISTS counters jsonb NOT NULL DEFAULT '{}'`,
 ];
 
 /** SQL for one field's value, by its type (field names go in as parameters, never as text). */
@@ -318,6 +467,24 @@ export function createPostgresAppDb({ connectionString, pool: suppliedPool, scop
       versions=jsonb_set(versions, ARRAY[$7::text], to_jsonb(COALESCE((versions->>$7)::integer, 0) + 1)) WHERE scope=$1 AND slug=$2`, [scope, slug, records, bytes, d, writes + 1, tbl]);
   };
   const out = (r) => rowOut(r.id, typeof r.data === 'string' ? JSON.parse(r.data) : r.data, r.created_at, r.updated_at, r.by_user);
+  const dataOf = (r) => (typeof r.data === 'string' ? JSON.parse(r.data) : r.data);
+  const bumpTable = (client, slug, tbl) => client.query(`UPDATE public.grandpa_ai_app_usage SET versions=jsonb_set(versions, ARRAY[$3::text], to_jsonb(COALESCE((versions->>$3)::integer, 0) + 1)) WHERE scope=$1 AND slug=$2`, [scope, slug, tbl]);
+  /** In the write's transaction: check links, then change the linked numbers (locked), refusing to go below a minimum. */
+  const prepare = async (client, slug, schema, tbl, before, after) => {
+    const t = schema?.tables[tbl];
+    if (!t) return;
+    for (const [f, field] of Object.entries(t.fields)) if (field.type === 'link' && after?.[f] && after[f] !== before?.[f]) {
+      if (!(await client.query('SELECT 1 FROM public.grandpa_ai_app_records WHERE scope=$1 AND slug=$2 AND tbl=$3 AND id=$4', [scope, slug, field.table, String(after[f])])).rows.length) throw fail(`${field.label}: that record is not there any more.`);
+    }
+    for (const c of effectChanges(t, before, after)) {
+      const r = (await client.query('SELECT id, data FROM public.grandpa_ai_app_records WHERE scope=$1 AND slug=$2 AND tbl=$3 AND id=$4 FOR UPDATE', [scope, slug, c.table, String(c.id)])).rows[0];
+      if (!r) continue;
+      const data = dataOf(r), current = Number(data[c.field]) || 0, next = Math.round((current + c.delta) * 1e6) / 1e6, min = schema.tables[c.table].fields[c.field].min;
+      if (min != null && next < min && c.delta < 0) throw notEnough(schema, c, current, { id: r.id, ...data });
+      await client.query(`UPDATE public.grandpa_ai_app_records SET data=jsonb_set(data, ARRAY[$5::text], to_jsonb($6::numeric)), updated_at=GREATEST(clock_timestamp(), updated_at + interval '1 millisecond') WHERE scope=$1 AND slug=$2 AND tbl=$3 AND id=$4`, [scope, slug, c.table, String(c.id), c.field, next]);
+      await bumpTable(client, slug, c.table);
+    }
+  };
   const whereSql = (table, query, params) => {
     const parts = [];
     if (query.by) { params.push(query.by); parts.push(`by_user = $${params.length}`); }
@@ -339,9 +506,18 @@ export function createPostgresAppDb({ connectionString, pool: suppliedPool, scop
   };
   return {
     durable: true,
-    async add(slug, tbl, data, by = null) {
-      const size = Buffer.byteLength(JSON.stringify(data)), id = newId();
+    async add(slug, tbl, data, by = null, schema = null) {
+      const id = newId();
       return transaction(async (client) => {
+        data = { ...data };
+        await prepare(client, slug, schema, tbl, null, data);
+        const autos = Object.entries(schema?.tables[tbl]?.fields || {}).filter(([, f]) => f.type === 'autonumber');
+        if (autos.length) {
+          const u = await usageRow(client, slug), counters = typeof u.counters === 'string' ? JSON.parse(u.counters) : (u.counters || {});
+          for (const [f, field] of autos) { const key = `${tbl}.${f}`, n = counters[key] ?? field.start; data[f] = autoValue(field, n); counters[key] = n + 1; }
+          await client.query('UPDATE public.grandpa_ai_app_usage SET counters=$3 WHERE scope=$1 AND slug=$2', [scope, slug, JSON.stringify(counters)]);
+        }
+        const size = Buffer.byteLength(JSON.stringify(data));
         await write(client, slug, tbl, 1, size);
         return out((await client.query('INSERT INTO public.grandpa_ai_app_records (scope, slug, tbl, id, data, size, by_user) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *', [scope, slug, tbl, id, JSON.stringify(data), size, by])).rows[0]);
       });
@@ -349,24 +525,79 @@ export function createPostgresAppDb({ connectionString, pool: suppliedPool, scop
     async get(slug, tbl, id) {
       return transaction(async (client) => { const r = (await client.query('SELECT * FROM public.grandpa_ai_app_records WHERE scope=$1 AND slug=$2 AND tbl=$3 AND id=$4', [scope, slug, tbl, String(id)])).rows[0]; return r ? out(r) : null; });
     },
-    async update(slug, tbl, id, data) {
+    async update(slug, tbl, id, data, schema = null) {
       return transaction(async (client) => {
         const r = (await client.query('SELECT * FROM public.grandpa_ai_app_records WHERE scope=$1 AND slug=$2 AND tbl=$3 AND id=$4 FOR UPDATE', [scope, slug, tbl, String(id)])).rows[0];
         if (!r) return null;
-        const merged = { ...(typeof r.data === 'string' ? JSON.parse(r.data) : r.data), ...data }, size = Buffer.byteLength(JSON.stringify(merged));
+        const merged = { ...dataOf(r), ...data }, size = Buffer.byteLength(JSON.stringify(merged));
+        await prepare(client, slug, schema, tbl, dataOf(r), merged);
         await write(client, slug, tbl, 0, size - r.size);
         return out((await client.query('UPDATE public.grandpa_ai_app_records SET data=$5, size=$6, updated_at=GREATEST(clock_timestamp(), updated_at + interval \'1 millisecond\') WHERE scope=$1 AND slug=$2 AND tbl=$3 AND id=$4 RETURNING *', [scope, slug, tbl, String(id), JSON.stringify(merged), size])).rows[0]);
       });
     },
-    async remove(slug, tbl, id) {
+    async remove(slug, tbl, id, schema = null) {
       return transaction(async (client) => {
+        const before = (await client.query('SELECT * FROM public.grandpa_ai_app_records WHERE scope=$1 AND slug=$2 AND tbl=$3 AND id=$4 FOR UPDATE', [scope, slug, tbl, String(id)])).rows[0];
+        if (!before) return false;
+        await prepare(client, slug, schema, tbl, dataOf(before), null);
         const r = (await client.query('DELETE FROM public.grandpa_ai_app_records WHERE scope=$1 AND slug=$2 AND tbl=$3 AND id=$4 RETURNING size', [scope, slug, tbl, String(id)])).rows[0];
         if (!r) return false;
         await usageRow(client, slug);
         await client.query(`UPDATE public.grandpa_ai_app_usage SET records=GREATEST(records-1, 0), bytes=GREATEST(bytes-$3, 0),
           versions=jsonb_set(versions, ARRAY[$4::text], to_jsonb(COALESCE((versions->>$4)::integer, 0) + 1)) WHERE scope=$1 AND slug=$2`, [scope, slug, r.size, tbl]);
+        return out(before);
+      });
+    },
+    async getMany(slug, tbl, ids) {
+      const list = [...new Set(ids.map(String))].slice(0, 500);
+      if (!list.length) return [];
+      return transaction(async (client) => (await client.query('SELECT * FROM public.grandpa_ai_app_records WHERE scope=$1 AND slug=$2 AND tbl=$3 AND id = ANY($4::text[])', [scope, slug, tbl, list])).rows.map(out));
+    },
+    async putFile(slug, { name, type, data, by = null }) {
+      const id = newFileId();
+      return transaction(async (client) => {
+        await write(client, slug, '_files', 0, data.length);
+        await client.query('INSERT INTO public.grandpa_ai_app_files (scope, slug, id, name, type, size, data, by_user) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [scope, slug, id, name, type, data.length, Buffer.from(data), by]);
+        return { id, size: data.length, type, name };
+      });
+    },
+    async getFile(slug, id) {
+      return transaction(async (client) => { const r = (await client.query('SELECT * FROM public.grandpa_ai_app_files WHERE scope=$1 AND slug=$2 AND id=$3', [scope, slug, String(id)])).rows[0]; return r ? { id: r.id, name: r.name, type: r.type, size: r.size, data: Buffer.from(r.data), by: r.by_user } : null; });
+    },
+    async removeFiles(slug, ids) {
+      if (!ids.length) return true;
+      return transaction(async (client) => {
+        const gone = (await client.query('DELETE FROM public.grandpa_ai_app_files WHERE scope=$1 AND slug=$2 AND id = ANY($3::text[]) RETURNING size', [scope, slug, ids])).rows.reduce((n, r) => n + Number(r.size), 0);
+        if (gone) await client.query('UPDATE public.grandpa_ai_app_usage SET bytes=GREATEST(bytes-$3, 0) WHERE scope=$1 AND slug=$2', [scope, slug, gone]);
         return true;
       });
+    },
+    async log(slug, entry) {
+      return transaction(async (client) => {
+        await client.query('INSERT INTO public.grandpa_ai_app_activity (scope, slug, id, who, action, tbl, record_id, summary) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)', [scope, slug, newId(), String(entry.who).slice(0, 80), entry.action, entry.table, String(entry.record || ''), String(entry.summary || '').slice(0, 200)]);
+        await client.query(`DELETE FROM public.grandpa_ai_app_activity WHERE scope=$1 AND slug=$2 AND at < (SELECT at FROM public.grandpa_ai_app_activity WHERE scope=$1 AND slug=$2 ORDER BY at DESC OFFSET ${ACTIVITY_KEPT - 1} LIMIT 1)`, [scope, slug]);
+        return true;
+      });
+    },
+    async activity(slug, limit = 200) {
+      return transaction(async (client) => (await client.query('SELECT * FROM public.grandpa_ai_app_activity WHERE scope=$1 AND slug=$2 ORDER BY at DESC LIMIT $3', [scope, slug, Math.min(500, limit)])).rows
+        .map((r) => ({ id: r.id, at: new Date(r.at).toISOString(), who: r.who, action: r.action, table: r.tbl, record: r.record_id, summary: r.summary })));
+    },
+    async addAlert(slug, alert) {
+      return transaction(async (client) => {
+        await usageRow(client, slug);
+        const r = (await client.query('INSERT INTO public.grandpa_ai_app_alerts (scope, slug, id, message, for_who, tbl, record_id) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *', [scope, slug, newId(), alert.message, JSON.stringify(alert.for), alert.table || '', alert.record || ''])).rows[0];
+        await client.query(`DELETE FROM public.grandpa_ai_app_alerts WHERE scope=$1 AND slug=$2 AND at < (SELECT at FROM public.grandpa_ai_app_alerts WHERE scope=$1 AND slug=$2 ORDER BY at DESC OFFSET ${ALERTS_KEPT - 1} LIMIT 1)`, [scope, slug]);
+        await bumpTable(client, slug, '_alerts');
+        return { id: r.id, at: new Date(r.at).toISOString(), message: r.message, for: alert.for, table: r.tbl, record: r.record_id };
+      });
+    },
+    async alerts(slug, { since = '', limit = 50 } = {}) {
+      return transaction(async (client) => (await client.query(`SELECT * FROM public.grandpa_ai_app_alerts WHERE scope=$1 AND slug=$2${since ? ' AND at > $4::timestamptz' : ''} ORDER BY at DESC LIMIT $3`, [scope, slug, Math.min(200, limit), ...(since ? [since] : [])])).rows
+        .map((r) => ({ id: r.id, at: new Date(r.at).toISOString(), message: r.message, for: typeof r.for_who === 'string' ? JSON.parse(r.for_who) : r.for_who, table: r.tbl, record: r.record_id })));
+    },
+    async counters(slug) {
+      return transaction(async (client) => { const r = (await client.query('SELECT counters FROM public.grandpa_ai_app_usage WHERE scope=$1 AND slug=$2', [scope, slug])).rows[0]; return r ? (typeof r.counters === 'string' ? JSON.parse(r.counters) : r.counters) : {}; });
     },
     async list(slug, tbl, query, table) {
       return transaction(async (client) => {
@@ -413,8 +644,7 @@ export function createPostgresAppDb({ connectionString, pool: suppliedPool, scop
     },
     async removeSite(slug) {
       return transaction(async (client) => {
-        await client.query('DELETE FROM public.grandpa_ai_app_records WHERE scope=$1 AND slug=$2', [scope, slug]);
-        await client.query('DELETE FROM public.grandpa_ai_app_usage WHERE scope=$1 AND slug=$2', [scope, slug]);
+        for (const table of ['grandpa_ai_app_records', 'grandpa_ai_app_usage', 'grandpa_ai_app_files', 'grandpa_ai_app_activity', 'grandpa_ai_app_alerts']) await client.query(`DELETE FROM public.${table} WHERE scope=$1 AND slug=$2`, [scope, slug]);
         return true;
       });
     },

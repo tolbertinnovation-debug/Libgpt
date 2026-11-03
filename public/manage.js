@@ -430,8 +430,10 @@ async function showData() {
       } }))),
   ];
   if (state.data.accounts) parts.splice(3, 0, h('div', { id: 'accounts', class: 'card' }, h('p', { class: 'note', text: 'Loading accounts…' })));
+  parts.push(h('div', { id: 'activity', class: 'card' }, h('p', { class: 'note', text: 'Loading activity…' })));
   panel().replaceChildren(...parts);
   if (state.data.accounts) await showAccounts();
+  showActivity();
   await showRecords(schema);
 }
 
@@ -483,14 +485,17 @@ async function showRecords(schema) {
   const page = state.page || 0;
   try {
     const query = new URLSearchParams({ limit: '50', offset: String(page * 50), sort: '-created', ...(state.search ? { q: state.search } : {}) });
+    const links = fields.filter(([, f]) => f.type === 'link').map(([k]) => k);
+    if (links.length) query.set('expand', links.join(','));
     const { records, total } = await db(`/t/${state.table}?${query}`);
     if (state.data.accounts && !state.users) state.users = Object.fromEntries(((await api('/app-users').catch(() => ({ users: [] }))).users || []).map((u) => [u.id, u.name]));
     const search = h('input', { type: 'search', placeholder: `Search ${table.label}`, 'aria-label': `Search ${table.label}`, value: state.search || '', onchange: (e) => { state.search = e.target.value; state.page = 0; showRecords(schema); } });
     box.replaceChildren(...[
-      h('div', { class: 'row' }, h('h2', { text: `${table.label} (${total})` }), h('button', { type: 'button', class: 'primary', text: '+ Add', onclick: () => editRecord(schema, null) })), search,
+      h('div', { class: 'row' }, h('h2', { text: `${table.label} (${total})` }), h('button', { type: 'button', class: 'primary', text: '+ Add', onclick: () => editRecord(schema, null) }),
+        h('button', { type: 'button', text: '⬆ Import from a spreadsheet', onclick: () => importTable(schema) })), search,
       records.length ? h('div', { class: 'table-wrap' }, h('table', { class: 'data' },
         h('thead', {}, h('tr', {}, fields.map(([, f]) => h('th', { text: f.label })), h('th', { text: 'Added' }), state.users ? h('th', { text: 'By' }) : null, h('th', {}))),
-        h('tbody', {}, records.map((r) => h('tr', {}, fields.map(([k, f]) => h('td', { text: shown(f, r[k]) })), h('td', { text: when(r.created) }), state.users ? h('td', { text: state.users[r.by] || '' }) : null,
+        h('tbody', {}, records.map((r) => h('tr', {}, fields.map(([k, f]) => h('td', {}, cell(schema, f, k, r))), h('td', { text: when(r.created) }), state.users ? h('td', { text: state.users[r.by] || '' }) : null,
           h('td', {}, h('button', { type: 'button', text: 'Edit', onclick: () => editRecord(schema, r) }), h('button', { type: 'button', class: 'danger', text: 'Delete', onclick: async () => {
             if (!confirm('Delete this record? This cannot be undone.')) return;
             try { await db(`/t/${state.table}/${encodeURIComponent(r.id)}`, { method: 'DELETE' }); await showRecords(schema); } catch (error) { alert(error.message); }
@@ -502,12 +507,40 @@ async function showRecords(schema) {
   } catch (error) { box.replaceChildren(h('p', { class: 'msg error', role: 'alert', text: error.message })); }
 }
 
+const fileUrl = (id) => `/api/app-db/${encodeURIComponent(slug)}/files/${encodeURIComponent(id)}`;
+/** A record's name: its first text, number or choice field. */
+const nameOf = (table, r) => { const k = Object.entries(table?.fields || {}).find(([key, f]) => ['text', 'autonumber', 'choice'].includes(f.type) && r?.[key]); return k ? String(r[k[0]]) : r?.id || ''; };
+function cell(schema, f, k, r) {
+  const value = r[k];
+  if (value == null || value === '') return '';
+  if (f.type === 'image') return h('a', { href: fileUrl(value), target: '_blank', rel: 'noopener' }, h('img', { src: fileUrl(value), alt: f.label, width: 56, height: 56, class: 'thumb', loading: 'lazy' }));
+  if (f.type === 'file') return h('a', { href: fileUrl(value), target: '_blank', rel: 'noopener', text: 'Open file' });
+  if (f.type === 'link') return r.linked?.[k] ? nameOf(schema.tables[f.table], r.linked[k]) : '(removed)';
+  return shown(f, value);
+}
+async function uploadFile(file) {
+  const response = await fetch(`/api/app-db/${encodeURIComponent(slug)}/files?table=${encodeURIComponent(state.table)}&name=${encodeURIComponent(file.name)}`, { method: 'POST', headers: { 'X-App-Key': store.get(), 'Content-Type': file.type || 'application/octet-stream' }, body: file });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || 'The file could not be added.');
+  return result.id;
+}
+
 /** Add or change one record, with an input for each field of its type. */
 function editRecord(schema, record) {
   const box = document.getElementById('records'), table = schema.tables[state.table];
   const status = h('p', { class: 'msg', role: 'status' });
-  const inputs = Object.entries(table.fields).map(([k, f]) => {
+  const inputs = Object.entries(table.fields).filter(([, f]) => f.type !== 'autonumber').map(([k, f]) => {
     const value = record?.[k] ?? '';
+    if (f.type === 'image' || f.type === 'file') {
+      const pick = h('input', { id: `f-${k}`, type: 'file', accept: f.type === 'image' ? 'image/*' : '' });
+      pick.keep = value;
+      return [k, f, pick];
+    }
+    if (f.type === 'link') {
+      const choose = h('select', { id: `f-${k}` }, h('option', { value: '', text: 'Loading…' }));
+      db(`/t/${f.table}?limit=500&sort=created`).then(({ records }) => choose.replaceChildren(h('option', { value: '', text: '—' }), records.map((r) => h('option', { value: r.id, text: nameOf(schema.tables[f.table], r), selected: r.id === value })))).catch(() => {});
+      return [k, f, choose];
+    }
     const input = f.type === 'choice' ? h('select', { id: `f-${k}` }, h('option', { value: '', text: '—' }), f.options.map((o) => h('option', { value: o, text: o, selected: o === value })))
       : f.type === 'boolean' ? h('select', { id: `f-${k}` }, h('option', { value: '', text: '—' }), h('option', { value: 'true', text: 'Yes', selected: value === true }), h('option', { value: 'false', text: 'No', selected: value === false }))
       : f.type === 'longtext' ? h('textarea', { id: `f-${k}`, rows: 3, text: String(value) })
@@ -519,8 +552,11 @@ function editRecord(schema, record) {
   box.replaceChildren(h('form', { onsubmit: async (event) => {
     event.preventDefault();
     const body = {};
-    for (const [k, f, input] of inputs) { const v = input.value; body[k] = v === '' ? null : f.type === 'boolean' ? v === 'true' : ['number', 'integer', 'money'].includes(f.type) ? Number(v) : f.type === 'datetime' ? new Date(v).toISOString() : v; }
     try {
+      for (const [k, f, input] of inputs) {
+        if (f.type === 'image' || f.type === 'file') { body[k] = input.files?.[0] ? await uploadFile(input.files[0]) : (input.keep || null); continue; }
+        const v = input.value; body[k] = v === '' ? null : f.type === 'boolean' ? v === 'true' : ['number', 'integer', 'money'].includes(f.type) ? Number(v) : f.type === 'datetime' ? new Date(v).toISOString() : v;
+      }
       await db(record ? `/t/${state.table}/${encodeURIComponent(record.id)}` : `/t/${state.table}`, { method: record ? 'PATCH' : 'POST', body });
       await showRecords(schema);
     } catch (error) { message(status, error.message); }
@@ -529,12 +565,71 @@ function editRecord(schema, record) {
   status, h('div', { class: 'row' }, h('button', { type: 'submit', class: 'primary', text: 'Save' }), h('button', { type: 'button', text: 'Cancel', onclick: () => showRecords(schema) }))));
 }
 
+/** Spreadsheet rows (CSV) into this table: columns are matched to fields by name or label; links by the linked record's name. */
+function csvRows(text) {
+  const rows = []; let row = [], cellText = '', quoted = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const c = text[i];
+    if (quoted) { if (c === '"' && text[i + 1] === '"') { cellText += '"'; i += 1; } else if (c === '"') quoted = false; else cellText += c; continue; }
+    if (c === '"') quoted = true; else if (c === ',' || c === ';' || c === '\t') { row.push(cellText); cellText = ''; } else if (c === '\n' || c === '\r') { if (c === '\r' && text[i + 1] === '\n') i += 1; row.push(cellText); rows.push(row); row = []; cellText = ''; } else cellText += c;
+  }
+  if (cellText || row.length) { row.push(cellText); rows.push(row); }
+  return rows.filter((r) => r.some((v) => v.trim()));
+}
+function importTable(schema) {
+  const box = document.getElementById('records'), table = schema.tables[state.table];
+  const status = h('p', { class: 'msg', role: 'status' });
+  const pick = h('input', { type: 'file', accept: '.csv,text/csv', 'aria-label': 'Spreadsheet file (CSV)' });
+  const go = h('button', { type: 'button', class: 'primary', text: 'Import', onclick: async () => {
+    const file = pick.files?.[0];
+    if (!file) { message(status, 'Choose a CSV file first. In Excel or Google Sheets: File → Download → CSV.'); return; }
+    go.disabled = true;
+    try {
+      const [head, ...lines] = csvRows((await file.text()).replace(/^\ufeff/, ''));
+      const norm = (t) => String(t).trim().toLowerCase().replace(/[\s_-]+/g, ' ');
+      const columns = head.map((name) => Object.entries(table.fields).find(([k, f]) => norm(k) === norm(name) || norm(f.label) === norm(name))?.[0] || null);
+      if (!columns.some(Boolean)) throw new Error(`None of the columns match ${table.label}'s fields: ${Object.values(table.fields).map((f) => f.label).join(', ')}.`);
+      const lookups = {};
+      for (const k of columns.filter(Boolean)) if (table.fields[k].type === 'link') {
+        const { records } = await db(`/t/${table.fields[k].table}?limit=500&sort=created`);
+        lookups[k] = new Map(records.flatMap((r) => [[norm(nameOf(schema.tables[table.fields[k].table], r)), r.id], [r.id, r.id]]));
+      }
+      const rows = lines.map((line) => Object.fromEntries(columns.map((k, i) => [k, line[i]]).filter(([k, v]) => k && v != null && v.trim() !== '' && !['image', 'file', 'autonumber'].includes(table.fields[k].type))
+        .map(([k, v]) => [k, table.fields[k].type === 'link' ? (lookups[k].get(norm(v)) || v.trim()) : v.trim()])));
+      let added = 0; const problems = [];
+      for (let i = 0; i < rows.length; i += 500) {
+        const result = await db(`/t/${state.table}/import`, { method: 'POST', body: { rows: rows.slice(i, i + 500) } });
+        added += result.added; problems.push(...result.problems.map((p) => ({ ...p, row: p.row + i + 1 })));
+      }
+      message(status, `${added} added.${problems.length ? ` ${problems.length} could not be added: ${problems.slice(0, 5).map((p) => `row ${p.row}: ${p.error}`).join('; ')}` : ''}`, !problems.length);
+      if (added) setTimeout(() => showRecords(schema), problems.length ? 6000 : 1200);
+    } catch (error) { message(status, error.message); } finally { go.disabled = false; }
+  } });
+  box.replaceChildren(h('h2', { text: `Import into ${table.label}` }),
+    h('p', { class: 'note', text: `Use a spreadsheet saved as CSV. The first row names the columns: ${Object.values(table.fields).filter((f) => !['image', 'file', 'autonumber'].includes(f.type)).map((f) => f.label).join(', ')}. Every row is checked; rows with a mistake are listed and the rest are added.` }),
+    pick, h('div', { class: 'row' }, go, h('button', { type: 'button', text: 'Cancel', onclick: () => showRecords(schema) })), status);
+}
+
+/** Who added, changed and removed what, and the alerts the app raised. */
+async function showActivity() {
+  const box = document.getElementById('activity');
+  if (!box) return;
+  try {
+    const { activity, alerts } = await api('/app-activity');
+    box.replaceChildren(...[h('h2', { text: 'Activity' }),
+      ...(alerts.length ? [h('h3', { text: 'Alerts' }), h('ul', { class: 'activity' }, alerts.slice(0, 10).map((a) => h('li', {}, h('span', { class: 'note', text: when(a.at) }), ` 🔔 ${a.message}`)))] : []),
+      ...(activity.length && alerts.length ? [h('h3', { text: 'Recent changes' })] : []),
+      activity.length ? h('ul', { class: 'activity' }, activity.slice(0, 60).map((a) => h('li', {}, h('span', { class: 'note', text: when(a.at) }), ` ${a.who} ${a.action} `, h('strong', { text: a.summary || a.table }), ` (${state.data.schema.tables[a.table]?.label || a.table})`)))
+        : h('p', { class: 'note', text: 'Nothing yet. Every addition, change and removal in the app is listed here.' })]);
+  } catch (error) { if (!error.quiet) box.replaceChildren(h('p', { class: 'msg error', role: 'alert', text: error.message })); }
+}
+
 async function downloadTable(schema) {
   const table = schema.tables[state.table], fields = Object.entries(table.fields);
   try {
     const rows = [];
     for (let offset = 0; offset < 20_000; offset += 500) { const { records, total } = await db(`/t/${state.table}?limit=500&offset=${offset}&sort=created`); rows.push(...records); if (rows.length >= total || !records.length) break; }
-    const csv = [['id', ...fields.map(([, f]) => f.label), 'created', 'updated'], ...rows.map((r) => [r.id, ...fields.map(([k]) => r[k]), r.created, r.updated])].map((line) => line.map(csvCell).join(',')).join('\n');
+    const csv = [['id', ...fields.map(([, f]) => f.label), 'created', 'updated'], ...rows.map((r) => [r.id, ...fields.map(([k, f]) => (['image', 'file'].includes(f.type) && r[k] ? `${location.origin}${fileUrl(r[k])}` : r[k])), r.created, r.updated])].map((line) => line.map(csvCell).join(',')).join('\n');
     saveFile(`${slug}-${state.table}-${new Date().toISOString().slice(0, 10)}.csv`, `﻿${csv}`, 'text/csv');
   } catch (error) { alert(error.message); }
 }
