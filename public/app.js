@@ -27,7 +27,7 @@ import { setSoundEnabled, sounds } from './sounds.js';
 import { createLibrary, loadJournal } from './library.js';
 import { Dictation, canRecord } from './dictate.js?v=voice-fix-1';
 import { RecordedEar, canListenByRecording } from './hearing.js?v=meta-media-1';
-import * as ritual from './ritual.js?v=design-score-1';
+import * as ritual from './ritual.js?v=no-tts-1';
 import { shrink, thumbnail } from './photo.js';
 import { readPaper } from './papers.js';
 import { mountSupport } from './support.js?v=phase3-sync-1';
@@ -857,6 +857,8 @@ function setBusy(busy) {
  * moment there is something, it is how you send it. So they share the place.
  */
 let canTalk = true;   // false where the browser has no speech recognition
+/** Whether reading aloud (text to speech) is switched on for this site (ENABLE_READ_ALOUD). */
+const speechOn = () => state.catalogue?.readAloud === true;
 
 function showTheRightCircle() {
   const busy = !el.stop.hidden;
@@ -864,7 +866,7 @@ function showTheRightCircle() {
 
   // Building is typed, not spoken — there is no hands-free way to dictate a
   // file — so in that mode the circle is always Send.
-  const talkable = canTalk && ritual.currentMode() !== 'build';
+  const talkable = canTalk && speechOn() && ritual.currentMode() !== 'build';
 
   // Where a hands-free conversation is not possible at all, Send keeps the
   // place to itself and sits disabled — an empty hole where a button belongs
@@ -1326,7 +1328,7 @@ let canDoTimer = null;
 /** Which lines this deployment can honestly show, in a shuffled order. */
 function buildCanDo() {
   canDo = canDoOrder(canDoFor({
-    voice: speaker.supported,
+    voice: speaker.supported && speechOn(),
     liveNews: Boolean(state.catalogue.liveNews),
     images: Boolean(state.catalogue.imagesEnabled),
     vision: Boolean(state.catalogue.vision),
@@ -1453,6 +1455,7 @@ const clearSpeakingMarks = () =>
  * searched, kind}) so the right part of the cast speaks it, in the right mood.
  */
 function speak(text, button, context = {}) {
+  if (!speechOn()) return;   // text to speech is switched off on this site for now
   currentCast = castFor({ ...context, answer: text }, state.prefs);
   speaker.unlock();
   if (!speaker.supported) {
@@ -2394,6 +2397,7 @@ async function startLiveTalk() {
 let talkReturnFocus = null;
 
 function openTalk() {
+  if (!speechOn()) { toast('Talking out loud is switched off for now. You can still type, or use the microphone to dictate.'); return; }
   if (state.streaming) { toast('Wait for the current answer, or stop it before starting voice chat.'); return; }
   if (!conversation.supported && !usesLiveTalk()) {
     toast(!SpeechRecognitionAPI
@@ -2797,7 +2801,7 @@ $('settings-cast').addEventListener('click', (event) => {
   const voice = state.prefs.castVoices?.[role] || CAST[role].voice;
   currentCast = { role, voice: OPENAI_VOICES.some((v) => v.id === voice) ? voice : CAST[role].voice, mood: 'steady', label: CAST[role].label };
   speaker.unlock();
-  speaker.speak(CAST_SAMPLES[role], { voice: chosenVoice(), rate: state.prefs.voiceRate, pitch: state.prefs.voicePitch });
+  if (speechOn()) speaker.speak(CAST_SAMPLES[role], { voice: chosenVoice(), rate: state.prefs.voiceRate, pitch: state.prefs.voicePitch });
 });
 
 el.setAutoSpeak.addEventListener('change', () => {
@@ -3843,8 +3847,11 @@ async function boot() {
     scheduleSync(1500);
     // Recording support depends on the deployment config, which was unknown
     // during the first capability check. Re-enable voice after it arrives.
-    canTalk = conversation.supported;
+    canTalk = conversation.supported && speechOn();
     el.startTalking.hidden = !canTalk;
+    // No speaking anywhere while text to speech is off: the controls are hidden too.
+    document.body.classList.toggle('no-speech', !speechOn());
+    if (!speechOn()) speaker.stop();
     showTheRightCircle();
     const voiceSelect = $('settings-openai-voice');
     voiceSelect.replaceChildren();

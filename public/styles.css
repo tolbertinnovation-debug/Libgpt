@@ -3936,3 +3936,8 @@ body {
 /* Type of project in the conversation card */
 .build-recipe { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; margin: 8px 0; font-weight: 600; font-size: .92rem; }
 .build-recipe select { font: inherit; font-weight: 500; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line, #e6d8bb); background: var(--raised, #fffdf7); color: inherit; max-width: 100%; }
+
+/* Text to speech switched off for now (ENABLE_READ_ALOUD): no speaking controls anywhere */
+.no-speech [data-speak], .no-speech .lib-read, .no-speech #speaking-bar, .no-speech #talk-btn,
+.no-speech .settings-voice-basics, .no-speech label[for="settings-realvoice"], .no-speech label[for="settings-spoken-accent"],
+.no-speech .settings-group:has(#settings-accent) { display: none !important; }
