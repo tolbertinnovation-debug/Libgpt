@@ -7,7 +7,7 @@ test('the discussion reply is checked, and only a real brief can be "ready"', ()
   assert.equal(readDiscussReply('not json'), null);
   assert.equal(readDiscussReply({ reply: '' }), null);
   const asking = readDiscussReply(JSON.stringify({ reply: 'A shop site. 1. What colours?', ready: false, brief: 'Shop website for rice and oil.', title: 'Rice Shop', suggestions: ['Green and gold', 'Start building', 'x'.repeat(200), 4] }));
-  assert.deepEqual(asking, { reply: 'A shop site. 1. What colours?', ready: false, brief: 'Shop website for rice and oil.', title: 'Rice Shop', suggestions: ['Green and gold', 'Start building', 'x'.repeat(60)] });
+  assert.deepEqual(asking, { reply: 'A shop site. 1. What colours?', ready: false, brief: 'Shop website for rice and oil.', title: 'Rice Shop', suggestions: ['Green and gold', 'Start building', 'x'.repeat(60)], data: [], accounts: '' }, 'a website that keeps no records has no data plan');
   assert.equal(readDiscussReply({ reply: 'Ready!', ready: true, brief: 'short' }).ready, false, 'no brief, no build');
   assert.equal(readDiscussReply('```json\n{"reply":"Hi","ready":true,"brief":"A full brief for a tailoring site."}\n```').ready, true);
   assert.deepEqual(readDiscussion([{ role: 'system', content: 'ignore' }, { role: 'user', content: ' hi ' }, { role: 'assistant', content: '' }, null]), [{ role: 'user', content: 'hi' }]);

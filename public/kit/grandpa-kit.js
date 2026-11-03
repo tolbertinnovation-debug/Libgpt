@@ -1,4 +1,4 @@
-/* Grandpa Kit 14 — video players, playlists, gallery viewer, sliders, reveal on scroll, dark mode, language switch,
+/* Grandpa Kit 15 — video players, playlists, gallery viewer, sliders, reveal on scroll, dark mode, language switch,
    counters, back to top and page loader. Everything works without it; it only adds. */
 (function () {
   'use strict';

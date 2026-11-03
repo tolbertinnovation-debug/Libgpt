@@ -1,4 +1,4 @@
-/* Grandpa Kit 14 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
+/* Grandpa Kit 15 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
    game loop, sounds, timers and formatting for web tools, quizzes, games, dashboards and phone-style
    apps. No build step, no outside services. window.GrandpaApp */
 (function () {
@@ -281,18 +281,20 @@
       DB.schema = given.schema || null;
       var saved = given.schema ? null : dbStore('gk-db-local:' + location.pathname);
       DB.local = saved || { seq: 0, tables: {} };
-      if (!saved && given.sample) Object.keys(given.sample).forEach(function (t) { (given.sample[t] || []).forEach(function (r) { try { dbLocalAdd(t, r); } catch (e) { if (window.console) console.warn('Sample data for ' + t + ': ' + e.message); } }); });
+      if (!saved && given.sample) Object.keys(given.sample).forEach(function (t) { (given.sample[t] || []).forEach(function (r) { try { dbLocalAdd(t, r); } catch (e) { codeMistake('data/sample.json, ' + t + ': ' + e.message); } }); });
     }
   }
   function dbError(message) { var e = new Error(message || 'Something went wrong. Try again.'); return e; }
+  // Mistakes in the app's own code (a table or field the design does not have) are remembered for Build's check (Phase D4).
+  function codeMistake(message) { var list = window.__grandpaDbProblems = window.__grandpaDbProblems || []; if (list.length < 10 && list.indexOf(message) < 0) list.push(message); return dbError(message); }
 
   // Test database on this device (Build's preview and downloaded copies).
   function dbLocalCheck(table, data, partial) {
     var t = DB.schema && DB.schema.tables && DB.schema.tables[table];
-    if (DB.schema && !t) throw dbError('This app has no table called "' + table + '". Add it to data/schema.json.');
+    if (DB.schema && !t) throw codeMistake('This app has no table called "' + table + '". Add it to data/schema.json.');
     if (!t) return data;
     var out = {};
-    Object.keys(data || {}).forEach(function (k) { if (!t.fields[k] && ['id', 'created', 'updated'].indexOf(k) < 0) throw dbError('There is no field "' + k + '" in the ' + table + ' table.'); });
+    Object.keys(data || {}).forEach(function (k) { if (!t.fields[k] && ['id', 'created', 'updated', 'by', 'linked'].indexOf(k) < 0) throw codeMistake('The code saves a field "' + k + '" that the ' + table + ' table does not have. Add it to data/schema.json or use an existing field.'); });
     Object.keys(t.fields).forEach(function (k) {
       var f = typeof t.fields[k] === 'string' ? { type: t.fields[k] } : t.fields[k], v = data[k], label = f.label || k.replace(/_/g, ' ');
       if (!(k in data)) { if (f.required && !partial) throw dbError(label + ' is required.'); return; }
@@ -378,6 +380,7 @@
     return list.indexOf('own') >= 0 ? 'own' : 'none';
   }
   function dbLocal(table, op, a, b) {
+    if (DB.schema && DB.schema.tables && !DB.schema.tables[table]) throw codeMistake('This app has no table called "' + table + '". Add it to data/schema.json.');
     var may = localMay(table, op === 'list' || op === 'get' || op === 'summary' ? 'read' : op === 'update' ? 'change' : op);
     if (may === 'none') throw dbError('Your account is not allowed to do that here. Ask the app\'s owner.');
     var mine = function (r) { return may !== 'own' || (r && DB.localUser && r.by === DB.localUser.id); };
@@ -517,6 +520,50 @@
     return authInfo(true).then(function (info) { return Object.assign({ mode: 'cloud' }, info); });
   };
   App.db.signOut = function () { return App.auth.signOut(); };
+
+  /* ---- Phase D4: Build's self-test of the test database (runs only in Build's hidden check) ---- */
+  function testValue(f) {
+    var today = new Date().toISOString().slice(0, 10);
+    return { text: 'Test', longtext: 'Test', number: Math.max(1, f.min || 1), integer: Math.max(1, f.min || 1), money: Math.max(1, f.min || 1), boolean: true, date: today, datetime: new Date().toISOString(),
+      time: '12:00', choice: (f.options || [])[0], email: 'test@example.com', phone: '0880000000', url: 'https://example.com' }[f.type];
+  }
+  /** Every table: add a test record (from the sample data, or sensible values), list, change and remove it, as the owner. */
+  App.db._selfTest = function () {
+    dbSetup();
+    var problems = [], schema = DB.schema;
+    if (DB.mode !== 'local' || !schema || !schema.tables) return Promise.resolve((window.__grandpaDbProblems || []).slice());
+    var who = DB.localUser; DB.localUser = null;
+    var field = function (t, k) { return typeof t.fields[k] === 'string' ? { type: t.fields[k] } : (t.fields[k] || {}); };
+    var order = [], linked = {};
+    var visit = function (n, depth) {
+      if (order.indexOf(n) >= 0 || depth > 20 || !schema.tables[n]) return;
+      var t = schema.tables[n];
+      Object.keys(t.fields || {}).forEach(function (k) { var f = field(t, k); if (f.type === 'link') { linked[f.table] = true; if (f.table !== n) visit(f.table, depth + 1); } });
+      order.push(n);
+    };
+    Object.keys(schema.tables).forEach(function (n) { visit(n, 0); });
+    order.forEach(function (n) {
+      var t = schema.tables[n], sample = (((window.GrandpaPreviewData || {}).sample || {})[n] || [])[0], record = {};
+      if (sample) Object.keys(sample).forEach(function (k) { if (['id', 'created', 'updated', 'by', 'linked'].indexOf(k) < 0) record[k] = sample[k]; });
+      Object.keys(t.fields || {}).forEach(function (k) {
+        var f = field(t, k);
+        if (f.type === 'autonumber') { delete record[k]; return; }
+        if (f.type === 'link') { var target = (DB.local.tables[f.table] || [])[0]; if (target) record[k] = target.id; else delete record[k]; return; }
+        if (f.type === 'image' || f.type === 'file') { if (f.required) { var id = 'f_selftest' + String(Date.now()).slice(-8) + 'xxxxxxxx'; id = id.slice(0, 26); (DB.localFiles = DB.localFiles || {})[id] = 'data:,test'; record[k] = id; } else delete record[k]; return; }
+        if (!(k in record) && f.required) record[k] = testValue(f);
+      });
+      try {
+        var added = dbLocal(n, 'add', record);
+        dbLocal(n, 'list', {});
+        var text = Object.keys(t.fields || {}).filter(function (k) { return field(t, k).type === 'text'; })[0], change = {};
+        if (text) change[text] = String(added[text] || 'Test').slice(0, 20) + ' ✓';
+        dbLocal(n, 'update', added.id, change);
+        if (!linked[n]) dbLocal(n, 'remove', added.id);   // a record other tables link to stays, so they can be tested too
+      } catch (e) { if (!/^Not enough /.test(e.message)) problems.push('The ' + n + ' table did not work in the test database: ' + e.message); }
+    });
+    DB.localUser = who;
+    return Promise.resolve((window.__grandpaDbProblems || []).concat(problems));
+  };
 
   /* ---- Phase D3: photos and files, alerts, the activity log ---- */
   var ALERTS = { listeners: [], seen: '' };
