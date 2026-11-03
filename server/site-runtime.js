@@ -411,7 +411,7 @@ export function brandColour(files = []) {
   return '#1a56db';
 }
 
-const textColourOn = (hex) => {
+export const textColourOn = (hex) => {
   const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(hex || '');
   if (!m) return '#ffffff';
   const full = m[1].length === 3 ? m[1].split('').map((c) => c + c).join('') : m[1];
@@ -495,7 +495,7 @@ self.addEventListener('fetch', (e) => {
 const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
 /** "Get the app": install button where the browser offers one, and plain steps for each kind of device. */
-export function appPage({ name, slug, brand = '#1a56db', siteUrl = '', qr = '', installable = true }) {
+export function appPage({ name, slug, brand = '#1a56db', siteUrl = '', qr = '', installable = true, apkUrl = '' }) {
   const n = esc(String(name || 'This app').slice(0, 60)), colour = /^#[0-9a-f]{3,8}$/i.test(brand) ? brand : '#1a56db';
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Get the ${n} app</title>
 <meta name="description" content="Install ${n} on your phone or computer."><link rel="manifest" href="/s/${slug}/_grandpa/manifest.webmanifest"><link rel="icon" href="/s/${slug}/_grandpa/icon.svg" type="image/svg+xml"><meta name="theme-color" content="${colour}">
@@ -504,7 +504,7 @@ main{max-width:560px;margin:0 auto;padding:32px 16px 48px;text-align:center}.ico
 .go,.open{display:inline-flex;align-items:center;justify-content:center;min-height:52px;padding:12px 28px;border-radius:14px;font:700 1.05rem/1.2 inherit;text-decoration:none;border:0;cursor:pointer}
 .go{background:var(--brand);color:var(--on);width:100%;max-width:340px}.open{color:#0f172a;background:#fff;border:1px solid #cbd5e1;margin-top:12px;width:100%;max-width:340px}
 .card{background:#fff;border-radius:16px;padding:18px 20px;margin:24px 0 0;text-align:left;box-shadow:0 4px 18px rgba(15,23,42,.06)}.card h2{font-size:1.05rem;margin:0 0 8px}.card ol{margin:0;padding-left:20px}
-.ok{color:#166534;font-weight:700}[hidden]{display:none!important}.qr svg{width:180px;height:180px}.qr figcaption{color:#475569;font-size:.9rem}</style></head>
+.ok{color:#166534;font-weight:700}.apk{margin:8px 0 12px}[hidden]{display:none!important}.qr svg{width:180px;height:180px}.qr figcaption{color:#475569;font-size:.9rem}</style></head>
 <body><main>
 <img class="icon" src="/s/${slug}/_grandpa/icon.svg" width="104" height="104" alt="">
 <h1>${n}</h1>
@@ -513,10 +513,12 @@ main{max-width:560px;margin:0 auto;padding:32px 16px 48px;text-align:center}.ico
 <p id="done" class="ok" role="status" hidden>✓ The app is installed. Find ${n} on your home screen or in your apps.</p>
 <a class="open" href="${esc(siteUrl)}">Open it in the browser</a>
 ${installable ? '' : '<p class="card">Installing becomes available once the website address for apps is set up. You can open it in the browser.</p>'}
-<section class="card" data-os="android" hidden><h2>On an Android phone</h2><ol><li>Tap <strong>Install the app</strong> above.</li><li>No button? Open Chrome's menu <strong>⋮</strong> and tap <strong>Install app</strong> (or <strong>Add to Home screen</strong>).</li></ol></section>
+<section class="card" data-os="android" hidden><h2>On an Android phone</h2><ol><li>Tap <strong>Install the app</strong> above.</li><li>No button? Open Chrome's menu <strong>⋮</strong> and tap <strong>Install app</strong> (or <strong>Add to Home screen</strong>).</li></ol>
+${apkUrl ? `<h2>Or download the Android app</h2><a class="go apk" href="${esc(apkUrl)}" download>Download the Android app (.apk)</a><ol><li>Open the downloaded file.</li><li>If Android asks, allow your browser to <strong>install unknown apps</strong>, then go back.</li><li>Tap <strong>Install</strong>. Android may say the app is not from the Play Store; that is expected for apps shared directly.</li></ol>` : ''}</section>
 <section class="card" data-os="ios" hidden><h2>On an iPhone or iPad</h2><ol><li>Open this page in <strong>Safari</strong>.</li><li>Tap the <strong>Share</strong> button (the square with an arrow).</li><li>Tap <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</li></ol><p>Apple only lets apps from the App Store be downloaded, so iPhones add it this way.</p></section>
 <section class="card" data-os="windows" hidden><h2>On a Windows computer</h2><ol><li>Open this page in <strong>Microsoft Edge</strong> or <strong>Google Chrome</strong>.</li><li>Click <strong>Install the app</strong> above, or the install icon at the right of the address bar.</li><li>The app then opens from the Start menu, like any program.</li></ol></section>
 <section class="card" data-os="other" hidden><h2>On a computer</h2><ol><li>Open this page in <strong>Google Chrome</strong> or <strong>Microsoft Edge</strong> and click <strong>Install the app</strong>, or the install icon in the address bar.</li><li>On a Mac in Safari: <strong>File → Add to Dock</strong>.</li></ol></section>
+${apkUrl ? `<p class="card" data-os="windows" hidden style="text-align:center">Sending it to an Android phone? <a href="${esc(apkUrl)}" download>Android app file (.apk)</a></p><p class="card" data-os="other" hidden style="text-align:center">Sending it to an Android phone? <a href="${esc(apkUrl)}" download>Android app file (.apk)</a></p>` : ''}
 ${qr ? `<figure class="qr card" style="text-align:center">${qr}<figcaption>Scan with a phone camera to get the app on the phone.</figcaption></figure>` : ''}
 </main>
 <script>(function(){var ua=navigator.userAgent,os=/iPhone|iPad|iPod/.test(ua)||(/Macintosh/.test(ua)&&'ontouchend' in document)?'ios':/Android/.test(ua)?'android':/Windows/.test(ua)?'windows':'other';

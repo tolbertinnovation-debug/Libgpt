@@ -418,6 +418,31 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
   - a published website gets none of this.
 - **Not verifiable in a headless browser:** Chrome's own install offer, which needs a real device and some use of the page. Test on a phone.
 
+### Phase A2: Android app download (.apk) for apps (done)
+- **Every published app** (Phase A1 apps only, never ordinary websites) gets `https://SITES_HOST/<address>/_grandpa/app.apk`. It is linked from the Get the app page (Android card, with install steps; other devices get a link for sending it to a phone), from Build's publish sheet (**Android app (.apk)**), and in the publish result (`apkUrl`).
+- **The app** (`android/shell`, plain Android with no libraries, minSdk 24 / Android 7.0, targetSdk 34):
+  - It opens the app's published address full screen in a WebView, so every update the owner publishes reaches installed phones without a new download, and the Phase A1 offline helper keeps it working offline.
+  - Pages of the app stay in the app; other links open in the phone's browser.
+  - File choosers work (video and photo pickers), videos can go full screen, and Back goes back.
+  - A first start without internet shows a clear message with Try again.
+  - The page gets no access to the phone beyond what a browser allows (no JavaScript bridge).
+- **How it is made, with no Android tools on the server and nothing paid** (`server/android-app.js`):
+  - The template APK (15 KB, `server/android/shell-apk.js`) is built once by `scripts/android-shell/build.sh` with Google's free build-tools 35.0.1 and android-35. The checksums were checked against Google's repository index.
+  - For each app, the server rebuilds the manifest's string pool with the app's own package name (`com.grandpaai.app.s_<address>`) and name. It draws the icon (the first letter on the brand colour) at five sizes from Inter Bold outlines (SIL OFL; `server/android/glyphs.json`, from `scripts/android-shell/glyphs.py`), and writes `assets/app.json` with the address.
+  - It then re-zips with stored entries 4-byte aligned and signs with **APK Signature Scheme v2**.
+  - Each version is cached in memory per app.
+- **The signing key** is made by the server the first time it is needed: RSA 2048, with a self-signed certificate "Grandpa AI apps" valid 30 years.
+  - It is sealed with AES-256-GCM, using a key derived (HKDF) from `APP_SIGNING_SEAL_KEY` if set, otherwise the database connection secret. It is kept in `grandpa_ai_site_secrets`; it is never shown, logged or sent anywhere.
+  - All apps share it, so a newer .apk installs over an older one.
+  - If the sealing secret changes, the key can no longer be opened and downloads fail with a clear error rather than silently making a new key, which would stop updates installing over old copies.
+- **Verified:**
+  - Google's `apksigner verify --min-sdk-version 24` says "Verifies (v2 scheme)", `zipalign -c 4` passes, and `aapt2 dump badging` shows the app's own package name, label, icons, minSdk 24 and the INTERNET permission only;
+  - `dexdump` shows the app code;
+  - tests re-check the v2 signature from the specification on every run, and a changed byte breaks it;
+  - every app has the same certificate, and websites get no .apk.
+- **Not verifiable here:** installing and opening it on a phone (no Android emulator without hardware acceleration). Test on a real Android phone.
+- **What people will see:** Android asks to allow installing apps from the browser, and may say the app is not from the Play Store. The Play Store needs Google's paid developer account, which is not used.
+
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).

@@ -60,7 +60,7 @@ function makeRow(slug, name, files, size, tokenHash) {
 }
 
 export function createMemorySiteStore() {
-  const rows = new Map();
+  const rows = new Map(), secrets = new Map();
   let created = [];
   return {
     durable: false,
@@ -91,6 +91,8 @@ export function createMemorySiteStore() {
     },
     async list() { return [...rows.values()].map(({ slug, name, size, updatedAt }) => ({ slug, name, size, updatedAt })); },
     async meta(slug) { const row = validSlug(slug) ? rows.get(slug) : null; return row ? metaOf(row.slug, row.name, row.tokenHash, row.files.map((f) => f.path), row.updatedAt) : null; },
+    // A server secret made once (the app signing key, already sealed by the caller).
+    async secret(name, create) { if (!secrets.has(name)) secrets.set(name, await create()); return secrets.get(name); },
   };
 }
 
@@ -109,6 +111,15 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS public.grandpa_ai_sites (
   PRIMARY KEY (scope, slug)
 )`;
 
+// Secrets the server makes once and keeps (the Android app signing key, sealed before it is stored).
+const SECRETS_SCHEMA = `CREATE TABLE IF NOT EXISTS public.grandpa_ai_site_secrets (
+  scope text NOT NULL,
+  name text NOT NULL,
+  value text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (scope, name)
+)`;
+
 export function createPostgresSiteStore({ connectionString, pool: suppliedPool, scope = governanceScope() } = {}) {
   const pool = suppliedPool || new pg.Pool(postgresPoolOptions(connectionString, { max: 3, connectionTimeoutMillis: 8000, idleTimeoutMillis: 10000, allowExitOnIdle: true }));
   if (!suppliedPool && process.env.VERCEL) attachDatabasePool(pool);
@@ -118,6 +129,7 @@ export function createPostgresSiteStore({ connectionString, pool: suppliedPool, 
     if (!ready) ready = postgresTransaction(pool, async (client) => {
       await client.query("SELECT pg_advisory_xact_lock(hashtext('grandpa_ai_sites_v1'))");
       await client.query(SCHEMA);
+      await client.query(SECRETS_SCHEMA);
     }, { lock: '8s' }).catch((error) => { ready = undefined; throw error; });
     await ready;
   };
@@ -158,6 +170,17 @@ export function createPostgresSiteStore({ connectionString, pool: suppliedPool, 
         if (!admin && (!token || !equal(hash(token), current.token_hash))) throw fail('Only the phone that published this site can remove it.', 403);
         await client.query('DELETE FROM public.grandpa_ai_sites WHERE scope=$1 AND slug=$2', [scope, slug]);
         return true;
+      });
+    },
+    async secret(name, create) {
+      const read = async (client) => (await client.query('SELECT value FROM public.grandpa_ai_site_secrets WHERE scope=$1 AND name=$2', [scope, name])).rows[0]?.value;
+      const found = await transaction(read);
+      if (found) return found;
+      const value = await create();
+      // Two servers making it at once: the first one stored wins, and both use it.
+      return transaction(async (client) => {
+        await client.query('INSERT INTO public.grandpa_ai_site_secrets (scope, name, value) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [scope, name, value]);
+        return read(client);
       });
     },
     async list() {

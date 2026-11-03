@@ -28,7 +28,8 @@ import { STEPS_PROMPT, readSteps } from './build-steps.js';
 import QRCode from 'qrcode';
 import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, findSiteFile, siteFileBody } from './site-store.js';
 import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, bookingTimes, slotProblem, ENTRY_KINDS, ENTRY_STATUSES } from './site-data.js';
-import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404, isAppSite, withAppRegistration, appServiceWorker, appPage } from './site-runtime.js';
+import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404, isAppSite, withAppRegistration, appServiceWorker, appPage, textColourOn } from './site-runtime.js';
+import { buildApk, newSigningKey, sealKey, openKey } from './android-app.js';
 import { searchPhotos, fetchPhoto, youtubeInfo, searchWords, searchVideos } from './media-search.js';
 import { chooseRecipe, RECIPES } from '../public/build-recipes.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
@@ -1860,7 +1861,7 @@ app.post('/api/sites', rateLimit, requireAccess, async (req, res) => {
   try {
     const result = await siteStore.publish({ slug, name: req.body?.name, files: req.body?.files, token: typeof req.body?.token === 'string' ? req.body.token : '' });
     const files = Array.isArray(req.body?.files) ? req.body.files : [];
-    res.json({ ...result, url: siteBase(req, result.slug), ...(isAppSite(files) ? { appUrl: `${siteBase(req, result.slug)}_grandpa/app`, installable: Boolean(SITES_HOST) } : {}) });
+    res.json({ ...result, url: siteBase(req, result.slug), ...(isAppSite(files) ? { appUrl: `${siteBase(req, result.slug)}_grandpa/app`, installable: Boolean(SITES_HOST), ...(SITES_HOST ? { apkUrl: `${siteBase(req, result.slug)}_grandpa/app.apk` } : {}) } : {}) });
   } catch (error) { siteFailed(res, error); }
 });
 app.delete('/api/sites/:slug', rateLimit, requireAccess, async (req, res) => {
@@ -2096,7 +2097,37 @@ app.get('/s/:slug/_grandpa/app', async (req, res) => {
   if (!site || !isAppSite(site.files)) { res.status(404).type('html').send(notFoundPage('There is no app at this address.')); return; }
   const appUrl = `${siteBase(req, site.slug)}_grandpa/app`;
   const qr = await QRCode.toString(appUrl, { type: 'svg', margin: 2, errorCorrectionLevel: 'M', color: { dark: '#111111', light: '#ffffff' } }).catch(() => '');
-  res.type('html').send(appPage({ name: site.name, slug: site.slug, brand: brandColour(site.files), siteUrl: siteBase(req, site.slug), qr, installable: Boolean(SITES_HOST) }));
+  res.type('html').send(appPage({ name: site.name, slug: site.slug, brand: brandColour(site.files), siteUrl: siteBase(req, site.slug), qr, installable: Boolean(SITES_HOST), apkUrl: SITES_HOST ? `${siteBase(req, site.slug)}_grandpa/app.apk` : '' }));
+});
+// The Android app (Phase A2): Grandpa AI's template app with this app's name, icon and address, signed
+// with Grandpa AI's own signing key. The key is made once, sealed (AES-256-GCM) and kept in the database;
+// it is never shown or sent anywhere. The app opens the published address, so updates need no new download.
+let signingKey = null;
+async function appSigningKey() {
+  if (signingKey) return signingKey;
+  const secret = process.env.APP_SIGNING_SEAL_KEY || governanceConnection || 'grandpa-ai-local';
+  signingKey = openKey(await siteStore.secret('android-signing-key-v1', () => sealKey(newSigningKey(), secret)), secret);
+  return signingKey;
+}
+const apkCache = new Map();
+app.get('/s/:slug/_grandpa/app.apk', siteLimit, async (req, res) => {
+  res.set({ ...siteHeaders(req), 'Cache-Control': 'no-cache' });
+  const site = SITES_HOST && siteStore && validSlug(req.params.slug) ? await siteStore.get(req.params.slug).catch(() => null) : null;
+  if (!site || !isAppSite(site.files)) { res.status(404).type('html').send(notFoundPage('There is no Android app at this address.')); return; }
+  try {
+    const brand = brandColour(site.files);
+    const id = `${site.slug}|${site.updatedAt}|${site.name}|${brand}`;
+    let apk = apkCache.get(site.slug)?.id === id ? apkCache.get(site.slug).apk : null;
+    if (!apk) {
+      apk = buildApk({ slug: site.slug, name: site.name, url: siteBase(req, site.slug), brand: /^#[0-9a-f]{6}$/i.test(brand) ? brand : '#1a56db', ink: textColourOn(/^#[0-9a-f]{6}$/i.test(brand) ? brand : '#1a56db'), key: await appSigningKey() });
+      apkCache.delete(site.slug); apkCache.set(site.slug, { id, apk });
+      while (apkCache.size > 20) apkCache.delete(apkCache.keys().next().value);
+    }
+    res.set('Content-Disposition', `attachment; filename="${site.slug}.apk"`).type('application/vnd.android.package-archive').send(apk);
+  } catch (error) {
+    console.error('[android]', error.message);
+    res.status(503).type('html').send(notFoundPage('The Android app could not be made just now. Try again in a moment.'));
+  }
 });
 // Videos and sound are sent in parts when the browser asks (Safari plays a video only that way, and seeking needs it).
 function sendMedia(req, res, type, body) {

@@ -555,8 +555,8 @@ function getAppHtml(pub) {
       <p class="sheet-note"><strong>Get the app.</strong> People install it from this page on Android phones, iPhones and Windows or Mac computers:</p>
       <p class="publish-url"><a href="${escapeHtml(pub.appUrl)}" target="_blank" rel="noopener">${escapeHtml(pub.appUrl)}</a></p>
       <img class="publish-qr" src="/api/sites/${encodeURIComponent(pub.slug)}/qr.svg?app=1" alt="QR code for the Get the app page" width="200" height="200">
-      <div class="history-actions"><button class="build-chip" type="button" data-publish-copy-app>Copy app link</button><a class="build-chip" href="${escapeHtml(pub.appUrl)}" target="_blank" rel="noopener">Open</a></div>
-      <p class="sheet-note">Test it on your own phone: scan the QR code with the camera and tap Install the app.</p></div>`;
+      <div class="history-actions"><button class="build-chip" type="button" data-publish-copy-app>Copy app link</button><a class="build-chip" href="${escapeHtml(pub.appUrl)}" target="_blank" rel="noopener">Open</a>${pub.apkUrl ? `<a class="build-chip" href="${escapeHtml(pub.apkUrl)}" download>Android app (.apk)</a>` : ''}</div>
+      <p class="sheet-note">Test it on your own phone: scan the QR code with the camera and tap Install the app${pub.apkUrl ? ', or download the Android app file and open it' : ''}.</p></div>`;
 }
 
 function showWebPublish() {
@@ -653,7 +653,7 @@ async function publishToWeb() {
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(result.error || 'Publishing could not finish.');
     const first = !p.publish;
-    p.publish = { slug: result.slug, url: result.url, token: result.token || p.publish?.token, publishedAt: Date.now(), fingerprint: sourceFingerprint(p.files), app, appUrl: result.appUrl || '' };
+    p.publish = { slug: result.slug, url: result.url, token: result.token || p.publish?.token, publishedAt: Date.now(), fingerprint: sourceFingerprint(p.files), app, appUrl: result.appUrl || '', apkUrl: result.apkUrl || '' };
     const what = app ? 'app' : 'website';
     p.messages.push({ role: 'assistant', content: first
       ? (result.appUrl ? `Your app is live at ${result.url}. People can install it on their phone or computer from ${result.appUrl} (the QR code opens that page). Try it on your own phone first.` : `Your ${what} is live at ${result.url} — share the link or the QR code. You can update it or take it down any time.`)
