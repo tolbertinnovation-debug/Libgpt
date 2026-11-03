@@ -394,6 +394,30 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
 - **Build's preview** resolves `<video>`, `<source>`, `<track>`, `poster`, `data-video-src` and `data-poster` paths, so the person's videos play in the preview.
 - **Quality check:** a video that plays with sound by itself must be fixed. It also warns about a video with no controls and about video files over 2 MB.
 
+### Phase A1: installable apps, only for apps and web apps (done)
+- **Only what the person made as an app or web app becomes an app.** Ordinary websites stay websites, as the owner asked.
+  - An app is a project of type Phone app, Web tool, Game or Dashboard, or one where the person said "app" (`public/build-app.js`, `wantsApp`).
+  - The publish sheet shows an **Installable app** choice (only once `SITES_HOST` is set up), ticked from that guess. The person's choice wins.
+  - Build marks the published home page with `<meta name="grandpa-app" content="yes">`. The project's own files are not changed, and no database change is needed.
+- **On the sites address an app gets:**
+  - an install file that opens it in its own window (`display: standalone`). A website added to a home screen opens in the browser (`display: browser`);
+  - an **offline helper** (`/<address>/_grandpa/sw.js`):
+    - saves every file of the app (not videos);
+    - pages come from the network when there is one, so updates arrive, and from the saved copy offline;
+    - an unknown page offline says so;
+    - forms and orders always need the network;
+    - each publish is a new version that replaces the saved copy;
+  - a **Get the app** page (`/<address>/_grandpa/app`) with the icon and name, and an **Install the app** button whenever the browser offers to install. It also gives steps for the visitor's device (Android, iPhone and iPad, Windows, other computers), a link to open it in the browser, and a QR code.
+- **In Build,** a published app's sheet shows the Get the app link, a QR code (`/api/sites/<address>/qr.svg?app=1`) and Copy app link, with a note to test on your own phone.
+- **The Phone app recipe** no longer asks builders to write a manifest; Grandpa adds the install support itself.
+- **Verified in Chromium against the real server:**
+  - the helper takes control and Chrome's installability check reports no errors;
+  - offline, the app's pages and styles open and an unknown page shows the offline message;
+  - the Get the app page shows the right steps for Android, iPhone and Windows;
+  - the Install button appears only when the browser offers it, and opens the browser's install dialog;
+  - a published website gets none of this.
+- **Not verifiable in a headless browser:** Chrome's own install offer, which needs a real device and some use of the page. Test on a phone.
+
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).

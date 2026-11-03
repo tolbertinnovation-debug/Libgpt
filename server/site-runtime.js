@@ -427,14 +427,108 @@ export function siteIcon(name, brand = '#1a56db') {
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" rx="112" fill="${fill}"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-family="system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif" font-size="300" font-weight="800" fill="${textColourOn(fill)}">${letter}</text></svg>`;
 }
 
-/** The install file, so the site can be added to a phone's home screen with its name, colour and icon. */
-export function siteManifest({ name, slug, brand = '#1a56db', path = '' }) {
+/** The install file. An app (A1) opens in its own window like an installed program; an ordinary website
+ *  added to a home screen opens in the browser, as the person did not ask for an app. */
+export function siteManifest({ name, slug, brand = '#1a56db', path = '', app = false }) {
   const home = path || `/s/${slug}/`;
   return JSON.stringify({
-    name: String(name || slug).slice(0, 60), short_name: String(name || slug).slice(0, 12), start_url: home, scope: home,
-    display: 'standalone', background_color: '#ffffff', theme_color: brand,
-    icons: [{ src: `/s/${slug}/_grandpa/icon.svg`, sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
+    id: home, name: String(name || slug).slice(0, 60), short_name: String(name || slug).slice(0, 12), start_url: home, scope: home,
+    display: app ? 'standalone' : 'browser', background_color: '#ffffff', theme_color: brand,
+    icons: [{ src: `/s/${slug}/_grandpa/icon.svg`, sizes: 'any', type: 'image/svg+xml', purpose: 'any' }, { src: `/s/${slug}/_grandpa/icon.svg`, sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' }],
   });
+}
+
+// ---- Apps (Phase A1) ---------------------------------------------------------
+// Only for what the person made as an app or web app: Build marks the home page
+// with <meta name="grandpa-app" content="yes">. On the sites address an app is
+// then installable (phone home screen, Windows Start menu), works offline, and
+// has a "Get the app" page with install steps for each kind of device.
+export const APP_MARK = '<meta name="grandpa-app" content="yes">';
+export const isAppSite = (files = []) => /<meta\s+name=["']grandpa-app["']\s+content=["']yes["']/i.test(String((files.find((f) => f.path === 'index.html') || {}).body || ''));
+
+/** The page registers the app's offline helper (slug is checked: letters, digits and dashes only). */
+export function withAppRegistration(html, slug) {
+  const tag = `<script>if('serviceWorker' in navigator)navigator.serviceWorker.register('/${slug}/_grandpa/sw.js',{scope:'/${slug}/'}).catch(function(){});</script>`;
+  const text = String(html);
+  return /<\/head>/i.test(text) ? text.replace(/<\/head>/i, `${tag}</head>`) : text + tag;
+}
+
+const OFFLINE_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Offline</title><style>body{margin:0;min-height:100vh;display:grid;place-items:center;font-family:system-ui,sans-serif;text-align:center;padding:24px;background:#f1f5f9;color:#0f172a}a{color:inherit}</style></head><body><main><h1>You are offline</h1><p>This page has not been saved on this device yet. Connect to the internet and try again.</p><p><a href="./">Go to the start page</a></p></main></body></html>';
+
+/** The offline helper: every file of the app is saved when it is installed; pages come from the network
+ *  when there is one (so updates arrive) and from the saved copy when there is not. Send-only addresses
+ *  (forms, orders) always need the network. A new publish is a new version, which replaces the old copy. */
+export function appServiceWorker({ slug, version, paths = [] }) {
+  const scope = `/${slug}/`;
+  const files = [...new Set([scope, ...paths.filter((p) => !/\.(?:mp4|m4v|webm|mp3|m4a|wav|ogg)$/i.test(p)).map((p) => scope + p)])];
+  const cache = `gk-${slug}-${String(version || '1').replace(/[^\w.:-]/g, '')}`;
+  return `// Grandpa AI app helper for ${scope}
+const SCOPE = ${JSON.stringify(scope)}, CACHE = ${JSON.stringify(cache)}, FILES = ${JSON.stringify(files)};
+const OFFLINE = ${JSON.stringify(OFFLINE_PAGE)};
+self.addEventListener('install', (e) => {
+  e.waitUntil(caches.open(CACHE).then((c) => Promise.all(FILES.map((u) => c.add(u).catch(() => {})))).then(() => self.skipWaiting()));
+});
+self.addEventListener('activate', (e) => {
+  e.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k.indexOf(${JSON.stringify(`gk-${slug}-`)}) === 0 && k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim()));
+});
+async function saved(request, url) {
+  return (await caches.match(request, { ignoreSearch: true })) || (await caches.match(url.pathname.replace(/\\/$/, '/index.html'))) || (await caches.match(url.pathname + '.html'));
+}
+async function fresh(request) {
+  const response = await fetch(request);
+  if (response.status === 200) { const copy = response.clone(); caches.open(CACHE).then((c) => c.put(request, copy)); }
+  return response;
+}
+self.addEventListener('fetch', (e) => {
+  const request = e.request, url = new URL(request.url);
+  if (request.method !== 'GET' || url.origin !== location.origin || request.headers.has('range')) return;
+  if (url.pathname.indexOf(SCOPE) !== 0 && url.pathname.indexOf(${JSON.stringify(`/s/${slug}/_grandpa/`)}) !== 0) return;
+  if (request.mode === 'navigate' || /\\/_grandpa\\/site\\.js$/.test(url.pathname)) {
+    e.respondWith(fresh(request).catch(async () => (await saved(request, url)) || (request.mode === 'navigate' ? new Response(OFFLINE, { headers: { 'Content-Type': 'text/html; charset=utf-8' } }) : Response.error())));
+    return;
+  }
+  e.respondWith(saved(request, url).then((hit) => { const update = fresh(request); if (hit) { update.catch(() => {}); return hit; } return update; }));
+});
+`;
+}
+
+const esc = (s) => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** "Get the app": install button where the browser offers one, and plain steps for each kind of device. */
+export function appPage({ name, slug, brand = '#1a56db', siteUrl = '', qr = '', installable = true }) {
+  const n = esc(String(name || 'This app').slice(0, 60)), colour = /^#[0-9a-f]{3,8}$/i.test(brand) ? brand : '#1a56db';
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Get the ${n} app</title>
+<meta name="description" content="Install ${n} on your phone or computer."><link rel="manifest" href="/s/${slug}/_grandpa/manifest.webmanifest"><link rel="icon" href="/s/${slug}/_grandpa/icon.svg" type="image/svg+xml"><meta name="theme-color" content="${colour}">
+<style>:root{--brand:${colour};--on:${textColourOn(colour)}}*{box-sizing:border-box}body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;background:#f1f5f9;color:#0f172a;line-height:1.55}
+main{max-width:560px;margin:0 auto;padding:32px 16px 48px;text-align:center}.icon{border-radius:22%;box-shadow:0 10px 30px rgba(15,23,42,.18)}h1{font-size:clamp(1.6rem,6vw,2.2rem);margin:16px 0 4px}.lead{color:#475569;margin:0 0 24px}
+.go,.open{display:inline-flex;align-items:center;justify-content:center;min-height:52px;padding:12px 28px;border-radius:14px;font:700 1.05rem/1.2 inherit;text-decoration:none;border:0;cursor:pointer}
+.go{background:var(--brand);color:var(--on);width:100%;max-width:340px}.open{color:#0f172a;background:#fff;border:1px solid #cbd5e1;margin-top:12px;width:100%;max-width:340px}
+.card{background:#fff;border-radius:16px;padding:18px 20px;margin:24px 0 0;text-align:left;box-shadow:0 4px 18px rgba(15,23,42,.06)}.card h2{font-size:1.05rem;margin:0 0 8px}.card ol{margin:0;padding-left:20px}
+.ok{color:#166534;font-weight:700}[hidden]{display:none!important}.qr svg{width:180px;height:180px}.qr figcaption{color:#475569;font-size:.9rem}</style></head>
+<body><main>
+<img class="icon" src="/s/${slug}/_grandpa/icon.svg" width="104" height="104" alt="">
+<h1>${n}</h1>
+<p class="lead">Get the app on your phone or computer. It opens in its own window and keeps working without internet once installed.</p>
+<button id="install" class="go" type="button" hidden>Install the app</button>
+<p id="done" class="ok" role="status" hidden>✓ The app is installed. Find ${n} on your home screen or in your apps.</p>
+<a class="open" href="${esc(siteUrl)}">Open it in the browser</a>
+${installable ? '' : '<p class="card">Installing becomes available once the website address for apps is set up. You can open it in the browser.</p>'}
+<section class="card" data-os="android" hidden><h2>On an Android phone</h2><ol><li>Tap <strong>Install the app</strong> above.</li><li>No button? Open Chrome's menu <strong>⋮</strong> and tap <strong>Install app</strong> (or <strong>Add to Home screen</strong>).</li></ol></section>
+<section class="card" data-os="ios" hidden><h2>On an iPhone or iPad</h2><ol><li>Open this page in <strong>Safari</strong>.</li><li>Tap the <strong>Share</strong> button (the square with an arrow).</li><li>Tap <strong>Add to Home Screen</strong>, then <strong>Add</strong>.</li></ol><p>Apple only lets apps from the App Store be downloaded, so iPhones add it this way.</p></section>
+<section class="card" data-os="windows" hidden><h2>On a Windows computer</h2><ol><li>Open this page in <strong>Microsoft Edge</strong> or <strong>Google Chrome</strong>.</li><li>Click <strong>Install the app</strong> above, or the install icon at the right of the address bar.</li><li>The app then opens from the Start menu, like any program.</li></ol></section>
+<section class="card" data-os="other" hidden><h2>On a computer</h2><ol><li>Open this page in <strong>Google Chrome</strong> or <strong>Microsoft Edge</strong> and click <strong>Install the app</strong>, or the install icon in the address bar.</li><li>On a Mac in Safari: <strong>File → Add to Dock</strong>.</li></ol></section>
+${qr ? `<figure class="qr card" style="text-align:center">${qr}<figcaption>Scan with a phone camera to get the app on the phone.</figcaption></figure>` : ''}
+</main>
+<script>(function(){var ua=navigator.userAgent,os=/iPhone|iPad|iPod/.test(ua)||(/Macintosh/.test(ua)&&'ontouchend' in document)?'ios':/Android/.test(ua)?'android':/Windows/.test(ua)?'windows':'other';
+document.querySelectorAll('[data-os]').forEach(function(el){el.hidden=el.getAttribute('data-os')!==os;});
+var button=document.getElementById('install'),done=document.getElementById('done'),offer=null;
+function installed(){button.hidden=true;done.hidden=false;}
+if((window.matchMedia&&matchMedia('(display-mode: standalone)').matches)||navigator.standalone)installed();
+addEventListener('beforeinstallprompt',function(e){e.preventDefault();offer=e;button.hidden=false;});
+addEventListener('appinstalled',installed);
+button.addEventListener('click',function(){if(!offer)return;offer.prompt();offer.userChoice.then(function(c){if(c.outcome==='accepted')installed();offer=null;});});
+if('serviceWorker' in navigator)navigator.serviceWorker.register('/${slug}/_grandpa/sw.js',{scope:'/${slug}/'}).catch(function(){});})();</script>
+</body></html>`;
 }
 
 /** schema.org data from what the page says: name, address, telephone, email, opening hours; never invented. */
