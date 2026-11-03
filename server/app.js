@@ -31,7 +31,7 @@ import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode
 import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404, isAppSite, withAppRegistration, appServiceWorker, appPage, textColourOn } from './site-runtime.js';
 import { buildApk, newSigningKey, sealKey, openKey } from './android-app.js';
 import { buildExe } from './windows-app.js';
-import { checkSchema, cleanRecord, cleanQuery, cleanSummary as cleanAppSummary, createMemoryAppDb, createPostgresAppDb, allowed as appAllowed } from './app-db.js';
+import { checkSchema, cleanRecord, cleanQuery, cleanSummary as cleanAppSummary, createMemoryAppDb, createPostgresAppDb, allowed as appAllowed, effectChanges, recordMatches, fillMessage, labelOf, FILE_TYPES, FILE_BYTES, FILE_ID } from './app-db.js';
 import { createMemoryAppUsers, createPostgresAppUsers } from './app-users.js';
 import { searchPhotos, fetchPhoto, youtubeInfo, searchWords, searchVideos } from './media-search.js';
 import { chooseRecipe, RECIPES, projectKind } from '../public/build-recipes.js';
@@ -116,7 +116,9 @@ const smallBodies = express.json({ limit: '2mb' });
 const syncBodies = express.json({ limit: '4400kb' });
 // What a visitor's form sends to a published site: small, and read as text (see /api/site-data).
 const siteFormBodies = express.text({ type: () => true, limit: '32kb' });
-app.use((req, res, next) => (req.path.startsWith('/api/site-data/') ? siteFormBodies
+// App files (Phase D3): a photo or document arrives as its own bytes, at most 2 MB.
+const appFileBodies = express.raw({ type: () => true, limit: '2100kb' });
+app.use((req, res, next) => (/^\/api\/app-db\/[a-z0-9-]+\/files$/.test(req.path) && req.method === 'POST' ? appFileBodies : req.path.startsWith('/api/site-data/') ? siteFormBodies
   : req.path.startsWith('/api/sync/') || req.path === '/api/sites' ? syncBodies : smallBodies)(req, res, next));
 // ---- published websites on their own address (Phase 6) ---------------------
 // With SITES_HOST set (e.g. sites.libgrandpaai.com, added to the project in
@@ -2034,6 +2036,46 @@ async function ownRecord(req, res) {
   return false;
 }
 const publicAccounts = (accounts) => accounts && { signup: accounts.signup, roles: accounts.roles, defaultRole: accounts.defaultRole };
+// ---- Phase D3: what happens after a save -------------------------------------------
+const whoName = (who) => who.user?.name || (who.kind === 'owner' ? 'Owner' : who.kind === 'team' ? 'Team' : 'Visitor');
+const canSeeAlert = (who, alert) => who.kind === 'owner' || (who.kind === 'team' && alert.for.includes('team')) || (who.kind === 'user' && alert.for.includes(who.role));
+const fileFields = (table) => Object.entries(table.fields).filter(([, f]) => ['image', 'file'].includes(f.type)).map(([k]) => k);
+/** The activity log, alerts (also on records an effect changed, like stock) and files no longer used. Never fails the save. */
+async function afterWrite(req, tbl, kind, before, after) {
+  const { slug, schema, who } = req.app_, table = schema.tables[tbl];
+  try {
+    const record = after || before;
+    await appDb.log(slug, { who: whoName(who), action: kind === 'add' ? 'added' : kind === 'change' ? 'changed' : 'removed', table: tbl, record: record.id, summary: labelOf(table, record) });
+    const raise = async (name, was, now, how) => {
+      for (const alert of schema.alerts || []) {
+        if (alert.table !== name || !now || (alert.on !== 'any' && alert.on !== how)) continue;
+        const t = schema.tables[name];
+        if (!recordMatches(now, alert.when, t)) continue;
+        if (how === 'change' && alert.when && was && recordMatches(was, alert.when, t)) continue;   // only when it becomes true
+        await appDb.addAlert(slug, { message: fillMessage(alert.message, now, whoName(who)), for: alert.for, table: name, record: now.id });
+      }
+    };
+    if (kind !== 'remove') await raise(tbl, before, after, kind);
+    for (const c of effectChanges(table, before, after)) {
+      const [now] = await appDb.getMany(slug, c.table, [c.id]);
+      if (now) await raise(c.table, { ...now, [c.field]: Number(now[c.field]) - c.delta }, now, 'change');
+    }
+    const gone = fileFields(table).map((k) => before?.[k]).filter((id) => id && id !== after?.[fileFields(table).find((k) => before[k] === id)]);
+    if (gone.length) await appDb.removeFiles(slug, gone);
+  } catch (error) { console.error('[app-db] after a save:', error.message); }
+}
+/** Linked records attached to a list ("expand"), only those this person may read. */
+async function withLinks(req, table, records, expand) {
+  const wanted = String(expand || '').split(',').map((s) => s.trim()).filter((k) => table.fields[k]?.type === 'link').slice(0, 5);
+  for (const field of wanted) {
+    const target = table.fields[field].table, t = req.app_.schema.tables[target];
+    const may = appAllowed(t, 'read', req.app_.who);
+    if (may === 'none') continue;
+    const found = new Map((await appDb.getMany(req.app_.slug, target, records.map((r) => r[field]).filter(Boolean))).filter((r) => may === 'all' || r.by === req.app_.who.id).map((r) => [r.id, r]));
+    for (const r of records) { r.linked = r.linked || {}; r.linked[field] = found.get(r[field]) || null; }
+  }
+  return records;
+}
 app.get('/api/app-db/:slug/info', rateLimit, appDbAccess, async (req, res) => {
   // The owner and the team passcode count as signed in, so App.auth.require() lets them straight in.
   const user = req.app_.who.user || (req.app_.who.kind === 'owner' ? { id: 'owner', name: 'Owner', login: '', role: 'owner' } : req.app_.who.kind === 'team' ? { id: 'team', name: 'Team', login: '', role: 'team' } : null);
@@ -2082,12 +2124,22 @@ app.get('/api/app-db/:slug/versions', siteLimit, appDbAccess, async (req, res) =
     const all = await appDb.versions(req.app_.slug);
     // Only the tables this person may read.
     const visible = Object.entries(req.app_.schema.tables).filter(([, t]) => appAllowed(t, 'read', req.app_.who) !== 'none').map(([name]) => name);
-    res.json({ versions: Object.fromEntries(visible.map((name) => [name, all[name] || 0])) });
+    const alerts = (req.app_.schema.alerts || []).some((a) => canSeeAlert(req.app_.who, a)) ? { _alerts: all._alerts || 0 } : {};
+    res.json({ versions: { ...Object.fromEntries(visible.map((name) => [name, all[name] || 0])), ...alerts } });
   } catch (error) { dataFailed(res, error); }
 });
 app.get('/api/app-db/:slug/t/:table/summary', siteLimit, appDbAccess, async (req, res) => {
   const table = appTable(req, res, 'read'); if (!table) return;
-  try { res.json({ groups: await appDb.summary(req.app_.slug, req.params.table, { ...cleanQuery(table, { where: req.query.where }), by: req.own }, table, cleanAppSummary(table, req.query)) }); } catch (error) { dataFailed(res, error); }
+  try {
+    const plan = cleanAppSummary(table, req.query);
+    const groups = await appDb.summary(req.app_.slug, req.params.table, { ...cleanQuery(table, { where: req.query.where }), by: req.own }, table, plan);
+    const link = table.fields[plan.by];
+    if (link?.type === 'link' && appAllowed(req.app_.schema.tables[link.table], 'read', req.app_.who) === 'all') {
+      const names = new Map((await appDb.getMany(req.app_.slug, link.table, groups.map((g) => g.key).filter(Boolean))).map((r) => [r.id, labelOf(req.app_.schema.tables[link.table], r)]));
+      for (const g of groups) g.label = names.get(g.key) || '';
+    }
+    res.json({ groups });
+  } catch (error) { dataFailed(res, error); }
 });
 app.get('/api/app-db/:slug/t/:table/:id', siteLimit, appDbAccess, async (req, res) => {
   const table = appTable(req, res, 'read'); if (!table) return;
@@ -2095,19 +2147,88 @@ app.get('/api/app-db/:slug/t/:table/:id', siteLimit, appDbAccess, async (req, re
 });
 app.get('/api/app-db/:slug/t/:table', siteLimit, appDbAccess, async (req, res) => {
   const table = appTable(req, res, 'read'); if (!table) return;
-  try { res.json(await appDb.list(req.app_.slug, req.params.table, { ...cleanQuery(table, req.query), by: req.own }, table)); } catch (error) { dataFailed(res, error); }
+  try { const result = await appDb.list(req.app_.slug, req.params.table, { ...cleanQuery(table, req.query), by: req.own }, table); await withLinks(req, table, result.records, req.query.expand); res.json(result); } catch (error) { dataFailed(res, error); }
 });
 app.post('/api/app-db/:slug/t/:table', siteLimit, appDbAccess, async (req, res) => {
   const table = appTable(req, res, 'add'); if (!table) return;
-  try { res.status(201).json({ record: await appDb.add(req.app_.slug, req.params.table, cleanRecord(table, req.body), req.app_.who.kind === 'user' ? req.app_.who.id : null) }); } catch (error) { dataFailed(res, error); }
+  try {
+    const record = await appDb.add(req.app_.slug, req.params.table, cleanRecord(table, req.body), req.app_.who.kind === 'user' ? req.app_.who.id : null, req.app_.schema);
+    await afterWrite(req, req.params.table, 'add', null, record);
+    res.status(201).json({ record });
+  } catch (error) { dataFailed(res, error); }
 });
 app.patch('/api/app-db/:slug/t/:table/:id', siteLimit, appDbAccess, async (req, res) => {
   const table = appTable(req, res, 'change'); if (!table) return;
-  try { if (!(await ownRecord(req, res))) return; const record = await appDb.update(req.app_.slug, req.params.table, req.params.id, cleanRecord(table, req.body, { partial: true })); if (!record) { res.status(404).json({ error: 'That record is not there any more.' }); return; } res.json({ record }); } catch (error) { dataFailed(res, error); }
+  try {
+    if (!(await ownRecord(req, res))) return;
+    const before = await appDb.get(req.app_.slug, req.params.table, req.params.id);
+    const record = before && await appDb.update(req.app_.slug, req.params.table, req.params.id, cleanRecord(table, req.body, { partial: true }), req.app_.schema);
+    if (!record) { res.status(404).json({ error: 'That record is not there any more.' }); return; }
+    await afterWrite(req, req.params.table, 'change', before, record);
+    res.json({ record });
+  } catch (error) { dataFailed(res, error); }
 });
 app.delete('/api/app-db/:slug/t/:table/:id', siteLimit, appDbAccess, async (req, res) => {
   const table = appTable(req, res, 'remove'); if (!table) return;
-  try { if (!(await ownRecord(req, res))) return; res.json({ removed: await appDb.remove(req.app_.slug, req.params.table, req.params.id) }); } catch (error) { dataFailed(res, error); }
+  try {
+    if (!(await ownRecord(req, res))) return;
+    const removed = await appDb.remove(req.app_.slug, req.params.table, req.params.id, req.app_.schema);
+    if (removed) await afterWrite(req, req.params.table, 'remove', removed, null);
+    res.json({ removed: Boolean(removed) });
+  } catch (error) { dataFailed(res, error); }
+});
+// A spreadsheet's rows into one table (owner or team; Manage → Import). Each row is checked; bad rows are reported, good ones saved.
+app.post('/api/app-db/:slug/t/:table/import', rateLimit, appDbAccess, async (req, res) => {
+  const table = req.app_.schema.tables[req.params.table];
+  if (!table) { res.status(404).json({ error: 'There is no such table.' }); return; }
+  if (!['owner', 'team'].includes(req.app_.who.kind)) { res.status(403).json({ error: 'Only the owner and the team can import.' }); return; }
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+  if (!rows.length || rows.length > 500) { res.status(400).json({ error: 'Send 1 to 500 rows at a time.' }); return; }
+  const problems = [];
+  let added = 0;
+  for (const [i, row] of rows.entries()) {
+    try { await appDb.add(req.app_.slug, req.params.table, cleanRecord(table, row), null, req.app_.schema); added += 1; }
+    catch (error) { if (error.status === 429 || error.status === 507) { problems.push({ row: i + 1, error: error.message }); break; } problems.push({ row: i + 1, error: error.status ? error.message : 'It could not be saved.' }); }
+  }
+  if (added) await appDb.log(req.app_.slug, { who: whoName(req.app_.who), action: 'imported', table: req.params.table, record: '', summary: `${added} row${added === 1 ? '' : 's'}` }).catch(() => {});
+  res.json({ added, problems: problems.slice(0, 100) });
+});
+// Photos and documents (Phase D3): stored in the app's own database, counted in its space. The address is
+// unguessable (like a shared photo link); the app's records decide who sees which address.
+const FILE_MAGIC = { 'image/jpeg': [0xff, 0xd8, 0xff], 'image/png': [0x89, 0x50, 0x4e, 0x47], 'image/gif': [0x47, 0x49, 0x46, 0x38], 'application/pdf': [0x25, 0x50, 0x44, 0x46] };
+app.post('/api/app-db/:slug/files', siteLimit, appDbAccess, async (req, res) => {
+  const table = req.app_.schema.tables[String(req.query.table || '')];
+  if (!table) { res.status(400).json({ error: 'Say which table the file is for (?table=…).' }); return; }
+  if (appAllowed(table, 'add', req.app_.who) === 'none' && appAllowed(table, 'change', req.app_.who) === 'none') { res.status(req.app_.who.kind === 'visitor' ? 401 : 403).json({ error: 'Sign in to add files here.', signIn: req.app_.who.kind === 'visitor' }); return; }
+  const type = String(req.get('content-type') || '').split(';')[0].trim().toLowerCase();
+  const data = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (!FILE_TYPES[type]) { res.status(415).json({ error: 'Add a photo (JPEG, PNG, WebP or GIF), a PDF, a Word or Excel file, or a text or CSV file.' }); return; }
+  if (!data.length || data.length > FILE_BYTES) { res.status(413).json({ error: 'Files must be under 2 MB.' }); return; }
+  const magic = FILE_MAGIC[type];
+  if ((magic && !magic.every((b, i) => data[i] === b)) || (type === 'image/webp' && (data.toString('ascii', 0, 4) !== 'RIFF' || data.toString('ascii', 8, 12) !== 'WEBP'))) { res.status(415).json({ error: 'That file is not what its type says.' }); return; }
+  const name = String(req.query.name || `file.${FILE_TYPES[type]}`).replace(/[^\p{L}\p{N} ._()-]/gu, '').trim().slice(0, 80) || `file.${FILE_TYPES[type]}`;
+  try { const file = await appDb.putFile(req.app_.slug, { name, type, data, by: req.app_.who.kind === 'user' ? req.app_.who.id : null }); res.status(201).json({ ...file, url: `/api/app-db/${req.app_.slug}/files/${file.id}` }); } catch (error) { dataFailed(res, error); }
+});
+app.get('/api/app-db/:slug/files/:id', siteLimit, async (req, res) => {
+  res.set({ 'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'; img-src 'self' data:; style-src 'unsafe-inline'; sandbox" });
+  if (!appDb || !validSlug(req.params.slug) || !FILE_ID.test(req.params.id)) { res.status(404).end(); return; }
+  try {
+    const file = await appDb.getFile(req.params.slug, req.params.id);
+    if (!file) { res.status(404).end(); return; }
+    res.set({ 'Cache-Control': 'private, max-age=86400', 'Content-Disposition': `${file.type.startsWith('image/') ? 'inline' : 'attachment'}; filename="${file.name.replace(/"/g, '')}"` });
+    res.type(file.type).send(file.data);
+  } catch (error) { dataFailed(res, error); }
+});
+// The activity log (owner and team) and alerts (to the roles each alert names).
+app.get('/api/app-db/:slug/activity', siteLimit, appDbAccess, async (req, res) => {
+  if (!['owner', 'team'].includes(req.app_.who.kind)) { res.status(403).json({ error: 'Only the owner and the team see the activity log.' }); return; }
+  try { res.json({ activity: await appDb.activity(req.app_.slug, Number(req.query.limit) || 100) }); } catch (error) { dataFailed(res, error); }
+});
+app.get('/api/app-db/:slug/alerts', siteLimit, appDbAccess, async (req, res) => {
+  try {
+    const since = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(String(req.query.since || '')) ? String(req.query.since) : '';
+    res.json({ alerts: (await appDb.alerts(req.app_.slug, { since, limit: 100 })).filter((a) => canSeeAlert(req.app_.who, a)).slice(0, 50) });
+  } catch (error) { dataFailed(res, error); }
 });
 // The owner, in Manage: the design, the use against the limits, the team passcode and a full export.
 app.get('/api/manage/:slug/app-data', rateLimit, manageAccess, async (req, res) => {
@@ -2156,6 +2277,9 @@ app.post('/api/manage/:slug/app-invites', rateLimit, manageAccess, async (req, r
 });
 app.delete('/api/manage/:slug/app-invites/:code', rateLimit, manageAccess, async (req, res) => {
   try { if (!(await manageAccounts(req, res))) return; res.json({ removed: await appUsers.removeInvite(req.site.slug, req.params.code) }); } catch (error) { dataFailed(res, error); }
+});
+app.get('/api/manage/:slug/app-activity', rateLimit, manageAccess, async (req, res) => {
+  try { res.json({ activity: appDb ? await appDb.activity(req.site.slug, 300) : [], alerts: appDb ? await appDb.alerts(req.site.slug, { limit: 50 }) : [] }); } catch (error) { dataFailed(res, error); }
 });
 // Only Grandpa AI's owner may raise one app's limits (never unlimited).
 app.post('/api/admin/app-db/:slug/limits', rateLimit, requireAgentAdmin, async (req, res) => {

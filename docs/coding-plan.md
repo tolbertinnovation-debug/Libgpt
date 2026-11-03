@@ -548,6 +548,41 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
     - no page errors.
   - This check also found and fixed the owner being asked to sign in, and Manage's squeezed role menu.
 
+### Phase D3: the features toolkit (done)
+- **Photos and documents:** fields of type `image` or `file`.
+  - `App.db.upload(file, { table })` makes photos smaller on the phone (at most 1600 px, JPEG) and sends them to `POST /api/app-db/:slug/files`, which takes at most 2 MB of JPEG, PNG, WebP, GIF, PDF, text, CSV, DOCX or XLSX.
+  - The first bytes must match the type, and SVG is refused (it can carry scripts).
+  - Files are stored in `grandpa_ai_app_files` and counted in the app's space, at an unguessable address. Images are shown inline; other files download, with nosniff and a sandbox.
+  - A replaced or removed record's old photo is deleted. `App.db.fileUrl(id)` gives the address.
+  - Manage shows thumbnails and has a file picker.
+- **Automatic numbers:** `{ "type": "autonumber", "prefix": "INV-", "digits": 4 }`, assigned on the server inside the save (never repeated, never set by the app).
+- **Links between tables:** `{ "type": "link", "table": "products" }`.
+  - The linked record must exist.
+  - `list({ expand: 'product' })` adds `record.linked.product`, only if the person may read it.
+  - A summary grouped by a link gives each group the linked record's name (for best sellers).
+  - Manage shows links by name and offers a menu of records.
+- **Effects:** `"effects": [{ "link": "product", "field": "stock", "change": "-qty" }]` changes the linked number in the same database transaction.
+  - It is undone when the record is removed, and moved or adjusted when it changes.
+  - A minimum on the field refuses the save with "Not enough stock for Rice: 5 left." (409), and a refused save changes nothing.
+- **Alerts:** `"alerts": [{ "table", "on", "when", "message", "for" }]`.
+  - Raised on the server after a save, including on records an effect changed (stock), and only when a condition *becomes* true.
+  - Shown only to the roles named (the owner sees all), and the last 500 are kept.
+  - In the app, `App.alerts.watch()` shows new ones as messages within seconds and `App.alerts.list()` lists them.
+- **Activity log:** who added, changed, removed or imported what, with the record's name; the last 2,000 are kept. It's in Manage, and in the app for the owner and team (`App.db.activity()`).
+- **Spreadsheet import:**
+  - Manage → App data → Import reads a CSV (commas, semicolons or tabs, quoted cells) and matches columns to fields by name or label, and links by the linked record's name.
+  - `POST /t/:table/import` (owner and team, 500 rows a time) checks every row, saves the good ones and lists the bad ones by row.
+  - CSV downloads give file addresses.
+- **Reports:** summaries, App.chart, App.table, App.csv and `data-gk-print` (print or save as PDF), all taught in the kit guide (APP FEATURES).
+- **The preview's test database** applies the same automatic numbers, links, effects (with the minimum) and alerts.
+- **Verified:**
+  - tests check the design, effects maths, identical behaviour from the memory and Postgres stores (numbers, stock moves on add, change, product change and remove, refusals, files, the log, alerts) and the whole server story;
+  - in Chromium, the preview sale lowers stock and raises the alert, and an oversized sale is refused;
+  - the owner adds a product with a photo, which shows;
+  - a staff sale is numbered INV-0001 and lowers stock, and the owner's phone shows "Stock low" within seconds; an oversized sale is refused with the reason;
+  - Manage shows the thumbnail and sales by product name, imports a spreadsheet (2 added, 2 bad rows explained) and shows the activity log and alerts;
+  - no page errors.
+
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).
