@@ -42,11 +42,11 @@ Must have: the kit's VIDEO PLAYERS only (gk-video-player for the person's own fi
 Design: cinematic (style bold or modern), dark sections around players, 16:9 thumbnails with readable titles, big tap targets; never autoplay with sound.` },
   { id: 'tool', name: 'Web tool (calculator, quiz, form)', words: /\b(calculator|converter|quiz|test|exam|survey|generator|tool|planner|estimator|checker|counter|timer|budget|bmi|loan|grade)\b/,
     guide: `A single-page web app: a short title and explanation, the tool itself above the fold, instant results, clear reset, an explanation of how the result is worked out.
-Engineering: use the APP TOOLKIT (assets/grandpa-app.js): App.store for state, App.render with App.html to redraw from state, App.form for checks, input validation with friendly messages, keyboard and screen-reader support, no page reloads, results that can be printed (data-gk-print). Published sites cannot use localStorage (sandbox): keep state in memory, or let the visitor send results with a form.
+Engineering: use the APP TOOLKIT (assets/grandpa-app.js): App.store for state, App.render with App.html to redraw from state, App.form for checks, input validation with friendly messages, keyboard and screen-reader support, no page reloads, results that can be printed (data-gk-print). App.store with remember keeps the person's data on their device (also offline), so they find it again next time.
 Design: focused and app-like (style modern), large touch targets, clear numbers, a results card that stands out.` },
   { id: 'game', name: 'Game', words: /\b(game|play|puzzle|snake|tic.?tac|memory game|trivia|arcade|score|level)\b/,
     guide: `A single-page game: title screen with how to play, the game, a score, game over with play again.
-Engineering: the APP TOOLKIT's App.loop (or App.store turn-based state for board games), App.sound and App.timer, a canvas or DOM board that resizes to the phone, touch and keyboard controls, pause when the tab is hidden, short sounds made with the Web Audio API only after the first tap, best score kept in memory (no localStorage on published sites).
+Engineering: the APP TOOLKIT's App.loop (or App.store turn-based state for board games), App.sound and App.timer, a canvas or DOM board that resizes to the phone, touch and keyboard controls, pause when the tab is hidden, short sounds made with the Web Audio API only after the first tap, the best score kept with App.store and remember.
 Design: playful and clear (style bold or friendly), large buttons, readable on a small phone, motion that respects reduced-motion settings.` },
   { id: 'dashboard', name: 'Dashboard or tracker', words: /\b(dashboard|track(?:er|ing)?|inventory|stock|attendance|records?|report|analytics|crm|admin panel|expenses?|sales log|register)\b/,
     guide: `A web app with screens: overview (stat cards and simple SVG charts), a list or table with search, sort and filters, an add or edit form, a detail view.
@@ -60,8 +60,8 @@ Design: clear and studious (style modern or elegant), strong headings, code or e
     guide: `Pages: Home, About, Services (one card per service with an icon), a detail page for the main service, Gallery or Our work, FAQ, Contact.
 Must have: a hero with the main promise and one primary button (Call, WhatsApp or Get a quote), trust signals (years, customers served, a stats band), how it works in 3 steps, opening hours (Manage list), a contact form (data-gk-form="message"), a map and a WhatsApp button when a number is given.
 Design: confident and clean (style modern or corporate), the brand colour on buttons and accents only, real photographs of the work.` },
-  { id: 'app', name: 'Phone app (installable web app)', words: /\b(app|application|mobile app|android|iphone|ios|install(?:able)?|offline|pwa|software)\b/,
-    guide: `A web app that feels like a phone app: a bottom navigation bar with 3–5 screens, a top bar with the screen title, large touch targets, screens switched without page loads.
+  { id: 'app', name: 'App (phone and computer)', words: /\b(app|application|mobile app|android|iphone|ios|install(?:able)?|offline|pwa|software)\b/,
+    guide: `A real app (APP STANDARD): the app shell (gk-app-bar with the screen title and Back, gk-appbar tabs for 3–5 screens, a side rail on computers), the main screen doing the app's job immediately, lists of rows, an Add button that opens a bottom sheet, large touch targets, screens switched without page loads.
 Engineering: the APP TOOLKIT (App.store with remember, App.screens with the .gk-appbar, App.form), safe-area padding (env(safe-area-inset-bottom)), no hover-only actions, and every screen usable offline once loaded (no data that only comes from the network unless the app needs it). When published, Grandpa makes it an installable app itself: the install file, the app icon, offline saving and a Get the app page with install steps for Android, iPhone and Windows. Never write a manifest, a service worker or install code.
 Design: native-feeling (style modern), system fonts, cards and lists, smooth screen transitions with reduced-motion respected.` },
 ];
@@ -89,8 +89,35 @@ export function chooseRecipe(text) {
   return best || GENERAL;
 }
 
-/** The recipe as instructions for a builder. */
-export function recipeGuide(recipe) {
+/** The recipe as instructions for a builder. For an app, the recipe's pages become screens. */
+export function recipeGuide(recipe, kind = '') {
   const r = recipe || GENERAL;
-  return `PROJECT RECIPE: ${r.name}\n${r.guide}\nFollow this recipe unless the person asked for something different; their words always win.`;
+  const asApp = kind === 'app' && !APP_KINDS.has(r.id)
+    ? '\nTHIS IS AN APP, NOT A WEBSITE: use the recipe only for what this kind of business or activity needs. Make each need a screen of the app (lists, forms in sheets, a summary), drop every marketing page and section (home hero, about, testimonials, gallery, FAQ, contact page, footer) unless the person asked for it.'
+    : '';
+  return `PROJECT RECIPE: ${r.name}\n${r.guide}${asApp}\nFollow this recipe unless the person asked for something different; their words always win.`;
 }
+
+// ---- App or website --------------------------------------------------------------
+// The person decides with their own words: "make an app" gets an app (screens, an
+// app bar, tabs, lists) and "make a website" gets a website (pages, hero, sections,
+// footer). A "Make: an app." / "Make: a website." line (the choice on the
+// conversation card) wins; then whichever the person named first; then the type.
+export const APP_KINDS = new Set(['app', 'tool', 'game', 'dashboard']);
+const APP_NAMED = /\b(?:apps?|application(?!\s+forms?)|mobile app|web ?apps?|pwa|android|iphone|ios|software)\b/i;
+const WEBSITE_NAMED = /\b(?:web ?sites?|sites?|web ?pages?|landing ?pages?|home ?page|blog)\b/i;
+
+/** 'app' or 'website' for what the person asked. */
+export function projectKind(text, recipe = null) {
+  const said = String(text || '');
+  const chosen = /^Make:\s*(?:an?\s+)?(app|website)\b/im.exec(said);
+  if (chosen) return chosen[1].toLowerCase();
+  const words = said.replace(/^Project type:[^\n]*$/gim, '');
+  const app = words.search(APP_NAMED), site = words.search(WEBSITE_NAMED);
+  if (app >= 0 && (site < 0 || app < site)) return 'app';
+  if (site >= 0) return 'website';
+  return APP_KINDS.has((recipe || chooseRecipe(said)).id) ? 'app' : 'website';
+}
+
+/** The line that carries the choice to every builder. */
+export const kindLine = (kind) => (kind === 'app' ? 'Make: an app.' : 'Make: a website.');

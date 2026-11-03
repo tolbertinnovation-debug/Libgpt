@@ -1,4 +1,4 @@
-/* Grandpa Kit 10 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
+/* Grandpa Kit 11 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
    game loop, sounds, timers and formatting for web tools, quizzes, games, dashboards and phone-style
    apps. No build step, no outside services. window.GrandpaApp */
 (function () {
@@ -90,6 +90,14 @@
       });
       var screen = document.querySelector('[data-screen="' + name + '"]');
       var heading = screen && screen.querySelector('h1, h2');
+      // App shell: the bar shows this screen's title; Back shows on screens that are not tabs.
+      var title = screen && (screen.getAttribute('data-title') || (heading && heading.textContent) || '');
+      if (title) document.querySelectorAll('[data-app-title]').forEach(function (t) { t.textContent = title; });
+      var tab = document.querySelector('.gk-appbar a[href="#' + name + '"]') || name === (opts.start || first);
+      document.querySelectorAll('[data-app-back]').forEach(function (b) {
+        b.hidden = Boolean(tab);
+        if (!b._gk) { b._gk = 1; b.addEventListener('click', function () { if (history.length > 1) history.back(); else location.hash = opts.start || first; }); }
+      });
       if (heading && opts.focus !== false && App._shown) { heading.setAttribute('tabindex', '-1'); heading.focus({ preventScroll: true }); }
       App._shown = true;
       window.scrollTo(0, 0);

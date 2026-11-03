@@ -35,6 +35,7 @@ import { historyEntries, compareFiles } from './build-history.js?v=phase5-1';
 import { SECTIONS, KIT_FILES, ensureKitLinks } from './build-sections.js?v=kit-1';
 import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js?v=quality-3';
 import { wantsApp, markApp } from './build-app.js?v=app-1';
+import { kindLine } from './build-recipes.js?v=kind-1';
 import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, replacePlayer, creditsPage, linkCredits } from './build-media.js?v=media-3';
 import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=kit-1';
 
@@ -539,7 +540,8 @@ async function shrinkPictures(p) {
 function projectIsApp(p) {
   const d = lastDiscussion(p);
   const brief = d?.brief || (p?.messages || []).find((m) => m.role === 'user')?.content || p?.name || '';
-  return wantsApp({ installable: p?.installable, recipeId: d?.recipeChoice || d?.recipe?.id || '', brief, files: p?.files || [] });
+  const kind = d?.kindChoice || d?.kind;
+  return wantsApp({ installable: typeof p?.installable === 'boolean' ? p.installable : kind ? kind === 'app' : undefined, recipeId: d?.recipeChoice || d?.recipe?.id || '', brief, files: p?.files || [] });
 }
 
 /** The choice on the publish sheet: shown when apps can be installed (the sites address is set up). */
@@ -683,7 +685,7 @@ async function unpublishFromWeb() {
 
 /* ---- The Grandpa Kit ----------------------------------------------------- */
 /** Add the shared design kit to a project once, so builders can use its sections and effects. */
-const KIT_VERSION = 'Grandpa Kit 10';
+const KIT_VERSION = 'Grandpa Kit 11';
 async function ensureKit(p) {
   // An older kit is replaced by the current one (only the kit ever changes the kit).
   const kit = (p?.files || []).filter((f) => isKitFile(f.path));
@@ -691,7 +693,7 @@ async function ensureKit(p) {
   if (!p || (kit.length === paths.length && kit.every((f) => String(f.body).startsWith(`/* ${KIT_VERSION} `)))) return true;
   try {
     const bodies = await Promise.all(paths.map(async (path) => {
-      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-10`);
+      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-11`);
       if (!response.ok) throw new Error('kit');
       return response.text();
     }));
@@ -1857,6 +1859,8 @@ async function discuss(said) {
     p.messages.push({ role: 'assistant', content: answer.reply, discussion: { ready: Boolean(answer.ready), brief: answer.brief || '', title: answer.title || '', suggestions: answer.suggestions || [],
       recipe: answer.recipe?.id ? { id: String(answer.recipe.id), name: String(answer.recipe.name || '') } : null,
       recipes: Array.isArray(answer.recipes) ? answer.recipes.slice(0, 30).map((r) => ({ id: String(r.id), name: String(r.name) })) : [],
+      // App or website, from the person's words; a choice made on the card is kept.
+      kind: answer.kind === 'app' ? 'app' : 'website', kindChoice: lastDiscussion(p)?.kindChoice || '',
       // A type chosen earlier in this conversation is kept.
       recipeChoice: lastDiscussion(p)?.recipeChoice || '' } });
     if (answer.title && !p.named) p.name = answer.title;
@@ -1882,7 +1886,7 @@ async function startFromBrief(said = 'Start building') {
   const added = (p.materials || []).filter((path) => p.files.some((f) => f.path === path));
   await ensureKit(p);
   const typed = (agreed.recipes || []).find((r) => r.id === (agreed.recipeChoice || agreed.recipe?.id));
-  const base = typed ? `Project type: ${typed.name}.\n${agreed.brief}` : agreed.brief;
+  const base = `${typed ? `Project type: ${typed.name}.\n` : ''}${kindLine(agreed.kindChoice || agreed.kind || '')}\n${agreed.brief}`;
   const brief = added.length ? `${base}\n\nFiles the person added, already in the project. Use each where it belongs, by this exact path, and never rewrite them:\n${added.map((path) => `- ${path}`).join('\n')}` : base;
   await buildTheWholeThing(brief, false, { messageText: said });
 }
@@ -1895,8 +1899,13 @@ function discussionHtml(discussion, latest) {
   const chosen = discussion.recipeChoice || discussion.recipe?.id || '';
   const recipe = (discussion.recipes || []).length ? `<label class="build-recipe"><span>Type of project</span><select data-recipe-select aria-label="Type of project">
       ${chosen ? '' : '<option value="">Let Grandpa decide</option>'}${discussion.recipes.map((r) => `<option value="${escapeHtml(r.id)}"${r.id === chosen ? ' selected' : ''}>${escapeHtml(r.name)}</option>`).join('')}</select></label>` : '';
+  // App or website: an app is built as an app (screens, app bar, tabs), a website as a website.
+  const kind = discussion.kindChoice || discussion.kind || '';
+  const making = kind ? `<label class="build-recipe"><span>Make</span><select data-kind-select aria-label="Make an app or a website">
+      <option value="app"${kind === 'app' ? ' selected' : ''}>An app (screens, works like a phone app)</option><option value="website"${kind === 'website' ? ' selected' : ''}>A website (pages for visitors)</option></select></label>` : '';
   return `<div class="build-brief${discussion.ready ? ' is-ready' : ''}">
     ${brief ? `<details${discussion.ready ? ' open' : ''}><summary>What I'll build</summary><p class="build-brief-text">${brief}</p></details>` : ''}
+    ${making}
     ${recipe}
     ${chips ? `<div class="build-chips">${chips}</div>` : ''}
     <div class="build-brief-actions">
@@ -2632,6 +2641,9 @@ export async function mount(options = {}) {
     persist(); showWebPublish();
   });
   el.build.addEventListener('change', (event) => {
+    const making = event.target.closest('[data-kind-select]');
+    const discussed = making && lastDiscussion(project());
+    if (discussed) { discussed.kindChoice = making.value === 'app' ? 'app' : 'website'; persist(); return; }
     const select = event.target.closest('[data-recipe-select]');
     const agreed = select && lastDiscussion(project());
     if (!agreed) return;

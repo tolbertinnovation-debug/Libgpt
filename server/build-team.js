@@ -2,11 +2,13 @@ import {teamPathConflicts} from '../public/build-team.js';
 import { danglingLinks, projectIssues } from '../public/build.js';
 import { charterText, normalizeStack } from './agent-charters.js';
 import { requirementPrompt, missingRequirements, carryMissingRequirements } from './build-requirements.js';
-import { DESIGN_STANDARD, KIT_GUIDE } from './design-standard.js';
-import { chooseRecipe, recipeGuide } from '../public/build-recipes.js';
+import { DESIGN_STANDARD, KIT_GUIDE, APP_STANDARD, designRules } from './design-standard.js';
+import { chooseRecipe, recipeGuide, projectKind, kindLine } from '../public/build-recipes.js';
 
 export const TEAM_AGENTS = Object.freeze(['design', 'pages', 'interactions', 'content', 'backend', 'cloud']);
 const LEGACY_TEAM_AGENTS = ['design', 'pages', 'interactions', 'content'];
+const WEB_PLAN = 'ONE PROMPT, A COMPLETE WEBSITE: even a one-line brief must produce a finished, professional site the person could launch, never a starter or a questionnaire. Infer the pages a real organisation of that kind needs (typically 4–8, e.g. home, about, services or products, a detail page, pricing or menu, FAQ, contact), the audience, tone and primary call to action. State the choices you made in the summary so the user can change them.';
+const WEB_LOOK = 'The shared contract must also fix the look: the design tokens, the hero background, the background of each section, the motion classes (reveal and is-visible) and every photograph by path and description (images/name.jpg written with data-picture), so all builders produce one consistent, modern design.';
 export const TEAM_PLAN_PROMPT = `${charterText('supervisor')}
 You are the Orchestrator, Head of Engineering for Ritual Coding. You take the user's goal, define acceptance criteria, assign work and track progress. You cannot approve a release. The Architect, independent Reviewer, Security, QA/DevOps and Approver perform separate checks after the builders.
 Return only JSON: {"title":"short project name","summary":"what the user will receive","runtime":"static","stack":{"frontend":"HTML, CSS and JavaScript","backend":"none","database":"none","infrastructure":"static hosting","languages":["HTML","CSS","JavaScript"]},"pages":[{"path":"index.html","title":"Home"}],"requirements":["specific acceptance criteria"],"retired":[],"contract":"detailed shared implementation agreement","tasks":[{"agent":"design","instruction":"design and assets","files":["assets/styles.css"]},{"agent":"pages","instruction":"frontend pages and layout","files":["index.html"]},{"agent":"interactions","instruction":"frontend behaviour","files":["assets/app.js"]},{"agent":"content","instruction":"content and materials","files":["README.md"]},{"agent":"backend","instruction":"no backend requested","files":[]},{"agent":"cloud","instruction":"no cloud configuration requested","files":[]}]}.
@@ -21,6 +23,13 @@ The shared contract must also fix the look: the design tokens, the hero backgrou
 ${DESIGN_STANDARD}
 ${KIT_GUIDE}`;
 
+// Apps are planned as apps: one page of screens, the app shell, no website sections.
+const APP_PLAN = 'ONE PROMPT, A COMPLETE APP: the person asked for an APP, not a website. Even a one-line brief must produce a finished app they could install and use today, never a starter, a questionnaire or a website. Plan the screens the app needs (typically 3–6, e.g. the main list or board, add/edit in a sheet, a summary or report, settings) inside one index.html (pages has just index.html unless the person asked for more), with the app shell of the APP STANDARD. Plan no hero, marketing, about, contact, gallery, FAQ, pricing or footer. State the choices you made in the summary so the user can change them.';
+const APP_LOOK = 'The shared contract must also fix the look of the app: the design tokens, the app bar, the tab bar and its screens, the row, card, sheet and button styles, and the empty states, so all builders produce one consistent app. No scroll animations and no decorative photographs.';
+/** The Orchestrator's instructions for a website or an app. */
+export const teamPlanPrompt = (kind) => (kind === 'app'
+  ? TEAM_PLAN_PROMPT.replace(WEB_PLAN, APP_PLAN).replace(WEB_LOOK, APP_LOOK).replace(DESIGN_STANDARD, APP_STANDARD)
+  : TEAM_PLAN_PROMPT);
 export const TEAM_REVIEW_PROMPT = `${charterText('reviewer')}
 You are Ritual Coding's independent Reviewer. You are separate from the Orchestrator and every builder, and did not write these changes. Review actual source against the user's brief, architecture and shared plan. Your recommendation is one gate only: you cannot authorize deployment or override Security, QA/DevOps or the Approver.
 Report concrete defects supported by the supplied source. For a color contrast failure, use server-provided colorPairMeasurements when supplied; do not substitute a guessed ratio. Identify the actual text/background pair and applicable threshold. These measurements do not prove DOM applicability. Do not block on an uncalculated possibility. Plain static source without external dependencies does not need a package manifest or backend infrastructure. A requested public contact or clearly labelled demo email is public content, not an exposed credential.
@@ -92,7 +101,7 @@ export function workerInstruction(plan, agent, brief = '', targetPath = '') {
   return [charterText(agent),
     `You are the ${agent} specialist on an engineering team with a separate Architect, Reviewer, Security, QA/DevOps and Approver.`,
     `Original request: ${brief}`, `Project: ${plan.title}. ${plan.summary}`,
-    ['backend', 'cloud'].includes(agent) ? '' : `${DESIGN_STANDARD}\n\n${KIT_GUIDE}\n\n${recipeGuide(chooseRecipe(brief))}`,
+    ['backend', 'cloud'].includes(agent) ? '' : `${kindLine(projectKind(brief))}\n\n${designRules(projectKind(brief))}\n\n${KIT_GUIDE}\n\n${recipeGuide(chooseRecipe(brief), projectKind(brief))}`,
     plan.stack ? `Technology stack (use exactly this): frontend ${plan.stack.frontend}; backend ${plan.stack.backend}; database ${plan.stack.database}; infrastructure ${plan.stack.infrastructure}; languages ${plan.stack.languages.join(', ')}.` : '',
     `Acceptance requirements: ${plan.requirements.join('\n')}`,
     `Shared contract:\n${plan.contract}`, `Pages/navigation:\n${JSON.stringify(plan.pages)}`,
@@ -150,8 +159,9 @@ export function parseTeamJson(raw) {
 }
 export async function generateTeamPlan({asked,model,complete,signal,requirements=null}) {
   const carried=requirementPrompt(requirements);
-  const recipe=recipeGuide(chooseRecipe(asked));
-  const messages=[{role:'system',content:TEAM_PLAN_PROMPT},{role:'user',content:`${carried?`${asked}\n\n${carried}`:asked}\n\n${recipe}`}];
+  const kind=projectKind(asked);
+  const recipe=recipeGuide(chooseRecipe(asked),kind);
+  const messages=[{role:'system',content:teamPlanPrompt(kind)},{role:'user',content:`${carried?`${asked}\n\n${carried}`:asked}\n\n${kindLine(kind)}\n${recipe}`}];
   let invalid='';
   for(let attempt=0;attempt<2;attempt++){
     if(signal?.aborted)throw new DOMException('Planning stopped','AbortError');
