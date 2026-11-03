@@ -1,4 +1,4 @@
-/* Grandpa Kit 15 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
+/* Grandpa Kit 16 — the app toolkit: state, screens, safe rendering, forms, tables, charts, CSV,
    game loop, sounds, timers and formatting for web tools, quizzes, games, dashboards and phone-style
    apps. No build step, no outside services. window.GrandpaApp */
 (function () {
@@ -510,6 +510,39 @@
       remove: function (id) { return run('remove', id); },
       summary: function (options) { return run('summary', options || {}); },
     };
+  };
+  /* ---- Phase D5: the app's own server code (server/<name>.js), run on Grandpa's server in a sandbox ---- */
+  var serverWaiting = {}, serverListening = false;
+  function serverListen() { if (serverListening) return; serverListening = true; window.addEventListener('message', function (e) {
+    var d = e.data;
+    if (e.source !== window.parent || window.parent === window || !d || d.grandpa !== 'server-result' || typeof d.id !== 'string' || !serverWaiting[d.id]) return;
+    var w = serverWaiting[d.id]; delete serverWaiting[d.id]; clearTimeout(w.timer);
+    // Build's preview: the test database comes back with what the code changed.
+    var changed = Object.keys(d.tables && typeof d.tables === 'object' ? d.tables : {}).filter(function (t) { return DB.schema && DB.schema.tables && DB.schema.tables[t] && Array.isArray(d.tables[t]); });
+    changed.forEach(function (t) { DB.local.tables[t] = d.tables[t]; });
+    if (changed.length) { dbLocalSave(); dbNotify(changed); }
+    (Array.isArray(d.logs) ? d.logs : []).forEach(function (l) { if (window.console) console.log('[server/' + w.name + '] ' + l); });
+    if (d.ok) w.resolve(d.result); else w.reject(dbError(d.error));
+  }); }
+  /** Runs server/<name>.js with this input; resolves to what it returns. */
+  App.server = function (name, input) {
+    dbSetup();
+    name = String(name || '');
+    if (!/^[a-z][a-z0-9_-]{0,39}$/.test(name)) return Promise.reject(dbError('Server code names use small letters, numbers, - and _.'));
+    var sent = input === undefined ? null : input;
+    if (DB.mode === 'cloud') {
+      return dbFlush().then(function () { return dbCall('POST', '/run/' + name, { input: sent }); }).then(function (data) {
+        if (Array.isArray(data.changed) && data.changed.length) dbNotify(data.changed);
+        return data.result;
+      }, function (e) { throw e instanceof TypeError ? dbError('No internet connection. Connect and try again.') : e; });
+    }
+    if (window.parent === window) return Promise.reject(dbError('Server code runs on the published app. Publish it, then open it from its address.'));
+    serverListen();
+    return new Promise(function (resolve, reject) {
+      var id = 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+      serverWaiting[id] = { name: name, resolve: resolve, reject: reject, timer: setTimeout(function () { delete serverWaiting[id]; reject(dbError('The server code did not answer. Try again.')); }, 20000) };
+      window.parent.postMessage({ grandpa: 'server-run', id: id, name: name, input: sent, tables: DB.local.tables, user: DB.localUser ? { id: DB.localUser.id, name: DB.localUser.name, role: DB.localUser.role } : null }, '*');
+    });
   };
   /** Calls fn(changedTables) when data changes here or on another phone (checked every few seconds). */
   App.db.onChange = function (fn) { dbSetup(); DB.listeners.push(fn); dbWatch(); return function () { DB.listeners = DB.listeners.filter(function (f) { return f !== fn; }); }; };

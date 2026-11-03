@@ -30,8 +30,9 @@ import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, fi
 import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, bookingTimes, slotProblem, ENTRY_KINDS, ENTRY_STATUSES } from './site-data.js';
 import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404, isAppSite, withAppRegistration, appServiceWorker, appPage, textColourOn } from './site-runtime.js';
 import { buildApk, newSigningKey, sealKey, openKey } from './android-app.js';
+import { runAction, actionFiles, actionWho, mayRun, whoText, sealSecret, openSecret, checkActions, ACTION_NAME } from './app-actions.js';
 import { buildExe } from './windows-app.js';
-import { checkSchema, cleanRecord, cleanQuery, cleanSummary as cleanAppSummary, createMemoryAppDb, createPostgresAppDb, allowed as appAllowed, effectChanges, recordMatches, fillMessage, labelOf, FILE_TYPES, FILE_BYTES, FILE_ID, designChanges } from './app-db.js';
+import { checkSchema, cleanRecord, cleanQuery, cleanSummary as cleanAppSummary, createMemoryAppDb, createPostgresAppDb, allowed as appAllowed, effectChanges, recordMatches, fillMessage, labelOf, FILE_TYPES, FILE_BYTES, FILE_ID, designChanges, SECRET_NAME } from './app-db.js';
 import { createMemoryAppUsers, createPostgresAppUsers } from './app-users.js';
 import { searchPhotos, fetchPhoto, youtubeInfo, searchWords, searchVideos } from './media-search.js';
 import { chooseRecipe, RECIPES, projectKind } from '../public/build-recipes.js';
@@ -2237,6 +2238,109 @@ app.get('/api/app-db/:slug/alerts', siteLimit, appDbAccess, async (req, res) => 
     res.json({ alerts: (await appDb.alerts(req.app_.slug, { since, limit: 100 })).filter((a) => canSeeAlert(req.app_.who, a)).slice(0, 50) });
   } catch (error) { dataFailed(res, error); }
 });
+// ---- Phase D5: the app's own server code (server/<name>.js), run in a sandbox ----------------
+const secretSeal = () => process.env.APP_SECRETS_SEAL_KEY || process.env.APP_SIGNING_SEAL_KEY || governanceConnection || 'grandpa-ai-local';
+const actionsCache = new Map();
+async function appActions(slug) {
+  const meta = await siteStore.meta(slug);
+  const cached = actionsCache.get(slug);
+  if (cached && cached.updatedAt === meta?.updatedAt) return cached.files;
+  const files = actionFiles((await siteStore.get(slug))?.files || []);
+  actionsCache.set(slug, { updatedAt: meta?.updatedAt, files });
+  while (actionsCache.size > 200) actionsCache.delete(actionsCache.keys().next().value);
+  return files;
+}
+const callerOf = (who) => who.user ? { id: who.user.id, name: who.user.name, role: who.user.role } : who.kind === 'owner' ? { id: 'owner', name: 'Owner', role: 'owner' } : who.kind === 'team' ? { id: 'team', name: 'Team', role: 'team' } : null;
+/**
+ * The database as server code sees it: the owner's power (the code was written for the owner), but every save
+ * goes through the same checks, links, effects, activity log and alerts as a save from the app.
+ */
+function actionDb(store, { slug, schema, who }, { after = true } = {}) {
+  const req = { app_: { slug, schema, who } };
+  return async (tbl, op, a, b) => {
+    const table = schema.tables[tbl];
+    if (!table) throw Object.assign(new Error(`This app has no table called "${String(tbl).slice(0, 40)}".`), { status: 404 });
+    if (op === 'get') return store.get(slug, tbl, String(a ?? ''));
+    if (op === 'list') return (await store.list(slug, tbl, cleanQuery(table, a || {}), table)).records;
+    if (op === 'summary') { const plan = cleanAppSummary(table, a || {}); return store.summary(slug, tbl, cleanQuery(table, { where: a?.where || {} }), table, plan); }
+    if (op === 'add') { const record = await store.add(slug, tbl, cleanRecord(table, a || {}), who.kind === 'user' ? who.id : null, schema); if (after) await afterWrite(req, tbl, 'add', null, record); return record; }
+    if (op === 'update') {
+      const before = await store.get(slug, tbl, String(a ?? ''));
+      const record = before && await store.update(slug, tbl, String(a), cleanRecord(table, b || {}, { partial: true }), schema);
+      if (!record) throw Object.assign(new Error('That record is not there any more.'), { status: 404 });
+      if (after) await afterWrite(req, tbl, 'change', before, record);
+      return record;
+    }
+    if (op === 'remove') { const removed = await store.remove(slug, tbl, String(a ?? ''), schema); if (removed && after) await afterWrite(req, tbl, 'remove', removed, null); return Boolean(removed); }
+    throw Object.assign(new Error('Unknown database request.'), { status: 400 });
+  };
+}
+// The published app runs one of its server files.
+app.post('/api/app-db/:slug/run/:name', siteLimit, appDbAccess, async (req, res) => {
+  const { slug, schema, who } = req.app_, name = String(req.params.name);
+  try {
+    const files = ACTION_NAME.test(name) ? await appActions(slug) : new Map();
+    if (!files.has(name)) { res.status(404).json({ error: `This app has no server code called "${name.slice(0, 40)}".` }); return; }
+    if (!mayRun(actionWho(files.get(name)), who)) {
+      if (who.kind === 'visitor') res.status(401).json({ error: schema.accounts ? 'Sign in to do this.' : 'This app is private. Sign in with the team passcode.', signIn: true });
+      else res.status(403).json({ error: 'Your account is not allowed to do that here. Ask the app\'s owner.' });
+      return;
+    }
+    await appDb.countRun(slug);
+    const sealed = await appDb.secrets(slug), secrets = {};
+    for (const [k, v] of Object.entries(sealed)) { try { secrets[k] = openSecret(v, secretSeal(), slug); } catch { /* a key that cannot be opened is left out */ } }
+    const before = await appDb.versions(slug);
+    const outcome = await runAction({ files, name, input: req.body?.input ?? null, user: callerOf(who), secrets, db: actionDb(appDb, req.app_) });
+    const after = await appDb.versions(slug), changed = Object.keys(schema.tables).filter((t) => (after[t] || 0) !== (before[t] || 0));
+    if (!outcome.ok) {
+      await appDb.log(slug, { who: whoName(who), action: 'server code failed', table: name, record: '', summary: `${outcome.error}${outcome.logs.length ? ` | ${outcome.logs.slice(-3).join(' | ')}` : ''}`.slice(0, 500) }).catch(() => {});
+      res.status(outcome.status || 422).json({ error: outcome.error });
+      return;
+    }
+    res.json({ result: outcome.result, changed });
+  } catch (error) { dataFailed(res, error); }
+});
+// Build's preview runs the project's server code against the preview's test database (copied in, sent back).
+app.post('/api/app-actions/try', rateLimit, requireAccess, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const name = String(req.body?.name || '');
+    const files = actionFiles(Array.isArray(req.body?.files) ? req.body.files.slice(0, 40) : []);
+    if (!ACTION_NAME.test(name) || !files.has(name)) { res.status(404).json({ error: `This app has no server code called "${name.slice(0, 40)}". Add server/${name.slice(0, 40)}.js.` }); return; }
+    let schema;
+    try { schema = checkSchema(String(req.body?.schema || '')); } catch (error) { res.status(400).json({ error: `data/schema.json: ${error.message}` }); return; }
+    const store = createMemoryAppDb(), slug = 'preview';
+    const given = req.body?.tables && typeof req.body.tables === 'object' ? req.body.tables : {};
+    for (const [tbl, rows] of Object.entries(given)) if (schema.tables[tbl] && Array.isArray(rows)) for (const row of rows.slice(0, 2000)) await store.seed(slug, tbl, row, schema);
+    const user = req.body?.user && typeof req.body.user === 'object' ? { id: String(req.body.user.id || '').slice(0, 40), name: String(req.body.user.name || '').slice(0, 80), role: String(req.body.user.role || '').slice(0, 40) } : null;
+    const who = user ? { kind: 'user', id: user.id, role: user.role, user } : { kind: 'owner' };
+    if (!mayRun(actionWho(files.get(name)), who)) { res.status(403).json({ error: `Only ${whoText(actionWho(files.get(name)))} may run server/${name}.js (see "export const who").` }); return; }
+    const before = await store.versions(slug);
+    const outcome = await runAction({ files, name, input: req.body?.input ?? null, user: user || { id: 'owner', name: 'Owner', role: 'owner' }, secrets: {}, db: actionDb(store, { slug, schema, who }, { after: false }) });
+    const after = await store.versions(slug), changed = Object.keys(schema.tables).filter((t) => (after[t] || 0) !== (before[t] || 0));
+    const all = changed.length ? await store.exportAll(slug) : [];
+    const tables = Object.fromEntries(changed.map((t) => [t, all.filter((r) => r.table === t).map(({ table, ...r }) => r)]));
+    res.status(outcome.ok ? 200 : outcome.status || 422).json(outcome.ok ? { result: outcome.result, logs: outcome.logs, tables } : { error: outcome.error, logs: outcome.logs, tables });
+  } catch (error) { dataFailed(res, error); }
+});
+// Manage: the app's server code (who may run each file) and its secret keys (names only; values never come back).
+app.get('/api/manage/:slug/app-code', rateLimit, manageAccess, async (req, res) => {
+  try {
+    const files = await appActions(req.site.slug);
+    const usage = appDb ? await appDb.usage(req.site.slug) : null;
+    res.json({ actions: [...files.entries()].map(([name, source]) => ({ name, who: whoText(actionWho(source)) })), secrets: appDb ? Object.keys(await appDb.secrets(req.site.slug)).sort() : [], runsToday: usage?.runsToday || 0, runsPerDay: usage?.limits.runsPerDay || 0 });
+  } catch (error) { dataFailed(res, error); }
+});
+app.put('/api/manage/:slug/app-secrets/:name', rateLimit, manageAccess, async (req, res) => {
+  const name = String(req.params.name), value = String(req.body?.value ?? '');
+  if (!SECRET_NAME.test(name)) { res.status(400).json({ error: 'Use capital letters, numbers and _ for the name, like PAYMENT_KEY.' }); return; }
+  if (!value || value.length > 4000) { res.status(400).json({ error: 'Paste the key (up to 4,000 characters).' }); return; }
+  try { await appDb.setSecret(req.site.slug, name, sealSecret(value, secretSeal(), req.site.slug)); res.json({ saved: name }); } catch (error) { dataFailed(res, error); }
+});
+app.delete('/api/manage/:slug/app-secrets/:name', rateLimit, manageAccess, async (req, res) => {
+  if (!SECRET_NAME.test(String(req.params.name))) { res.status(400).json({ error: 'There is no such key.' }); return; }
+  try { await appDb.setSecret(req.site.slug, String(req.params.name), null); res.json({ removed: String(req.params.name) }); } catch (error) { dataFailed(res, error); }
+});
 // The owner, in Manage: the design, the use against the limits, the team passcode and a full export.
 app.get('/api/manage/:slug/app-data', rateLimit, manageAccess, async (req, res) => {
   try {
@@ -2289,7 +2393,7 @@ app.get('/api/manage/:slug/app-activity', rateLimit, manageAccess, async (req, r
   try { res.json({ activity: appDb ? await appDb.activity(req.site.slug, 300) : [], alerts: appDb ? await appDb.alerts(req.site.slug, { limit: 50 }) : [] }); } catch (error) { dataFailed(res, error); }
 });
 // Phase D4: Build checks an app's data design (and its sample records) with the same rules as publishing.
-app.post('/api/app-design/check', rateLimit, requireAccess, (req, res) => {
+app.post('/api/app-design/check', rateLimit, requireAccess, async (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   const problems = [];
   let schema = null;
@@ -2303,6 +2407,9 @@ app.post('/api/app-design/check', rateLimit, requireAccess, (req, res) => {
       rows.slice(0, 50).forEach((row, i) => { try { cleanRecord(table, Object.fromEntries(Object.entries(row || {}).filter(([k]) => !['id', 'created', 'updated', 'by'].includes(k)))); } catch (error) { problems.push(`data/sample.json, ${name} record ${i + 1}: ${error.message}`); } });
     }
   }
+  // Phase D5: each server file must load in the sandbox and have a default function.
+  const code = actionFiles(Array.isArray(req.body?.actions) ? req.body.actions.slice(0, 40) : []);
+  if (code.size) problems.push(...await checkActions(code));
   res.json({ ok: !problems.length, problems: problems.slice(0, 10) });
 });
 // Only Grandpa AI's owner may raise one app's limits (never unlimited).
@@ -2441,7 +2548,7 @@ app.get('/s/:slug/_grandpa/sw.js', async (req, res) => {
   const site = onSitesHost(req) && siteStore && validSlug(req.params.slug) ? await siteStore.get(req.params.slug).catch(() => null) : null;
   if (!site || !isAppSite(site.files)) { res.status(404).end(); return; }
   res.set({ ...siteHeaders(req), 'Cache-Control': 'no-cache', 'Service-Worker-Allowed': `/${site.slug}/` });
-  res.type('text/javascript; charset=utf-8').send(appServiceWorker({ slug: site.slug, version: site.updatedAt, paths: site.files.map((f) => f.path) }));
+  res.type('text/javascript; charset=utf-8').send(appServiceWorker({ slug: site.slug, version: site.updatedAt, paths: site.files.map((f) => f.path).filter((p) => !p.startsWith('server/')) }));
 });
 app.get('/s/:slug/_grandpa/app', async (req, res) => {
   res.set({ ...siteHeaders(req), 'Cache-Control': 'no-cache' });

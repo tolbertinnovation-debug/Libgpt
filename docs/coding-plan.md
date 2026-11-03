@@ -597,7 +597,46 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
   - in Chromium, at phone size: the "Your app's data" card shows the tables, fields and accounts, and saying "yes" sends the approved plan to the builders;
   - in the check run, a clean app reports nothing; a wrong table name, a bad sample record and a table that cannot save a record are each reported;
   - no page errors.
-- **Next (needs a decision):** Phase D5, custom server code for an app, run in a sandbox.
+
+### Phase D5: the app's own server code, in a sandbox (done)
+- **What it is for:** work that must not be done or trusted on a visitor's phone, such as prices and totals worked out from the products table, steps that change several tables together, checks across records, and calling another service with a secret key. Plain saving and listing stays in `App.db`.
+- **How an app uses it:**
+  - A file `server/<name>.js` with `export default async function (input, app)`. The page calls `await App.server('<name>', input)`.
+  - `export const who = 'everyone' | 'signed-in' | 'team' | ['staff', …]` says who may run it. Without it, only the owner and the team can, because the code runs with the owner's power.
+  - `app.db(table)` has get, list, add, update, remove and summary. Every save goes through the same checks, links, effects, activity log and alerts as a save from the app.
+  - `app.user` is the person running it. `app.fetch(url, options)` calls another service. `app.secrets.NAME` reads a key the owner added. `console.log` goes to the owner's log.
+- **The sandbox:** QuickJS compiled to WebAssembly (`quickjs-wasi`, already used by the `workflow` package, now a direct dependency; free, with no new service).
+  - Each run gets a fresh engine with no files, network, timers, imports or access to Grandpa AI's process, keys or other apps.
+  - Limits per run: 1 s of computing (loops are stopped), 10 s in all, 32 MB of memory, 100 database calls, 3 web calls (5 s and 512 KB each), 64 KB in and 256 KB out.
+  - Each app may run its code 2,000 times a day. Only Grandpa AI's owner can raise that, like the other app limits.
+- **Web calls** use HTTPS on the normal port only. The name is looked up once; addresses on this machine, private networks or the cloud's metadata service are refused, and the connection goes to the checked address. Redirects are not followed.
+- **Secret keys:** the owner adds them in Manage → App data → Server code (at most 20 per app).
+  - They are sealed with AES-256-GCM, with a key derived from a server secret and tied to the app.
+  - They are opened only for a run and never shown again.
+  - Failed runs are listed in the owner's Activity with the error and the last log lines.
+- **Visitors never see the code:** `server/…` is never served, and is left out of the installed app's offline files.
+- **In Build:**
+  - The preview sends `App.server` calls (checked messages from the visible preview only) to `POST /api/app-actions/try`. That runs the same code against a copy of the preview's test database and sends back the tables it changed. Secret keys are empty there.
+  - After each build the checks report:
+    - a page calling `App.server('x')` with no `server/x.js`;
+    - badly named server files;
+    - server code using a table the design lacks, or with no `data/schema.json`;
+    - a file that does not load or has no default function (checked in the sandbox on the server).
+  - The kit guide teaches SERVER CODE (Grandpa Kit 16).
+- **Verified:**
+  - Tests cover:
+    - who may run code;
+    - the sandbox: no Node, timers or host functions; a loop stops after 1 s; memory, database-call, web-call, time, input and output limits; errors meant for people pass through, others are hidden; `app` cannot be changed;
+    - web-call refusals: http, other ports, passwords in the address, localhost, private, metadata and IPv6-mapped addresses, a name that points inside;
+    - sealing keys to their app, keys and daily runs in both the memory and Postgres stores;
+    - Build's checks and the preview message checks;
+    - the whole published story: the code is not served, the price comes from the database, stock goes down by effect, a refusal gives the reason, owner-only code refuses visitors, keys are read but never returned, failures are logged, the preview continues the order numbers.
+  - In Chromium, at phone size:
+    - in Build's preview, buying runs the server code (ORD-0001, LRD 3600), the stock goes 5 → 3, and an order that is too big says "Not enough stock for Rice: 3 left.";
+    - published on the sites address, a visitor's order runs on the server, the stock goes down, and `server/checkout.js` gives 404;
+    - Manage lists the code, who may use it and today's runs, and saves a secret key without showing it again;
+    - no page errors.
+  - `npm run build` copies the engine (`quickjs.wasm`) into the server function, and it resolves there.
 
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).

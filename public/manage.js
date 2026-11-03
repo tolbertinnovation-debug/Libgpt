@@ -430,9 +430,11 @@ async function showData() {
       } }))),
   ];
   if (state.data.accounts) parts.splice(3, 0, h('div', { id: 'accounts', class: 'card' }, h('p', { class: 'note', text: 'Loading accounts…' })));
+  parts.push(h('div', { id: 'code', class: 'card', hidden: true }));
   parts.push(h('div', { id: 'activity', class: 'card' }, h('p', { class: 'note', text: 'Loading activity…' })));
   panel().replaceChildren(...parts);
   if (state.data.accounts) await showAccounts();
+  showCode();
   showActivity();
   await showRecords(schema);
 }
@@ -621,6 +623,36 @@ async function showActivity() {
       ...(activity.length && alerts.length ? [h('h3', { text: 'Recent changes' })] : []),
       activity.length ? h('ul', { class: 'activity' }, activity.slice(0, 60).map((a) => h('li', {}, h('span', { class: 'note', text: when(a.at) }), ` ${a.who} ${a.action} `, h('strong', { text: a.summary || a.table }), ` (${state.data.schema.tables[a.table]?.label || a.table})`)))
         : h('p', { class: 'note', text: 'Nothing yet. Every addition, change and removal in the app is listed here.' })]);
+  } catch (error) { if (!error.quiet) box.replaceChildren(h('p', { class: 'msg error', role: 'alert', text: error.message })); }
+}
+
+/* ---- the app's server code and its secret keys (Phase D5) ------------------ */
+async function showCode() {
+  const box = document.getElementById('code');
+  if (!box) return;
+  try {
+    const { actions, secrets, runsToday, runsPerDay } = await api('/app-code');
+    if (!actions.length && !secrets.length) { box.hidden = true; return; }
+    const status = h('p', { class: 'msg', role: 'status' });
+    const name = h('input', { id: 'secret-name', autocomplete: 'off', maxlength: 40, placeholder: 'PAYMENT_KEY', pattern: '[A-Z][A-Z0-9_]*', required: true });
+    const value = h('input', { id: 'secret-value', type: 'password', autocomplete: 'off', maxlength: 4000, required: true });
+    box.hidden = false;
+    box.replaceChildren(h('h2', { text: 'Server code' }),
+      h('p', { class: 'note', text: `Parts of the app that run on Grandpa's server, in a sandbox. Used ${runsToday.toLocaleString()} of ${runsPerDay.toLocaleString()} times today. Mistakes are listed under Activity.` }),
+      actions.length ? h('ul', { class: 'activity' }, actions.map((a) => h('li', {}, h('strong', { text: a.name }), ` — can be used by ${a.who}`))) : h('p', { class: 'note', text: 'This version of the app has no server code.' }),
+      h('h3', { text: 'Secret keys' }),
+      h('p', { class: 'note', text: 'Keys for other services (for example a payment or SMS service). Only the app\'s server code can read them: they are never shown again, here or in the app. Only add keys from services you trust, and never your own passwords.' }),
+      secrets.length ? h('ul', { class: 'activity' }, secrets.map((k) => h('li', {}, h('code', { text: k }), ' ', h('button', { type: 'button', class: 'danger', text: 'Remove', onclick: async () => {
+        if (!confirm(`Remove ${k}? Server code that uses it will stop working.`)) return;
+        try { await api(`/app-secrets/${encodeURIComponent(k)}`, { method: 'DELETE' }); await showCode(); } catch (error) { if (!error.quiet) message(status, error.message); }
+      } })))) : h('p', { class: 'note', text: 'No keys yet.' }),
+      h('form', { onsubmit: async (event) => {
+        event.preventDefault();
+        const key = name.value.trim().toUpperCase();
+        try { await api(`/app-secrets/${encodeURIComponent(key)}`, { method: 'PUT', body: { value: value.value } }); value.value = ''; name.value = ''; await showCode(); message(document.querySelector('#code .msg'), `Saved ${key}. The server code reads it as app.secrets.${key}.`, true); }
+        catch (error) { if (!error.quiet) message(status, error.message); }
+      } }, h('label', { for: 'secret-name', text: 'Name (capital letters, like PAYMENT_KEY)' }), name, h('label', { for: 'secret-value', text: 'Key' }), value,
+        h('div', { class: 'row' }, h('button', { type: 'submit', class: 'primary', text: 'Save key' }))), status);
   } catch (error) { if (!error.quiet) box.replaceChildren(h('p', { class: 'msg error', role: 'alert', text: error.message })); }
 }
 
