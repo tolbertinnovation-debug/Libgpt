@@ -30,6 +30,7 @@ import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, fi
 import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, bookingTimes, slotProblem, ENTRY_KINDS, ENTRY_STATUSES } from './site-data.js';
 import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404, isAppSite, withAppRegistration, appServiceWorker, appPage, textColourOn } from './site-runtime.js';
 import { buildApk, newSigningKey, sealKey, openKey } from './android-app.js';
+import { buildExe } from './windows-app.js';
 import { searchPhotos, fetchPhoto, youtubeInfo, searchWords, searchVideos } from './media-search.js';
 import { chooseRecipe, RECIPES } from '../public/build-recipes.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
@@ -1861,7 +1862,7 @@ app.post('/api/sites', rateLimit, requireAccess, async (req, res) => {
   try {
     const result = await siteStore.publish({ slug, name: req.body?.name, files: req.body?.files, token: typeof req.body?.token === 'string' ? req.body.token : '' });
     const files = Array.isArray(req.body?.files) ? req.body.files : [];
-    res.json({ ...result, url: siteBase(req, result.slug), ...(isAppSite(files) ? { appUrl: `${siteBase(req, result.slug)}_grandpa/app`, installable: Boolean(SITES_HOST), ...(SITES_HOST ? { apkUrl: `${siteBase(req, result.slug)}_grandpa/app.apk` } : {}) } : {}) });
+    res.json({ ...result, url: siteBase(req, result.slug), ...(isAppSite(files) ? { appUrl: `${siteBase(req, result.slug)}_grandpa/app`, installable: Boolean(SITES_HOST), ...(SITES_HOST ? { apkUrl: `${siteBase(req, result.slug)}_grandpa/app.apk`, exeUrl: `${siteBase(req, result.slug)}_grandpa/app.exe` } : {}) } : {}) });
   } catch (error) { siteFailed(res, error); }
 });
 app.delete('/api/sites/:slug', rateLimit, requireAccess, async (req, res) => {
@@ -2097,7 +2098,7 @@ app.get('/s/:slug/_grandpa/app', async (req, res) => {
   if (!site || !isAppSite(site.files)) { res.status(404).type('html').send(notFoundPage('There is no app at this address.')); return; }
   const appUrl = `${siteBase(req, site.slug)}_grandpa/app`;
   const qr = await QRCode.toString(appUrl, { type: 'svg', margin: 2, errorCorrectionLevel: 'M', color: { dark: '#111111', light: '#ffffff' } }).catch(() => '');
-  res.type('html').send(appPage({ name: site.name, slug: site.slug, brand: brandColour(site.files), siteUrl: siteBase(req, site.slug), qr, installable: Boolean(SITES_HOST), apkUrl: SITES_HOST ? `${siteBase(req, site.slug)}_grandpa/app.apk` : '' }));
+  res.type('html').send(appPage({ name: site.name, slug: site.slug, brand: brandColour(site.files), siteUrl: siteBase(req, site.slug), qr, installable: Boolean(SITES_HOST), apkUrl: SITES_HOST ? `${siteBase(req, site.slug)}_grandpa/app.apk` : '', exeUrl: SITES_HOST ? `${siteBase(req, site.slug)}_grandpa/app.exe` : '' }));
 });
 // The Android app (Phase A2): Grandpa AI's template app with this app's name, icon and address, signed
 // with Grandpa AI's own signing key. The key is made once, sealed (AES-256-GCM) and kept in the database;
@@ -2127,6 +2128,28 @@ app.get('/s/:slug/_grandpa/app.apk', siteLimit, async (req, res) => {
   } catch (error) {
     console.error('[android]', error.message);
     res.status(503).type('html').send(notFoundPage('The Android app could not be made just now. Try again in a moment.'));
+  }
+});
+// The Windows app (Phase A3): Grandpa AI's launcher with this app's icon, address and name written in.
+// Not code-signed (a certificate costs money), so SmartScreen asks people to confirm it once.
+const exeCache = new Map();
+app.get('/s/:slug/_grandpa/app.exe', siteLimit, async (req, res) => {
+  res.set({ ...siteHeaders(req), 'Cache-Control': 'no-cache' });
+  const site = SITES_HOST && siteStore && validSlug(req.params.slug) ? await siteStore.get(req.params.slug).catch(() => null) : null;
+  if (!site || !isAppSite(site.files)) { res.status(404).type('html').send(notFoundPage('There is no Windows app at this address.')); return; }
+  try {
+    const found = brandColour(site.files), brand = /^#[0-9a-f]{6}$/i.test(found) ? found : '#1a56db';
+    const id = `${site.slug}|${site.updatedAt}|${site.name}|${brand}`;
+    let exe = exeCache.get(site.slug)?.id === id ? exeCache.get(site.slug).exe : null;
+    if (!exe) {
+      exe = buildExe({ slug: site.slug, name: site.name, url: siteBase(req, site.slug), brand, ink: textColourOn(brand) });
+      exeCache.delete(site.slug); exeCache.set(site.slug, { id, exe });
+      while (exeCache.size > 20) exeCache.delete(exeCache.keys().next().value);
+    }
+    res.set('Content-Disposition', `attachment; filename="${site.slug}.exe"`).type('application/vnd.microsoft.portable-executable').send(exe);
+  } catch (error) {
+    console.error('[windows]', error.message);
+    res.status(503).type('html').send(notFoundPage('The Windows app could not be made just now. Try again in a moment.'));
   }
 });
 // Videos and sound are sent in parts when the browser asks (Safari plays a video only that way, and seeking needs it).

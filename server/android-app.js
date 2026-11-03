@@ -66,8 +66,8 @@ function letterCoverage(size, letter) {
   return cover;
 }
 
-/** The app icon: the first letter of the name on the brand colour, in a rounded square. */
-export function iconPng(size, name, brand = '#1a56db', ink = '#ffffff') {
+/** The app icon's pixels (RGBA, top row first): the first letter of the name on the brand colour, in a rounded square. */
+export function iconRgba(size, name, brand = '#1a56db', ink = '#ffffff') {
   const letter = (String(name || '?').normalize('NFKD').toUpperCase().match(/[A-Z0-9]/) || ['?'])[0];
   const [br, bg, bb] = rgb(/^#[0-9a-f]{3,8}$/i.test(brand) ? brand : '#1a56db'), [ir, ig, ib] = rgb(ink);
   const cover = letterCoverage(size, letter), out = Buffer.alloc(size * size * 4);
@@ -82,8 +82,11 @@ export function iconPng(size, name, brand = '#1a56db', ink = '#ffffff') {
     const t = Math.min(1, cover[y * size + x]), i = (y * size + x) * 4;
     out[i] = Math.round(br + (ir - br) * t); out[i + 1] = Math.round(bg + (ig - bg) * t); out[i + 2] = Math.round(bb + (ib - bb) * t); out[i + 3] = Math.round(255 * shape);
   }
-  return png(size, size, out);
+  return out;
 }
+
+/** The app icon as a PNG file. */
+export const iconPng = (size, name, brand, ink) => png(size, size, iconRgba(size, name, brand, ink));
 
 // ---- ZIP ------------------------------------------------------------------------
 /** The entries of a zip file: name, method, crc, sizes and the stored (possibly compressed) bytes. */

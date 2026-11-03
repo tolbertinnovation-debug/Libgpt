@@ -443,6 +443,27 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
 - **Not verifiable here:** installing and opening it on a phone (no Android emulator without hardware acceleration). Test on a real Android phone.
 - **What people will see:** Android asks to allow installing apps from the browser, and may say the app is not from the Play Store. The Play Store needs Google's paid developer account, which is not used.
 
+### Phase A3: Windows app download (.exe) for apps (done)
+- **Every published app** (never ordinary websites) gets `https://SITES_HOST/<address>/_grandpa/app.exe`. It is linked from the Get the app page (Windows card, with honest SmartScreen steps), from Build's publish sheet (**Windows app (.exe)**), and in the publish result (`exeUrl`).
+- **The program** (`windows/launcher/launcher.c`, 64-bit, 175 KB):
+  - When opened, it asks "Install <app> on this computer?". Yes adds Start menu and desktop shortcuts that open the app in its own Microsoft Edge window (`--app=<address>`; Chrome if Edge is missing, otherwise the default browser), with the app's icon. Then it opens the app.
+  - It copies nothing, changes no settings, never asks for administrator rights (`asInvoker` manifest), and keeps ASLR, DEP and high-entropy addresses on.
+  - To remove the app, delete its shortcuts.
+  - It opens only a plain https address of printable characters.
+  - A damaged or incomplete file says so and stops.
+- **How it is made, with no compiling on the server and nothing paid** (`server/windows-app.js`):
+  - The launcher is built once with the free MinGW-w64 cross-compiler (`scripts/windows-app/build.sh`, `-Wall -Wextra -Werror`) and committed as `server/windows/launcher-exe.js`.
+  - For each app, the server redraws the program's own icon images in place (32-bit BMP images of fixed size, 16–128 px, the same letter-on-colour icon as Android). It then appends `url=`, `name=`, `slug=`, an .ico file (PNG images, 16–256 px) and a 16-byte footer (`GPAPP001`, sizes).
+  - Each version is cached in memory per app.
+- **Verified under Wine 9:**
+  - the program reads its details;
+  - with Edge registered, it finds it;
+  - `--install-quiet` writes `%LOCALAPPDATA%\Grandpa AI apps\<address>\app.ico` and both shortcuts. The desktop shortcut's target is msedge.exe with `--app="https://…"` and the app's icon;
+  - a truncated file exits with an error.
+- **Tests** check that only the icon images change in the program, the details as the launcher reads them, unsafe addresses refused, the PE flags and the asInvoker manifest, and the server routes.
+- **Not verifiable here:** a real Windows 10/11 PC with Edge and SmartScreen. Test on a Windows computer.
+- **What people will see:** SmartScreen's "Windows protected your PC" (More info → Run anyway), because the program is not code-signed; signing needs a paid certificate, which is not used. The "Install the app" button from Phase A1 has no warning and remains the recommended way on Windows.
+
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).
