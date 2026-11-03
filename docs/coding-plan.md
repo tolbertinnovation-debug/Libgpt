@@ -677,6 +677,27 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
     - Manage connects to the test system without showing keys and lists the payment;
     - no page errors.
 
+### Owner-paid services, P3: a site's own domain (done; switched on by adding a Vercel token)
+- **The owner's part:** they buy their domain from any registrar and pay the registrar directly. In Manage → Settings → "Your own address" they add it, up to 2 per site (for example mamashop.com and www.mamashop.com).
+- **What Grandpa does:**
+  - adds the domain to its own Vercel project through the Vercel API (no extra cost);
+  - shows the DNS records to set: an A record `76.76.21.21` for an apex, a CNAME `cname.vercel-dns.com` for a subdomain, plus any TXT record Vercel asks for, using Vercel's recommended values when it gives them;
+  - offers "Check again" (it asks Vercel to verify), and Remove takes the domain off the project.
+- **Switching it on (Samuel, in Vercel → Settings → Environment Variables, never in code):** `VERCEL_API_TOKEN` (Account Settings → Tokens), `VERCEL_PROJECT_ID`, and `VERCEL_TEAM_ID` if the project belongs to a team. Optional: `MAIN_HOSTS`, if Grandpa AI's own addresses ever change from libgrandpaai.com and www.libgrandpaai.com.
+- **Routing:**
+  - With the token set, the build adds a Vercel route, ahead of the file check, that sends every host except Grandpa AI's own (the main addresses, the sites address, `*.vercel.app`, localhost and bare IPs) to the server. Without the token, routing is unchanged.
+  - The server looks the host up (cached for a minute) and opens that site at the root. Only its pages and files, its form and order addresses, and its own app database are served. `/s/<other site>`, `/manage` and other `/api` paths give 404.
+  - Pages there get the sites-address headers: their own origin, so no sandbox.
+  - Installing as an app stays on the sites address.
+- **Verified:**
+  - Tests cover:
+    - cleaning domains and refusing Grandpa AI's own addresses;
+    - the exact Vercel calls (add, already used elsewhere, status, verify, remove);
+    - the route pattern: Grandpa AI's own hosts and previews untouched, others to the server, and nothing added without the token (also checked with a PCRE-style engine);
+    - domains in the memory and Postgres stores (one site per domain, at most 2 per site);
+    - the whole story: owner-only, the domain opens the site and its pages at the root and nothing else, an unknown domain opens nothing, and removing it stops it.
+  - In Chromium, Manage adds a domain, shows the A record, then shows "working" once DNS is set.
+
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).

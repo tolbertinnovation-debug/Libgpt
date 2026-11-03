@@ -32,6 +32,7 @@ import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, s
 import { buildApk, newSigningKey, sealKey, openKey } from './android-app.js';
 import { MESSAGE_KEYS, MESSAGE_DEFAULTS, connected as messagesConnected, cleanMessageSettings, sendSms, sendEmail } from './app-messages.js';
 import { MOMO_KEYS, PAYMENT_DEFAULTS, PAYMENT_ID, momoConnected, cleanPaymentSettings, cleanPaymentRequest, momoClient, publicPayment } from './app-payments.js';
+import { domainsConfig, reservedHosts, cleanDomain, vercelDomains, dnsRecords, DOMAINS_PER_SITE } from './custom-domains.js';
 import { runAction, actionFiles, actionWho, mayRun, whoText, sealSecret, openSecret, checkActions, ACTION_NAME, safeFetch } from './app-actions.js';
 import { buildExe } from './windows-app.js';
 import { checkSchema, cleanRecord, cleanQuery, cleanSummary as cleanAppSummary, createMemoryAppDb, createPostgresAppDb, allowed as appAllowed, effectChanges, recordMatches, fillMessage, labelOf, FILE_TYPES, FILE_BYTES, FILE_ID, designChanges, SECRET_NAME } from './app-db.js';
@@ -132,6 +133,30 @@ app.use((req, res, next) => (/^\/api\/app-db\/[a-z0-9-]+\/files$/.test(req.path)
 // else of Grandpa AI is served there. Old /s/<address>/ links forward.
 const SITES_HOST = String(process.env.SITES_HOST || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
 const onSitesHost = (req) => Boolean(SITES_HOST) && String(req.hostname || '').toLowerCase() === SITES_HOST;
+// ---- custom domains (owner-paid services, P3): a domain the site's owner bought opens their site at its root ----
+const domainCache = new Map();
+async function customSiteFor(host) {
+  const kept = domainCache.get(host);
+  if (kept && kept.until > Date.now()) return kept.slug;
+  let slug = null;
+  try { slug = siteStore ? await siteStore.siteForDomain(host) : null; } catch { slug = null; }
+  domainCache.set(host, { slug, until: Date.now() + (slug ? 60_000 : 15_000) });
+  while (domainCache.size > 1000) domainCache.delete(domainCache.keys().next().value);
+  return slug;
+}
+const maybeCustomHost = (host) => /\.[a-z]{2,24}$/.test(host) && host !== SITES_HOST && !reservedHosts().includes(host) && !/(^|\.)(vercel\.app|localhost)$/.test(host);
+app.use(async (req, res, next) => {
+  const host = String(req.hostname || '').toLowerCase();
+  if (!maybeCustomHost(host)) { next(); return; }
+  const slug = await customSiteFor(host);
+  if (!slug) { next(); return; }
+  req.customDomain = host;
+  // Only this site: its pages and files, its send-only addresses, and its own app database.
+  if (/^\/api\/(?:site-data|site-slots)\//.test(req.path) || req.path.startsWith(`/api/app-db/${slug}/`) || req.path === `/s/${slug}` || req.path.startsWith(`/s/${slug}/`)) { next(); return; }
+  if (/^\/(?:api|s|manage)(?:\/|$)/.test(req.path)) { res.status(404).type('text/plain').send('Not found.'); return; }
+  req.url = `/s/${slug}${req.path}${req.originalUrl.slice(req.path.length)}`;
+  next();
+});
 app.use((req, res, next) => {
   if (!onSitesHost(req)) {
     // A visitor opening an old link goes to the new address (the app's own fetches are left alone).
@@ -2446,6 +2471,47 @@ app.get('/api/manage/:slug/app-code', rateLimit, manageAccess, async (req, res) 
     res.json({ actions: [...files.entries()].map(([name, source]) => ({ name, who: whoText(actionWho(source)) })), secrets: appDb ? Object.keys(await appDb.secrets(req.site.slug)).sort() : [], runsToday: usage?.runsToday || 0, runsPerDay: usage?.limits.runsPerDay || 0 });
   } catch (error) { dataFailed(res, error); }
 });
+// Manage → Your own address: the owner's own domain, added to Grandpa AI's Vercel project, with the DNS records to set.
+const domainFetch = (...args) => (app.locals.domainFetch || safeFetch)(...args);
+const vercel = () => vercelDomains(domainsConfig(), { fetch: domainFetch });
+async function domainList(slug) {
+  const names = await siteStore.domainsOf(slug);
+  if (!domainsConfig().enabled) return names.map((name) => ({ name, verified: false, configured: false, records: dnsRecords(name) }));
+  return Promise.all(names.map(async (name) => { try { return { name, ...(await vercel().status(name)) }; } catch { return { name, verified: false, configured: false, records: dnsRecords(name), unknown: true }; } }));
+}
+app.get('/api/manage/:slug/domains', rateLimit, manageAccess, async (req, res) => {
+  try { res.json({ enabled: domainsConfig().enabled, sitesUrl: siteBase(req, req.site.slug), domains: await domainList(req.site.slug) }); } catch (error) { dataFailed(res, error); }
+});
+app.post('/api/manage/:slug/domains', rateLimit, manageAccess, async (req, res) => {
+  try {
+    const name = cleanDomain(req.body?.domain);
+    if (!domainsConfig().enabled) { res.status(503).json({ error: 'Custom domains are not switched on yet. Grandpa AI\'s owner adds a Vercel token to switch them on.' }); return; }
+    if ((await siteStore.domainsOf(req.site.slug)).length >= DOMAINS_PER_SITE && !(await siteStore.domainsOf(req.site.slug)).includes(name)) { res.status(400).json({ error: `A site can have at most ${DOMAINS_PER_SITE} domains.` }); return; }
+    const other = await siteStore.siteForDomain(name);
+    if (other && other !== req.site.slug) { res.status(409).json({ error: 'That domain is already used by another site.' }); return; }
+    await vercel().add(name);
+    await siteStore.addDomain(req.site.slug, name);
+    domainCache.delete(name);
+    res.status(201).json({ domain: { name, ...(await vercel().status(name)) } });
+  } catch (error) { dataFailed(res, error); }
+});
+app.post('/api/manage/:slug/domains/:domain/check', rateLimit, manageAccess, async (req, res) => {
+  try {
+    const name = cleanDomain(req.params.domain);
+    if (!(await siteStore.domainsOf(req.site.slug)).includes(name)) { res.status(404).json({ error: 'This site has no such domain.' }); return; }
+    await vercel().verify(name).catch(() => null);
+    res.json({ domain: { name, ...(await vercel().status(name)) } });
+  } catch (error) { dataFailed(res, error); }
+});
+app.delete('/api/manage/:slug/domains/:domain', rateLimit, manageAccess, async (req, res) => {
+  try {
+    const name = cleanDomain(req.params.domain);
+    if (!(await siteStore.removeDomain(req.site.slug, name))) { res.status(404).json({ error: 'This site has no such domain.' }); return; }
+    domainCache.delete(name);
+    if (domainsConfig().enabled) await vercel().remove(name).catch(() => false);
+    res.json({ removed: name });
+  } catch (error) { dataFailed(res, error); }
+});
 // Manage → Messages: connect the owner's own Twilio (SMS) or Resend (email) account, choose who gets alerts, set a daily limit, send a test.
 app.get('/api/manage/:slug/messages', rateLimit, manageAccess, async (req, res) => {
   if (!appDb) { res.status(503).json({ error: 'Messages need the app database.' }); return; }
@@ -2667,7 +2733,8 @@ app.get('/manage/:slug', (_req, res) => {
 // opaque origin, so a site's own scripts can never read this app's storage,
 // cookies or access code, however they were written.
 // On the sites address the origin itself keeps sites apart from Grandpa AI, so no sandbox is needed there.
-const siteHeaders = (req) => (onSitesHost(req) ? { ...SITE_HEADERS, 'Content-Security-Policy': "frame-ancestors 'self'" } : SITE_HEADERS);
+// The sites address and a site's own domain are separate origins, so pages there need no sandbox.
+const siteHeaders = (req) => (onSitesHost(req) || req.customDomain ? { ...SITE_HEADERS, 'Content-Security-Policy': "frame-ancestors 'self'" } : SITE_HEADERS);
 const SITE_HEADERS = {
   'Content-Security-Policy': "sandbox allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-modals allow-downloads; frame-ancestors 'self'",
   'X-Content-Type-Options': 'nosniff',

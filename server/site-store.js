@@ -60,7 +60,7 @@ function makeRow(slug, name, files, size, tokenHash) {
 }
 
 export function createMemorySiteStore() {
-  const rows = new Map(), secrets = new Map();
+  const rows = new Map(), secrets = new Map(), domains = new Map();
   let created = [];
   return {
     durable: false,
@@ -87,8 +87,19 @@ export function createMemorySiteStore() {
       if (!current) return false;
       if (!admin && (!token || !equal(hash(token), current.tokenHash))) throw fail('Only the phone that published this site can remove it.', 403);
       rows.delete(slug);
+      for (const [d, s] of domains) if (s === slug) domains.delete(d);
       return true;
     },
+    // Custom domains (owner-paid services, P3): each domain opens one site.
+    async addDomain(slug, domain) {
+      const owner = domains.get(domain);
+      if (owner && owner !== slug) throw fail('That domain is already used by another site.', 409);
+      if (!owner && [...domains.values()].filter((s) => s === slug).length >= 2) throw fail('A site can have at most 2 domains.', 400);
+      domains.set(domain, slug); return true;
+    },
+    async removeDomain(slug, domain) { if (domains.get(domain) !== slug) return false; domains.delete(domain); return true; },
+    async domainsOf(slug) { return [...domains].filter(([, s]) => s === slug).map(([d]) => d).sort(); },
+    async siteForDomain(domain) { return domains.get(String(domain || '').toLowerCase()) || null; },
     async list() { return [...rows.values()].map(({ slug, name, size, updatedAt }) => ({ slug, name, size, updatedAt })); },
     async meta(slug) { const row = validSlug(slug) ? rows.get(slug) : null; return row ? metaOf(row.slug, row.name, row.tokenHash, row.files.map((f) => f.path), row.updatedAt) : null; },
     // A server secret made once (the app signing key, already sealed by the caller).
@@ -120,6 +131,14 @@ const SECRETS_SCHEMA = `CREATE TABLE IF NOT EXISTS public.grandpa_ai_site_secret
   PRIMARY KEY (scope, name)
 )`;
 
+const DOMAINS_SCHEMA = `CREATE TABLE IF NOT EXISTS public.grandpa_ai_site_domains (
+  scope text NOT NULL,
+  domain text NOT NULL,
+  slug text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (scope, domain)
+)`;
+
 export function createPostgresSiteStore({ connectionString, pool: suppliedPool, scope = governanceScope() } = {}) {
   const pool = suppliedPool || new pg.Pool(postgresPoolOptions(connectionString, { max: 3, connectionTimeoutMillis: 8000, idleTimeoutMillis: 10000, allowExitOnIdle: true }));
   if (!suppliedPool && process.env.VERCEL) attachDatabasePool(pool);
@@ -130,6 +149,7 @@ export function createPostgresSiteStore({ connectionString, pool: suppliedPool, 
       await client.query("SELECT pg_advisory_xact_lock(hashtext('grandpa_ai_sites_v1'))");
       await client.query(SCHEMA);
       await client.query(SECRETS_SCHEMA);
+      await client.query(DOMAINS_SCHEMA);
     }, { lock: '8s' }).catch((error) => { ready = undefined; throw error; });
     await ready;
   };
@@ -169,8 +189,30 @@ export function createPostgresSiteStore({ connectionString, pool: suppliedPool, 
         if (!current) return false;
         if (!admin && (!token || !equal(hash(token), current.token_hash))) throw fail('Only the phone that published this site can remove it.', 403);
         await client.query('DELETE FROM public.grandpa_ai_sites WHERE scope=$1 AND slug=$2', [scope, slug]);
+        await client.query('DELETE FROM public.grandpa_ai_site_domains WHERE scope=$1 AND slug=$2', [scope, slug]);
         return true;
       });
+    },
+    async addDomain(slug, domain) {
+      return transaction(async (client) => {
+        await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`site-domains:${scope}`]);
+        const owner = (await client.query('SELECT slug FROM public.grandpa_ai_site_domains WHERE scope=$1 AND domain=$2', [scope, domain])).rows[0]?.slug;
+        if (owner && owner !== slug) throw fail('That domain is already used by another site.', 409);
+        if (owner) return true;
+        const count = Number((await client.query('SELECT count(*)::integer AS n FROM public.grandpa_ai_site_domains WHERE scope=$1 AND slug=$2', [scope, slug])).rows[0].n);
+        if (count >= 2) throw fail('A site can have at most 2 domains.', 400);
+        await client.query('INSERT INTO public.grandpa_ai_site_domains (scope, domain, slug) VALUES ($1,$2,$3)', [scope, domain, slug]);
+        return true;
+      });
+    },
+    async removeDomain(slug, domain) {
+      return transaction(async (client) => (await client.query('DELETE FROM public.grandpa_ai_site_domains WHERE scope=$1 AND domain=$2 AND slug=$3', [scope, domain, slug])).rowCount > 0);
+    },
+    async domainsOf(slug) {
+      return transaction(async (client) => (await client.query('SELECT domain FROM public.grandpa_ai_site_domains WHERE scope=$1 AND slug=$2 ORDER BY domain', [scope, slug])).rows.map((r) => r.domain));
+    },
+    async siteForDomain(domain) {
+      return transaction(async (client) => (await client.query('SELECT slug FROM public.grandpa_ai_site_domains WHERE scope=$1 AND domain=$2', [scope, String(domain || '').toLowerCase()])).rows[0]?.slug || null);
     },
     async secret(name, create) {
       const read = async (client) => (await client.query('SELECT value FROM public.grandpa_ai_site_secrets WHERE scope=$1 AND name=$2', [scope, name])).rows[0]?.value;

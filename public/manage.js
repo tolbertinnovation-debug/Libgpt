@@ -824,11 +824,42 @@ function showSettings() {
   parts.push(h('div', { class: 'card' }, h('h2', { text: 'Backup' }),
     h('p', { class: 'note', text: 'One file with everything visitors sent, your prices and text, booking and shop settings, and visitor counts.' }),
     h('div', { class: 'row' }, download, h('button', { type: 'button', text: 'Restore prices, text and settings', onclick: () => restoreInput.click() })), restoreInput, backupStatus));
+  parts.push(h('div', { id: 'domains', class: 'card' }, h('p', { class: 'note', text: 'Loading your own address…' })));
   parts.push(h('button', { type: 'button', class: 'full', text: 'Sign out on this phone', onclick: async () => {
     if (!info.publisher) await api('/logout', { method: 'POST' }).catch(() => {});
     store.set(''); showLogin();
   } }));
   panel().replaceChildren(...parts);
+  showDomains();
+}
+
+/* ---- Your own address: a domain the owner bought (they pay the registrar) ---- */
+async function showDomains() {
+  const box = document.getElementById('domains');
+  if (!box) return;
+  try {
+    const { enabled, sitesUrl, domains } = await api('/domains');
+    const status = h('p', { class: 'msg domain-status', role: 'status' });
+    const say = (text, ok = false) => message(box.querySelector('.domain-status') || status, text, ok);
+    const input = h('input', { id: 'domain-name', autocomplete: 'off', placeholder: 'mamashop.com', maxlength: 253, required: true });
+    const records = (d) => h('table', { class: 'data' }, h('thead', {}, h('tr', {}, h('th', { text: 'Type' }), h('th', { text: 'Name / Host' }), h('th', { text: 'Value' }))),
+      h('tbody', {}, d.records.map((r) => h('tr', {}, h('td', { text: r.type }), h('td', { text: r.name }), h('td', {}, h('code', { text: r.value }))))));
+    box.replaceChildren(h('h2', { text: 'Your own address (domain)' }),
+      h('p', { class: 'note', text: `Your site is at ${sitesUrl}. You can also open it at your own domain, like mamashop.com: buy the domain from any registrar (for example Namecheap), where you pay them directly. Grandpa AI does not charge for this.` }),
+      ...domains.map((d) => h('div', { class: 'domain' },
+        h('p', {}, h('strong', { text: d.name }), ' — ', d.verified && d.configured ? h('a', { href: `https://${d.name}/`, target: '_blank', rel: 'noopener', text: 'working ✓ open it' }) : h('span', { text: 'waiting for its DNS records' })),
+        d.verified && d.configured ? null : h('p', { class: 'note', text: 'At your registrar, open this domain\'s DNS settings and add these records (remove other A or CNAME records for the same name). It can take from a few minutes to a day to work.' }),
+        d.verified && d.configured ? null : records(d),
+        h('div', { class: 'row' },
+          d.verified && d.configured ? null : h('button', { type: 'button', text: 'Check again', onclick: async () => { try { const r = await api(`/domains/${encodeURIComponent(d.name)}/check`, { method: 'POST' }); await showDomains(); say(r.domain.verified && r.domain.configured ? `${d.name} works.` : 'Not yet. DNS changes can take a while; check again later.', r.domain.verified && r.domain.configured); } catch (error) { if (!error.quiet) say(error.message); } } }),
+          h('button', { type: 'button', class: 'danger', text: 'Remove', onclick: async () => { if (!confirm(`Stop opening the site at ${d.name}?`)) return; try { await api(`/domains/${encodeURIComponent(d.name)}`, { method: 'DELETE' }); await showDomains(); } catch (error) { if (!error.quiet) say(error.message); } } })))),
+      enabled ? (domains.length < 2 ? h('form', { onsubmit: async (event) => {
+        event.preventDefault();
+        try { await api('/domains', { method: 'POST', body: { domain: input.value } }); await showDomains(); say('Added. Now set the DNS records shown above at your registrar.', true); } catch (error) { if (!error.quiet) say(error.message); }
+      } }, h('label', { for: 'domain-name', text: 'Your domain' }), input, h('div', { class: 'row' }, h('button', { type: 'submit', class: 'primary', text: 'Add domain' }))) : null)
+        : h('p', { class: 'note', text: 'Custom domains are not switched on for Grandpa AI yet.' }),
+      status);
+  } catch (error) { if (!error.quiet) box.replaceChildren(h('p', { class: 'msg error', role: 'alert', text: error.message })); }
 }
 
 start();
