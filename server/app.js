@@ -30,7 +30,8 @@ import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, fi
 import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, bookingTimes, slotProblem, ENTRY_KINDS, ENTRY_STATUSES } from './site-data.js';
 import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404, isAppSite, withAppRegistration, appServiceWorker, appPage, textColourOn } from './site-runtime.js';
 import { buildApk, newSigningKey, sealKey, openKey } from './android-app.js';
-import { runAction, actionFiles, actionWho, mayRun, whoText, sealSecret, openSecret, checkActions, ACTION_NAME } from './app-actions.js';
+import { MESSAGE_KEYS, MESSAGE_DEFAULTS, connected as messagesConnected, cleanMessageSettings, sendSms, sendEmail } from './app-messages.js';
+import { runAction, actionFiles, actionWho, mayRun, whoText, sealSecret, openSecret, checkActions, ACTION_NAME, safeFetch } from './app-actions.js';
 import { buildExe } from './windows-app.js';
 import { checkSchema, cleanRecord, cleanQuery, cleanSummary as cleanAppSummary, createMemoryAppDb, createPostgresAppDb, allowed as appAllowed, effectChanges, recordMatches, fillMessage, labelOf, FILE_TYPES, FILE_BYTES, FILE_ID, designChanges, SECRET_NAME } from './app-db.js';
 import { createMemoryAppUsers, createPostgresAppUsers } from './app-users.js';
@@ -2060,7 +2061,9 @@ async function afterWrite(req, tbl, kind, before, after) {
         const t = schema.tables[name];
         if (!recordMatches(now, alert.when, t)) continue;
         if (how === 'change' && alert.when && was && recordMatches(was, alert.when, t)) continue;   // only when it becomes true
-        await appDb.addAlert(slug, { message: fillMessage(alert.message, now, whoName(who)), for: alert.for, table: name, record: now.id });
+        const text = fillMessage(alert.message, now, whoName(who));
+        await appDb.addAlert(slug, { message: text, for: alert.for, table: name, record: now.id });
+        await sendAlertMessages(slug, text);
       }
     };
     if (kind !== 'remove') await raise(tbl, before, after, kind);
@@ -2238,6 +2241,40 @@ app.get('/api/app-db/:slug/alerts', siteLimit, appDbAccess, async (req, res) => 
     res.json({ alerts: (await appDb.alerts(req.app_.slug, { since, limit: 100 })).filter((a) => canSeeAlert(req.app_.who, a)).slice(0, 50) });
   } catch (error) { dataFailed(res, error); }
 });
+// ---- Messages: SMS and email through the app owner's own account (Twilio / Resend) --------------
+// The owner pays the provider directly; Grandpa AI never pays for or resells messages. Tests swap the sender with app.locals.messageFetch.
+const messageFetch = (...args) => (app.locals.messageFetch || safeFetch)(...args);
+async function openedSecrets(slug) {
+  const sealed = await appDb.secrets(slug), out = {};
+  for (const [k, v] of Object.entries(sealed)) { try { out[k] = openSecret(v, secretSeal(), slug); } catch { /* a key that cannot be opened is left out */ } }
+  return out;
+}
+const messageSettings = async (slug) => ({ ...MESSAGE_DEFAULTS, ...(await appDb.settings(slug)) });
+const dryRun = async () => ({ status: 200, ok: true, text: '{}' });
+/** Sends for one app, counted against the owner's own daily limit. */
+async function appMessenger(slug) {
+  const [secrets, settings] = await Promise.all([openedSecrets(slug), messageSettings(slug)]);
+  const count = () => appDb.countMessages(slug, 1, settings.messagesPerDay);
+  return {
+    settings, connected: messagesConnected(secrets),
+    // Only messages that can go are counted: not connected or a wrong address fails first, free.
+    sms: async (to, text) => { await sendSms(secrets, to, text, { country: settings.country, fetch: dryRun }); await count(); return sendSms(secrets, to, text, { country: settings.country, fetch: messageFetch }); },
+    email: async (to, subject, text) => { await sendEmail(secrets, to, subject, text, { fetch: dryRun }); await count(); return sendEmail(secrets, to, subject, text, { fetch: messageFetch }); },
+  };
+}
+/** An alert also goes by SMS and email to the people the owner chose, when the owner has connected their account. Never fails the save. */
+async function sendAlertMessages(slug, text) {
+  try {
+    const settings = await messageSettings(slug);
+    if (!settings.alertSms.length && !settings.alertEmail.length) return;
+    const messenger = await appMessenger(slug);
+    const jobs = [...(messenger.connected.sms ? settings.alertSms.map((to) => () => messenger.sms(to, text)) : []), ...(messenger.connected.email ? settings.alertEmail.map((to) => () => messenger.email(to, `Alert: ${text.slice(0, 80)}`, text)) : [])];
+    for (const job of jobs) {
+      try { await job(); } catch (error) { await appDb.log(slug, { who: 'Messages', action: 'message failed', table: '', record: '', summary: String(error.message).slice(0, 300) }).catch(() => {}); if (error.status === 429) break; }
+    }
+  } catch (error) { console.error('[app-messages]', error.message); }
+}
+
 // ---- Phase D5: the app's own server code (server/<name>.js), run in a sandbox ----------------
 const secretSeal = () => process.env.APP_SECRETS_SEAL_KEY || process.env.APP_SIGNING_SEAL_KEY || governanceConnection || 'grandpa-ai-local';
 const actionsCache = new Map();
@@ -2287,10 +2324,9 @@ app.post('/api/app-db/:slug/run/:name', siteLimit, appDbAccess, async (req, res)
       return;
     }
     await appDb.countRun(slug);
-    const sealed = await appDb.secrets(slug), secrets = {};
-    for (const [k, v] of Object.entries(sealed)) { try { secrets[k] = openSecret(v, secretSeal(), slug); } catch { /* a key that cannot be opened is left out */ } }
+    const secrets = await openedSecrets(slug), messenger = await appMessenger(slug);
     const before = await appDb.versions(slug);
-    const outcome = await runAction({ files, name, input: req.body?.input ?? null, user: callerOf(who), secrets, db: actionDb(appDb, req.app_) });
+    const outcome = await runAction({ files, name, input: req.body?.input ?? null, user: callerOf(who), secrets, db: actionDb(appDb, req.app_), messages: messenger });
     const after = await appDb.versions(slug), changed = Object.keys(schema.tables).filter((t) => (after[t] || 0) !== (before[t] || 0));
     if (!outcome.ok) {
       await appDb.log(slug, { who: whoName(who), action: 'server code failed', table: name, record: '', summary: `${outcome.error}${outcome.logs.length ? ` | ${outcome.logs.slice(-3).join(' | ')}` : ''}`.slice(0, 500) }).catch(() => {});
@@ -2316,7 +2352,11 @@ app.post('/api/app-actions/try', rateLimit, requireAccess, async (req, res) => {
     const who = user ? { kind: 'user', id: user.id, role: user.role, user } : { kind: 'owner' };
     if (!mayRun(actionWho(files.get(name)), who)) { res.status(403).json({ error: `Only ${whoText(actionWho(files.get(name)))} may run server/${name}.js (see "export const who").` }); return; }
     const before = await store.versions(slug);
-    const outcome = await runAction({ files, name, input: req.body?.input ?? null, user: user || { id: 'owner', name: 'Owner', role: 'owner' }, secrets: {}, db: actionDb(store, { slug, schema, who }, { after: false }) });
+    const shown = [];
+    const preview = { sms: async (to, text) => { shown.push(`SMS to ${to} (not sent in the preview): ${String(text).slice(0, 200)}`); return { sent: false, preview: true, channel: 'sms', to }; },
+      email: async (to, subject, text) => { shown.push(`Email to ${to} (not sent in the preview): ${String(subject).slice(0, 100)}`); return { sent: false, preview: true, channel: 'email', to }; } };
+    const outcome = await runAction({ files, name, input: req.body?.input ?? null, user: user || { id: 'owner', name: 'Owner', role: 'owner' }, secrets: {}, db: actionDb(store, { slug, schema, who }, { after: false }), messages: preview });
+    outcome.logs.push(...shown);
     const after = await store.versions(slug), changed = Object.keys(schema.tables).filter((t) => (after[t] || 0) !== (before[t] || 0));
     const all = changed.length ? await store.exportAll(slug) : [];
     const tables = Object.fromEntries(changed.map((t) => [t, all.filter((r) => r.table === t).map(({ table, ...r }) => r)]));
@@ -2329,6 +2369,43 @@ app.get('/api/manage/:slug/app-code', rateLimit, manageAccess, async (req, res) 
     const files = await appActions(req.site.slug);
     const usage = appDb ? await appDb.usage(req.site.slug) : null;
     res.json({ actions: [...files.entries()].map(([name, source]) => ({ name, who: whoText(actionWho(source)) })), secrets: appDb ? Object.keys(await appDb.secrets(req.site.slug)).sort() : [], runsToday: usage?.runsToday || 0, runsPerDay: usage?.limits.runsPerDay || 0 });
+  } catch (error) { dataFailed(res, error); }
+});
+// Manage → Messages: connect the owner's own Twilio (SMS) or Resend (email) account, choose who gets alerts, set a daily limit, send a test.
+app.get('/api/manage/:slug/messages', rateLimit, manageAccess, async (req, res) => {
+  if (!appDb) { res.status(503).json({ error: 'Messages need the app database.' }); return; }
+  try {
+    const sealed = await appDb.secrets(req.site.slug), names = Object.fromEntries(Object.keys(sealed).map((k) => [k, true]));
+    res.json({ connected: messagesConnected(names), settings: await messageSettings(req.site.slug), sentToday: await appDb.messagesToday(req.site.slug) });
+  } catch (error) { dataFailed(res, error); }
+});
+app.put('/api/manage/:slug/messages/settings', rateLimit, manageAccess, async (req, res) => {
+  try { res.json({ settings: await appDb.setSettings(req.site.slug, cleanMessageSettings(req.body || {}, await messageSettings(req.site.slug))) }); } catch (error) { dataFailed(res, error); }
+});
+app.put('/api/manage/:slug/messages/:channel(sms|email)', rateLimit, manageAccess, async (req, res) => {
+  const channel = req.params.channel, b = req.body || {};
+  const values = channel === 'sms'
+    ? { TWILIO_ACCOUNT_SID: String(b.accountSid || '').trim(), TWILIO_AUTH_TOKEN: String(b.authToken || '').trim(), SMS_FROM: String(b.from || '').trim() }
+    : { RESEND_API_KEY: String(b.apiKey || '').trim(), EMAIL_FROM: String(b.from || '').trim() };
+  if (channel === 'sms' && !/^AC[0-9a-f]{32}$/i.test(values.TWILIO_ACCOUNT_SID)) { res.status(400).json({ error: 'The Twilio Account SID starts with AC and has 34 characters (Twilio Console → Account info).' }); return; }
+  if (channel === 'sms' && !/^(?:\+[1-9]\d{7,14}|[A-Za-z0-9 ]{1,11})$/.test(values.SMS_FROM)) { res.status(400).json({ error: 'The sender is your Twilio number (+…) or a sender name of up to 11 letters and numbers.' }); return; }
+  if (channel === 'email' && !/^(?:[^<>\n]{1,80}<)?[^\s@<>]+@[^\s@<>]+\.[a-z]{2,24}>?$/i.test(values.EMAIL_FROM)) { res.status(400).json({ error: 'The sender is an address on the domain you verified in Resend, like orders@yourshop.com or "Mama Shop <orders@yourshop.com>".' }); return; }
+  if (Object.values(values).some((v) => !v || v.length > 4000)) { res.status(400).json({ error: 'Fill in every box.' }); return; }
+  try {
+    for (const [k, v] of Object.entries(values)) await appDb.setSecret(req.site.slug, k, sealSecret(v, secretSeal(), req.site.slug));
+    res.json({ connected: channel });
+  } catch (error) { dataFailed(res, error); }
+});
+app.delete('/api/manage/:slug/messages/:channel(sms|email)', rateLimit, manageAccess, async (req, res) => {
+  try { for (const k of MESSAGE_KEYS[req.params.channel]) await appDb.setSecret(req.site.slug, k, null); res.json({ disconnected: req.params.channel }); } catch (error) { dataFailed(res, error); }
+});
+app.post('/api/manage/:slug/messages/test', rateLimit, manageAccess, async (req, res) => {
+  try {
+    const messenger = await appMessenger(req.site.slug), channel = req.body?.channel === 'email' ? 'email' : 'sms';
+    const result = channel === 'sms'
+      ? await messenger.sms(req.body?.to, `Test from ${req.site.name || req.site.slug}: SMS from your app works.`)
+      : await messenger.email(req.body?.to, `Test from ${req.site.name || req.site.slug}`, 'Email from your app works.');
+    res.json(result);
   } catch (error) { dataFailed(res, error); }
 });
 app.put('/api/manage/:slug/app-secrets/:name', rateLimit, manageAccess, async (req, res) => {

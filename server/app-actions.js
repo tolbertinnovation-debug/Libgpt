@@ -29,6 +29,7 @@ export const ACTION_LIMITS = Object.freeze({
   memoryBytes: 32 * 1024 * 1024,
   dbCalls: 100,
   fetches: 3,
+  messages: 5,
   fetchMs: 5000,
   fetchBytes: 512 * 1024,
   inputBytes: 64 * 1024,
@@ -196,6 +197,8 @@ globalThis.console = Object.freeze({ log: __log, info: __log, warn: __log, error
 globalThis.__grandpaApp = Object.freeze({
   db: __table,
   fetch: (url, options) => __host('fetch', String(url), options || {}).then((r) => Object.freeze({ ...r, json() { return JSON.parse(r.text); } })),
+  sms: (to, text) => __host('sms', String(to), String(text)),
+  email: (to, subject, text) => __host('email', String(to), String(subject), String(text)),
   user: __user ? Object.freeze(__user) : null,
   secrets: Object.freeze(__secrets || {}),
   log: __log,
@@ -207,7 +210,7 @@ globalThis.__grandpaApp = Object.freeze({
  * (and its checks) on the host; `fetch` is safeFetch (or a stand-in in tests).
  * Resolves { ok: true, result, logs, ms } or { ok: false, error, detail, logs, ms } — never throws for the app's own mistakes.
  */
-export async function runAction({ files, name, input = null, user = null, secrets = {}, db, fetch = safeFetch, limits = {} }) {
+export async function runAction({ files, name, input = null, user = null, secrets = {}, db, fetch = safeFetch, messages = null, limits = {} }) {
   const L = { ...ACTION_LIMITS, ...limits }, started = Date.now(), logs = [];
   const source = files.get(name);
   if (source == null) return { ok: false, status: 404, error: `This app has no server code called "${String(name).slice(0, 40)}".`, logs, ms: 0 };
@@ -215,7 +218,7 @@ export async function runAction({ files, name, input = null, user = null, secret
   try { inputJson = JSON.stringify(input ?? null); } catch { return { ok: false, status: 400, error: 'What was sent to the server code is not plain data.', logs, ms: 0 }; }
   if (Buffer.byteLength(inputJson) > L.inputBytes) return { ok: false, status: 413, error: 'What was sent to the server code must be under 64 KB.', logs, ms: 0 };
 
-  let cpu = 0, enteredAt = 0, finished = false, dbCalls = 0, fetches = 0;
+  let cpu = 0, enteredAt = 0, finished = false, dbCalls = 0, fetches = 0, sent = 0;
   const vm = await QuickJS.create({ wasm: await engine(), memoryLimit: L.memoryBytes, interruptHandler: () => finished || cpu + (Date.now() - enteredAt) > L.cpuMs });
   const inGuest = (work) => { enteredAt = Date.now(); try { return work(); } finally { cpu += Date.now() - enteredAt; } };
   const drain = () => { if (!finished) inGuest(() => vm.executePendingJobs()); };
@@ -233,6 +236,13 @@ export async function runAction({ files, name, input = null, user = null, secret
         settle(() => { if (++dbCalls > L.dbCalls) throw fail(`Server code can use the database at most ${L.dbCalls} times in one run.`); return db(...rest); });
       } else if (kind === 'fetch') {
         settle(() => { if (++fetches > L.fetches) throw fail(`Server code can call at most ${L.fetches} web addresses in one run.`); return fetch(rest[0], rest[1] || {}); });
+      } else if (kind === 'sms' || kind === 'email') {
+        // Sent through the app owner's own account (Twilio / Resend); see app-messages.js.
+        settle(() => {
+          if (!messages) throw fail('Messages are not available here.');
+          if (++sent > L.messages) throw fail(`Server code can send at most ${L.messages} messages in one run.`);
+          return kind === 'sms' ? messages.sms(rest[0], rest[1]) : messages.email(rest[0], rest[1], rest[2]);
+        });
       } else settle(() => { throw fail('Unknown request.'); });
       return deferred.handle;
     });
