@@ -7,18 +7,18 @@ import { KIT_PATHS, KIT_GUIDE } from '../server/design-standard.js';
 import { recipeById } from '../public/build-recipes.js';
 
 const source = await readFile(new URL('../public/kit/grandpa-app.js', import.meta.url), 'utf8');
-function load({ storage = null, name = '' } = {}) {
+function load({ storage = null, name = '', path = '' } = {}) {
   const window = { name };
   if (storage) window.localStorage = storage;
   const localStorage = storage || { getItem() { throw new Error('SecurityError'); }, setItem() { throw new Error('SecurityError'); } };
-  new Function('window', 'localStorage', 'document', source)(window, localStorage, {});
+  new Function('window', 'localStorage', 'document', 'location', source)(window, localStorage, {}, path ? { pathname: path } : undefined);
   return window;
 }
 
 test('the app toolkit is part of the kit, small, and documented for builders', () => {
   assert.equal(KIT_FILES.app, 'assets/grandpa-app.js');
   assert.ok(isKitFile('assets/grandpa-app.js') && KIT_PATHS.includes('assets/grandpa-app.js'), 'protected like the rest of the kit');
-  assert.ok(source.startsWith('/* Grandpa Kit 7 '), 'versioned with the kit, so old projects get it');
+  assert.ok(source.startsWith('/* Grandpa Kit 8 '), 'versioned with the kit, so old projects get it');
   assert.ok(source.length < 20_000);
   assert.doesNotMatch(source, /form\.elements\[/, 'fields are read with namedItem: a field called "item" would otherwise read the collection\'s own method (found in a browser test)');
   for (const api of ['App.store(', 'App.render(', 'App.html`', 'App.screens(', 'App.form(', 'App.table(', 'App.chart(', 'App.csv(', 'App.format.money(', 'App.loop(', 'App.sound(', 'App.timer(', 'App.toast(']) assert.ok(KIT_GUIDE.includes(api), api);
@@ -63,4 +63,13 @@ test('state: listeners redraw, and remembered data is kept on the device or, in 
   assert.equal(load({ name: sandboxed.name }).GrandpaApp.store({ score: 0 }, { remember: 'game' }).get().score, 7, 'the same tab keeps it across pages');
   store.reset();
   assert.equal(store.get().count, 0);
+});
+
+test('on the shared sites address, each site keeps its own saved data', () => {
+  const kept = new Map();
+  const storage = { getItem: (k) => (kept.has(k) ? kept.get(k) : null), setItem: (k, v) => kept.set(k, v) };
+  load({ storage, path: '/mama-kitchen/' }).GrandpaApp.store({ n: 0 }, { remember: 'app' }).set({ n: 5 });
+  load({ storage, path: '/s/kollie-tailoring/index.html' }).GrandpaApp.store({ n: 0 }, { remember: 'app' }).set({ n: 9 });
+  assert.deepEqual([...kept.keys()].sort(), ['kollie-tailoring:app', 'mama-kitchen:app']);
+  assert.equal(load({ storage, path: '/mama-kitchen/menu.html' }).GrandpaApp.store({ n: 0 }, { remember: 'app' }).get().n, 5);
 });

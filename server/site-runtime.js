@@ -428,9 +428,10 @@ export function siteIcon(name, brand = '#1a56db') {
 }
 
 /** The install file, so the site can be added to a phone's home screen with its name, colour and icon. */
-export function siteManifest({ name, slug, brand = '#1a56db' }) {
+export function siteManifest({ name, slug, brand = '#1a56db', path = '' }) {
+  const home = path || `/s/${slug}/`;
   return JSON.stringify({
-    name: String(name || slug).slice(0, 60), short_name: String(name || slug).slice(0, 12), start_url: `/s/${slug}/`, scope: `/s/${slug}/`,
+    name: String(name || slug).slice(0, 60), short_name: String(name || slug).slice(0, 12), start_url: home, scope: home,
     display: 'standalone', background_color: '#ffffff', theme_color: brand,
     icons: [{ src: `/s/${slug}/_grandpa/icon.svg`, sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }],
   });

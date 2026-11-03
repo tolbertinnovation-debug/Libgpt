@@ -351,7 +351,19 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
 
     Ask Grandpa to fix these includes the Design findings.
   - Grandpa's phone look now also gives a **design score** (1–10) for hierarchy, spacing, contrast, consistency and pictures. Below 7 it gives up to three concrete improvements, which join the existing single automatic repair as "Design: …". The chat shows "Design score n/10". The repair path is the one already used for visual problems; it was not run against the paid vision model in testing.
-- **Next:** Phase 6 (app icon, 404 page, structured data, share picture, manifest), Phase 5 (a higher quality bar with a design score), and Phase 6 (optional: a separate sites address so YouTube plays in the page and apps can install, work offline and remember data).
+- **Phase 6, published sites on their own address (written; switched on by the owner).** With `SITES_HOST` set (for example `sites.libgrandpaai.com`, added as a domain in Vercel), published sites live at `https://SITES_HOST/<address>/`.
+  - **Why it is safe.** A separate address is a separate origin. Grandpa AI's cookies are host-only, and its storage belongs to its own origin, so sites still cannot read them. On that address sites are served without the CSP sandbox (`frame-ancestors 'self'` only). On the app's own address the sandbox stays.
+  - **What it unlocks**, verified in a browser:
+    - YouTube plays inside the page, where before it showed only a black box;
+    - the app toolkit's saved data is kept on the device and survives a reload;
+    - the install file's start address matches the page, so "Add to home screen" works.
+  - **Nothing else of Grandpa AI** is served on the sites address: the app, its API, Manage and the root all return 404. Only the sites, `/s/…`, and the send-only form and slot addresses are served.
+  - **Old links still work.** Visitors opening `libgrandpaai.com/s/<address>/…` are forwarded (301) to the new address. The app's own fetches, such as Manage reading pages, are not forwarded.
+  - **Every generated address uses the new address:** the publish result, QR codes, Manage, backups, the sitemap and the canonical and Open Graph tags.
+  - Because all sites share one origin there, the app toolkit (Kit 8) keeps saved keys per site.
+  - It needs no money: the subdomain is part of the domain the owner already has.
+
+  To switch it on, add `sites.libgrandpaai.com` under Vercel → Project → Settings → Domains, add the DNS record Vercel shows (a CNAME for `sites`), set `SITES_HOST=sites.libgrandpaai.com` in Environment Variables, and redeploy. (app icon, 404 page, structured data, share picture, manifest), Phase 5 (a higher quality bar with a design score), and Phase 6 (optional: a separate sites address so YouTube plays in the page and apps can install, work offline and remember data).
 
 ### Later, each needing the owner's approval (recurring costs)
 - Grandpa choosing YouTube videos by himself needs a free YouTube Data API key (no payment card) added in Vercel.
