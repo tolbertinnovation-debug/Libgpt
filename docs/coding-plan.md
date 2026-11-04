@@ -733,3 +733,26 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
 - Email or SMS alerts for new orders and bookings.
 - Real mobile-money or card payments (merchant accounts with Lonestar MTN / Orange).
 - Custom domains for published sites (for example mamakitchen.lr).
+
+
+## Design refresh: fonts, text sizes and readable shades (done)
+- **Fonts:** Samuel chose option A from a preview of three pairings.
+  - **Atkinson Hyperlegible Next** for reading. It was designed by the Braille Institute so letters are never confused.
+  - **Fraunces** for headings.
+  - Both are SIL Open Font License, stored in `public/fonts`: variable woff2, Latin plus accented letters loaded only when needed, about 70 KB to start. The two main faces are preloaded.
+  - Before, the app asked for Avenir and Iowan, which only Apple devices have, so most Android phones showed their own fonts.
+  - Manage and the owner page use the same fonts.
+- **Text sizes:** about 60 different sizes are now 7 steps (`--text-xs` 13px to `--text-2xl` 34px), all in rem, so the Text size setting still scales them.
+  - Nothing is smaller than 13px. Body text is 16px (was 15) and chat messages 17px.
+  - The undefined `--font-body` is now defined.
+- **Same colours, readable shades:**
+  - The faint text was 3.2:1 on linen and is now 5.0:1 (`#7a6455`); at night `#a8907d`, 6.4:1.
+  - The inactive Ask/Build tab, the sidebar link, the night-time red kicker and the skip link now meet 4.5:1.
+  - Manage's orange buttons were white on `#c77818` (3.4:1). They are now a deeper `#a35a0c` (5.2:1), with dark text at night.
+- **Corners:** pixel radii now use 3 tokens (6, 10 and 16px; pills and circles stay).
+- **Phone home:** a smaller seal, so the greeting and both cards fit above the suggestions.
+- **Verified:**
+  - before and after screenshots of phone and desktop, light and dark, home, chat and sidebar;
+  - a browser check that every visible text meets 4.5:1 (3:1 for large text) and is at least 13px, in both themes;
+  - `tests/design-system.test.mjs`: the font files exist and are preloaded, no Apple-only fonts, every size comes from the scale with a 13px floor, text shades pass in both themes, and Manage's buttons are readable.
+- Published sites keep their own Grandpa Kit design.
