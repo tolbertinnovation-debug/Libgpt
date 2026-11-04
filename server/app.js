@@ -669,8 +669,8 @@ const vercelRoute = (work) => async (req, res) => {
   catch (error) { res.status(error?.status && error.status < 500 ? error.status : 502).json({ error: error?.message || 'Vercel could not be reached.' }); }
 };
 app.post('/api/vercel/check', rateLimit, requireAccess, vercelRoute((b) => vercelWho(b.token)));
-app.post('/api/vercel/deploy', rateLimit, requireAccess, vercelRoute((b) => vercelDeploy(b.token, { repo: b.repo, branch: b.branch || 'main', env: b.env && typeof b.env === 'object' ? b.env : {} })));
-app.post('/api/vercel/status', rateLimit, requireAccess, vercelRoute((b) => vercelStatus(b.token, b.id)));
+app.post('/api/vercel/deploy', rateLimit, requireAccess, vercelRoute((b) => vercelDeploy(b.token, { repo: b.repo, branch: b.branch || 'main', env: b.env && typeof b.env === 'object' ? b.env : {}, teamId: b.teamId })));
+app.post('/api/vercel/status', rateLimit, requireAccess, vercelRoute((b) => vercelStatus(b.token, b.id, { teamId: b.teamId })));
 
 // The Next.js screens preview with the person's own Neon database: each query arrives with their connection
 // string (kept on their device, never stored or logged here) and goes only to a *.neon.tech address.
