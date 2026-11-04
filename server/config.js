@@ -147,7 +147,8 @@ export const config = {
   // repositories; a private one needs `repo`, which GitHub does not break down
   // any further. The default is the smaller of the two, because the bigger one
   // should be a decision somebody makes rather than one made for them.
-  githubScope: process.env.GITHUB_SCOPE?.trim() || 'public_repo',
+  // 'repo' lets people open and save their private repositories too (approved by Samuel, GitHub plan G1).
+  githubScope: process.env.GITHUB_SCOPE?.trim() || 'repo',
 
   // Overridable so the suite can point at a stand-in rather than the real
   // GitHub — the same reason the voice service's address is overridable.

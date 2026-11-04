@@ -636,6 +636,13 @@ app.get('/api/github/tree', rateLimit, withToken(async (req, res, token) => {
   res.json(await github.listTree(token, repo, branch));
 }));
 
+// Open a whole repository in a Build (GitHub plan G2): one zip from GitHub, text files and small pictures back.
+app.get('/api/github/import', rateLimit, withToken(async (req, res, token) => {
+  const repo = String(req.query.repo || ''), branch = String(req.query.branch || '');
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !branch || branch.length > 200) { res.status(400).json({ error: 'Which repository and branch?' }); return; }
+  res.json(await github.importRepo(token, repo, branch, { fetchImpl: app.locals.githubFetch || fetch }));
+}));
+
 app.get('/api/github/file', rateLimit, withToken(async (req, res, token) => {
   const repo = String(req.query.repo || '');
   const branch = String(req.query.branch || '');
