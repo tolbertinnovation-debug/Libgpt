@@ -317,6 +317,134 @@ async function runNeonSchema() {
   el.previewFrame.dataset.signature = ''; renderPreview();
 }
 
+/* ---- Put a Next.js app online with the person's own Vercel account ---------------------------------
+   The Vercel token stays on this device. The app's settings (database, keys) are typed here, sent to Vercel once
+   (Vercel keeps them encrypted) and never stored by Grandpa. Vercel builds the app from its GitHub repository. */
+const VERCEL_TOKEN_KEY = 'grandpa-vercel-token', VERCEL_USER_KEY = 'grandpa-vercel-user';
+function vercelToken() { try { return localStorage.getItem(VERCEL_TOKEN_KEY) || ''; } catch { return ''; } }
+function vercelUser() { try { return localStorage.getItem(VERCEL_USER_KEY) || ''; } catch { return ''; } }
+function forgetVercel() { try { localStorage.removeItem(VERCEL_TOKEN_KEY); localStorage.removeItem(VERCEL_USER_KEY); } catch {} }
+/** The setting names the app needs, from .env.example (values there are placeholders and are never sent). */
+function appSettingNames(p) {
+  const file = (p?.files || []).find((f) => /^\.env(?:\.local)?\.example$/i.test(f.path) || f.path === '.env.sample');
+  const names = String(file?.body || '').split('\n').map((line) => (/^\s*([A-Z_][A-Z0-9_]*)\s*=/.exec(line) || [])[1]).filter(Boolean);
+  return [...new Set(names)].filter((n) => !/^NEXT_PUBLIC_PREVIEW$/.test(n)).slice(0, 40);
+}
+async function vercelApi(path, body) {
+  const response = await fetch(`/api/vercel/${path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...deps.headers() }, body: JSON.stringify(body) });
+  const out = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(out.error || 'Vercel could not be reached.');
+  return out;
+}
+
+function showVercelSheet(message = '') {
+  const p = project();
+  if (!p) return;
+  const note = message ? `<p class="sheet-note"><strong>${escapeHtml(message)}</strong></p>` : '';
+  if (!p.github) {
+    openSheet('Put it online with Vercel', `${note}<p class="sheet-note">Vercel builds your app from GitHub, so put this Build on GitHub first.</p><button class="sheet-go" type="button" data-gh-create>Put this Build on GitHub</button>`);
+    return;
+  }
+  const token = vercelToken();
+  if (!token) {
+    openSheet('Put it online with Vercel', `${note}
+      <p class="sheet-note">Vercel runs Next.js apps on the internet. You use your own Vercel account: the free Hobby plan is for personal projects; a business app needs Vercel Pro (paid by you, not Grandpa).</p>
+      <ol class="sheet-note"><li>Sign in at <strong>vercel.com</strong> with your GitHub account.</li><li>Open <strong>Account Settings → Tokens</strong>, tap <strong>Create</strong>, name it "Grandpa", and copy the token.</li><li>Paste it here.</li></ol>
+      <label class="sheet-note" for="vercel-token">Vercel token</label>
+      <input id="vercel-token" class="pic-alt" style="display:block;width:100%" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your Vercel token">
+      <p class="sheet-note">It is kept only on this device. Grandpa sends it to Vercel with each request and does not store it.</p>
+      <button class="sheet-go" type="button" data-vercel-connect>Connect Vercel</button>`);
+    return;
+  }
+  const g = p.github, ch = githubChanges(p), unsaved = ch.changed.length + ch.added.length + ch.deleted.length;
+  const names = appSettingNames(p), neon = neonUrl(p);
+  const fields = names.map((name) => {
+    const isDb = name === 'DATABASE_URL', isSecret = /SECRET$/.test(name);
+    return `<label class="sheet-note" for="vercel-env-${escapeHtml(name)}"><code>${escapeHtml(name)}</code>${isSecret ? ' <button class="build-chip" type="button" data-vercel-secret="' + escapeHtml(name) + '">Make one for me</button>' : ''}</label>
+      ${isDb && neon ? '<label class="sheet-note"><input id="vercel-use-neon" type="checkbox" checked> Use the Neon database connected in the Preview</label>' : ''}
+      <input id="vercel-env-${escapeHtml(name)}" class="pic-alt" style="display:block;width:100%" type="password" autocomplete="off" spellcheck="false" placeholder="${isDb && neon ? 'Or paste another connection string' : 'Leave empty to keep what Vercel already has'}">`;
+  }).join('');
+  const live = p.vercel?.url ? `<p class="sheet-note">${p.vercel.readyState === 'READY' ? 'Online at' : 'Last time:'} <a href="${escapeHtml(p.vercel.url)}" target="_blank" rel="noopener">${escapeHtml(p.vercel.url)}</a></p>` : '';
+  openSheet('Put it online with Vercel', `${note}
+    <p class="sheet-note">Connected to Vercel${vercelUser() ? ` as <strong>${escapeHtml(vercelUser())}</strong>` : ''}. Vercel builds <strong>${escapeHtml(g.repo)}</strong> (${escapeHtml(g.branch)}).</p>
+    ${live}
+    ${unsaved ? `<p class="sheet-note"><strong>${unsaved} change${unsaved === 1 ? ' is' : 's are'} not on GitHub yet.</strong> Vercel only sees what is saved there.</p><button class="sheet-row" type="button" data-gh-save><span><strong>Save to GitHub first</strong></span></button>` : ''}
+    ${names.length ? `<p class="sheet-note">The app's settings (from .env.example). They go straight to Vercel, which keeps them encrypted.</p>${fields}` : ''}
+    <button class="sheet-go" type="button" data-vercel-deploy>${p.vercel ? 'Put the latest version online' : 'Put it online'}</button>
+    <button class="sheet-row sheet-danger" type="button" data-vercel-forget><span><strong>Disconnect Vercel on this device</strong></span></button>`);
+}
+
+async function connectVercel() {
+  const token = String($('vercel-token')?.value || '').trim();
+  if (!token) { showVercelSheet('Paste your Vercel token first.'); return; }
+  openSheet('Put it online with Vercel', '<p class="sheet-note">Checking the token…</p>', { busy: true });
+  try {
+    const who = await vercelApi('check', { token });
+    try { localStorage.setItem(VERCEL_TOKEN_KEY, token); localStorage.setItem(VERCEL_USER_KEY, who.username || who.email || ''); }
+    catch { showVercelSheet('This browser would not keep the token (private browsing?).'); return; }
+    showVercelSheet('Vercel is connected.');
+  } catch (error) { forgetVercel(); showVercelSheet(error.message); }
+}
+
+function makeSecretFor(name) {
+  const box = $(`vercel-env-${name}`);
+  if (!box) return;
+  box.value = Array.from(crypto.getRandomValues(new Uint8Array(36)), (b) => b.toString(16).padStart(2, '0')).join('');
+  box.type = 'text';
+  deps.toast(`Made a new ${name}. It goes to Vercel only.`);
+}
+
+async function deployToVercel() {
+  const p = project(), token = vercelToken();
+  if (!p?.github || !token) { showVercelSheet(); return; }
+  const env = {};
+  for (const name of appSettingNames(p)) {
+    const typed = String($(`vercel-env-${name}`)?.value || '').trim();
+    if (typed) env[name] = typed;
+    else if (name === 'DATABASE_URL' && $('vercel-use-neon')?.checked && neonUrl(p)) env[name] = neonUrl(p);
+  }
+  openSheet('Put it online with Vercel', '<p class="sheet-note" id="vercel-progress">Sending the app to Vercel…</p>', { busy: true });
+  let started;
+  try { started = await vercelApi('deploy', { token, repo: p.github.repo, branch: p.github.branch || 'main', env }); }
+  catch (error) { showVercelSheet(error.message); return; }
+  p.vercel = { project: started.project, url: started.url, id: started.id, readyState: started.readyState, at: Date.now() };
+  await persist();
+  await watchVercel(started.id);
+}
+
+async function watchVercel(id) {
+  const p = project(), token = vercelToken(), began = Date.now();
+  for (let i = 0; i < 90; i += 1) {
+    let st;
+    try { st = await vercelApi('status', { token, id }); } catch (error) { showVercelSheet(error.message); return; }
+    if (p.vercel?.id === id) p.vercel.readyState = st.readyState;
+    const box = $('vercel-progress');
+    if (st.readyState === 'READY') {
+      p.messages.push({ role: 'assistant', content: `**${p.name || p.vercel.project}** is online: ${p.vercel.url}\n\nAfter each save to GitHub, Vercel builds the new version by itself.` });
+      await persist(); render();
+      openSheet('It is online', `<p class="sheet-note">Vercel built your app.</p><a class="sheet-go" href="${escapeHtml(p.vercel.url)}" target="_blank" rel="noopener">Open ${escapeHtml(p.vercel.url.replace(/^https:\/\//, ''))}</a>`);
+      return;
+    }
+    if (st.readyState === 'ERROR' || st.readyState === 'CANCELED') {
+      await persist();
+      state.vercelLog = [st.error, ...(st.log || [])].filter(Boolean).join('\n').slice(-3000);
+      openSheet('Vercel could not build it', `<p class="sheet-note">The build stopped. The end of Vercel's build log:</p><pre class="sheet-note" style="white-space:pre-wrap;font-size:.8rem;max-height:40vh;overflow:auto">${escapeHtml(state.vercelLog || '(no log)')}</pre><button class="sheet-go" type="button" data-vercel-fix>Ask Grandpa to fix it</button>`);
+      return;
+    }
+    if (box) box.textContent = `Vercel is building your app (${Math.round((Date.now() - began) / 1000)} s). It usually takes one to three minutes.`;
+    else if (i > 0 && !$('vercel-progress')) { /* the sheet was closed: keep watching quietly */ }
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+  showVercelSheet('Vercel is still building. Open this again in a minute to see how it went.');
+}
+
+async function fixVercelBuild() {
+  const log = state.vercelLog;
+  if (!log || isBusy()) return;
+  closeSheet(); ensureView('chat');
+  await changeFiles(`Vercel could not build the app (next build). The end of its build log:\n\n${log}\n\nFind the cause in the files and fix it, keeping everything else as it is.`, { shown: 'Fix what stopped the Vercel build' });
+}
+
 /** A problem the Next.js screens preview found: shown above the preview, with a one-tap fix. */
 function showNextProblem(message) {
   const text = String(message).replace(/\s+/g, ' ').trim().slice(0, 400);
@@ -342,7 +470,7 @@ function stageHint(p) {
   if (!s) return '';
   const files = builtFiles(p).length;
   const gh = p.github ? githubChanges(p) : null, ghCount = gh ? gh.changed.length + gh.added.length + gh.deleted.length : 0;
-  const tools = `${files ? '<button class="build-chip" type="button" data-download-zip>Download as ZIP</button>' : ''}${ghCount ? `<button class="build-chip" type="button" data-gh-save>Save ${ghCount} change${ghCount === 1 ? '' : 's'} to GitHub</button>` : ''}${files && !p.github ? '<button class="build-chip" type="button" data-build-github-open>Put it on GitHub</button>' : ''}${(p.versions || []).length ? '<button class="build-chip" type="button" data-show-history>See versions</button>' : ''}<button class="build-chip" type="button" data-stage-plan>The plan</button>`;
+  const tools = `${files ? '<button class="build-chip" type="button" data-download-zip>Download as ZIP</button>' : ''}${ghCount ? `<button class="build-chip" type="button" data-gh-save>Save ${ghCount} change${ghCount === 1 ? '' : 's'} to GitHub</button>` : ''}${files && !p.github ? '<button class="build-chip" type="button" data-build-github-open>Put it on GitHub</button>' : ''}${(p.versions || []).length ? '<button class="build-chip" type="button" data-show-history>See versions</button>' : ''}<button class="build-chip" type="button" data-stage-plan>The plan</button>${files && p.stages?.nextjs ? `<button class="build-chip" type="button" data-vercel>${p.vercel?.readyState === 'READY' ? 'Online on Vercel' : 'Put it online (Vercel)'}</button>` : ''}`;
   let note, main = '';
   if (s.finished) note = `All ${s.total} stages are built and tested. Tell me anything to fix or add.`;
   else if (s.stage.status === 'built') {
@@ -2560,6 +2688,8 @@ async function showGitHub() {
       <small>Connect again and approve access to your private repositories too</small></span></a>`}
     ${project()?.github ? `<button class="sheet-row" type="button" data-gh-save><span><strong>Save to GitHub</strong>
       <small>${escapeHtml(project().github.repo)} · ${escapeHtml(project().github.pr?.branch || project().github.branch)}</small></span></button>` : ''}
+    ${project()?.github && isNextProject(project().files) ? `<button class="sheet-row" type="button" data-vercel><span><strong>Put it online with Vercel</strong>
+      <small>Next.js apps run on Vercel (your own account)</small></span></button>` : ''}
     ${project()?.github ? `<button class="sheet-row" type="button" data-gh-pages><span><strong>${project().github.pages ? 'Live on GitHub Pages' : 'Put it live with GitHub Pages'}</strong>
       <small>${project().github.pages ? escapeHtml(project().github.pages) : 'A free website from the repository (public repositories)'}</small></span></button>` : ''}
     ${!project()?.github && project()?.files?.length ? `<button class="sheet-row" type="button" data-gh-create><span><strong>Put this Build on GitHub</strong>
@@ -3233,6 +3363,7 @@ export async function mount(options = {}) {
     if (event.target.closest('[data-download-zip]')) { takeAll(); return; }
     if (event.target.closest('[data-next-fix]')) { fixNextProblem(); return; }
     if (event.target.closest('[data-neon]')) { showNeonSheet(); return; }
+    if (event.target.closest('[data-vercel]')) { showVercelSheet(); return; }
     if (event.target.closest('[data-neon-schema]')) { runNeonSchema(); return; }
     if (event.target.closest('[data-stage-build]')) { buildStage(); return; }
     if (event.target.closest('[data-stage-ok]')) { stageWorks(); return; }
@@ -3385,6 +3516,12 @@ export async function mount(options = {}) {
     const repo = event.target.closest('[data-repo]');
     if (repo) { showRepoChoice(repo.dataset.repo, repo.dataset.branch, repo.dataset.canWrite === '1'); return; }
     if (event.target.closest('[data-gh-save-go]')) { saveNowToGitHub(); return; }
+    if (event.target.closest('[data-vercel-connect]')) { connectVercel(); return; }
+    if (event.target.closest('[data-vercel-deploy]')) { deployToVercel(); return; }
+    if (event.target.closest('[data-vercel-secret]')) { makeSecretFor(event.target.closest('[data-vercel-secret]').dataset.vercelSecret); return; }
+    if (event.target.closest('[data-vercel-fix]')) { fixVercelBuild(); return; }
+    if (event.target.closest('[data-vercel-forget]')) { forgetVercel(); showVercelSheet('Vercel is disconnected on this device.'); return; }
+    if (event.target.closest('[data-vercel]')) { showVercelSheet(); return; }
     if (event.target.closest('[data-neon-save]')) { saveNeon(); return; }
     if (event.target.closest('[data-neon-schema]')) { runNeonSchema(); return; }
     if (event.target.closest('[data-neon-remove]')) { const p = project(); if (p) { setNeonUrl(p, ''); closeSheet(); renderPreview(); deps.toast('The preview uses sample data again.'); } return; }

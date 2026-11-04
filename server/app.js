@@ -26,6 +26,7 @@ import { safeDiagnostic } from './openai-failure.js';
 import { DISCUSS_PROMPT, readDiscussion, readDiscussReply } from './build-discuss.js';
 import { STEPS_PROMPT, readSteps } from './build-steps.js';
 import { runNeon } from './neon-proxy.js';
+import { vercelWho, vercelDeploy, vercelStatus } from './vercel-deploy.js';
 import QRCode from 'qrcode';
 import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, findSiteFile, siteFileBody } from './site-store.js';
 import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, bookingTimes, slotProblem, ENTRY_KINDS, ENTRY_STATUSES } from './site-data.js';
@@ -660,6 +661,16 @@ app.post('/api/github/save', rateLimit, requireAccess, async (req, res, next) =>
     res.status(error?.status && error.status < 500 ? error.status : 502).json({ error: error?.message || 'GitHub could not be reached.', conflict: Boolean(error?.conflict) });
   }
 });
+
+// Put a Build's GitHub project online with the person's own Vercel account. The token and the app's settings
+// arrive with the request and go only to Vercel; nothing is stored or logged here.
+const vercelRoute = (work) => async (req, res) => {
+  try { res.json(await work(req.body || {})); }
+  catch (error) { res.status(error?.status && error.status < 500 ? error.status : 502).json({ error: error?.message || 'Vercel could not be reached.' }); }
+};
+app.post('/api/vercel/check', rateLimit, requireAccess, vercelRoute((b) => vercelWho(b.token)));
+app.post('/api/vercel/deploy', rateLimit, requireAccess, vercelRoute((b) => vercelDeploy(b.token, { repo: b.repo, branch: b.branch || 'main', env: b.env && typeof b.env === 'object' ? b.env : {} })));
+app.post('/api/vercel/status', rateLimit, requireAccess, vercelRoute((b) => vercelStatus(b.token, b.id)));
 
 // The Next.js screens preview with the person's own Neon database: each query arrives with their connection
 // string (kept on their device, never stored or logged here) and goes only to a *.neon.tech address.
