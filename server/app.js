@@ -25,6 +25,7 @@ import {
 import { safeDiagnostic } from './openai-failure.js';
 import { DISCUSS_PROMPT, readDiscussion, readDiscussReply } from './build-discuss.js';
 import { STEPS_PROMPT, readSteps } from './build-steps.js';
+import { runNeon } from './neon-proxy.js';
 import QRCode from 'qrcode';
 import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, findSiteFile, siteFileBody } from './site-store.js';
 import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, bookingTimes, slotProblem, ENTRY_KINDS, ENTRY_STATUSES } from './site-data.js';
@@ -658,6 +659,14 @@ app.post('/api/github/save', rateLimit, requireAccess, async (req, res, next) =>
     if (!error?.status) console.error('[github save]', error?.message || error);
     res.status(error?.status && error.status < 500 ? error.status : 502).json({ error: error?.message || 'GitHub could not be reached.', conflict: Boolean(error?.conflict) });
   }
+});
+
+// The Next.js screens preview with the person's own Neon database: each query arrives with their connection
+// string (kept on their device, never stored or logged here) and goes only to a *.neon.tech address.
+app.post('/api/preview/neon', rateLimit, requireAccess, async (req, res) => {
+  const b = req.body || {};
+  try { res.json(await runNeon({ url: b.url, query: b.query, params: Array.isArray(b.params) ? b.params : [] })); }
+  catch (error) { res.status(error?.status && error.status < 600 ? error.status : 502).json({ error: error?.message || 'The database could not be reached.' }); }
 });
 
 // Go live with GitHub Pages (GitHub plan G7): free for public repositories. Changes nothing but the Pages setting.

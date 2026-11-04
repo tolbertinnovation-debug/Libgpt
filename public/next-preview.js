@@ -61,6 +61,10 @@ let vendorText = null, sucrase = null;
 const loadVendor = () => (vendorText ||= Promise.all(['react.production.min.js', 'react-dom.production.min.js', 'tailwind-browser.js']
   .map((name) => fetch(new URL(VENDOR + name, import.meta.url)).then((r) => { if (!r.ok) throw new Error(`The preview could not load ${name}.`); return r.text(); })))
   .catch((error) => { vendorText = null; throw error; }));
+let dbVendor = null;
+const loadDbVendor = () => (dbVendor ||= Promise.all(['bcryptjs.min.js', 'jose.iife.js']
+  .map((name) => fetch(new URL(VENDOR + name, import.meta.url)).then((r) => { if (!r.ok) throw new Error(`The preview could not load ${name}.`); return r.text(); })))
+  .catch((error) => { dbVendor = null; throw error; }));
 const loadSucrase = () => (sucrase ||= import('./vendor/next-preview/sucrase.mjs').catch((error) => { sucrase = null; throw error; }));
 
 /** Each source file as plain JavaScript (CommonJS shape), plus what could not be read. */
@@ -103,22 +107,24 @@ const scriptSafe = (text) => String(text).replace(/<\/(script)/gi, '<\\/$1').rep
 const jsonSafe = (value) => JSON.stringify(value).replace(/</g, '\\u003c').replace(/\u2028/g, '\\u2028').replace(/\u2029/g, '\\u2029');
 
 /** The whole preview document for a Next.js project, ready for the frame's srcdoc. */
-export async function nextPreviewDocument(files = [], { route = '/' } = {}) {
-  const [[react, reactDom, tailwind], { transform }] = await Promise.all([loadVendor(), loadSucrase()]);
-  return buildNextDocument(files, { route, react, reactDom, tailwind, transform });
+export async function nextPreviewDocument(files = [], { route = '/', realDb = false, secret = '' } = {}) {
+  const [[react, reactDom, tailwind], { transform }, auth] = await Promise.all([loadVendor(), loadSucrase(), realDb ? loadDbVendor() : null]);
+  return buildNextDocument(files, { route, react, reactDom, tailwind, transform, realDb, secret, bcrypt: auth?.[0] || '', jose: auth?.[1] || '' });
 }
 
 /** The same, with its parts given (used by the tests in Node). */
-export function buildNextDocument(files, { route = '/', react, reactDom, tailwind, transform }) {
+export function buildNextDocument(files, { route = '/', react, reactDom, tailwind, transform, realDb = false, secret = '', bcrypt = '', jose = '' }) {
   const { modules, errors } = compileModules(files, transform);
   const routes = nextRoutes(files);
-  const config = { routes, start: String(route || '/'), errors, assets: publicAssets(files), files: Object.keys(modules) };
+  // With the person's own Neon database, sign-in is real too (real password hashes and session tokens), so accounts
+  // made here also work when they run the app on their computer. The connection string never enters the frame.
+  const config = { routes, start: String(route || '/'), errors, assets: publicAssets(files), files: Object.keys(modules), realDb: Boolean(realDb), secret: realDb ? String(secret || 'grandpa-preview-secret') : '' };
   const moduleScripts = Object.entries(modules).map(([path, code]) =>
     `<script>__nextModules[${jsonSafe(path)}]=function(require,module,exports,process,__h,__F){${scriptSafe(code)}\n};</script>`).join('\n');
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Preview</title>
 <script>${scriptSafe(react)}</script>
 <script>${scriptSafe(reactDom)}</script>
-<script>${scriptSafe(tailwind)}</script>
+<script>${scriptSafe(tailwind)}</script>${realDb && bcrypt ? `\n<script>${scriptSafe(bcrypt)}</script>` : ''}${realDb && jose ? `\n<script>${scriptSafe(jose)}</script>` : ''}
 <style type="text/tailwindcss">${scriptSafe(projectCss(files)).replace(/<\/style/gi, '<\\/style')}</style>
 <style>#__grandpa_note{position:fixed;left:8px;bottom:8px;z-index:2147483647;font:600 12px/1.3 system-ui,sans-serif;background:#2e1f1a;color:#fff7e6;border-radius:999px;padding:6px 12px;opacity:.88;cursor:pointer;max-width:calc(100% - 16px)}#__grandpa_error{position:fixed;inset:0;z-index:2147483646;overflow:auto;background:#fff7f5;color:#5b1111;font:14px/1.5 system-ui,sans-serif;padding:20px}#__grandpa_error h2{font-size:18px;margin:0 0 8px}#__grandpa_error pre{white-space:pre-wrap;background:#fff;border:1px solid #f1c0b8;border-radius:8px;padding:10px;font:12px/1.5 ui-monospace,monospace}</style>
 </head><body><div id="__next"></div>
@@ -225,13 +231,52 @@ export function bootNextPreview() {
     if (/from\s+["']?users?["']?\b/i.test(q) && /\bwhere\b/i.test(q)) return [{ ...sampleUser, password_hash: 'preview-hash', password: 'preview-hash' }];
     return [];
   };
+  // The real database: each query goes to Grandpa (the parent page), which sends it to the person's Neon database.
+  let dbSeq = 0;
+  const dbWaiting = new Map();
+  window.addEventListener('message', (e) => {
+    const d = e.data;
+    if (e.source !== parent || !d || d.grandpaReply !== 'next-db') return;
+    const wait = dbWaiting.get(d.id);
+    if (!wait) return;
+    dbWaiting.delete(d.id);
+    if (d.error) wait.reject(new Error(d.error)); else wait.resolve(d.result || { rows: [], rowCount: 0 });
+  });
+  const plainValue = (k, v) => (v instanceof Date ? v.toISOString() : typeof v === 'bigint' ? String(v) : v === undefined ? null : v);
+  const dbQuery = (query, params = []) => new Promise((resolve, reject) => {
+    const id = `q${(dbSeq += 1)}-${Math.random().toString(36).slice(2, 8)}`;
+    dbWaiting.set(id, { resolve, reject });
+    try { parent.postMessage({ grandpa: 'next-db', id, query: String(query), params: JSON.parse(JSON.stringify(params, plainValue)) }, '*'); }
+    catch (error) { dbWaiting.delete(id); reject(error); return; }
+    setTimeout(() => { if (dbWaiting.delete(id)) reject(new Error('Your Neon database took too long to answer.')); }, 25000);
+  });
+  const realSql = () => {
+    const sql = (strings, ...values) => {
+      if (Array.isArray(strings) && strings.raw) return dbQuery(strings.reduce((text, part, i) => text + part + (i < values.length ? `$${i + 1}` : ''), ''), values).then((r) => r.rows);
+      return dbQuery(strings, values[0] || []).then((r) => r.rows);
+    };
+    sql.query = (text, params) => dbQuery(text, params || []).then((r) => r.rows);
+    sql.unsafe = (t) => t;
+    sql.transaction = async (list) => { const out = []; for (const q of (typeof list === 'function' ? list(sql) : list)) out.push(await q); return out; };
+    return sql;
+  };
+  class RealPool { query(text, values) { return dbQuery(text?.text || text, values || text?.values || []).then((r) => ({ rows: r.rows, rowCount: r.rowCount, command: r.command })); } connect() { return Promise.resolve({ query: (t, v) => this.query(t, v), release() {} }); } end() { return Promise.resolve(); } on() {} }
   const neonSql = () => { const sql = (strings, ...values) => Promise.resolve(sqlRows(Array.isArray(strings) ? strings.join('?') : strings)); sql.query = (text) => Promise.resolve(sqlRows(text)); sql.unsafe = (t) => t; sql.transaction = async () => []; return sql; };
   class PgPool { query(text) { return Promise.resolve({ rows: sqlRows(text?.text || text), rowCount: 0 }); } connect() { return Promise.resolve({ query: (t) => this.query(t), release() {} }); } end() { return Promise.resolve(); } on() {} }
   const cookieJar = new Map();
+  // response.cookies.set(...) in route handlers keeps the cookie for the preview's later requests.
+  const withCookies = (response) => {
+    response.cookies = {
+      set: (name, value) => { cookieJar.set(typeof name === 'object' ? name.name : name, typeof name === 'object' ? name.value : value); return response.cookies; },
+      delete: (name) => { cookieJar.delete(typeof name === 'object' ? name.name : name); return response.cookies; },
+      get: (name) => (cookieJar.has(name) ? { name, value: cookieJar.get(name) } : undefined), getAll: () => [...cookieJar].map(([name, value]) => ({ name, value })), has: (name) => cookieJar.has(name),
+    };
+    return response;
+  };
   const cookies = () => both({
-    get: (name) => ({ name, value: cookieJar.has(name) ? cookieJar.get(name) : 'preview-session' }),
+    get: (name) => (cookieJar.has(name) ? { name, value: cookieJar.get(name) } : cfg.realDb ? undefined : { name, value: 'preview-session' }),
     getAll: () => [...cookieJar].map(([name, value]) => ({ name, value })),
-    has: () => true, set: (name, value) => { cookieJar.set(typeof name === 'object' ? name.name : name, typeof name === 'object' ? name.value : value); }, delete: (name) => { cookieJar.delete(name); },
+    has: (name) => (cfg.realDb ? cookieJar.has(name) : true), set: (name, value) => { cookieJar.set(typeof name === 'object' ? name.name : name, typeof name === 'object' ? name.value : value); }, delete: (name) => { cookieJar.delete(name); },
   });
   const headersObj = () => both({ get: (n) => (/user-agent/i.test(n) ? navigator.userAgent : null), has: () => false, entries: () => [][Symbol.iterator](), forEach() {} });
   class Redirect extends Error { constructor(url) { super(`Redirect to ${url}`); this.url = url; } }
@@ -265,10 +310,10 @@ export function bootNextPreview() {
     }),
     'next/headers': () => ({ cookies, headers: headersObj, draftMode: () => both({ isEnabled: false }) }),
     'next/server': () => ({
-      NextResponse: Object.assign(function NextResponse(body, init) { return new Response(body, init); }, {
-        json: (data, init) => new Response(JSON.stringify(data), { ...(typeof init === 'number' ? { status: init } : init), headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) } }),
-        redirect: (url, status = 307) => new Response(null, { status, headers: { Location: String(url) } }),
-        next: () => new Response(null), rewrite: () => new Response(null),
+      NextResponse: Object.assign(function NextResponse(body, init) { return withCookies(new Response(body, init)); }, {
+        json: (data, init) => withCookies(new Response(JSON.stringify(data), { ...(typeof init === 'number' ? { status: init } : init), headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) } })),
+        redirect: (url, status = 307) => withCookies(new Response(null, { status: typeof status === 'number' ? status : 307, headers: { Location: String(url) } })),
+        next: () => withCookies(new Response(null)), rewrite: () => withCookies(new Response(null)),
       }),
       NextRequest: Request,
     }),
@@ -278,10 +323,11 @@ export function bootNextPreview() {
     'next/head': () => ({ __esModule: true, default: () => null }),
     'next/font/google': font, 'next/font/local': () => ({ __esModule: true, default: () => ({ className: '', variable: '', style: {} }) }),
     'server-only': () => ({}), 'client-only': () => ({}),
-    '@neondatabase/serverless': () => ({ neon: neonSql, Pool: PgPool, Client: PgPool, neonConfig: {} }),
-    pg: () => ({ Pool: PgPool, Client: PgPool, default: { Pool: PgPool, Client: PgPool } }),
-    bcryptjs: () => { const b = { hash: async () => 'preview-hash', compare: async () => true, hashSync: () => 'preview-hash', compareSync: () => true, genSalt: async () => 'salt', genSaltSync: () => 'salt' }; return { ...b, default: b }; },
+    '@neondatabase/serverless': () => (cfg.realDb ? { neon: realSql, Pool: RealPool, Client: RealPool, neonConfig: {} } : { neon: neonSql, Pool: PgPool, Client: PgPool, neonConfig: {} }),
+    pg: () => { const P = cfg.realDb ? RealPool : PgPool; return { Pool: P, Client: P, default: { Pool: P, Client: P } }; },
+    bcryptjs: () => { if (cfg.realDb && window.dcodeIO?.bcrypt) { const real = window.dcodeIO.bcrypt; return { ...real, default: real }; } const b = { hash: async () => 'preview-hash', compare: async () => true, hashSync: () => 'preview-hash', compareSync: () => true, genSalt: async () => 'salt', genSaltSync: () => 'salt' }; return { ...b, default: b }; },
     jose: () => {
+      if (cfg.realDb && window.__jose) return window.__jose;
       class SignJWT { constructor(p) { this.p = p; } setProtectedHeader() { return this; } setIssuedAt() { return this; } setExpirationTime() { return this; } setSubject() { return this; } setIssuer() { return this; } setAudience() { return this; } setNotBefore() { return this; } setJti() { return this; } async sign() { return 'preview.jwt.token'; } }
       return { SignJWT, jwtVerify: async () => ({ payload: { ...sampleUser }, protectedHeader: { alg: 'HS256' } }), decodeJwt: () => ({ ...sampleUser }), importJWK: async () => ({}), createRemoteJWKSet: () => ({}) };
     },
@@ -294,6 +340,8 @@ export function bootNextPreview() {
   };
   SHIMS.bcrypt = SHIMS.bcryptjs;
   const env = { NODE_ENV: 'development', NEXT_PUBLIC_PREVIEW: '1' };
+  if (cfg.realDb) for (const name of ['SESSION_SECRET', 'JWT_SECRET', 'AUTH_SECRET', 'NEXTAUTH_SECRET', 'COOKIE_SECRET']) env[name] = cfg.secret;
+  if (cfg.realDb) env.DATABASE_URL = 'postgresql://grandpa-preview@neon.tech/neondb';
   const processObj = { env, cwd: () => '/', platform: 'browser', versions: {} };
   window.process = window.process || processObj;
 
@@ -457,7 +505,7 @@ export function bootNextPreview() {
   catch (error) { showError('The preview could not start', `${error?.message || error}`); }
   const note = document.createElement('div');
   note.id = '__grandpa_note';
-  note.textContent = 'Screens preview · database, sign-in and AI use sample data';
+  note.textContent = cfg.realDb ? 'Preview · your real Neon database · AI uses sample answers' : 'Screens preview · database, sign-in and AI use sample data';
   note.title = 'Tap to hide';
   note.onclick = () => note.remove();
   document.body.appendChild(note);

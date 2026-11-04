@@ -61,10 +61,10 @@ test('the preview document is self-contained, and project text cannot break out 
 });
 
 test('the third-party preview files are bundled with their licences', async () => {
-  for (const name of ['react.production.min.js', 'react-dom.production.min.js', 'tailwind-browser.js', 'sucrase.mjs', 'LICENSES.txt']) assert.ok((await stat(new URL(`../public/vendor/next-preview/${name}`, import.meta.url))).size > 100, name);
+  for (const name of ['react.production.min.js', 'react-dom.production.min.js', 'tailwind-browser.js', 'sucrase.mjs', 'bcryptjs.min.js', 'jose.iife.js', 'LICENSES.txt']) assert.ok((await stat(new URL(`../public/vendor/next-preview/${name}`, import.meta.url))).size > 100, name);
   assert.match(await readFile(new URL('../public/vendor/next-preview/LICENSES.txt', import.meta.url), 'utf8'), /MIT/);
   const ritual = await readFile(new URL('../public/ritual.js', import.meta.url), 'utf8');
-  assert.match(ritual, /nextPreviewDocument\(p\.files,\{route:entry\}\)/);
+  assert.match(ritual, /nextPreviewDocument\(p\.files,\{route:entry,/);
 });
 
 test('a problem the preview finds reaches Grandpa only as a short sentence, and he offers a one-tap fix', async () => {

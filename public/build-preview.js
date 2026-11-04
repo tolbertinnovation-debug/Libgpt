@@ -34,7 +34,7 @@ export function createPreviewMessageLimiter(frame, now=Date.now) {
   return event=>{
     const d=event?.data,t=now();
     if(event?.source!==frame || event.origin!=='null' || !d || typeof d!=='object' || Array.isArray(d) || d.checkId || !Number.isFinite(t) || t<start)return false;
-    if(!['navigate','download-file','fault','visual-edit','play-video','server-run','next-preview-problem'].includes(d.grandpa))return false;
+    if(!['navigate','download-file','fault','visual-edit','play-video','server-run','next-preview-problem','next-db'].includes(d.grandpa))return false;
     // The app's server code (Phase D5), run against the preview's test database.
     if(d.grandpa==='server-run'){
       if(typeof d.id!=='string' || !/^[\w-]{1,40}$/.test(d.id) || typeof d.name!=='string' || !/^[a-z][a-z0-9_-]{0,39}$/.test(d.name))return false;
@@ -47,6 +47,14 @@ export function createPreviewMessageLimiter(frame, now=Date.now) {
     // A video player in the page asks the app to play its YouTube video (it cannot play inside the sandbox).
     // A problem the Next.js screens preview found (a sentence for the person, never code to run).
     if(d.grandpa==='next-preview-problem'){if(typeof d.message!=='string' || !d.message || d.message.length>600)return false;}
+    // A database query from the Next.js preview (answered only when the person connected their own Neon database).
+    else if(d.grandpa==='next-db'){
+      if(typeof d.id!=='string' || !/^q\d{1,7}-[a-z0-9]{1,8}$/.test(d.id) || typeof d.query!=='string' || !d.query || d.query.length>60000 || !Array.isArray(d.params) || d.params.length>100)return false;
+      try{if(JSON.stringify(d.params).length>100000)return false;}catch{return false;}
+      if(t-start>=1000){start=t;count=0;}
+      if(count>=40)return false;
+      count++;return true;
+    }
     else if(d.grandpa==='play-video'){if(typeof d.id!=='string' || !/^[\w-]{11}$/.test(d.id) || (d.title!==undefined && (typeof d.title!=='string' || d.title.length>200)))return false;}
     else if(d.grandpa==='visual-edit'){
       if(d.type==='ready'){if(!Number.isInteger(d.count))return false;}

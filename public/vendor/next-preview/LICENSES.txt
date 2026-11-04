@@ -7,5 +7,9 @@ react 18.3.1 (umd/react.production.min.js) and react-dom 18.3.1 (umd/react-dom.p
 sucrase 3.35.0 with its dependencies (lines-and-columns, ts-interface-checker, @jridgewell/gen-mapping,
 @jridgewell/sourcemap-codec, @jridgewell/set-array, @jridgewell/trace-mapping, @jridgewell/resolve-uri),
 bundled into sucrase.mjs with esbuild. MIT Licenses. https://github.com/alangpierce/sucrase
+bcryptjs 2.4.3 (dist/bcrypt.min.js, saved as bcryptjs.min.js)
+  Copyright (c) 2012 Nevins Bartolomeo, 2012 Shane Girish, 2014 Daniel Wirtz. MIT License (package licence; the file header also names the Apache License 2.0). https://github.com/dcodeIO/bcrypt.js
+jose 5.9.6 (browser build, bundled into jose.iife.js with esbuild)
+  Copyright (c) 2018 Filip Skokan. MIT License. https://github.com/panva/jose
 
 To rebuild these files: node scripts/vendor-next-preview.mjs (needs network access to the npm registry).
