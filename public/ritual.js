@@ -28,6 +28,7 @@ import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js?v=phase2-sta
 import { shrink } from './photo.js';
 import {backgroundActive,sameProjectSource,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile,canRetryBackgroundCreation,backgroundConnectionMessage} from './build-workspace.js?v=phase2-stage8-poll';
 import { renderMarkdown } from './markdown.js';
+import { mergeLatest } from './github-sync.js?v=github-3';
 import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materials.js?v=materials-2';
 import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
 import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
@@ -2367,6 +2368,8 @@ async function showGitHub() {
       <small>Connect again and approve access to your private repositories too</small></span></a>`}
     ${project()?.github ? `<button class="sheet-row" type="button" data-gh-save><span><strong>Save to GitHub</strong>
       <small>${escapeHtml(project().github.repo)} · ${escapeHtml(project().github.pr?.branch || project().github.branch)}</small></span></button>` : ''}
+    ${project()?.github ? `<button class="sheet-row" type="button" data-gh-pull><span><strong>Get the latest from GitHub</strong>
+      <small>Bring in what changed on GitHub; your own changes are kept</small></span></button>` : ''}
     <button class="sheet-row sheet-danger" type="button" data-gh="off"><span><strong>Disconnect</strong></span></button>`);
 }
 
@@ -2444,8 +2447,52 @@ async function saveNowToGitHub() {
     openSheet('Saved to GitHub', `<p class="sheet-note">${mode === 'pr' ? `Pull request #${result.number} is open.` : `Saved on <code>${escapeHtml(branch)}</code>.`}</p><a class="sheet-go" href="${escapeHtml(result.url)}" target="_blank" rel="noopener">${mode === 'pr' ? `Open pull request #${result.number}` : 'See it on GitHub'}</a>`);
     render();
   } catch (error) {
-    openSheet('Not saved', `<p class="sheet-note">${escapeHtml(error.message)}</p>${error.conflict ? '<button class="sheet-go" type="button" data-gh-save>Save as a pull request instead</button>' : ''}`);
+    openSheet('Not saved', `<p class="sheet-note">${escapeHtml(error.message)}</p>${error.conflict ? '<button class="sheet-go" type="button" data-gh-pull>Get the latest from GitHub first</button><button class="sheet-row" type="button" data-gh-save><span><strong>Save as a pull request instead</strong></span></button>' : ''}`);
   }
+}
+
+/** Get the latest from GitHub (plan G5): what only GitHub changed comes in, what only you changed stays, and you choose for files both changed. */
+async function getLatestFromGitHub(prefer = '') {
+  const p = project(), g = p?.github;
+  if (!g) { deps.toast('This Build did not come from GitHub.'); return; }
+  if (isBusy()) { deps.toast('Wait until Grandpa finishes, then get the latest.'); return; }
+  let pending = state.pull?.id === p.id ? state.pull : null;
+  if (!prefer || !pending) {
+    openSheet('Get the latest', '<p class="sheet-note">Asking GitHub what changed…</p>', { busy: true });
+    const ask = (branch) => fetch(`/api/github/import?repo=${encodeURIComponent(g.repo)}&branch=${encodeURIComponent(branch)}`, { headers: deps.headers() });
+    try {
+      let branch = g.pr?.branch || g.branch, response = await ask(branch), dropPr = false;
+      if (response.status === 404 && g.pr) { branch = g.branch; dropPr = true; response = await ask(branch); }
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || 'GitHub could not send the project.');
+      const remote = (body.files || []).map(({ path, body: text }) => ({ path: tidyPath(path), body: text })).filter((f) => f.path);
+      pending = state.pull = { id: p.id, commit: body.commit, branch, dropPr, remote };
+    } catch (error) { openSheet('Get the latest', `<p class="sheet-note">${escapeHtml(error.message || 'GitHub could not be reached.')}</p>`); return; }
+    if (pending.commit === g.commit && !pending.dropPr) { state.pull = null; openSheet('Get the latest', `<p class="sheet-note">You already have the latest from <code>${escapeHtml(pending.branch)}</code>.</p>`); return; }
+    const look = mergeLatest(p.files, g.base, pending.remote);
+    if (look.conflicts.length) {
+      const names = look.conflicts.slice(0, 20).map((x) => `<code>${escapeHtml(x)}</code>`).join(', ');
+      openSheet('Changed in both places', `<p class="sheet-note">These files were changed here and on GitHub: ${names}${look.conflicts.length > 20 ? ` and ${look.conflicts.length - 20} more` : ''}.</p>
+        <p class="sheet-note">Everything else comes in by itself. For these, which copy should the Build keep?</p>
+        <button class="sheet-go" type="button" data-gh-pull-keep="mine">Keep my versions</button>
+        <button class="sheet-row" type="button" data-gh-pull-keep="theirs"><span><strong>Use GitHub's versions</strong><small>Your changes to these files are replaced</small></span></button>`);
+      return;
+    }
+  }
+  const merged = mergeLatest(p.files, g.base, pending.remote, prefer || 'mine');
+  state.pull = null;
+  const { pr, ...rest } = g;
+  p.files = merged.files;
+  p.github = { ...rest, ...(pending.dropPr ? {} : pr ? { pr } : {}), commit: pending.commit, base: merged.base, pulledAt: Date.now() };
+  if (state.openPath && !p.files.some((f) => f.path === state.openPath)) state.openPath = '';
+  const n = (k) => merged[k].length, s = (k) => (n(k) === 1 ? '' : 's');
+  const parts = [n('took') && `${n('took')} file${s('took')} updated from GitHub`, n('removed') && `${n('removed')} removed on GitHub`, n('kept') && `${n('kept')} of your change${s('kept')} kept`,
+    n('conflicts') && `${n('conflicts')} changed in both places (${prefer === 'theirs' ? "GitHub's" : 'your'} version kept)`].filter(Boolean);
+  p.messages.push({ role: 'assistant', content: `Got the latest from **${g.repo}** (\`${pending.branch}\`): ${parts.join(', ') || 'nothing in your files changed'}.${pending.dropPr ? ` Pull request #${pr.number}'s branch is gone (merged or closed), so this Build follows \`${g.branch}\` again.` : ''}` });
+  await persist();
+  closeSheet();
+  render();
+  deps.toast(parts.length ? 'Up to date with GitHub.' : 'Already up to date.');
 }
 
 /** A repository was chosen: which branch, then the whole project or single files. */
@@ -3058,6 +3105,8 @@ export async function mount(options = {}) {
     const repo = event.target.closest('[data-repo]');
     if (repo) { showRepoChoice(repo.dataset.repo, repo.dataset.branch, repo.dataset.canWrite === '1'); return; }
     if (event.target.closest('[data-gh-save-go]')) { saveNowToGitHub(); return; }
+    if (event.target.closest('[data-gh-pull-keep]')) { getLatestFromGitHub(event.target.closest('[data-gh-pull-keep]').dataset.ghPullKeep); return; }
+    if (event.target.closest('[data-gh-pull]')) { getLatestFromGitHub(); return; }
     if (event.target.closest('[data-gh-save]')) { showSaveToGitHub(); return; }
     const chosenBranch = () => $('gh-branch')?.value || state.repo?.branch;
     if (event.target.closest('[data-gh-open-all]') && state.repo) { openWholeRepo(state.repo.full, chosenBranch()); return; }
