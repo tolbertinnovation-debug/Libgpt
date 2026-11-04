@@ -150,7 +150,9 @@ export function nextjsFaults(files = []) {
       if (!spec || /^(?:node:|https?:)/.test(spec)) continue;
       if (spec.startsWith('.') || spec.startsWith('@/')) {
         const base = spec.startsWith('@/') ? posix([...(has('src/app/layout.js') || files.some((f) => f.path.startsWith('src/')) ? ['src'] : []), ...spec.slice(2).split('/')]) : posix([...path.split('/').slice(0, -1), ...spec.split('/')]);
-        const target = EXTS.map((e) => base + e).find(has) || (spec.startsWith('@/') ? EXTS.map((e) => posix(spec.slice(2).split('/')) + e).find(has) : undefined);
+        const alias = (b) => { const m = /^(.*)\.(?:m?js|jsx)$/.exec(b); return m ? ['.ts', '.tsx', '.jsx', '.js', '.mjs'].map((e) => m[1] + e).find(has) : undefined; };
+        const plain = spec.startsWith('@/') ? posix(spec.slice(2).split('/')) : null;
+        const target = EXTS.map((e) => base + e).find(has) || (plain ? EXTS.map((e) => plain + e).find(has) : undefined) || alias(base) || (plain ? alias(plain) : undefined);
         if (!target && !/\.(?:css|svg|png|jpe?g|webp|gif|ico|json)$/i.test(spec)) faults.push(`${path} imports "${spec}", but that file does not exist. Create it or fix the import.`);
         else if (!target && /\.css$/i.test(spec)) faults.push(`${path} imports the stylesheet "${spec}", which does not exist.`);
       } else if (pkg) {
