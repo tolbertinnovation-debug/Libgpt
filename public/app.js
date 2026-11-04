@@ -41,6 +41,7 @@ import { SpeakerGuard } from './speaker-guard.js';
 import { setRecordingFormat } from './wav.js?v=meta-media-1';
 import { OPENAI_VOICES, DEFAULT_OPENAI_VOICE } from './voice-settings.js';
 import {imageCard,mountImageComposer,safeChatImage,imagePrompt,imageLoadingMarkup} from './image-chat.js';
+import { farmDoctorMessage } from './farm-doctor.js?v=farm-1';
 
 /* ========================================================================
    State
@@ -1594,10 +1595,56 @@ function showWaitingPhoto() {
   // Said in kilobytes on purpose. Somebody paying by the megabyte should be
   // able to see what this costs them before they send it.
   el.photoSize.textContent = `${Math.round(waiting.bytes / 1024)} KB to send`;
+  syncFarmPhoto();
 }
+
+/* ---- Farm Doctor: a sick crop or animal, shown to Grandpa through a short form -------------------- */
+const farm = { dialog: $('farm-doctor'), form: $('farm-doctor-form'), photoState: $('farm-photo-state'), error: $('farm-error') };
+function syncFarmPhoto() {
+  if (!farm.photoState) return;
+  farm.photoState.hidden = !waiting;
+  farm.photoState.textContent = waiting ? `📷 Photo added: ${waiting.name} (${Math.round(waiting.bytes / 1024)} KB)` : '';
+  const button = farm.form?.querySelector('[data-farm-photo]');
+  if (button) { button.textContent = waiting ? '📷 Change the photo' : '📷 Add a photo'; button.hidden = !state.catalogue.vision; }
+}
+function openFarmDoctor() {
+  if (!farm.dialog) return;
+  if (state.streaming || ritual.isBusy()) { toast('Finish the current task first.'); return; }
+  if (ritual.currentMode() === 'build') $('mode-ask')?.click();
+  closeNav();
+  farm.error.hidden = true;
+  syncFarmPhoto();
+  if (typeof farm.dialog.showModal === 'function') farm.dialog.showModal(); else farm.dialog.setAttribute('open', '');
+  $('farm-subject')?.focus();
+}
+function closeFarmDoctor() { if (farm.dialog?.open) farm.dialog.close(); }
+function submitFarmDoctor() {
+  const kind = farm.form.querySelector('input[name="farm-kind"]:checked')?.value || 'crop';
+  const message = farmDoctorMessage({ kind, subject: $('farm-subject').value, signs: $('farm-signs').value, since: $('farm-since').value, howMany: $('farm-many').value, place: $('farm-place').value, photo: Boolean(waiting) });
+  if (!message) {
+    farm.error.textContent = !$('farm-subject').value.trim() ? 'Say which crop or animal it is.' : 'Say what you see, or add a photo.';
+    farm.error.hidden = false;
+    return;
+  }
+  closeFarmDoctor();
+  // Each check is its own conversation with the farming helper, so it is easy to find again in History.
+  if (currentChat()?.messages?.length) el.newChat.click();
+  state.prefs.persona = 'farming';
+  send(message);
+  for (const id of ['farm-subject', 'farm-signs', 'farm-place']) $(id).value = '';
+  $('farm-since').value = ''; $('farm-many').value = '';
+}
+$('farm-doctor-open')?.addEventListener('click', () => { sounds.tap(); openFarmDoctor(); });
+farm.form?.addEventListener('submit', (event) => { event.preventDefault(); submitFarmDoctor(); });
+farm.form?.addEventListener('input', () => { if (farm.error) farm.error.hidden = true; });
+farm.form?.addEventListener('click', (event) => {
+  if (event.target.closest('[data-farm-close]')) closeFarmDoctor();
+  else if (event.target.closest('[data-farm-photo]')) el.photoInput.click();
+});
 
 function dropPhoto() {
   waiting = null;
+  syncFarmPhoto();
   // Both, so the same picture can be chosen again from either way in.
   el.photoInput.value = '';
   el.cameraInput.value = '';
@@ -3349,7 +3396,7 @@ function syncSidebarTools() {
   root.hidden=!state.catalogue.personas?.length;
   const busy=Boolean(state.streaming) || ritual.isBusy() || conversation.active;
   const capabilities={talk:canTalk,photo:state.catalogue.vision,camera:state.catalogue.vision,
-    paper:true,web:state.catalogue.liveNews,think:true,build:state.catalogue.building};
+    paper:true,web:state.catalogue.liveNews,think:true,build:state.catalogue.building,farmdoctor:true};
   root.querySelectorAll('[data-sidebar-action]').forEach(button => {
     const action=button.dataset.sidebarAction;
     button.hidden=!capabilities[action]; button.disabled=busy;
@@ -3372,6 +3419,7 @@ $('sidebar-tools')?.addEventListener('click', event => {
   if(onPhone())el.menuBtn.focus();
   if(tab){openLibrary(tab);return;}
   if(action==='build'){$('mode-build')?.click();el.input.focus();return;}
+  if(action==='farmdoctor'){openFarmDoctor();return;}
   if(ritual.currentMode()==='build')$('mode-ask')?.click();
   if(create==='document' || create==='design'){
     if(documentKind)documentKind.value=create==='design' ? 'graphic_design' : '';

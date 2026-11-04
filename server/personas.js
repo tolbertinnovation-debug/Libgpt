@@ -1,3 +1,4 @@
+import { FARM_DOCTOR_PROMPT } from './farm-doctor.js';
 import { QUALITY_PROMPT } from './intelligence.js';
 // The "Cultural Intelligence Layer" from the Grandpa AI dossier, expressed as
 // system prompts. A conversation is shaped by two dials — persona (what the
@@ -348,7 +349,7 @@ Grandpa AI draws pictures itself, right here in the chat, with the create_image 
 
 export function buildSystemPrompt({
   persona, language, speaker, tone, userName, spoken, register, task,
-  searched = false, photo = false, depth = 'auto', pictures = false,
+  searched = false, photo = false, depth = 'auto', pictures = false, farmDoctor = false,
 }) {
   const p = PERSONAS[persona] || PERSONAS[DEFAULT_PERSONA];
   const l = LANGUAGES[language] || LANGUAGES[DEFAULT_LANGUAGE];
@@ -383,6 +384,8 @@ export function buildSystemPrompt({
     parts.push(`THE PERSON YOU ARE TALKING TO\nTheir name is ${userName.trim()}. Use it now and then, the way an elder does — not in every sentence.`);
   }
   if (photo) parts.push(PHOTO_PROMPT);
+  // A Farm Doctor check (the form on the home screen) is answered in the Farm Doctor's shape.
+  if (farmDoctor) parts.push(FARM_DOCTOR_PROMPT);
   // Pictures are made by the app itself; a written prompt for another tool is a dead end.
   if (pictures) parts.push(pictures === 'tool' ? PICTURE_TOOL_PROMPT : PICTURES_PROMPT);
   // Last, so it is the rule closest to the answer.
