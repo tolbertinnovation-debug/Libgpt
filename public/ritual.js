@@ -2741,11 +2741,10 @@ async function showSaveToGitHub() {
   if (!count) { openSheet('Save to GitHub', `<p class="sheet-note">Nothing has changed since ${g.pr ? `pull request #${g.pr.number}` : `the ${escapeHtml(g.branch)} branch`} was last saved.</p>${g.pr ? `<a class="sheet-go" href="${escapeHtml(g.pr.url)}" target="_blank" rel="noopener">Open pull request #${g.pr.number}</a>` : ''}`); return; }
   const lastAsk = [...p.messages].reverse().find((m) => m.role === 'user' && m.content)?.content || '';
   const suggestion = (lastAsk ? lastAsk.replace(/\s+/g, ' ').slice(0, 72) : `Update ${p.name}`).replace(/"/g, '');
-  const options = g.pr
-    ? `<label class="sheet-note"><input type="radio" name="gh-mode" value="update" checked> Add to pull request #${g.pr.number} (recommended)</label>
-       <label class="sheet-note"><input type="radio" name="gh-mode" value="pr"> Start a new pull request</label>`
-    : `<label class="sheet-note"><input type="radio" name="gh-mode" value="pr" checked> New branch and pull request (recommended: you review and merge on GitHub)</label>
-       <label class="sheet-note"><input type="radio" name="gh-mode" value="direct"> Save straight to <code>${escapeHtml(g.branch)}</code></label>`;
+  // Saving goes straight to the main branch by default (Samuel's choice for every project); a pull request is optional.
+  const options = `<label class="sheet-note"><input type="radio" name="gh-mode" value="direct" checked> Save straight to <code>${escapeHtml(g.branch)}</code> (recommended)</label>
+       ${g.pr ? `<label class="sheet-note"><input type="radio" name="gh-mode" value="update"> Add to pull request #${g.pr.number}</label>` : ''}
+       <label class="sheet-note"><input type="radio" name="gh-mode" value="pr"> New branch and pull request (review on GitHub first)</label>`;
   openSheet('Save to GitHub', `
     <p class="sheet-note">${count} change${count === 1 ? '' : 's'} to <strong>${escapeHtml(g.repo)}</strong>:</p>
     ${list(ch.changed, 'Changed:')}${list(ch.added, 'New:')}${list(ch.deleted, 'Deleted:')}
@@ -2759,7 +2758,7 @@ async function showSaveToGitHub() {
 async function saveNowToGitHub() {
   const p = project(), g = p?.github;
   if (!g) return;
-  const choice = document.querySelector('input[name="gh-mode"]:checked')?.value || 'pr';
+  const choice = document.querySelector('input[name="gh-mode"]:checked')?.value || 'direct';
   const message = String($('gh-message')?.value || '').trim() || `Update ${p.name}`;
   const ch = githubChanges(p), byPath = new Map(p.files.map((f) => [f.path, f]));
   const mode = choice === 'pr' ? 'pr' : 'direct', branch = choice === 'update' ? g.pr.branch : g.branch;
@@ -2770,7 +2769,9 @@ async function saveNowToGitHub() {
       files: [...ch.changed, ...ch.added].map((path) => ({ path, body: byPath.get(path).body })), deleted: ch.deleted }) });
     const result = await response.json().catch(() => ({}));
     if (!response.ok) throw Object.assign(new Error(result.error || 'GitHub would not take that save.'), { conflict: result.conflict });
-    p.github = { ...g, commit: result.commit, base: Object.fromEntries(p.files.map((f) => [f.path, sourceFingerprint([f])])), savedAt: Date.now(),
+    // Saved straight to the main branch: an earlier pull request's work is in it now, so the Build follows main again.
+    const { pr: _done, ...rest } = g;
+    p.github = { ...(mode === 'direct' && choice === 'direct' ? rest : g), commit: result.commit, base: Object.fromEntries(p.files.map((f) => [f.path, sourceFingerprint([f])])), savedAt: Date.now(),
       ...(mode === 'pr' ? { pr: { number: result.number, url: result.url, branch: result.branch } } : {}) };
     p.messages.push({ role: 'assistant', content: mode === 'pr' ? `Saved to GitHub as **pull request #${result.number}** on the branch \`${result.branch}\`. Review and merge it on GitHub: ${result.url}` : `Saved to GitHub on \`${branch}\`${choice === 'update' ? ` (pull request #${g.pr.number})` : ''}: ${result.url}` });
     await persist();

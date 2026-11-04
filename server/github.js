@@ -337,7 +337,15 @@ export async function saveToGitHub(token, { repo, branch, base, mode = 'pr', new
 
   if (mode === 'direct') {
     const head = await call(token, `/repos/${repo}/branches/${encodeURIComponent(branch)}`, { signal });
-    if (head?.commit?.sha && head.commit.sha !== base) throw Object.assign(new Error(`Someone saved newer changes to ${branch} on GitHub since you opened it. Get the latest first, or save as a pull request.`), { status: 409, conflict: true });
+    const now = head?.commit?.sha;
+    // The Build may be ahead of the branch (its last saves went to a pull request branch made from it): that is
+    // fine as long as the branch's newest commit is inside what the Build started from, so nothing is lost.
+    let ahead = !now || now === base;
+    if (!ahead) {
+      try { const cmp = await call(token, `/repos/${repo}/compare/${now}...${base}`, { signal }); ahead = cmp?.status === 'ahead' || cmp?.status === 'identical'; }
+      catch { ahead = false; }
+    }
+    if (!ahead) throw Object.assign(new Error(`Someone saved newer changes to ${branch} on GitHub since you opened it. Get the latest first, or save as a pull request.`), { status: 409, conflict: true });
   }
   const parent = await call(token, `/repos/${repo}/git/commits/${base}`, { signal });
   const tree = [];
