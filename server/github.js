@@ -363,3 +363,56 @@ export async function saveToGitHub(token, { repo, branch, base, mode = 'pr', new
   const pr = await call(token, `/repos/${repo}/pulls`, { method: 'POST', signal, body: { title: String(title || text).slice(0, 200), head: prBranch, base: branch, body: String(body || 'Made in Grandpa AI (libgrandpaai.com).').slice(0, 5000) } });
   return { mode, commit: commit.sha, branch: prBranch, into: branch, url: pr.html_url, number: pr.number, files: changes.length, deleted: removed.length };
 }
+
+/**
+ * Put a Build on GitHub as a new repository (plan G6). GitHub makes the repository with a first commit (so it has a
+ * branch to save onto), then the Build goes up as one commit straight onto that branch. Private by default.
+ * Without a README of its own, the Build gets a short one, returned in `added` so the Build keeps it too.
+ */
+export async function createRepoFromBuild(token, { name, description = '', isPrivate = true, files = [] }, { signal, wait = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  const repoName = String(name || '').trim();
+  if (!/^[A-Za-z0-9._-]{1,100}$/.test(repoName) || /^\.+$/.test(repoName)) throw Object.assign(new Error('Use letters, numbers, dashes, dots or underscores for the repository name.'), { status: 400 });
+  if (!files.length) throw Object.assign(new Error('This Build has no files to put on GitHub yet.'), { status: 400 });
+  const about = String(description || '').replace(/\s+/g, ' ').trim().slice(0, 300);
+  const hasReadme = files.some((f) => /^readme(\.md)?$/i.test(String(f.path || '').replace(/^\/+/, '')));
+  const added = hasReadme ? [] : [{ path: 'README.md', body: `# ${repoName}\n\n${about ? `${about}\n\n` : ''}Made with Grandpa AI (libgrandpaai.com).\n` }];
+  let made;
+  try { made = await call(token, '/user/repos', { method: 'POST', signal, body: { name: repoName, description: about, private: Boolean(isPrivate), auto_init: true } }); }
+  catch (error) {
+    if (error.status === 422) throw Object.assign(new Error(`You already have a repository called ${repoName}. Choose another name.`), { status: 409 });
+    if (error.status === 403 || error.status === 404) throw Object.assign(new Error('GitHub did not allow Grandpa to make a repository. Connect GitHub again (GitHub → Allow private repositories) and approve access.'), { status: 403 });
+    throw error;
+  }
+  const repo = made.full_name, branch = made.default_branch || 'main';
+  let head = null;
+  for (let tries = 0; tries < 6 && !head; tries += 1) {
+    try { head = (await call(token, `/repos/${repo}/branches/${encodeURIComponent(branch)}`, { signal }))?.commit?.sha || null; }
+    catch (error) { if (error.status !== 404 && error.status !== 409) throw error; }
+    if (!head) await wait(700);
+  }
+  if (!head) throw Object.assign(new Error(`GitHub made ${repo} but is still setting it up. Open it from GitHub → Open a repository in a minute.`), { status: 502 });
+  const saved = await saveToGitHub(token, { repo, branch, base: head, mode: 'direct', message: 'First version from Grandpa AI', files: [...files, ...added] }, { signal });
+  return { repo, branch, commit: saved.commit, url: made.html_url || `https://github.com/${repo}`, private: Boolean(made.private), files: saved.files, added };
+}
+
+/**
+ * Go live with GitHub Pages (plan G7): serve the repository's branch as a website at <owner>.github.io/<repo>/.
+ * Free for public repositories; GitHub only allows Pages on private repositories with a paid plan, and says so.
+ * Already on: returns where it lives. Grandpa never changes a repository's visibility for this.
+ */
+export async function turnOnPages(token, { repo, branch }, { signal } = {}) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(String(repo || '')) || !branch) throw Object.assign(new Error('Which repository and branch?'), { status: 400 });
+  const shape = (p, fresh) => ({ repo, url: p?.html_url || `https://${repo.split('/')[0].toLowerCase()}.github.io/${repo.split('/')[1]}/`, branch: p?.source?.branch || branch, status: p?.status || 'building', fresh });
+  try { return shape(await call(token, `/repos/${repo}/pages`, { signal }), false); }
+  catch (error) { if (error.status !== 404) throw error; }
+  try { return shape(await call(token, `/repos/${repo}/pages`, { method: 'POST', signal, body: { build_type: 'legacy', source: { branch, path: '/' } } }), true); }
+  catch (error) {
+    if (error.status === 422 || error.status === 403 || error.status === 404) {
+      let isPrivate = false;
+      try { isPrivate = Boolean((await call(token, `/repos/${repo}`, { signal }))?.private); } catch { /* keep the plain message */ }
+      if (isPrivate) throw Object.assign(new Error('GitHub Pages on a private repository needs a paid GitHub plan. Use Publish (free on Grandpa), or make the repository public on GitHub first.'), { status: 402, privateRepo: true });
+      throw Object.assign(new Error(`GitHub would not turn on Pages: ${error.message}`), { status: error.status === 404 ? 403 : error.status });
+    }
+    throw error;
+  }
+}

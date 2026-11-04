@@ -2368,6 +2368,10 @@ async function showGitHub() {
       <small>Connect again and approve access to your private repositories too</small></span></a>`}
     ${project()?.github ? `<button class="sheet-row" type="button" data-gh-save><span><strong>Save to GitHub</strong>
       <small>${escapeHtml(project().github.repo)} · ${escapeHtml(project().github.pr?.branch || project().github.branch)}</small></span></button>` : ''}
+    ${project()?.github ? `<button class="sheet-row" type="button" data-gh-pages><span><strong>${project().github.pages ? 'Live on GitHub Pages' : 'Put it live with GitHub Pages'}</strong>
+      <small>${project().github.pages ? escapeHtml(project().github.pages) : 'A free website from the repository (public repositories)'}</small></span></button>` : ''}
+    ${!project()?.github && project()?.files?.length ? `<button class="sheet-row" type="button" data-gh-create><span><strong>Put this Build on GitHub</strong>
+      <small>Make a new repository with these files (private unless you choose)</small></span></button>` : ''}
     ${project()?.github ? `<button class="sheet-row" type="button" data-gh-pull><span><strong>Get the latest from GitHub</strong>
       <small>Bring in what changed on GitHub; your own changes are kept</small></span></button>` : ''}
     <button class="sheet-row sheet-danger" type="button" data-gh="off"><span><strong>Disconnect</strong></span></button>`);
@@ -2448,6 +2452,83 @@ async function saveNowToGitHub() {
     render();
   } catch (error) {
     openSheet('Not saved', `<p class="sheet-note">${escapeHtml(error.message)}</p>${error.conflict ? '<button class="sheet-go" type="button" data-gh-pull>Get the latest from GitHub first</button><button class="sheet-row" type="button" data-gh-save><span><strong>Save as a pull request instead</strong></span></button>' : ''}`);
+  }
+}
+
+/** Put this Build on GitHub as a new repository (plan G6): a name, private or public, then one confirmed step. */
+function showCreateRepo() {
+  const p = project();
+  if (!p?.files?.length) { deps.toast('This Build has no files yet.'); return; }
+  if (p.github) { showSaveToGitHub(); return; }
+  const suggested = String(p.name || 'my-project').toLowerCase().normalize('NFKD').replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'my-project';
+  openSheet('Put this Build on GitHub', `
+    <label class="sheet-note" for="gh-new-name">Repository name</label>
+    <input id="gh-new-name" class="pic-alt" style="display:block;width:100%" maxlength="100" autocomplete="off" value="${escapeHtml(suggested)}">
+    <label class="sheet-note"><input id="gh-new-private" type="checkbox" checked> Private (only you and people you invite can see it)</label>
+    <p class="sheet-note">${p.files.length} file${p.files.length === 1 ? '' : 's'} go up as the first version.${p.files.some((f) => /^readme(\.md)?$/i.test(f.path)) ? '' : ' A short README.md is added.'} Private repositories are free on GitHub.</p>
+    <button class="sheet-go" type="button" data-gh-create-go>Make the repository</button>`);
+}
+
+async function createRepoNow() {
+  const p = project();
+  if (!p || p.github) return;
+  if (isBusy()) { deps.toast('Wait until Grandpa finishes, then try again.'); return; }
+  const name = String($('gh-new-name')?.value || '').trim(), isPrivate = $('gh-new-private')?.checked !== false;
+  openSheet('Put this Build on GitHub', `<p class="sheet-note">Making ${escapeHtml(name)} on GitHub…</p>`, { busy: true });
+  try {
+    const response = await fetch('/api/github/create', { method: 'POST', headers: { 'Content-Type': 'application/json', ...deps.headers() }, body: JSON.stringify({
+      confirm: true, name, private: isPrivate, description: p.name, files: p.files.map(({ path, body }) => ({ path, body })) }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'GitHub would not make that repository.');
+    for (const f of result.added || []) if (!p.files.some((x) => x.path === f.path)) p.files.push({ path: f.path, body: f.body });
+    p.github = { repo: result.repo, branch: result.branch, commit: result.commit, canWrite: true, openedAt: Date.now(), savedAt: Date.now(), base: Object.fromEntries(p.files.map((f) => [f.path, sourceFingerprint([f])])) };
+    p.messages.push({ role: 'assistant', content: `Made the ${result.private ? 'private' : 'public'} repository **${result.repo}** on GitHub with this Build's files: ${result.url}\n\nFrom now on, **Save to GitHub** sends your changes there.` });
+    await persist();
+    openSheet('On GitHub', `<p class="sheet-note"><strong>${escapeHtml(result.repo)}</strong> is on GitHub (${result.private ? 'private' : 'public'}).</p><a class="sheet-go" href="${escapeHtml(result.url)}" target="_blank" rel="noopener">Open it on GitHub</a>`);
+    render();
+  } catch (error) {
+    openSheet('Not made', `<p class="sheet-note">${escapeHtml(error.message)}</p><button class="sheet-go" type="button" data-gh-create>Try again</button>`);
+  }
+}
+
+/** Go live with GitHub Pages (plan G7): the saved branch becomes a website. Apps that save data need Grandpa's servers, so they use Publish. */
+function needsGrandpaServers(files = []) {
+  return files.some((f) => f.path.startsWith('server/') || (/\.(html?|js|mjs)$/i.test(f.path) && /\b(?:App|GrandpaApp)\.(?:db|server)\s*\(/.test(String(f.body))));
+}
+
+function showPages() {
+  const p = project(), g = p?.github;
+  if (!g) { deps.toast('Put this Build on GitHub first.'); return; }
+  const publish = deps.publishing ? '<button class="sheet-go" type="button" data-gh-pages-publish>Publish with Grandpa instead (free)</button>' : '';
+  if (g.pages) { openSheet('GitHub Pages', `<p class="sheet-note">This Build is live at <strong>${escapeHtml(g.pages)}</strong>. It updates by itself a minute after each save to <code>${escapeHtml(g.branch)}</code>.</p><a class="sheet-go" href="${escapeHtml(g.pages)}" target="_blank" rel="noopener">Open the website</a>`); return; }
+  if (!g.canWrite) { openSheet('GitHub Pages', `<p class="sheet-note">You can read ${escapeHtml(g.repo)} but not change its settings.</p>${publish}`); return; }
+  if (needsGrandpaServers(p.files)) { openSheet('GitHub Pages', `<p class="sheet-note">This Build saves data or runs server code (<code>App.db</code>, <code>App.server</code> or a <code>server/</code> folder). GitHub Pages only shows plain pages, so that part would not work there.</p>${publish}`); return; }
+  if (!p.files.some((f) => f.path === 'index.html')) { openSheet('GitHub Pages', '<p class="sheet-note">GitHub Pages opens <code>index.html</code> first, and this Build has none at the top level. Ask Grandpa to add a home page, then try again.</p>'); return; }
+  const ch = githubChanges(p), unsaved = ch.changed.length + ch.added.length + ch.deleted.length;
+  const owner = g.repo.split('/')[0].toLowerCase(), name = g.repo.split('/')[1];
+  openSheet('Put it live with GitHub Pages', `
+    <p class="sheet-note">GitHub will show the <code>${escapeHtml(g.branch)}</code> branch of <strong>${escapeHtml(g.repo)}</strong> as a website at <strong>https://${escapeHtml(owner)}.github.io/${escapeHtml(name)}/</strong>.</p>
+    ${unsaved ? `<p class="sheet-note">You have ${unsaved} change${unsaved === 1 ? '' : 's'} not saved to GitHub yet; the website shows only what is saved.</p>` : ''}
+    ${g.pr ? `<p class="sheet-note">Pull request #${g.pr.number} shows up on the website once it is merged into <code>${escapeHtml(g.branch)}</code>.</p>` : ''}
+    <p class="sheet-note">Free for public repositories. For a private repository GitHub asks for a paid plan; Grandpa never changes that for you.</p>
+    <button class="sheet-go" type="button" data-gh-pages-go>Turn on GitHub Pages</button>`);
+}
+
+async function turnOnPagesNow() {
+  const p = project(), g = p?.github;
+  if (!g) return;
+  openSheet('GitHub Pages', '<p class="sheet-note">Asking GitHub to put it live…</p>', { busy: true });
+  try {
+    const response = await fetch('/api/github/pages', { method: 'POST', headers: { 'Content-Type': 'application/json', ...deps.headers() }, body: JSON.stringify({ confirm: true, repo: g.repo, branch: g.branch }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw Object.assign(new Error(result.error || 'GitHub would not turn on Pages.'), { privateRepo: result.privateRepo });
+    p.github = { ...g, pages: result.url };
+    p.messages.push({ role: 'assistant', content: `GitHub Pages is on for **${g.repo}**: ${result.url}\n\n${result.fresh ? 'GitHub takes about a minute to put it up the first time. ' : ''}After each save to \`${g.branch}\`, the website updates by itself.` });
+    await persist();
+    openSheet('Live on GitHub Pages', `<p class="sheet-note">${result.fresh ? 'GitHub is putting it up now; give it about a minute.' : 'GitHub Pages was already on.'}</p><a class="sheet-go" href="${escapeHtml(result.url)}" target="_blank" rel="noopener">Open ${escapeHtml(result.url.replace(/^https:\/\//, ''))}</a>`);
+    render();
+  } catch (error) {
+    openSheet('Not live yet', `<p class="sheet-note">${escapeHtml(error.message)}</p>${error.privateRepo && deps.publishing ? '<button class="sheet-go" type="button" data-gh-pages-publish>Publish with Grandpa instead (free)</button>' : ''}`);
   }
 }
 
@@ -3105,6 +3186,11 @@ export async function mount(options = {}) {
     const repo = event.target.closest('[data-repo]');
     if (repo) { showRepoChoice(repo.dataset.repo, repo.dataset.branch, repo.dataset.canWrite === '1'); return; }
     if (event.target.closest('[data-gh-save-go]')) { saveNowToGitHub(); return; }
+    if (event.target.closest('[data-gh-pages-go]')) { turnOnPagesNow(); return; }
+    if (event.target.closest('[data-gh-pages-publish]')) { closeSheet(); showWebPublish(); return; }
+    if (event.target.closest('[data-gh-pages]')) { showPages(); return; }
+    if (event.target.closest('[data-gh-create-go]')) { createRepoNow(); return; }
+    if (event.target.closest('[data-gh-create]')) { showCreateRepo(); return; }
     if (event.target.closest('[data-gh-pull-keep]')) { getLatestFromGitHub(event.target.closest('[data-gh-pull-keep]').dataset.ghPullKeep); return; }
     if (event.target.closest('[data-gh-pull]')) { getLatestFromGitHub(); return; }
     if (event.target.closest('[data-gh-save]')) { showSaveToGitHub(); return; }
