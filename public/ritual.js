@@ -320,10 +320,11 @@ async function runNeonSchema() {
 /* ---- Put a Next.js app online with the person's own Vercel account ---------------------------------
    The Vercel token stays on this device. The app's settings (database, keys) are typed here, sent to Vercel once
    (Vercel keeps them encrypted) and never stored by Grandpa. Vercel builds the app from its GitHub repository. */
-const VERCEL_TOKEN_KEY = 'grandpa-vercel-token', VERCEL_USER_KEY = 'grandpa-vercel-user';
+const VERCEL_TOKEN_KEY = 'grandpa-vercel-token', VERCEL_USER_KEY = 'grandpa-vercel-user', VERCEL_TEAM_KEY = 'grandpa-vercel-team';
+function vercelTeam() { try { return localStorage.getItem(VERCEL_TEAM_KEY) || ''; } catch { return ''; } }
 function vercelToken() { try { return localStorage.getItem(VERCEL_TOKEN_KEY) || ''; } catch { return ''; } }
 function vercelUser() { try { return localStorage.getItem(VERCEL_USER_KEY) || ''; } catch { return ''; } }
-function forgetVercel() { try { localStorage.removeItem(VERCEL_TOKEN_KEY); localStorage.removeItem(VERCEL_USER_KEY); } catch {} }
+function forgetVercel() { try { localStorage.removeItem(VERCEL_TOKEN_KEY); localStorage.removeItem(VERCEL_USER_KEY); localStorage.removeItem(VERCEL_TEAM_KEY); } catch {} }
 /** The setting names the app needs, from .env.example (values there are placeholders and are never sent). */
 function appSettingNames(p) {
   const file = (p?.files || []).find((f) => /^\.env(?:\.local)?\.example$/i.test(f.path) || f.path === '.env.sample');
@@ -380,7 +381,7 @@ async function connectVercel() {
   openSheet('Put it online with Vercel', '<p class="sheet-note">Checking the token…</p>', { busy: true });
   try {
     const who = await vercelApi('check', { token });
-    try { localStorage.setItem(VERCEL_TOKEN_KEY, token); localStorage.setItem(VERCEL_USER_KEY, who.username || who.email || ''); }
+    try { localStorage.setItem(VERCEL_TOKEN_KEY, token); localStorage.setItem(VERCEL_USER_KEY, who.teamName ? `${who.teamName} (team)` : who.username || who.email || ''); localStorage.setItem(VERCEL_TEAM_KEY, who.teamId || ''); }
     catch { showVercelSheet('This browser would not keep the token (private browsing?).'); return; }
     showVercelSheet('Vercel is connected.');
   } catch (error) { forgetVercel(); showVercelSheet(error.message); }
@@ -405,7 +406,7 @@ async function deployToVercel() {
   }
   openSheet('Put it online with Vercel', '<p class="sheet-note" id="vercel-progress">Sending the app to Vercel…</p>', { busy: true });
   let started;
-  try { started = await vercelApi('deploy', { token, repo: p.github.repo, branch: p.github.branch || 'main', env }); }
+  try { started = await vercelApi('deploy', { token, teamId: vercelTeam(), repo: p.github.repo, branch: p.github.branch || 'main', env }); }
   catch (error) { showVercelSheet(error.message); return; }
   p.vercel = { project: started.project, url: started.url, id: started.id, readyState: started.readyState, at: Date.now() };
   await persist();
@@ -416,7 +417,7 @@ async function watchVercel(id) {
   const p = project(), token = vercelToken(), began = Date.now();
   for (let i = 0; i < 90; i += 1) {
     let st;
-    try { st = await vercelApi('status', { token, id }); } catch (error) { showVercelSheet(error.message); return; }
+    try { st = await vercelApi('status', { token, teamId: vercelTeam(), id }); } catch (error) { showVercelSheet(error.message); return; }
     if (p.vercel?.id === id) p.vercel.readyState = st.readyState;
     const box = $('vercel-progress');
     if (st.readyState === 'READY') {

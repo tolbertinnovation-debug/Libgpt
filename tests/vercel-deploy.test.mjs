@@ -5,14 +5,21 @@ import { readFile } from 'node:fs/promises';
 import { isolatedLedger } from './support/ledger.mjs';
 
 // A stand-in for Vercel's API: a user, projects linked to GitHub, settings and deployments.
-const TOKEN = 'abcDEF1234567890ghijKL';
+const TOKEN = 'abcDEF1234567890ghijKL', TEAM_TOKEN = 'teamTOKEN1234567890abcd', TEAM = 'team_abc123XYZ';
 const seen = []; let projects = {}, deployments = {}, githubLinked = true;
 const fake = http.createServer((req, res) => {
   let raw = ''; req.on('data', (c) => { raw += c; }).on('end', () => {
     const body = raw ? JSON.parse(raw) : null; seen.push({ method: req.method, url: req.url, body, auth: req.headers.authorization });
     const json = (v, status = 200) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(v)); };
-    if (req.headers.authorization !== `Bearer ${TOKEN}`) return json({ error: { code: 'forbidden', message: 'Not authorized' } }, 403);
+    // A team token (like Samuel's, made for the Tolbert Innovation Hub team) works only inside its team.
+    if (req.headers.authorization === `Bearer ${TEAM_TOKEN}`) {
+      if (req.url === '/v2/user') return json({ error: { code: 'not_found', message: 'User not found.' } }, 404);
+      if (req.url.startsWith('/v2/teams')) return json({ teams: [{ id: TEAM, slug: 'tolbert-innovation-hub', name: 'Tolbert Innovation Hub' }] });
+      if (!req.url.includes(`teamId=${TEAM}`)) return json({ error: { code: 'forbidden', message: 'You do not have permission to access this resource.' } }, 403);
+      req.url = req.url.replace(/[?&]teamId=[^&]+/, '').replace(/^([^?]*)&/, '$1?');
+    } else if (req.headers.authorization !== `Bearer ${TOKEN}`) return json({ error: { code: 'forbidden', message: 'Not authorized' } }, 403);
     if (req.url === '/v2/user') return json({ user: { username: 'samuel', email: 'x@y.z' } });
+    if (req.url.startsWith('/v2/teams')) return json({ teams: [] });
     let m;
     if ((m = /^\/v9\/projects\/([^/?]+)$/.exec(req.url))) return projects[m[1]] ? json(projects[m[1]]) : json({ error: { code: 'not_found', message: 'Project not found' } }, 404);
     if (req.url === '/v11/projects' && req.method === 'POST') {
@@ -32,7 +39,7 @@ const v = await import('../server/vercel-deploy.js');
 test.after(() => fake.close());
 
 test('the token is checked with Vercel and only a token-shaped value is sent', async () => {
-  assert.deepEqual(await v.vercelWho(TOKEN), { username: 'samuel', name: '', email: 'x@y.z' });
+  assert.deepEqual(await v.vercelWho(TOKEN), { username: 'samuel', name: '', email: 'x@y.z', teamId: '', teamName: '', teams: [] });
   await assert.rejects(v.vercelWho('not a token!'), /does not look like a Vercel token/);
   await assert.rejects(v.vercelWho('wrongTokenWrongToken99'), (e) => e.status === 401 && /did not accept that token/.test(e.message));
 });
@@ -84,4 +91,15 @@ test('the routes need the access code, and the Build offers Vercel for Next.js a
   const ritual = await readFile(new URL('../public/ritual.js', import.meta.url), 'utf8');
   assert.match(ritual, /data-vercel>\$\{p\.vercel\?\.readyState === 'READY' \? 'Online on Vercel' : 'Put it online \(Vercel\)'\}/);
   assert.match(ritual, /It is kept only on this device\. Grandpa sends it to Vercel with each request and does not store it\./);
+});
+
+test('a token made for a team ("User not found" for the person) works inside its team', async () => {
+  const who = await v.vercelWho(TEAM_TOKEN);
+  assert.deepEqual([who.teamId, who.teamName, who.username], [TEAM, 'Tolbert Innovation Hub', 'tolbert-innovation-hub']);
+  projects = {}; deployments = {}; seen.length = 0;
+  const out = await v.vercelDeploy(TEAM_TOKEN, { repo: 'tolbertinnovation-debug/Farm-AI-Doctor', env: { AUTH_SECRET: 'abc' }, teamId: TEAM });
+  assert.equal(out.url, 'https://farm-ai-doctor.vercel.app');
+  assert.ok(seen.filter((s) => s.auth === `Bearer ${TEAM_TOKEN}` && !/^\/v2\//.test(s.url)).length >= 4, 'every project call names the team');
+  assert.equal((await v.vercelStatus(TEAM_TOKEN, out.id, { teamId: TEAM })).readyState, 'READY');
+  await assert.rejects(v.vercelDeploy(TEAM_TOKEN, { repo: 'tolbertinnovation-debug/Farm-AI-Doctor', env: {} }), /permission/, 'without the team, Vercel refuses (as for Samuel before this fix)');
 });
