@@ -1630,6 +1630,10 @@ function submitFarmDoctor() {
   // Each check is its own conversation with the farming helper, so it is easy to find again in History.
   if (currentChat()?.messages?.length) el.newChat.click();
   state.prefs.persona = 'farming';
+  // An empty chat opened from another helper becomes the farming helper's (its label and its answers).
+  const empty = currentChat();
+  if (empty && !empty.messages?.length) empty.persona = 'farming';
+  renderComposerPersona();
   send(message);
   for (const id of ['farm-subject', 'farm-signs', 'farm-place']) $(id).value = '';
   $('farm-since').value = ''; $('farm-many').value = '';
