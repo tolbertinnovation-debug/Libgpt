@@ -159,11 +159,36 @@ function render() {
   renderTree();
   renderEditor();
   renderWorkspaceChanges();
+  renderPublishButton();
   if (state.view === 'preview') renderPreview();
+}
+
+/** The Publish button in the Build header: Publish, Update (changes not on the web yet) or Live ✓. */
+function renderPublishButton() {
+  const button = $('build-publish-btn');
+  if (!button) return;
+  button.hidden = !deps.publishing;
+  if (!deps.publishing) return;
+  const p = project(), built = Boolean(p && builtFiles(p).length), live = Boolean(p?.publish?.url);
+  const changed = live && (publishedChanged(p) || Boolean(p.publish.app) !== projectIsApp(p));
+  const label = !built || !live ? 'Publish' : changed ? 'Update' : 'Live ✓';
+  if (button.textContent !== label) button.textContent = label;
+  button.classList.toggle('is-live', label === 'Live ✓');
+  button.setAttribute('aria-disabled', String(!built || isBusy()));
+  button.title = !built ? 'Build something first, then publish it on the web' : isBusy() ? 'Wait until Grandpa finishes' : label === 'Live ✓' ? 'Your website is live: see its address' : 'Put this on the web';
+}
+/** Publish from the header or the ⋮ menu: the real publish (sites.libgrandpaai.com), with a plain word when it cannot happen yet. */
+function publishNow() {
+  const p = project();
+  if (!deps.publishing) { showPublish(); return; }
+  if (!p || !builtFiles(p).length) { deps.toast('Build something first: say what you want in the chat. Then tap Publish to put it on the web.'); return; }
+  if (isBusy()) { deps.toast('Wait until Grandpa finishes, then publish.'); return; }
+  showWebPublish();
 }
 
 function renderThread() {
   const p = project();
+  renderPublishButton();
   const has = p.messages.length > 0;
   el.empty.hidden = has;
   el.thread.hidden = !has;
@@ -2792,6 +2817,7 @@ export async function mount(options = {}) {
     const videoSkip = event.target.closest('[data-video-skip]');
     if (videoSkip) { const [a, b] = videoSkip.dataset.videoSkip.split(':').map(Number); useVideo(a, b, true); return; }
 
+    if (event.target.closest('#build-publish-btn')) { publishNow(); return; }
     if (event.target.closest('#build-menu-btn')) {
       const open = el.menu.hidden;
       el.menu.hidden = !open;
@@ -2822,7 +2848,7 @@ export async function mount(options = {}) {
     if (item.id === 'build-history') showHistory();
     if (item.id === 'build-check') checkWebsite();
     if (item.id === 'build-github') showGitHub();
-    if (item.id === 'build-publish') showPublish();
+    if (item.id === 'build-publish') publishNow();
     if (item.id === 'build-ai-test') testBuildAI();
     if (item.id === 'build-guardrails') showGuardrails();
   });
