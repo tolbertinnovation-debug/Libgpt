@@ -22,13 +22,14 @@ import {
   applyEdits, filesFrom, forSending, highlightFile, pendingPictures, KIT_NOTE, isKitFile, looksEmpty, makeProject, previewDocument,
   previewState, projectIssues, repairPaths, restoreVersion, saveProjects, tidyPath, writingWhat,
   loadProjectsDurable, saveProjectsDurable,
-} from './build.js?v=kit-3';
+} from './build.js?v=kit-4';
 import {buildTaskLabel,buildTaskFacts} from './build-task-state.js?v=phase2-stage6-reliability';
 import { runTeam, TEAM_ROLES, TEAM_CAPACITY } from './build-team.js?v=phase2-stage6-reliability';
 import { shrink } from './photo.js';
 import {backgroundActive,sameProjectSource,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile,canRetryBackgroundCreation,backgroundConnectionMessage} from './build-workspace.js?v=phase2-stage8-poll';
 import { renderMarkdown } from './markdown.js';
 import { mergeLatest } from './github-sync.js?v=github-3';
+import { readStagedRequest, newStagePlan, stageState, stageForServer, stageAsk, planMessage, nextjsFaults, powershellFaults } from './project-stages.js?v=stages-1';
 import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materials.js?v=materials-2';
 import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
 import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
@@ -168,8 +169,10 @@ function render() {
 function renderPublishButton() {
   const button = $('build-publish-btn');
   if (!button) return;
-  button.hidden = !deps.publishing;
-  if (!deps.publishing) return;
+  // A Next.js project runs on the person's computer or on Vercel, not on Grandpa's website hosting.
+  const nextApp = Boolean(project()?.stages?.nextjs);
+  button.hidden = !deps.publishing || nextApp;
+  if (!deps.publishing || nextApp) return;
   const p = project(), built = Boolean(p && builtFiles(p).length), live = Boolean(p?.publish?.url);
   const changed = live && (publishedChanged(p) || Boolean(p.publish.app) !== projectIsApp(p));
   const label = !built || !live ? 'Publish' : changed ? 'Update' : 'Live ✓';
@@ -238,9 +241,75 @@ function renderThread() {
   el.thread.scrollTop = el.thread.scrollHeight;
 }
 
+/* ---- Staged projects: one stage at a time, tested by the person before the next ---------------- */
+function stageHint(p) {
+  const s = stageState(p.stages);
+  if (!s) return '';
+  const files = builtFiles(p).length;
+  const gh = p.github ? githubChanges(p) : null, ghCount = gh ? gh.changed.length + gh.added.length + gh.deleted.length : 0;
+  const tools = `${files ? '<button class="build-chip" type="button" data-download-zip>Download as ZIP</button>' : ''}${ghCount ? `<button class="build-chip" type="button" data-gh-save>Save ${ghCount} change${ghCount === 1 ? '' : 's'} to GitHub</button>` : ''}${files && !p.github ? '<button class="build-chip" type="button" data-build-github-open>Put it on GitHub</button>' : ''}${(p.versions || []).length ? '<button class="build-chip" type="button" data-show-history>See versions</button>' : ''}<button class="build-chip" type="button" data-stage-plan>The plan</button>`;
+  let note, main = '';
+  if (s.finished) note = `All ${s.total} stages are built and tested. Tell me anything to fix or add.`;
+  else if (s.stage.status === 'built') {
+    note = `Stage ${s.number} of ${s.total} (${escapeHtml(s.stage.title)}) is built. Test it on your computer with the steps above. If something is wrong, tell me what you saw (copy any red error text).`;
+    main = `<button class="build-chip is-primary" type="button" data-stage-ok>It works${s.next ? ` — build stage ${s.number + 1}: ${escapeHtml(s.next.title)}` : ' — finish'}</button>`;
+  } else {
+    note = `Next: stage ${s.number} of ${s.total}, ${escapeHtml(s.stage.title)}. Add any wishes for it in your own words, or start it now.`;
+    main = `<button class="build-chip is-primary" type="button" data-stage-build>Build stage ${s.number}: ${escapeHtml(s.stage.title)}</button>`;
+  }
+  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">${note}</p><div class="build-chips">${main}${tools}</div></div>`;
+}
+
+async function startStages(said, staged) {
+  const p = project();
+  p.stages = newStagePlan(staged);
+  if (staged.name && /^(?:Build \d+|Untitled build)$/.test(p.name || '')) p.name = staged.name;
+  p.messages.push({ role: 'user', content: said }, { role: 'assistant', content: planMessage(p.stages) });
+  await persist();
+  render();
+}
+
+/** Build the current stage (the person's extra words, if any, go with it), then say how to test it. */
+async function buildStage(extra = '') {
+  const p = project(), plan = p?.stages, s = stageState(plan);
+  if (!s || s.finished || isBusy()) return;
+  if (s.stage.status === 'built' && !extra) { deps.toast('Test this stage first, then tap "It works".'); return; }
+  const ask = stageAsk(plan);
+  const wishes = String(extra || '').trim();
+  const ok = await changeFiles(`${ask}.${wishes ? `\n\nWhat the person added for this stage: ${wishes}` : ''}`, { shown: wishes ? `${ask}\n\n${wishes}` : ask, label: `Stage ${s.number} of ${s.total}` });
+  const latest = [...p.messages].reverse().find((m) => m.role === 'assistant');
+  if (!ok || !latest?.applied) { await persist(); render(); return; }
+  s.stage.status = 'built';
+  s.stage.builtAt = Date.now();
+  const left = plan.nextjs ? nextjsFaults(p.files) : [];
+  p.messages.push({ role: 'assistant', content: left.length
+    ? `Stage ${s.number} is written, but the project check still found ${left.length === 1 ? 'a problem' : `${left.length} problems`}:\n\n${left.map((f) => `- ${f}`).join('\n')}\n\nTell me "fix these" and I will, or test it and tell me what you see.`
+    : `Stage ${s.number} of ${s.total} is built and the project check passed ✓ (files, imports, packages, settings and secrets).${plan.nextjs ? ' The preview here cannot run a Next.js app, so the real test is on your computer: follow the steps above.' : ''}\n\nWhen it works, tap **It works**. If not, tell me what happened.` });
+  await persist();
+  render();
+}
+
+async function stageWorks() {
+  const p = project(), plan = p?.stages, s = stageState(plan);
+  if (!s || s.stage.status !== 'built' || isBusy()) return;
+  s.stage.status = 'ok';
+  s.stage.okAt = Date.now();
+  if (s.next) plan.current = s.index + 1;
+  const after = stageState(plan);
+  p.messages.push({ role: 'user', content: `Stage ${s.number} works.` });
+  if (after.finished) {
+    p.messages.push({ role: 'assistant', content: `All ${after.total} stages of ${plan.name ? `**${plan.name}**` : 'the project'} are built and tested. 🎉\n\nNext you can put it on GitHub (⋮ → Connect GitHub → Put this Build on GitHub) and host it free on Vercel, which runs Next.js apps: import the repository at vercel.com/new and add the same settings from .env.local there.` });
+    await persist(); render(); return;
+  }
+  await persist();
+  render();
+  await buildStage();
+}
+
 /** Once something is built: say plainly that anything can be fixed or changed. */
 const POLICY_REQUEST = 'Add a privacy policy page, and terms and a refund policy page if this business sells or takes orders or bookings. Write them in plain words for this business, as the design standard says, and link them in the footer of every page.';
 function fixHint(p) {
+  if (p.stages && !state.live && !isBusy()) return stageHint(p);
   if (!builtFiles(p).length || state.live || isBusy()) return '';
   const chips = ['Check for problems and fix them', ...(deps.vision ? ['Look at it on a phone and fix what is wrong'] : ['Make it look better on phones']), 'What is in my website?']
     .map((s) => `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(s)}">${escapeHtml(s)}</button>`).join('');
@@ -284,7 +353,7 @@ function proposalHtml(files, index, applied, checked, receipt) {
           <button class="proposal-apply" type="button" data-mend="${index}">Fix it</button>
         </div>`
       : Array.isArray(checked)
-        ? '<p class="proposal-done">Preview checks passed. Test the buttons and forms before publishing.</p>'
+        ? (p.stages?.nextjs ? '<p class="proposal-done">Project check passed (files, imports, packages, settings and secrets). Test it on your computer.</p>' : '<p class="proposal-done">Preview checks passed. Test the buttons and forms before publishing.</p>')
         : '';
 
   return `<div class="proposal ${applied ? 'is-applied' : ''}">
@@ -497,11 +566,21 @@ async function send(text) {
   // A new project is talked through first, like a developer meeting a client:
   // questions, then a summary to approve. Nothing is built until they say so.
   const written = (p.files || []).filter((f) => !(p.materials || []).includes(f.path)).length;
+  // A big request in numbered stages is built one stage at a time (staged projects).
+  if (!p.stages && !p.team && !p.background && !isBuildResumeCommand(said)) { const staged = readStagedRequest(said); if (staged) { await startStages(said, staged); return; } }
+  if (p.stages && !stageState(p.stages)?.finished && !written && stageState(p.stages).stage.status === 'todo' && /^(?:yes|ok(?:ay)?|go|start|continue|build(?: it)?|begin)[.!]?$/i.test(said)) { await buildStage(); return; }
+  if (p.stages && !written) { await buildStage(said); return; }
   if (!written && !p.team && !p.background && !isBuildResumeCommand(said)) { await discuss(said); return; }
   // Built already: a fix or a change is made straight into the files, checked
   // in the phone and desktop preview, and repaired once more if the check
   // finds a problem. The full engineering review runs before publishing.
   // Questions about the site itself are answered from the files: instant and free.
+  if (p.stages && written) {
+    const s = stageState(p.stages);
+    if (s && !s.finished && s.stage.status === 'built' && /^(?:it works|works|done|next(?: stage)?|ok(?:ay)?,? next|tested,? (?:it )?works)[.!]?$/i.test(said)) { await stageWorks(); return; }
+    if (s && !s.finished && s.stage.status === 'todo') { await buildStage(said); return; }
+    await changeFiles(said); return;
+  }
   if (written && ABOUT_SITE.test(said)) { answerLocally(said, aboutSite(p)); return; }
   if (written && SEARCH_QUESTION.test(said)) { answerLocally(said, whereIs(p, said)); return; }
   if (written && LOOK_REQUEST.test(said)) { await lookOnRequest(said); return; }
@@ -1103,7 +1182,9 @@ const PROBLEM = /\b(?:fix|error|errors|broken|break|bug|bugs|problem|problems|is
 async function changeFiles(said, {faults=null, repairsLeft=1, shown=said, focus=null, check=true, readsLeft=1, label='', look=true, lookFixes=1}={}) {
   const p=project();
   if(!p || isBusy())return false;
-  if(p.files.some(f=>/\.html?$/i.test(f.path)))await ensureKit(p);
+  const staged=p.stages && !stageState(p.stages)?.finished ? p.stages : null;
+  if(p.stages?.nextjs){check=false;look=false;}
+  if(!p.stages?.nextjs && p.files.some(f=>/\.html?$/i.test(f.path)))await ensureKit(p);
   if(shown)p.messages.push({role:'user',content:shown});
   const answer={role:'assistant',content:'',...(label?{step:label}:{})};
   p.messages.push(answer);
@@ -1133,7 +1214,7 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said, focus=
     const conversation=conversationWindow(p.messages.filter(m=>m.content && m!==answer)).list;
     if(conversation.at(-1)?.role!=='user' || conversation.at(-1).content!==said)conversation.push({role:'user',content:said});
     await generateFiles(said,p.files,{signal:controller.signal,faults:faults || [],editFailures,reads,focus,
-      messages:conversation,runtime:p.team?.plan?.runtime || 'static',
+      messages:conversation,runtime:p.stages?.nextjs ? 'nextjs' : p.team?.plan?.runtime || 'static',stage:staged ? stageForServer(staged) : null,
       onProse:prose=>{answer.content=prose;renderThread();},
       onFile:async file=>{
         received.set(file.path,file);
@@ -1158,6 +1239,8 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said, focus=
       answer.checked=saved ? (check ? 'checking' : null) : ['Automatic saving failed. Download this project.'];
       // The version from before this turn, so the change can be undone in one tap.
       answer.undoAt=p.versions?.[versionsBefore]?.at;
+      // A staged Next.js project cannot run in the preview, so its files get their own checks (free, in the browser).
+      if(saved && p.stages?.nextjs)answer.checked=[...nextjsFaults(p.files),...powershellFaults(answer.content)];
     }
     unmark(mine);state.live=null;state.streaming=null;el.editorInput.readOnly=false;
     await persist();render();
@@ -1172,6 +1255,10 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said, focus=
     const paths=[...new Set(editFailures.map(f=>f.path))];
     return await changeFiles(`${said}\n\nYour SEARCH/REPLACE edits for ${paths.join(', ')} did not match the files as they are now. Write each of those files out whole this time, in a normal fenced block with its path, including the change.`,
       {faults,repairsLeft:repairsLeft-1,shown:shown ? 'Trying that change again' : null,focus:focus ? [...new Set([...focus,...paths])] : null,check,label});
+  }
+  if(!failed && received.size && saved && p.stages?.nextjs && Array.isArray(answer.checked) && answer.checked.length && repairsLeft>0){
+    return await changeFiles('Fix the problems the project check found after the last change, keeping everything else as it is.',
+      {faults:answer.checked,repairsLeft:repairsLeft-1,shown:'Fix the problems the project check found',label});
   }
   if(received.size && saved && check){
     await createPhotos(p);
@@ -1196,7 +1283,7 @@ async function changeFiles(said, {faults=null, repairsLeft=1, shown=said, focus=
 }
 
 /** Complete file fences become checkpoints immediately, before the stream ends. */
-async function generateFiles(instruction, files, {signal,onFile=async()=>{},onProse=()=>{},messages,faults=[],research='auto',allowPictures=false,runtime='static',agent='builder',editFailures=[],reads=[],focus=null}={}) {
+async function generateFiles(instruction, files, {signal,onFile=async()=>{},onProse=()=>{},messages,faults=[],research='auto',allowPictures=false,runtime='static',agent='builder',editFailures=[],reads=[],focus=null,stage=null}={}) {
   // The files as they stand, so SEARCH/REPLACE edits apply to the latest text.
   const working=new Map((files || []).map(f=>[f.path,f.body]));
   let editsDone=0;
@@ -1212,7 +1299,7 @@ async function generateFiles(instruction, files, {signal,onFile=async()=>{},onPr
   const response=await fetch('/api/chat',{
     method:'POST',headers:{'Content-Type':'application/json',...deps.headers()},signal,
     body:JSON.stringify({mode:'build',buildAgent:agent,buildRuntime:runtime,research:'off',messages:messages || [{role:'user',content:instruction}],
-      files:forSending(files,{focus}),projectSummary:typeof summarize==='function' && typeof project==='function' ? summarize(project()) : '',...(faults.length ? {faults} : {})}),
+      files:forSending(files,{focus}),...(stage ? {stage} : {}),projectSummary:typeof summarize==='function' && typeof project==='function' ? summarize(project()) : '',...(faults.length ? {faults} : {})}),
   });
   if(!response.ok || !response.body){
     const body=await response.json().catch(()=>({}));
@@ -3039,6 +3126,10 @@ export async function mount(options = {}) {
     if (event.target.closest('[data-discuss-start]')) { startFromBrief(); return; }
     if (event.target.closest('[data-show-history]')) { showHistory(); return; }
     if (event.target.closest('[data-download-zip]')) { takeAll(); return; }
+    if (event.target.closest('[data-stage-build]')) { buildStage(); return; }
+    if (event.target.closest('[data-stage-ok]')) { stageWorks(); return; }
+    if (event.target.closest('[data-stage-plan]')) { const sp = project()?.stages; if (sp) openSheet('The plan', `<div class="prose">${renderMarkdown(planMessage(sp))}</div>`); return; }
+    if (event.target.closest('[data-build-github-open]')) { showGitHub(); return; }
     if (event.target.closest('[data-web-publish]')) { showWebPublish(); return; }
     if (event.target.closest('[data-gh-save]')) { showSaveToGitHub(); return; }
     if (event.target.closest('[data-create-photos]')) { const p = project(); if (!isBusy()) createPhotos(p); return; }

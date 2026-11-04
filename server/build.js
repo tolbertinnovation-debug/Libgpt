@@ -33,12 +33,38 @@ export const buildPrompt = ({pictures=false,runtime='static',recipe=null,kind='w
   // An app gets the app rules and a website the website rules: the person said which (see projectKind).
   const what=kind==='app'?`WHAT YOU ARE MAKING: ${kindLine('app')} The person asked for an app, so make an app and nothing like a website. Where the rules above say website or page, read app and screen.`:`WHAT YOU ARE MAKING: ${kindLine('website')}`;
   prompt=`${prompt}\n\n${what}\n\n${designRules(kind)}\n\n${KIT_GUIDE}${recipe ? `\n\n${recipeGuide(recipe,kind)}` : ''}`;
+  if(runtime==='nextjs')return prompt.replace(/WHAT TO BUILD WITH\n[\s\S]*?\nQUALITY REQUIREMENTS/,`${NEXTJS_GUIDE}\n\nQUALITY REQUIREMENTS`)
+    .replace(/\nEXPLAINING\n[\s\S]*?\nWHEN IT IS BROKEN/,`\n${NEXTJS_EXPLAINING}\n\nWHEN IT IS BROKEN`)
+    .split(`\n\n${what}`)[0]+`\n\nWHAT YOU ARE MAKING: a real ${kind==='website'?'website':'web app'} as a Next.js project the person runs on their own computer and can put on GitHub or Vercel. Make it look finished: clear headings, roomy spacing, one brand colour, friendly empty states, and big touch targets on phones.`;
   if(runtime==='fullstack')prompt=prompt.replace(/WHAT TO BUILD WITH\n[\s\S]*?\nQUALITY REQUIREMENTS/,`WHAT TO BUILD WITH
 The engineering team may prepare backend API/server code, database schemas, tests and cloud configuration when assigned. Write complete files and environment-variable placeholders, never real secrets. Use plain HTML/CSS/JavaScript for browser pages. Write backend, data and infrastructure files in the languages and frameworks named in the plan's technology stack, with their dependency manifests and tests. Document installation, test commands, required services and separate hosting. The app does not run backend code or provision cloud resources; never claim those tests or services are operational. Deployment must remain blocked until independently verified infrastructure and tests exist.
 
 QUALITY REQUIREMENTS`);
   return prompt;
 };
+
+/** What a Next.js project is built with (staged projects; plan "Teach Grandpa big projects"). The person's own choices win. */
+export const NEXTJS_GUIDE = `WHAT TO BUILD WITH
+A real Next.js project (App Router), written in JavaScript (.js and .jsx files, no TypeScript unless the person asks for it), styled with Tailwind CSS. The person runs it on their own computer; the preview here cannot run it, so never say you tested it running.
+- Files: package.json (next, react, react-dom; tailwindcss, @tailwindcss/postcss and postcss for Tailwind 4; scripts "dev": "next dev", "build": "next build", "start": "next start", "test": "node --test"), jsconfig.json with the "@/*" alias to "./*", postcss.config.mjs, app/layout.js, app/globals.css (starting with @import "tailwindcss";), app/page.js, next.config.mjs, .gitignore (node_modules, .next, .env*.local), .env.example, README.md.
+- Database: Neon (Postgres) through the @neondatabase/serverless package, only in server code (route handlers in app/api/.../route.js, server actions, or lib/ files used only by them). Read the address from process.env.DATABASE_URL. Keep the tables in db/schema.sql (CREATE TABLE IF NOT EXISTS ...) and a script scripts/setup-db.mjs that runs it, with "db:setup": "node --env-file=.env.local scripts/setup-db.mjs" in package.json.
+- Sign in: email and password stored as a bcryptjs hash, a signed session cookie (httpOnly, secure in production) made with jose, and middleware.js protecting signed-in pages. No paid sign-in service.
+- Outside AI services (image models, segmentation such as Meta's SAM, chat models, speech): call them only from server code with the app owner's own keys from process.env (for example OPENAI_API_KEY, REPLICATE_API_TOKEN), list every key in .env.example, and show a friendly message when a key is missing instead of crashing. Never put a real key, password or database address in any file.
+- Never write .env.local or .env; write .env.example with placeholder values and tell the person to copy it.
+- Tests: for every stage, add tests the person runs with "npm test" (node:test, no extra test packages) in tests/*.test.mjs, covering the stage's own logic: input checks, helpers, database query builders. Keep that logic in small files under lib/ so it can be tested without starting the server.
+- "use client" only on components that need the browser (state, events); keep pages and data loading on the server.`;
+
+export const NEXTJS_EXPLAINING = `EXPLAINING (a staged project, for someone new to coding)
+After the files, write a short guide in simple English with these headings:
+## What this stage adds
+Two or three plain sentences.
+## Try it on your computer
+Numbered steps. Every command goes in its own \`\`\`powershell block (no path), one command per line, written for Windows PowerShell: Copy-Item instead of cp, $env:NAME = "value" instead of export, Remove-Item instead of rm, and never "&&". Say where to type (open the project folder, then PowerShell there), what each command does in a few words, and what they should see. The first stage also says how to install Node.js (the LTS version from nodejs.org), make a free Neon database (neon.tech), copy the connection string into .env.local, and run npm install, npm run db:setup and npm run dev, then open http://localhost:3000.
+## Check that it works
+A short checklist of what to click and what should happen, then "npm test" and what a pass looks like.
+## If something goes wrong
+The two most likely errors for this stage and what to do.
+Keep it short; do not repeat earlier stages' setup unless something changed.`;
 
 export const BUILD_PROMPT = `You are Grandpa AI in Ritual Coding — the same elder, at the workbench.
 
@@ -352,3 +378,23 @@ export const BUILD_CONTINUE_PROMPT = `Your answer above was cut off because it r
   reader will never know there was a break.`;
 
 
+
+/**
+ * One stage of a staged project: build only this stage, on top of the stages already built, and leave later
+ * stages alone (no pages, no placeholders, no tables for them). The browser sends the plan; the words are here.
+ */
+export function stagePrompt(raw) {
+  if (!raw || typeof raw !== 'object') return '';
+  const line = (v, n = 160) => String(v ?? '').replace(/[\u0000-\u001f]+/g, ' ').trim().slice(0, n);
+  const list = (v) => (Array.isArray(v) ? v.slice(0, 12).map((x) => line(x)).filter(Boolean) : []);
+  const total = Math.min(12, Math.max(1, Number(raw.total) | 0)), number = Math.min(total, Math.max(1, (Number(raw.index) | 0) + 1));
+  const title = line(raw.title);
+  if (!title) return '';
+  const done = list(raw.done), later = list(raw.later);
+  return `STAGED PROJECT: STAGE ${number} OF ${total}
+The whole request, for context only: ${line(raw.request, 4000)}
+Build ONLY stage ${number}: ${title}.
+${done.length ? `Already built (keep them working; change them only where this stage needs to, using edit blocks): ${done.join('; ')}.` : 'This is the first stage: also set up the project itself (package.json, layout, styles, database setup, .env.example, .gitignore, README).'}
+${later.length ? `Not yet (do NOT build these, and add no pages, links, tables or placeholders for them): ${later.join('; ')}.` : 'This is the last stage.'}
+Finish this stage completely, so it can be tested on its own${raw.testEach === false ? '' : ', and add its tests in tests/'}. End with the guide described under EXPLAINING${raw.shell === 'bash' ? ' (use bash commands for a Mac or Linux terminal instead of PowerShell)' : ''}.`;
+}
