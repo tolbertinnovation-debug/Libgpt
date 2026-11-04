@@ -13,6 +13,9 @@ const fake = http.createServer((req, res) => {
     sent.push({ method: req.method, url: req.url, body });
     const json = (v, status = 200) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(v)); };
     if (req.url === '/repos/tolbert/shop/branches/main') return json({ commit: { sha: head } });
+    // The Build's starting point (a pull request branch made from main) is ahead of main: a fast-forward.
+    if (req.url === '/repos/tolbert/shop/compare/abc1110...abc2220') return json({ status: 'ahead' });
+    if (req.url === '/repos/tolbert/shop/git/commits/abc2220' && req.method === 'GET') return json({ sha: 'abc2220', tree: { sha: 'tree000' } });
     if (req.url === '/repos/tolbert/shop/git/commits/abc1110' && req.method === 'GET') return json({ sha: 'abc1110', tree: { sha: 'tree000' } });
     if (req.url === '/repos/tolbert/shop/git/blobs') return json({ sha: 'blob777' }, 201);
     if (req.url === '/repos/tolbert/shop/git/trees') return json({ sha: 'tree111' }, 201);
@@ -90,5 +93,17 @@ test('the save route needs a GitHub connection and an explicit yes; the old "eve
   head = 'abc1110';
   const ritual = await readFile(new URL('../public/ritual.js', import.meta.url), 'utf8');
   assert.match(ritual, /data-gh-save-go>Save to GitHub<\/button>/);
-  assert.match(ritual, /New branch and pull request \(recommended/);
+  assert.match(ritual, /value="direct" checked> Save straight to <code>\$\{escapeHtml\(g\.branch\)\}<\/code> \(recommended\)/, 'every project saves straight to main by default');
+  assert.match(ritual, /New branch and pull request \(review on GitHub first\)/, 'a pull request is still offered');
+});
+
+test('a Build whose last save went to a pull request branch can still save straight to main, when nothing on main would be lost', async () => {
+  head = 'abc1110'; refUpdate = 200; sent.length = 0;
+  const out = await github.saveToGitHub('tok', { repo: 'tolbert/shop', branch: 'main', base: 'abc2220', mode: 'direct', message: 'Stage 1 fixes', files: [{ path: 'a.txt', body: 'b' }] });
+  assert.equal(out.branch, 'main');
+  assert.deepEqual(sent.find((x) => x.method === 'PATCH').body, { sha: 'commit222', force: false }, 'still never forced');
+  head = 'someone-else'; sent.length = 0;
+  await assert.rejects(github.saveToGitHub('tok', { repo: 'tolbert/shop', branch: 'main', base: 'abc2220', mode: 'direct', files: [{ path: 'a.txt', body: 'b' }] }), (e) => e.conflict, 'main moved on its own: refused, nothing written');
+  assert.ok(!sent.some((x) => x.method === 'POST'));
+  head = 'abc1110';
 });
