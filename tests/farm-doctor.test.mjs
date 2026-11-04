@@ -37,6 +37,8 @@ test('the server turns the Farm Doctor shape on only for a marked question, and 
   assert.match(html, /data-sidebar-action="farmdoctor"/);
   assert.match(html, /<dialog class="farm-doctor" id="farm-doctor"/);
   const client = await readFile(new URL('../public/app.js', import.meta.url), 'utf8');
-  assert.match(client, /state\.prefs\.persona = 'farming';\n  send\(message\);/);
+  assert.match(client, /state\.prefs\.persona = 'farming';/);
+  assert.match(client, /if \(empty && !empty\.messages\?\.length\) empty\.persona = 'farming';/, 'an empty chat from another helper becomes the farming helper\'s');
+  assert.match(app, /persona: !building && isFarmDoctorAsk\(asked\) \? 'farming' : persona,/, 'the server always answers as the farming helper');
   assert.equal(FARM_DOCTOR_MARK, 'Farm Doctor check');
 });
