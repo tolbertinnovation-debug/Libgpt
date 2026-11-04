@@ -29,6 +29,7 @@ import { shrink } from './photo.js';
 import {backgroundActive,sameProjectSource,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile,canRetryBackgroundCreation,backgroundConnectionMessage} from './build-workspace.js?v=phase2-stage8-poll';
 import { renderMarkdown } from './markdown.js';
 import { mergeLatest } from './github-sync.js?v=github-3';
+import { isNextProject, nextRoutes, nextPreviewDocument } from './next-preview.js?v=nextprev-1';
 import { readStagedRequest, newStagePlan, stageState, stageForServer, stageAsk, planMessage, nextjsFaults, powershellFaults } from './project-stages.js?v=stages-1';
 import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materials.js?v=materials-2';
 import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
@@ -284,7 +285,7 @@ async function buildStage(extra = '') {
   const left = plan.nextjs ? nextjsFaults(p.files) : [];
   p.messages.push({ role: 'assistant', content: left.length
     ? `Stage ${s.number} is written, but the project check still found ${left.length === 1 ? 'a problem' : `${left.length} problems`}:\n\n${left.map((f) => `- ${f}`).join('\n')}\n\nTell me "fix these" and I will, or test it and tell me what you see.`
-    : `Stage ${s.number} of ${s.total} is built and the project check passed ✓ (files, imports, packages, settings and secrets).${plan.nextjs ? ' The preview here cannot run a Next.js app, so the real test is on your computer: follow the steps above.' : ''}\n\nWhen it works, tap **It works**. If not, tell me what happened.` });
+    : `Stage ${s.number} of ${s.total} is built and the project check passed ✓ (files, imports, packages, settings and secrets).${plan.nextjs ? ' Open **Preview** to see the screens (the database, sign-in and AI use sample data there). The real test, with your own database, is on your computer: follow the steps above.' : ''}\n\nWhen it works, tap **It works**. If not, tell me what happened.` });
   await persist();
   render();
 }
@@ -489,7 +490,8 @@ function renderPreview() {
    return;
   }
   const p = project();
-  const look = previewState(p.files);
+  const nextApp = isNextProject(p.files);
+  const look = nextApp ? { can: false, why: 'Screens preview of your Next.js app: pages, styles, links and buttons are real; the database, sign-in and AI use sample data. To run it for real, follow the PowerShell steps in the chat.' } : previewState(p.files);
   const restricted=state.restrictedPreview===true;
   const notice=[look.why || look.warn,previewLoads.notice,restricted?'Restricted preview blocks external resources, forms and popups. Page self-navigation can bypass resource restrictions. CPU/memory are not limited.':''].filter(Boolean).join(' ');
   el.previewNote.hidden = !notice;
@@ -502,7 +504,7 @@ function renderPreview() {
   // this page, and nothing is served anywhere to make it work.
   const active=workingFile(p.team);
   if(state.followAgent && remoteRunning(p) && /\.html?$/i.test(active) && p.files.some(file=>file.path===active))state.previewPath=active;
-  const entry=p.files.some(f=>f.path===state.previewPath) ? state.previewPath : '';
+  const entry=nextApp ? (String(state.previewPath || '').startsWith('/') ? state.previewPath : '/') : p.files.some(f=>f.path===state.previewPath) ? state.previewPath : '';
   const editing=state.editMode && look.can;
   const signature=`${p.id}:${sourceFingerprint(p.files)}:${entry}:${restricted}:${editing?'edit':'view'}`;
   if(el.previewFrame.dataset.signature!==signature || !sameProjectSource(el.previewFrame.sourceSnapshot,p.files)){
@@ -514,15 +516,23 @@ function renderPreview() {
       const page=editPage(p,entry);
       document=page ? editingDocument(previewDocument(p.files.map(f=>f.path===page.path?{...f,body:annotate(f.body)}:f),page.path,{navigation:false}),state.editScroll,state.editSelect) : '';
       state.editSelect=null;
+    }else if(nextApp){
+      // Built in the background (the code is translated first); shown only if nothing changed meanwhile.
+      document=null;
+      setPreviewDocument('');
+      nextPreviewDocument(p.files,{route:entry}).then(made=>{
+        if(el.previewFrame.dataset.signature===signature)setPreviewDocument(restricted ? restrictPreviewDocument(made) : made);
+      },error=>{if(el.previewFrame.dataset.signature===signature){el.previewNote.hidden=false;el.previewNote.textContent=`The screens preview could not start: ${error.message || error}`;}});
     }else document=look.can ? previewDocument(p.files,entry) : '';
-    setPreviewDocument(restricted && document && !editing ? restrictPreviewDocument(document) : document);
+    if(document!==null)setPreviewDocument(restricted && document && !editing ? restrictPreviewDocument(document) : document);
     el.previewFrame.dataset.signature=signature;el.previewFrame.sourceSnapshot=structuredClone(p.files);
   }
   const editButton=$('preview-edit');
   if(editButton){editButton.setAttribute('aria-pressed',String(Boolean(state.editMode)));editButton.textContent=state.editMode?'Done':'Edit';editButton.hidden=!look.can;}
   if(state.editMode){el.previewNote.hidden=false;el.previewNote.textContent='Editing: tap text to type, tap a picture to change it, or tap around a part (or use ⇅ Move) to move, copy or delete it. Links and the page\'s scripts are paused while you edit. Tap Done when you finish — every change is saved.';}
   const select=$('preview-page');
-  if(select){const pages=p.files.filter(file=>/\.html?$/i.test(file.path));select.innerHTML=pages.map(file=>`<option value="${escapeHtml(file.path)}">${escapeHtml(file.path)}</option>`).join('');select.value=entry || pages.find(file=>file.path==='index.html')?.path || pages[0]?.path || '';}
+  if(select && nextApp){const routes=nextRoutes(p.files).pages.filter(r=>!/\[/.test(r.path));select.innerHTML=routes.map(r=>`<option value="${escapeHtml(r.path)}">${escapeHtml(r.path)}</option>`).join('');select.value=entry;}
+  else if(select){const pages=p.files.filter(file=>/\.html?$/i.test(file.path));select.innerHTML=pages.map(file=>`<option value="${escapeHtml(file.path)}">${escapeHtml(file.path)}</option>`).join('');select.value=entry || pages.find(file=>file.path==='index.html')?.path || pages[0]?.path || '';}
   el.previewFrame.classList.toggle('is-phone',state.previewSize==='mobile');
   const follow=$('preview-follow');if(follow)follow.setAttribute('aria-pressed',String(state.followAgent));
   const live=$('preview-live');if(live)live.textContent=remoteRunning(p)?(active ? `Editing ${active}` : 'Reviewing saved files') : p.liveChange ? `Updated ${p.liveChange.path}` : 'Saved preview';

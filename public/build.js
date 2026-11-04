@@ -529,7 +529,7 @@ export function previewState(files = []) {
   const page = files.find((f) => /(^|\/)index\.html?$/i.test(f.path))
     || files.find((f) => /\.html?$/i.test(f.path));
   if (!page && files.some((f) => f.path === 'package.json' && /"next"\s*:/.test(String(f.body || '')))) {
-    return { can: false, why: 'This is a Next.js app, which runs on your computer, not in this preview. Follow the PowerShell steps in the chat (npm install, then npm run dev) and open http://localhost:3000.' };
+    return { can: false, why: 'Screens preview of your Next.js app: the database, sign-in and AI use sample data. To run it for real, follow the PowerShell steps in the chat (npm install, then npm run dev) and open http://localhost:3000.' };
   }
   if (!page) {
     return { can: false, why: 'A preview needs an index.html. There is none in this project yet.' };
