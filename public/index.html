@@ -14,7 +14,7 @@
 <meta property="og:type" content="website">
 <link rel="preload" href="fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/fraunces-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=farm-1">
+<link rel="stylesheet" href="styles.css?v=ux-1">
 </head>
 <body>
 
@@ -247,16 +247,19 @@
     <!-- ============ Ritual Coding ============ -->
     <section class="build" id="build" hidden aria-label="Ritual Coding">
       <div class="build-bar">
-        <button class="build-name" id="build-name" type="button" title="Rename this build">
-          <span id="build-name-text">Untitled build</span>
-          <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16v4Z"/></svg>
-        </button>
+        <div class="build-title">
+          <button class="build-name" id="build-name" type="button" title="Rename this build">
+            <span id="build-name-text">Untitled build</span>
+            <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path d="M4 20h4l10-10-4-4L4 16v4Z"/></svg>
+          </button>
+          <p class="build-status" id="build-status" aria-live="polite"><span class="build-status-dot" aria-hidden="true"></span><span id="build-status-text">Nothing built yet</span></p>
+        </div>
 
         <div class="build-views" role="tablist" aria-label="Build workspace views">
-          <button class="build-view is-on" id="view-chat" type="button" role="tab" aria-selected="true" data-view="chat">Chat</button>
-          <button class="build-view" id="view-files" type="button" role="tab" aria-selected="false" data-view="files">Files</button>
-          <button class="build-view" id="view-preview" type="button" role="tab" aria-selected="false" data-view="preview">Preview</button>
-          <button class="build-view" id="view-changes" type="button" role="tab" aria-selected="false" data-view="changes">Changes <span id="changes-count">0</span></button>
+          <button class="build-view is-on" id="view-chat" type="button" role="tab" aria-selected="true" data-view="chat"><svg class="build-view-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 5h14v10H9l-4 4V5Z"/></svg><span>Chat</span></button>
+          <button class="build-view" id="view-files" type="button" role="tab" aria-selected="false" data-view="files"><svg class="build-view-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6V3Z"/><path d="M14 3v4h4"/></svg><span>Files</span></button>
+          <button class="build-view" id="view-preview" type="button" role="tab" aria-selected="false" data-view="preview"><svg class="build-view-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="2.8"/></svg><span>Preview</span></button>
+          <button class="build-view" id="view-changes" type="button" role="tab" aria-selected="false" data-view="changes"><svg class="build-view-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4v12M7 16a2.5 2.5 0 1 0 0 .1M17 8a2.5 2.5 0 1 0 0-.1M17 10.5c0 4-4 4-10 5.5"/></svg><span>Changes</span> <span class="build-view-count" id="changes-count" hidden>0</span></button>
         </div>
 
         <!-- Always in sight: Publish (or Update / Live) puts the build on the web at sites.libgrandpaai.com -->
@@ -893,6 +896,6 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<script type="module" src="app.js?v=farm-2"></script>
+<script type="module" src="app.js?v=ux-1"></script>
 </body>
 </html>
