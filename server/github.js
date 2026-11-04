@@ -310,3 +310,56 @@ export async function importRepo(token, repo, branch, { signal, fetchImpl = fetc
 // Used only by the static publishing service; credentials stay server-side.
 export const githubRequest = call;
 
+
+/* ---- saving a Build back to GitHub (GitHub plan G4) ---------------------- */
+export const SAVE_LIMITS = Object.freeze({ files: 300, totalBytes: 3_500_000 });
+const cleanRepoPath = (path) => {
+  const p = String(path || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!p || p.length > 400 || p.split('/').some((part) => !part || part === '.' || part === '..') || /^\.git(\/|$)/.test(p)) throw Object.assign(new Error(`"${String(path).slice(0, 80)}" is not a file path GitHub can take.`), { status: 400 });
+  return p;
+};
+/** A branch name for a pull request, made from the Build's name and the time. */
+export const saveBranchName = (name, now = new Date()) => `grandpa/${String(name || 'update').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 30) || 'update'}-${now.toISOString().slice(0, 16).replace(/[-:T]/g, '')}`;
+
+/**
+ * One commit with every change (added, changed, deleted, pictures), on top of the commit the Build was opened from.
+ * mode 'pr': a new branch and a pull request into `branch`. mode 'direct': straight onto `branch`, only if nobody has
+ * saved there since (never forced). Returns what happened, in GitHub's words.
+ */
+export async function saveToGitHub(token, { repo, branch, base, mode = 'pr', newBranch, message, title, body = '', files = [], deleted = [] }, { signal } = {}) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !branch || !/^[0-9a-f]{7,40}$/i.test(String(base || ''))) throw Object.assign(new Error('Which repository, branch and starting point?'), { status: 400 });
+  const changes = files.map((f) => ({ path: cleanRepoPath(f.path), body: String(f.body ?? '') }));
+  const removed = deleted.map(cleanRepoPath);
+  if (!changes.length && !removed.length) throw Object.assign(new Error('There is nothing new to save.'), { status: 400 });
+  if (changes.length + removed.length > SAVE_LIMITS.files) throw Object.assign(new Error(`Save at most ${SAVE_LIMITS.files} files at a time.`), { status: 413 });
+  if (changes.reduce((n, f) => n + f.body.length, 0) > SAVE_LIMITS.totalBytes) throw Object.assign(new Error('That is too much to save in one go (over 3.5 MB).'), { status: 413 });
+  const text = String(message || '').trim().slice(0, 500) || 'Update from Grandpa AI';
+
+  if (mode === 'direct') {
+    const head = await call(token, `/repos/${repo}/branches/${encodeURIComponent(branch)}`, { signal });
+    if (head?.commit?.sha && head.commit.sha !== base) throw Object.assign(new Error(`Someone saved newer changes to ${branch} on GitHub since you opened it. Get the latest first, or save as a pull request.`), { status: 409, conflict: true });
+  }
+  const parent = await call(token, `/repos/${repo}/git/commits/${base}`, { signal });
+  const tree = [];
+  for (const f of changes) {
+    const picture = /^data:[^;]+;base64,(.*)$/s.exec(f.body);
+    if (picture) {
+      const blob = await call(token, `/repos/${repo}/git/blobs`, { method: 'POST', signal, body: { content: picture[1], encoding: 'base64' } });
+      tree.push({ path: f.path, mode: '100644', type: 'blob', sha: blob.sha });
+    } else tree.push({ path: f.path, mode: '100644', type: 'blob', content: f.body });
+  }
+  for (const path of removed) tree.push({ path, mode: '100644', type: 'blob', sha: null });
+  const newTree = await call(token, `/repos/${repo}/git/trees`, { method: 'POST', signal, body: { base_tree: parent.tree.sha, tree } });
+  const commit = await call(token, `/repos/${repo}/git/commits`, { method: 'POST', signal, body: { message: text, tree: newTree.sha, parents: [base] } });
+
+  if (mode === 'direct') {
+    try { await call(token, `/repos/${repo}/git/refs/heads/${branch.split('/').map(encodeURIComponent).join('/')}`, { method: 'PATCH', signal, body: { sha: commit.sha, force: false } }); }
+    catch (error) { if (error.status === 422) throw Object.assign(new Error(`Someone saved newer changes to ${branch} on GitHub. Get the latest first, or save as a pull request.`), { status: 409, conflict: true }); throw error; }
+    return { mode, commit: commit.sha, branch, url: `https://github.com/${repo}/commit/${commit.sha}`, files: changes.length, deleted: removed.length };
+  }
+  const prBranch = String(newBranch || '').trim() || saveBranchName(title || text);
+  if (!/^[\w./-]{1,200}$/.test(prBranch) || prBranch.includes('..')) throw Object.assign(new Error('That branch name is not allowed.'), { status: 400 });
+  await call(token, `/repos/${repo}/git/refs`, { method: 'POST', signal, body: { ref: `refs/heads/${prBranch}`, sha: commit.sha } });
+  const pr = await call(token, `/repos/${repo}/pulls`, { method: 'POST', signal, body: { title: String(title || text).slice(0, 200), head: prBranch, base: branch, body: String(body || 'Made in Grandpa AI (libgrandpaai.com).').slice(0, 5000) } });
+  return { mode, commit: commit.sha, branch: prBranch, into: branch, url: pr.html_url, number: pr.number, files: changes.length, deleted: removed.length };
+}

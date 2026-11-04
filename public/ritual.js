@@ -250,7 +250,10 @@ function fixHint(p) {
   const policyChip = pages.length && !pages.some((f) => /(^|\/)(privacy|privacy-policy)\.html?$/i.test(f.path))
     ? `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(POLICY_REQUEST)}">Add privacy, terms and refund pages</button>` : '';
   const photoChip = photos ? `<button class="build-chip" type="button" data-create-photos>Add the ${photos === 1 ? 'photograph' : `${photos} photographs`} this site needs</button>` : '';
-  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${publishChip}${photoChip}${chips}${policyChip}${versions}</div></div>`;
+  const gh = p.github ? githubChanges(p) : null;
+  const ghCount = gh ? gh.changed.length + gh.added.length + gh.deleted.length : 0;
+  const githubChip = ghCount ? `<button class="build-chip is-primary" type="button" data-gh-save>Save ${ghCount} change${ghCount === 1 ? '' : 's'} to GitHub</button>` : '';
+  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${githubChip}${publishChip}${photoChip}${chips}${policyChip}${versions}</div></div>`;
 }
 
 function proposalHtml(files, index, applied, checked, receipt) {
@@ -2362,8 +2365,8 @@ async function showGitHub() {
       <small>Bring a whole project (or single files) into a Build</small></span></button>
     ${status.pagesScope ? '' : `<a class="sheet-row" href="/api/github/start"><span><strong>Allow private repositories</strong>
       <small>Connect again and approve access to your private repositories too</small></span></a>`}
-    ${state.repo ? `<button class="sheet-row" type="button" data-gh="push"><span><strong>Commit a file back</strong>
-      <small>${escapeHtml(state.repo.full)} · ${escapeHtml(state.repo.branch)}</small></span></button>` : ''}
+    ${project()?.github ? `<button class="sheet-row" type="button" data-gh-save><span><strong>Save to GitHub</strong>
+      <small>${escapeHtml(project().github.repo)} · ${escapeHtml(project().github.pr?.branch || project().github.branch)}</small></span></button>` : ''}
     <button class="sheet-row sheet-danger" type="button" data-gh="off"><span><strong>Disconnect</strong></span></button>`);
 }
 
@@ -2382,6 +2385,66 @@ async function showRepos() {
       + 'If yours are private, the site needs the wider <code>repo</code> permission.</p>');
   } catch (error) {
     openSheet('Repositories', `<p class="sheet-note">${escapeHtml(error.message || 'GitHub could not be reached.')}</p>`);
+  }
+}
+
+/** What differs from the GitHub version this Build was opened from (or last saved). */
+function githubChanges(p) {
+  const base = p.github?.base || {}, now = new Map((p.files || []).map((f) => [f.path, f]));
+  const changed = [], added = [];
+  for (const [path, f] of now) { if (!(path in base)) added.push(path); else if (base[path] !== sourceFingerprint([f])) changed.push(path); }
+  const deleted = Object.keys(base).filter((path) => !now.has(path));
+  return { changed, added, deleted };
+}
+
+/** Save to GitHub (plan G4): the files that changed, a short description, and how to save, then one confirmed commit. */
+async function showSaveToGitHub() {
+  const p = project();
+  if (!p?.github) { deps.toast('This Build did not come from GitHub. Open a repository first (⋮ → Connect GitHub).'); return; }
+  if (isBusy()) { deps.toast('Wait until Grandpa finishes, then save.'); return; }
+  const g = p.github, ch = githubChanges(p), count = ch.changed.length + ch.added.length + ch.deleted.length;
+  const list = (items, label) => items.length ? `<p class="sheet-note"><strong>${label}</strong> ${items.slice(0, 30).map((x) => `<code>${escapeHtml(x)}</code>`).join(', ')}${items.length > 30 ? ` and ${items.length - 30} more` : ''}</p>` : '';
+  if (!g.canWrite) { openSheet('Save to GitHub', `<p class="sheet-note">You can read ${escapeHtml(g.repo)} but not save to it. Ask its owner for write access, or download the project.</p>`); return; }
+  if (!count) { openSheet('Save to GitHub', `<p class="sheet-note">Nothing has changed since ${g.pr ? `pull request #${g.pr.number}` : `the ${escapeHtml(g.branch)} branch`} was last saved.</p>${g.pr ? `<a class="sheet-go" href="${escapeHtml(g.pr.url)}" target="_blank" rel="noopener">Open pull request #${g.pr.number}</a>` : ''}`); return; }
+  const lastAsk = [...p.messages].reverse().find((m) => m.role === 'user' && m.content)?.content || '';
+  const suggestion = (lastAsk ? lastAsk.replace(/\s+/g, ' ').slice(0, 72) : `Update ${p.name}`).replace(/"/g, '');
+  const options = g.pr
+    ? `<label class="sheet-note"><input type="radio" name="gh-mode" value="update" checked> Add to pull request #${g.pr.number} (recommended)</label>
+       <label class="sheet-note"><input type="radio" name="gh-mode" value="pr"> Start a new pull request</label>`
+    : `<label class="sheet-note"><input type="radio" name="gh-mode" value="pr" checked> New branch and pull request (recommended: you review and merge on GitHub)</label>
+       <label class="sheet-note"><input type="radio" name="gh-mode" value="direct"> Save straight to <code>${escapeHtml(g.branch)}</code></label>`;
+  openSheet('Save to GitHub', `
+    <p class="sheet-note">${count} change${count === 1 ? '' : 's'} to <strong>${escapeHtml(g.repo)}</strong>:</p>
+    ${list(ch.changed, 'Changed:')}${list(ch.added, 'New:')}${list(ch.deleted, 'Deleted:')}
+    <label class="sheet-note" for="gh-message">What changed (the commit message)</label>
+    <input id="gh-message" class="pic-alt" maxlength="200" value="${escapeHtml(suggestion)}">
+    ${options}
+    <button class="sheet-go" type="button" data-gh-save-go>Save to GitHub</button>
+    <p class="sheet-note">One save with all these files. Grandpa never overwrites newer work on GitHub and never force-pushes.</p>`);
+}
+
+async function saveNowToGitHub() {
+  const p = project(), g = p?.github;
+  if (!g) return;
+  const choice = document.querySelector('input[name="gh-mode"]:checked')?.value || 'pr';
+  const message = String($('gh-message')?.value || '').trim() || `Update ${p.name}`;
+  const ch = githubChanges(p), byPath = new Map(p.files.map((f) => [f.path, f]));
+  const mode = choice === 'pr' ? 'pr' : 'direct', branch = choice === 'update' ? g.pr.branch : g.branch;
+  openSheet('Save to GitHub', '<p class="sheet-note">Saving to GitHub…</p>', { busy: true });
+  try {
+    const response = await fetch('/api/github/save', { method: 'POST', headers: { 'Content-Type': 'application/json', ...deps.headers() }, body: JSON.stringify({
+      confirm: true, repo: g.repo, branch, base: g.commit, mode, message, title: message,
+      files: [...ch.changed, ...ch.added].map((path) => ({ path, body: byPath.get(path).body })), deleted: ch.deleted }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw Object.assign(new Error(result.error || 'GitHub would not take that save.'), { conflict: result.conflict });
+    p.github = { ...g, commit: result.commit, base: Object.fromEntries(p.files.map((f) => [f.path, sourceFingerprint([f])])), savedAt: Date.now(),
+      ...(mode === 'pr' ? { pr: { number: result.number, url: result.url, branch: result.branch } } : {}) };
+    p.messages.push({ role: 'assistant', content: mode === 'pr' ? `Saved to GitHub as **pull request #${result.number}** on the branch \`${result.branch}\`. Review and merge it on GitHub: ${result.url}` : `Saved to GitHub on \`${branch}\`${choice === 'update' ? ` (pull request #${g.pr.number})` : ''}: ${result.url}` });
+    await persist();
+    openSheet('Saved to GitHub', `<p class="sheet-note">${mode === 'pr' ? `Pull request #${result.number} is open.` : `Saved on <code>${escapeHtml(branch)}</code>.`}</p><a class="sheet-go" href="${escapeHtml(result.url)}" target="_blank" rel="noopener">${mode === 'pr' ? `Open pull request #${result.number}` : 'See it on GitHub'}</a>`);
+    render();
+  } catch (error) {
+    openSheet('Not saved', `<p class="sheet-note">${escapeHtml(error.message)}</p>${error.conflict ? '<button class="sheet-go" type="button" data-gh-save>Save as a pull request instead</button>' : ''}`);
   }
 }
 
@@ -2849,6 +2912,7 @@ export async function mount(options = {}) {
     if (event.target.closest('[data-show-history]')) { showHistory(); return; }
     if (event.target.closest('[data-download-zip]')) { takeAll(); return; }
     if (event.target.closest('[data-web-publish]')) { showWebPublish(); return; }
+    if (event.target.closest('[data-gh-save]')) { showSaveToGitHub(); return; }
     if (event.target.closest('[data-create-photos]')) { const p = project(); if (!isBusy()) createPhotos(p); return; }
     const fixEdits = event.target.closest('[data-fix-edits]');
     if (fixEdits) { fixAfterEdits(Number(fixEdits.dataset.fixEdits)); return; }
@@ -2993,6 +3057,8 @@ export async function mount(options = {}) {
 
     const repo = event.target.closest('[data-repo]');
     if (repo) { showRepoChoice(repo.dataset.repo, repo.dataset.branch, repo.dataset.canWrite === '1'); return; }
+    if (event.target.closest('[data-gh-save-go]')) { saveNowToGitHub(); return; }
+    if (event.target.closest('[data-gh-save]')) { showSaveToGitHub(); return; }
     const chosenBranch = () => $('gh-branch')?.value || state.repo?.branch;
     if (event.target.closest('[data-gh-open-all]') && state.repo) { openWholeRepo(state.repo.full, chosenBranch()); return; }
     if (event.target.closest('[data-gh-pick]') && state.repo) { showRepoFiles(state.repo.full, chosenBranch()); return; }

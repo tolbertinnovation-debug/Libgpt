@@ -124,7 +124,7 @@ const siteFormBodies = express.text({ type: () => true, limit: '32kb' });
 // App files (Phase D3): a photo or document arrives as its own bytes, at most 2 MB.
 const appFileBodies = express.raw({ type: () => true, limit: '2100kb' });
 app.use((req, res, next) => (/^\/api\/app-db\/[a-z0-9-]+\/files$/.test(req.path) && req.method === 'POST' ? appFileBodies : req.path.startsWith('/api/site-data/') ? siteFormBodies
-  : req.path.startsWith('/api/sync/') || req.path === '/api/sites' ? syncBodies : smallBodies)(req, res, next));
+  : req.path.startsWith('/api/sync/') || req.path === '/api/sites' || req.path === '/api/github/save' ? syncBodies : smallBodies)(req, res, next));
 // ---- published websites on their own address (Phase 6) ---------------------
 // With SITES_HOST set (e.g. sites.libgrandpaai.com, added to the project in
 // Vercel), published sites live at https://SITES_HOST/<address>/. A separate
@@ -642,6 +642,23 @@ app.get('/api/github/import', rateLimit, withToken(async (req, res, token) => {
   if (!/^[\w.-]+\/[\w.-]+$/.test(repo) || !branch || branch.length > 200) { res.status(400).json({ error: 'Which repository and branch?' }); return; }
   res.json(await github.importRepo(token, repo, branch, { fetchImpl: app.locals.githubFetch || fetch }));
 }));
+
+// Save a Build back to GitHub (GitHub plan G4): one commit; a branch and pull request by default, or straight to the
+// branch when asked (never forced). Replaces the old rule that refused every save (approved by Samuel).
+app.post('/api/github/save', rateLimit, requireAccess, async (req, res, next) => {
+  try {
+    if (!github.githubReady()) { res.status(503).json({ error: 'GitHub is not set up on this deployment.' }); return; }
+    const token = github.tokenFrom(req);
+    if (!token) { res.status(401).json({ error: 'Not connected to GitHub yet.', connect: true }); return; }
+    const b = req.body || {};
+    if (b.confirm !== true) { res.status(400).json({ error: 'Saving to GitHub needs your confirmation.' }); return; }
+    res.json(await github.saveToGitHub(token, { repo: String(b.repo || ''), branch: String(b.branch || ''), base: String(b.base || ''), mode: b.mode === 'direct' ? 'direct' : 'pr', newBranch: b.newBranch, message: b.message, title: b.title, body: b.body,
+      files: Array.isArray(b.files) ? b.files : [], deleted: Array.isArray(b.deleted) ? b.deleted : [] }));
+  } catch (error) {
+    if (!error?.status) console.error('[github save]', error?.message || error);
+    res.status(error?.status && error.status < 500 ? error.status : 502).json({ error: error?.message || 'GitHub could not be reached.', conflict: Boolean(error?.conflict) });
+  }
+});
 
 app.get('/api/github/file', rateLimit, withToken(async (req, res, token) => {
   const repo = String(req.query.repo || '');
