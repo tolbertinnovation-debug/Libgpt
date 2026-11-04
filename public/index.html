@@ -14,7 +14,7 @@
 <meta property="og:type" content="website">
 <link rel="preload" href="fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/fraunces-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=type-2">
+<link rel="stylesheet" href="styles.css?v=publish-1">
 </head>
 <body>
 
@@ -227,6 +227,9 @@
           <button class="build-view" id="view-preview" type="button" role="tab" aria-selected="false" data-view="preview">Preview</button>
           <button class="build-view" id="view-changes" type="button" role="tab" aria-selected="false" data-view="changes">Changes <span id="changes-count">0</span></button>
         </div>
+
+        <!-- Always in sight: Publish (or Update / Live) puts the build on the web at sites.libgrandpaai.com -->
+        <button class="build-publish-btn" id="build-publish-btn" type="button" hidden>Publish</button>
 
         <button class="icon-btn" id="build-menu-btn" type="button" aria-label="Builds and tools" aria-haspopup="menu" aria-expanded="false">
           <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
@@ -859,6 +862,6 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<script type="module" src="app.js?v=pay-1"></script>
+<script type="module" src="app.js?v=publish-1"></script>
 </body>
 </html>
