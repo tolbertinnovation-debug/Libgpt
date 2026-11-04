@@ -660,6 +660,21 @@ app.post('/api/github/save', rateLimit, requireAccess, async (req, res, next) =>
   }
 });
 
+// Go live with GitHub Pages (GitHub plan G7): free for public repositories. Changes nothing but the Pages setting.
+app.post('/api/github/pages', rateLimit, requireAccess, async (req, res) => {
+  try {
+    if (!github.githubReady()) { res.status(503).json({ error: 'GitHub is not set up on this deployment.' }); return; }
+    const token = github.tokenFrom(req);
+    if (!token) { res.status(401).json({ error: 'Not connected to GitHub yet.', connect: true }); return; }
+    const b = req.body || {};
+    if (b.confirm !== true) { res.status(400).json({ error: 'Turning on GitHub Pages needs your confirmation.' }); return; }
+    res.json(await github.turnOnPages(token, { repo: String(b.repo || ''), branch: String(b.branch || '') }));
+  } catch (error) {
+    if (!error?.status) console.error('[github pages]', error?.message || error);
+    res.status(error?.status && error.status < 500 ? error.status : 502).json({ error: error?.message || 'GitHub could not be reached.', privateRepo: Boolean(error?.privateRepo) });
+  }
+});
+
 // Put a Build on GitHub as a new repository (GitHub plan G6). Private unless the person chooses public.
 app.post('/api/github/create', rateLimit, requireAccess, async (req, res) => {
   try {

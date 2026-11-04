@@ -394,3 +394,25 @@ export async function createRepoFromBuild(token, { name, description = '', isPri
   const saved = await saveToGitHub(token, { repo, branch, base: head, mode: 'direct', message: 'First version from Grandpa AI', files: [...files, ...added] }, { signal });
   return { repo, branch, commit: saved.commit, url: made.html_url || `https://github.com/${repo}`, private: Boolean(made.private), files: saved.files, added };
 }
+
+/**
+ * Go live with GitHub Pages (plan G7): serve the repository's branch as a website at <owner>.github.io/<repo>/.
+ * Free for public repositories; GitHub only allows Pages on private repositories with a paid plan, and says so.
+ * Already on: returns where it lives. Grandpa never changes a repository's visibility for this.
+ */
+export async function turnOnPages(token, { repo, branch }, { signal } = {}) {
+  if (!/^[\w.-]+\/[\w.-]+$/.test(String(repo || '')) || !branch) throw Object.assign(new Error('Which repository and branch?'), { status: 400 });
+  const shape = (p, fresh) => ({ repo, url: p?.html_url || `https://${repo.split('/')[0].toLowerCase()}.github.io/${repo.split('/')[1]}/`, branch: p?.source?.branch || branch, status: p?.status || 'building', fresh });
+  try { return shape(await call(token, `/repos/${repo}/pages`, { signal }), false); }
+  catch (error) { if (error.status !== 404) throw error; }
+  try { return shape(await call(token, `/repos/${repo}/pages`, { method: 'POST', signal, body: { build_type: 'legacy', source: { branch, path: '/' } } }), true); }
+  catch (error) {
+    if (error.status === 422 || error.status === 403 || error.status === 404) {
+      let isPrivate = false;
+      try { isPrivate = Boolean((await call(token, `/repos/${repo}`, { signal }))?.private); } catch { /* keep the plain message */ }
+      if (isPrivate) throw Object.assign(new Error('GitHub Pages on a private repository needs a paid GitHub plan. Use Publish (free on Grandpa), or make the repository public on GitHub first.'), { status: 402, privateRepo: true });
+      throw Object.assign(new Error(`GitHub would not turn on Pages: ${error.message}`), { status: error.status === 404 ? 403 : error.status });
+    }
+    throw error;
+  }
+}
