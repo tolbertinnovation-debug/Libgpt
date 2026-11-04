@@ -756,3 +756,8 @@ The owner asked for stronger coding, so that Grandpa can choose how to build any
   - a browser check that every visible text meets 4.5:1 (3:1 for large text) and is at least 13px, in both themes;
   - `tests/design-system.test.mjs`: the font files exist and are preloaded, no Apple-only fonts, every size comes from the scale with a 13px floor, text shades pass in both themes, and Manage's buttons are readable.
 - Published sites keep their own Grandpa Kit design.
+- **Round 2:**
+  - **Keyboard focus:** a bold 3px ring in wood brown, 11:1 on linen; at night it is light tan, and on the dark sidebar palm orange. Before, it was a thin orange line at 2.1:1.
+  - **Headings:** Build's "What do you want to build?" and the Settings title now use the Fraunces heading font, like Ask, the Library and the access screen. Leftover tight letter spacing from the old font is removed.
+  - **Build on a computer:** the intro text lines up with the suggestion cards, which are now 14px.
+  - **Checked:** screenshots of Build (phone and desktop), Settings, the Library, the access-code screen and keyboard focus.

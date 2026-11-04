@@ -50,3 +50,11 @@ test('Manage and the owner page share the fonts, and their orange buttons are re
     assert.ok(ratio(accent[1], accent[2] === '#fff' ? '#ffffff' : accent[2]) >= 4.5, `${file} primary button`);
   }
 });
+
+test('keyboard focus is a bold ring, and every page title uses the heading font', () => {
+  assert.match(css, /:focus-visible \{\n  outline: 3px solid var\(--navy\);/);
+  assert.match(css, /\.sidebar :focus-visible \{ outline-color: var\(--gold\); \}/);
+  assert.match(css, /\.build-empty h2 \{font-family:var\(--font-display\)/);
+  assert.match(css, /#settings-modal \.settings-head h2 \{ font: 600 var\(--text-xl\)\/1\.3 var\(--font-display\)/);
+  assert.doesNotMatch(css, /letter-spacing: ?-\.0[2-9]/, 'no tight spacing left over from the old font');
+});
