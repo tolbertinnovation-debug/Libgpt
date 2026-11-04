@@ -29,7 +29,7 @@ import { shrink } from './photo.js';
 import {backgroundActive,sameProjectSource,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile,canRetryBackgroundCreation,backgroundConnectionMessage} from './build-workspace.js?v=phase2-stage8-poll';
 import { renderMarkdown } from './markdown.js';
 import { mergeLatest } from './github-sync.js?v=github-3';
-import { isNextProject, nextRoutes, nextPreviewDocument } from './next-preview.js?v=nextprev-3';
+import { isNextProject, nextRoutes, nextPreviewDocument } from './next-preview.js?v=nextprev-4';
 import { readStagedRequest, newStagePlan, stageState, stageForServer, stageAsk, planMessage, nextjsFaults, powershellFaults } from './project-stages.js?v=stages-2';
 import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materials.js?v=materials-2';
 import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
@@ -246,6 +246,12 @@ function renderThread() {
    The connection string stays on this device (browser storage, per Build). It never goes into the code, the
    preview frame or GitHub: Grandpa's server receives it with each query, sends the query to Neon, and keeps nothing. */
 const neonKey = (p) => `grandpa-neon:${p.id}`;
+/** The app's .sql files with its tables (db/schema.sql first, then the others in name order; seed files last). */
+function schemaFiles(p) {
+  const sql = (p?.files || []).filter((f) => /\.sql$/i.test(f.path) && !/^data:/.test(String(f.body)) && !/^(?:node_modules|\.next)\//.test(f.path));
+  const rank = (f) => (/(?:^|\/)schema\.sql$/i.test(f.path) ? 0 : /seed/i.test(f.path) ? 2 : 1);
+  return sql.sort((a, b) => rank(a) - rank(b) || a.path.localeCompare(b.path));
+}
 function neonUrl(p) { try { return p ? localStorage.getItem(neonKey(p)) || '' : ''; } catch { return ''; } }
 function setNeonUrl(p, url) { try { if (url) localStorage.setItem(neonKey(p), url); else localStorage.removeItem(neonKey(p)); return true; } catch { return false; } }
 function previewSecret(p) {
@@ -273,7 +279,7 @@ async function answerPreviewQuery(frame, data) {
 function showNeonSheet(message = '') {
   const p = project();
   if (!p) return;
-  const url = neonUrl(p), schema = p.files.find((f) => /^(?:db|database|sql)\/schema\.sql$/i.test(f.path) || f.path === 'schema.sql');
+  const url = neonUrl(p), schema = schemaFiles(p);
   openSheet('Your Neon database', `
     ${message ? `<p class="sheet-note"><strong>${escapeHtml(message)}</strong></p>` : ''}
     <p class="sheet-note">Paste the connection string from your Neon dashboard (Connect → copy). The preview then uses your real database: sign-up, sign-in and saved data are real.</p>
@@ -281,7 +287,7 @@ function showNeonSheet(message = '') {
     <input id="neon-url" class="pic-alt" style="display:block;width:100%" type="password" autocomplete="off" spellcheck="false" placeholder="postgresql://user:password@ep-....neon.tech/neondb?sslmode=require" value="">
     <p class="sheet-note">It is kept only on this device, never in your project files or on GitHub. Grandpa sends it with each preview query to reach Neon and does not store it. Tip: use a separate Neon branch for testing.</p>
     <button class="sheet-go" type="button" data-neon-save>${url ? 'Save the new connection string' : 'Connect'}</button>
-    ${url && schema ? `<button class="sheet-row" type="button" data-neon-schema><span><strong>Create the tables</strong><small>Runs ${escapeHtml(schema.path)} on your database (like npm run db:setup)</small></span></button>` : ''}
+    ${url && schema.length ? `<button class="sheet-row" type="button" data-neon-schema><span><strong>Create the tables</strong><small>Runs ${escapeHtml(schema.map((f) => f.path).join(', '))} on your database (like npm run db:setup)</small></span></button>` : url ? '<p class="sheet-note">This app has no .sql file with its tables yet. Ask Grandpa: "Add db/schema.sql with every table the app uses."</p>' : ''}
     ${url ? '<button class="sheet-row sheet-danger" type="button" data-neon-remove><span><strong>Stop using my Neon database</strong><small>The preview goes back to sample data</small></span></button>' : ''}`);
 }
 
@@ -298,20 +304,28 @@ async function saveNeon() {
 }
 
 async function runNeonSchema() {
-  const p = project(), url = neonUrl(p), schema = p?.files.find((f) => /^(?:db|database|sql)\/schema\.sql$/i.test(f.path) || f.path === 'schema.sql');
-  if (!url || !schema) return;
-  openSheet('Your Neon database', `<p class="sheet-note">Running ${escapeHtml(schema.path)}…</p>`, { busy: true });
-  try { await runPreviewQuery(url, schema.body); showNeonSheet(`The tables in ${schema.path} are ready.`); el.previewFrame.dataset.signature = ''; renderPreview(); }
-  catch (error) { showNeonSheet(`${schema.path} did not run: ${error.message}`); }
+  const p = project(), url = neonUrl(p), schema = schemaFiles(p);
+  if (!url || !schema.length) return;
+  const names = schema.map((f) => f.path).join(', ');
+  openSheet('Your Neon database', `<p class="sheet-note">Running ${escapeHtml(names)}…</p>`, { busy: true });
+  for (const file of schema) {
+    try { await runPreviewQuery(url, file.body); }
+    catch (error) { showNeonSheet(`${file.path} did not run: ${error.message}`); return; }
+  }
+  state.nextProblem = '';
+  showNeonSheet(`The tables in ${names} are ready.`);
+  el.previewFrame.dataset.signature = ''; renderPreview();
 }
 
 /** A problem the Next.js screens preview found: shown above the preview, with a one-tap fix. */
 function showNextProblem(message) {
   const text = String(message).replace(/\s+/g, ' ').trim().slice(0, 400);
-  if (!text || state.nextProblem === text) return;
+  // The first problem is usually the real cause (a later one is often the app's own "try again"), so it stays.
+  if (!text || state.nextProblem) return;
   state.nextProblem = text;
   el.previewNote.hidden = false;
-  el.previewNote.innerHTML = `<strong>The preview found a problem:</strong> ${escapeHtml(text)} <button class="build-chip is-primary" type="button" data-next-fix>Ask Grandpa to fix it</button>`;
+  const p = project(), missingTable = /relation "[^"]+" does not exist|table .* does not exist/i.test(text) && neonUrl(p) && schemaFiles(p).length;
+  el.previewNote.innerHTML = `<strong>The preview found a problem:</strong> ${escapeHtml(text)} ${missingTable ? '<button class="build-chip is-primary" type="button" data-neon-schema>Create the tables</button> ' : ''}<button class="build-chip${missingTable ? '' : ' is-primary'}" type="button" data-next-fix>Ask Grandpa to fix it</button>`;
 }
 
 async function fixNextProblem() {
@@ -3219,6 +3233,7 @@ export async function mount(options = {}) {
     if (event.target.closest('[data-download-zip]')) { takeAll(); return; }
     if (event.target.closest('[data-next-fix]')) { fixNextProblem(); return; }
     if (event.target.closest('[data-neon]')) { showNeonSheet(); return; }
+    if (event.target.closest('[data-neon-schema]')) { runNeonSchema(); return; }
     if (event.target.closest('[data-stage-build]')) { buildStage(); return; }
     if (event.target.closest('[data-stage-ok]')) { stageWorks(); return; }
     if (event.target.closest('[data-stage-plan]')) { const sp = project()?.stages; if (sp) openSheet('The plan', `<div class="prose">${renderMarkdown(planMessage(sp))}</div>`); return; }

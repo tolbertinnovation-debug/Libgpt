@@ -150,6 +150,13 @@ export function bootNextPreview() {
     tell(`${title}: ${detail}`);
   };
   if (cfg.errors.length) { showError('Some files could not be read', cfg.errors.join('\n')); return; }
+  const realConsoleError = console.error.bind(console);
+  console.error = (...args) => {
+    realConsoleError(...args);
+    const first = args.find((a) => a instanceof Error) || args[0];
+    const text = first instanceof Error ? first.message : typeof first === 'string' ? args.filter((a) => typeof a === 'string' || a instanceof Error).map((a) => a.message || a).join(' ') : '';
+    if (text && !/^Warning:|validateDOMNesting|unique "key"/.test(text)) tell(`The app reported an error: ${text}`);
+  };
 
   // React 18 plus the React 19 hooks Next.js apps use.
   const useActionState = (action, initial) => {
@@ -240,12 +247,13 @@ export function bootNextPreview() {
     const wait = dbWaiting.get(d.id);
     if (!wait) return;
     dbWaiting.delete(d.id);
-    if (d.error) wait.reject(new Error(d.error)); else wait.resolve(d.result || { rows: [], rowCount: 0 });
+    if (d.error) { tell(`Your Neon database said: ${d.error} (while running: ${String(wait.query).replace(/\s+/g, ' ').slice(0, 120)})`); wait.reject(new Error(d.error)); }
+    else wait.resolve(d.result || { rows: [], rowCount: 0 });
   });
   const plainValue = (k, v) => (v instanceof Date ? v.toISOString() : typeof v === 'bigint' ? String(v) : v === undefined ? null : v);
   const dbQuery = (query, params = []) => new Promise((resolve, reject) => {
     const id = `q${(dbSeq += 1)}-${Math.random().toString(36).slice(2, 8)}`;
-    dbWaiting.set(id, { resolve, reject });
+    dbWaiting.set(id, { resolve, reject, query });
     try { parent.postMessage({ grandpa: 'next-db', id, query: String(query), params: JSON.parse(JSON.stringify(params, plainValue)) }, '*'); }
     catch (error) { dbWaiting.delete(id); reject(error); return; }
     setTimeout(() => { if (dbWaiting.delete(id)) reject(new Error('Your Neon database took too long to answer.')); }, 25000);
