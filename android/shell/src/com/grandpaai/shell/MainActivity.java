@@ -4,7 +4,12 @@ import android.app.Activity;
 import android.content.Intent;
 import android.graphics.Color;
 import android.net.Uri;
+import android.graphics.Insets;
+import android.os.Build;
 import android.os.Bundle;
+import android.view.WindowInsets;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.ValueCallback;
@@ -37,15 +42,36 @@ public class MainActivity extends Activity {
   private String path = "/";
   private String slug = "";
   private String name = "This app";
+  private int colour = Color.WHITE;
 
   @Override
   protected void onCreate(Bundle saved) {
     super.onCreate(saved);
     readConfig();
     root = new FrameLayout(this);
+    root.setBackgroundColor(colour);
     web = new WebView(this);
     root.addView(web, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
     setContentView(root);
+    // Android 15+ draws apps that target it edge to edge: keep the page clear of the status bar,
+    // the navigation bar, a camera cut-out and the keyboard (the bars show the app's colour).
+    if (Build.VERSION.SDK_INT >= 30) {
+      root.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+        @Override
+        public WindowInsets onApplyWindowInsets(View view, WindowInsets insets) {
+          Insets bars = insets.getInsets(WindowInsets.Type.systemBars() | WindowInsets.Type.displayCutout() | WindowInsets.Type.ime());
+          view.setPadding(bars.left, bars.top, bars.right, bars.bottom);
+          return WindowInsets.CONSUMED;
+        }
+      });
+    }
+    // Android 13+ (and always for apps that target Android 16): the back gesture goes through this callback.
+    if (Build.VERSION.SDK_INT >= 33) {
+      getOnBackInvokedDispatcher().registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_DEFAULT, new OnBackInvokedCallback() {
+        @Override
+        public void onBackInvoked() { goBack(); }
+      });
+    }
 
     WebSettings settings = web.getSettings();
     settings.setJavaScriptEnabled(true);
@@ -120,7 +146,10 @@ public class MainActivity extends Activity {
       slug = config.optString("slug", "");
       name = config.optString("name", name);
       String colour = config.optString("colour", "");
-      if (colour.matches("#[0-9a-fA-F]{6}")) getWindow().setStatusBarColor(Color.parseColor(colour));
+      if (colour.matches("#[0-9a-fA-F]{6}")) {
+        this.colour = Color.parseColor(colour);
+        if (Build.VERSION.SDK_INT < 35) getWindow().setStatusBarColor(this.colour);
+      }
     } catch (Exception e) {
       // The template's own address is used.
     }
@@ -167,11 +196,16 @@ public class MainActivity extends Activity {
     picking = null;
   }
 
-  @Override
-  public void onBackPressed() {
+  /** Back: leave a full-screen video, then go back a page, then close the app. */
+  private void goBack() {
     if (fullScreen != null) leaveFullScreen();
     else if (web.canGoBack()) web.goBack();
-    else super.onBackPressed();
+    else finish();
+  }
+
+  @Override
+  public void onBackPressed() {
+    goBack();
   }
 
   @Override

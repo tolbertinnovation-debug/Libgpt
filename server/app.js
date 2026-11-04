@@ -29,7 +29,8 @@ import QRCode from 'qrcode';
 import { createMemorySiteStore, createPostgresSiteStore, validSlug, slugFrom, findSiteFile, siteFileBody } from './site-store.js';
 import { createMemorySiteData, createPostgresSiteData, cleanEntry, checkPasscode, publishedBy, entriesToCsv, entryRef, bookingTimes, slotProblem, ENTRY_KINDS, ENTRY_STATUSES } from './site-data.js';
 import { siteRuntime, withRuntime, withSeo, sitemapFor, brandColour, siteIcon, siteManifest, sitePage404, isAppSite, withAppRegistration, appServiceWorker, appPage, textColourOn } from './site-runtime.js';
-import { buildApk, newSigningKey, sealKey, openKey } from './android-app.js';
+import { buildApk, newSigningKey, sealKey, openKey, iconPng } from './android-app.js';
+import { buildAab, cleanPackage, playPackageFor } from './android-bundle.js';
 import { MESSAGE_KEYS, MESSAGE_DEFAULTS, connected as messagesConnected, cleanMessageSettings, sendSms, sendEmail } from './app-messages.js';
 import { MOMO_KEYS, PAYMENT_DEFAULTS, PAYMENT_ID, momoConnected, cleanPaymentSettings, cleanPaymentRequest, momoClient, publicPayment } from './app-payments.js';
 import { domainsConfig, reservedHosts, cleanDomain, vercelDomains, dnsRecords, DOMAINS_PER_SITE } from './custom-domains.js';
@@ -2806,6 +2807,49 @@ app.get('/s/:slug/_grandpa/app.apk', siteLimit, async (req, res) => {
     console.error('[android]', error.message);
     res.status(503).type('html').send(notFoundPage('The Android app could not be made just now. Try again in a moment.'));
   }
+});
+// Google Play (owner-paid services, P4): a bundle (.aab) the owner uploads to their OWN Google Play developer
+// account. Each app has its own upload key (made once, sealed, kept in the database); Play signs the app for
+// phones with Google's key. Only the owner gets the bundle (Manage), so nobody else can put their app on Play.
+async function playUploadKey(slug) {
+  const secret = process.env.APP_SIGNING_SEAL_KEY || governanceConnection || 'grandpa-ai-local';
+  return openKey(await siteStore.secret(`play-upload-key-v1:${slug}`, () => sealKey(newSigningKey(), secret)), secret);
+}
+const pem = (certificate) => `-----BEGIN CERTIFICATE-----\n${certificate.match(/.{1,64}/g).join('\n')}\n-----END CERTIFICATE-----\n`;
+async function playSite(req, res) {
+  const site = await siteStore.get(req.site.slug);
+  if (!site || !isAppSite(site.files)) { res.status(404).json({ error: 'Only apps can go on Google Play. This is a website.' }); return null; }
+  if (!SITES_HOST) { res.status(503).json({ error: 'Apps for Google Play need the sites address, which is not set up on this host.' }); return null; }
+  return site;
+}
+app.get('/api/manage/:slug/play', rateLimit, manageAccess, async (req, res) => {
+  try {
+    const site = await siteStore.get(req.site.slug);
+    res.json({ available: Boolean(site && isAppSite(site.files) && SITES_HOST), app: Boolean(site && isAppSite(site.files)), defaultPackage: playPackageFor(req.site.slug), name: req.site.name });
+  } catch (error) { dataFailed(res, error); }
+});
+app.get('/api/manage/:slug/play.aab', rateLimit, manageAccess, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const site = await playSite(req, res); if (!site) return;
+    const brand = brandColour(site.files), colour = /^#[0-9a-f]{6}$/i.test(brand) ? brand : '#1a56db';
+    const made = buildAab({ slug: site.slug, name: site.name, url: siteBase(req, site.slug), brand: colour, ink: textColourOn(colour), key: await playUploadKey(site.slug), packageName: cleanPackage(req.query.package, site.slug) });
+    res.set({ 'Content-Disposition': `attachment; filename="${site.slug}-${made.version.name}.aab"`, 'X-App-Package': made.packageName, 'X-App-Version': made.version.name }).type('application/octet-stream').send(made.bundle);
+  } catch (error) { dataFailed(res, error); }
+});
+app.get('/api/manage/:slug/play-icon.png', rateLimit, manageAccess, async (req, res) => {
+  try {
+    const site = await playSite(req, res); if (!site) return;
+    const brand = brandColour(site.files), colour = /^#[0-9a-f]{6}$/i.test(brand) ? brand : '#1a56db';
+    res.set('Content-Disposition', `attachment; filename="${site.slug}-play-icon.png"`).type('image/png').send(iconPng(512, site.name, colour, textColourOn(colour)));
+  } catch (error) { dataFailed(res, error); }
+});
+app.get('/api/manage/:slug/play-upload-certificate', rateLimit, manageAccess, async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  try {
+    const site = await playSite(req, res); if (!site) return;
+    res.set('Content-Disposition', `attachment; filename="${site.slug}-upload-certificate.pem"`).type('application/x-pem-file').send(pem((await playUploadKey(site.slug)).certificate));
+  } catch (error) { dataFailed(res, error); }
 });
 // The Windows app (Phase A3): Grandpa AI's launcher with this app's icon, address and name written in.
 // Not code-signed (a certificate costs money), so SmartScreen asks people to confirm it once.
