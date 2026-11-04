@@ -20,6 +20,7 @@
 // password somewhere, is worse than no switch.
 
 import crypto from 'node:crypto';
+import { unzipSync, strFromU8 } from 'fflate';
 import { config } from './config.js';
 
 const COOKIE = 'grandpa_gh';
@@ -246,6 +247,64 @@ export async function commitFile(token, { repo, branch, path, body, message, sha
       ...(sha ? { sha } : {}),
     },
   });
+}
+
+/* ---- opening a whole repository (GitHub plan G2) -------------------------- */
+// Folders that are made by tools, not written by people: never brought in.
+const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'out', '.next', '.nuxt', '.vercel', '.cache', 'coverage', 'vendor', '__pycache__', '.venv', 'venv', '.idea', '.gradle', 'Pods']);
+const IMAGE_TYPES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', ico: 'image/x-icon' };
+export const IMPORT_LIMITS = Object.freeze({ zipBytes: 40 * 1024 * 1024, files: 800, textBytes: 400 * 1024, imageBytes: 300 * 1024, totalBytes: 3_500_000 });
+
+/** Why a path is left out, or '' to bring it in. */
+export function skipReason(path, size) {
+  const parts = path.split('/');
+  if (parts.some((p) => SKIP_DIRS.has(p))) return 'made by tools';
+  const ext = (path.split('.').pop() || '').toLowerCase();
+  if (IMAGE_TYPES[ext]) return size > IMPORT_LIMITS.imageBytes ? 'picture over 300 KB' : '';
+  if (/^(zip|gz|tgz|rar|7z|pdf|mp4|mov|mp3|wav|woff2?|ttf|otf|eot|exe|dll|so|dylib|jar|apk|aab|class|o|a|wasm|psd|ai|sketch)$/.test(ext)) return 'not a text file';
+  if (size > IMPORT_LIMITS.textBytes) return 'file over 400 KB';
+  return '';
+}
+
+/** The repository at the tip of one branch: its text files and small pictures, ready for a Build. */
+export async function importRepo(token, repo, branch, { signal, fetchImpl = fetch } = {}) {
+  const head = await call(token, `/repos/${repo}/branches/${encodeURIComponent(branch)}`, { signal });
+  const commit = head?.commit?.sha;
+  if (!commit) throw Object.assign(new Error('GitHub has no such branch.'), { status: 404 });
+  const response = await fetchImpl(`${config.githubApi}/repos/${repo}/zipball/${commit}`, {
+    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28', 'User-Agent': 'Grandpa-AI-Ritual-Coding' }, signal, redirect: 'follow',
+  });
+  if (!response.ok) throw Object.assign(new Error(`GitHub could not send the repository (${response.status}).`), { status: response.status });
+  if (Number(response.headers.get('content-length') || 0) > IMPORT_LIMITS.zipBytes) throw Object.assign(new Error('That repository is too big to open here (over 40 MB). Pick single files instead.'), { status: 413 });
+  const zip = new Uint8Array(await response.arrayBuffer());
+  if (zip.length > IMPORT_LIMITS.zipBytes) throw Object.assign(new Error('That repository is too big to open here (over 40 MB). Pick single files instead.'), { status: 413 });
+
+  const skipped = [];
+  const wanted = (name, size) => {
+    const path = name.split('/').slice(1).join('/');   // GitHub puts everything in "owner-repo-sha/"
+    if (!path || path.endsWith('/')) return false;
+    const reason = skipReason(path, size);
+    if (reason) { skipped.push({ path, reason }); return false; }
+    return true;
+  };
+  const entries = unzipSync(zip, { filter: (file) => wanted(file.name, file.originalSize) });
+  const files = [];
+  let total = 0;
+  const decoder = new TextDecoder('utf-8', { fatal: true });
+  for (const [name, data] of Object.entries(entries).sort(([a], [b]) => a.localeCompare(b))) {
+    const path = name.split('/').slice(1).join('/');
+    const ext = (path.split('.').pop() || '').toLowerCase();
+    let body;
+    if (IMAGE_TYPES[ext]) body = `data:${IMAGE_TYPES[ext]};base64,${Buffer.from(data).toString('base64')}`;
+    else {
+      if (data.includes(0)) { skipped.push({ path, reason: 'not a text file' }); continue; }
+      try { body = decoder.decode(data); } catch { skipped.push({ path, reason: 'not a text file' }); continue; }
+    }
+    if (files.length >= IMPORT_LIMITS.files || total + body.length > IMPORT_LIMITS.totalBytes) { skipped.push({ path, reason: 'the project is too big to open in full' }); continue; }
+    total += body.length;
+    files.push({ path, body });
+  }
+  return { repo, branch, commit, files, skipped: skipped.slice(0, 300), skippedCount: skipped.length };
 }
 
 // Used only by the static publishing service; credentials stay server-side.

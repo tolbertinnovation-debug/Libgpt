@@ -2359,7 +2359,9 @@ async function showGitHub() {
   openSheet('GitHub', `
     <p class="sheet-note">Connected as <strong>${escapeHtml(status.login || 'you')}</strong>.</p>
     <button class="sheet-row" type="button" data-gh="repos"><span><strong>Open a repository</strong>
-      <small>Choose a repository and branch, then bring files in</small></span></button>
+      <small>Bring a whole project (or single files) into a Build</small></span></button>
+    ${status.pagesScope ? '' : `<a class="sheet-row" href="/api/github/start"><span><strong>Allow private repositories</strong>
+      <small>Connect again and approve access to your private repositories too</small></span></a>`}
     ${state.repo ? `<button class="sheet-row" type="button" data-gh="push"><span><strong>Commit a file back</strong>
       <small>${escapeHtml(state.repo.full)} · ${escapeHtml(state.repo.branch)}</small></span></button>` : ''}
     <button class="sheet-row sheet-danger" type="button" data-gh="off"><span><strong>Disconnect</strong></span></button>`);
@@ -2372,7 +2374,7 @@ async function showRepos() {
     const body = await response.json();
     if (!response.ok) throw new Error(body.error);
     const rows = (body.repos || []).map((r) => `
-      <button class="sheet-row" type="button" data-repo="${escapeHtml(r.full)}" data-branch="${escapeHtml(r.branch)}">
+      <button class="sheet-row" type="button" data-repo="${escapeHtml(r.full)}" data-branch="${escapeHtml(r.branch)}" data-can-write="${r.canWrite ? '1' : ''}">
         <span><strong>${escapeHtml(r.full)}</strong>
           <small>${r.private ? 'private' : 'public'}${r.canWrite ? '' : ' · read only'}</small></span>
       </button>`).join('');
@@ -2380,6 +2382,53 @@ async function showRepos() {
       + 'If yours are private, the site needs the wider <code>repo</code> permission.</p>');
   } catch (error) {
     openSheet('Repositories', `<p class="sheet-note">${escapeHtml(error.message || 'GitHub could not be reached.')}</p>`);
+  }
+}
+
+/** A repository was chosen: which branch, then the whole project or single files. */
+async function showRepoChoice(full, branch, canWrite) {
+  state.repo = { full, branch, canWrite };
+  const draw = (branches = [branch]) => openSheet(full, `
+    <label class="sheet-note" for="gh-branch">Branch</label>
+    <select id="gh-branch" class="pic-alt">${branches.map((b) => `<option value="${escapeHtml(b)}"${b === state.repo.branch ? ' selected' : ''}>${escapeHtml(b)}</option>`).join('')}</select>
+    <button class="sheet-go" type="button" data-gh-open-all>Open the whole project in a new Build</button>
+    <button class="sheet-row" type="button" data-gh-pick><span><strong>Pick single files</strong>
+      <small>Bring chosen files into the Build you have open</small></span></button>
+    <p class="sheet-note">${canWrite ? 'Nothing changes on GitHub until you save to it.' : 'This repository is read only for you: you can open it, but not save to it.'}</p>`);
+  draw();
+  try {
+    const response = await fetch(`/api/github/branches?repo=${encodeURIComponent(full)}`, { headers: deps.headers() });
+    const body = await response.json();
+    if (response.ok && state.repo?.full === full) {
+      const names = (body.branches || []).map((b) => b.name);
+      draw(names.includes(branch) ? names : [branch, ...names]);
+    }
+  } catch { /* the default branch is enough */ }
+}
+
+/** Open a whole repository as a new Build that remembers where it came from (GitHub plan G2). */
+async function openWholeRepo(full, branch) {
+  if (isBusy()) { deps.toast('Wait until Grandpa finishes, then open the project.'); return; }
+  openSheet(full, `<p class="sheet-note">Bringing ${escapeHtml(full)} (${escapeHtml(branch)}) in…</p>`, { busy: true });
+  try {
+    const response = await fetch(`/api/github/import?repo=${encodeURIComponent(full)}&branch=${encodeURIComponent(branch)}`, { headers: deps.headers() });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(body.error || 'GitHub could not send the project.');
+    const made = makeProject(full.split('/')[1] || full);
+    made.files = (body.files || []).map(({ path, body: text }) => ({ path: tidyPath(path), body: text })).filter((f) => f.path);
+    made.github = { repo: full, branch, commit: body.commit, canWrite: Boolean(state.repo?.canWrite), openedAt: Date.now(), base: Object.fromEntries(made.files.map((f) => [f.path, sourceFingerprint([f])])) };
+    const left = body.skippedCount || 0;
+    const reasons = [...new Set((body.skipped || []).map((x) => x.reason))].slice(0, 4).join(', ');
+    made.messages.push({ role: 'assistant', content: `Opened **${full}** on the **${branch}** branch: ${made.files.length} file${made.files.length === 1 ? '' : 's'}.${left ? ` Left out ${left} (${reasons}).` : ''}\n\nTell me what to change, in your own words. Nothing changes on GitHub until you save to it.` });
+    state.projects.unshift(made);
+    state.currentId = made.id;
+    state.openPath = '';
+    const saved = await persist();
+    closeSheet();
+    render();
+    deps.toast(saved === false ? 'Opened, but this device is short of space: download the project to keep it.' : `${full} is open.`);
+  } catch (error) {
+    openSheet(full, `<p class="sheet-note">${escapeHtml(error.message || 'GitHub could not be reached.')}</p>`);
   }
 }
 
@@ -2943,7 +2992,10 @@ export async function mount(options = {}) {
     }
 
     const repo = event.target.closest('[data-repo]');
-    if (repo) { showRepoFiles(repo.dataset.repo, repo.dataset.branch); return; }
+    if (repo) { showRepoChoice(repo.dataset.repo, repo.dataset.branch, repo.dataset.canWrite === '1'); return; }
+    const chosenBranch = () => $('gh-branch')?.value || state.repo?.branch;
+    if (event.target.closest('[data-gh-open-all]') && state.repo) { openWholeRepo(state.repo.full, chosenBranch()); return; }
+    if (event.target.closest('[data-gh-pick]') && state.repo) { showRepoFiles(state.repo.full, chosenBranch()); return; }
 
     const ghFile = event.target.closest('[data-ghfile]');
     if (ghFile) { pullFile(ghFile.dataset.ghfile); return; }
