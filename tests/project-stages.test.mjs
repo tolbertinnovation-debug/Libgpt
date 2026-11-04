@@ -91,3 +91,9 @@ test('the Build offers stage buttons, and Next.js projects skip the website-only
   assert.match(ritual, /data-stage-ok>It works/);
   assert.match(ritual, /if\(p\.stages\?\.nextjs\)\{check=false;look=false;\}/);
 });
+
+test('an import of "./x.js" may name x.ts, the way Next.js resolves it', () => {
+  const files = [...good, { path: 'lib/validate.ts', body: 'export const ok = 1;' }, { path: 'app/api/auth/signup/route.js', body: "import { ok } from '../../../../lib/validate.js';\nexport async function POST(){ return Response.json({ ok }); }" }];
+  assert.deepEqual(nextjsFaults(files), []);
+  assert.ok(nextjsFaults(files.filter((f) => f.path !== 'lib/validate.ts')).some((f) => /imports "\.\.\/\.\.\/\.\.\/\.\.\/lib\/validate\.js", but that file does not exist/.test(f)));
+});

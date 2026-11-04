@@ -34,7 +34,7 @@ export function createPreviewMessageLimiter(frame, now=Date.now) {
   return event=>{
     const d=event?.data,t=now();
     if(event?.source!==frame || event.origin!=='null' || !d || typeof d!=='object' || Array.isArray(d) || d.checkId || !Number.isFinite(t) || t<start)return false;
-    if(!['navigate','download-file','fault','visual-edit','play-video','server-run'].includes(d.grandpa))return false;
+    if(!['navigate','download-file','fault','visual-edit','play-video','server-run','next-preview-problem'].includes(d.grandpa))return false;
     // The app's server code (Phase D5), run against the preview's test database.
     if(d.grandpa==='server-run'){
       if(typeof d.id!=='string' || !/^[\w-]{1,40}$/.test(d.id) || typeof d.name!=='string' || !/^[a-z][a-z0-9_-]{0,39}$/.test(d.name))return false;
@@ -45,7 +45,9 @@ export function createPreviewMessageLimiter(frame, now=Date.now) {
     }
     // Hand edits from the page editor: text for one numbered element, or the editor saying it is ready.
     // A video player in the page asks the app to play its YouTube video (it cannot play inside the sandbox).
-    if(d.grandpa==='play-video'){if(typeof d.id!=='string' || !/^[\w-]{11}$/.test(d.id) || (d.title!==undefined && (typeof d.title!=='string' || d.title.length>200)))return false;}
+    // A problem the Next.js screens preview found (a sentence for the person, never code to run).
+    if(d.grandpa==='next-preview-problem'){if(typeof d.message!=='string' || !d.message || d.message.length>600)return false;}
+    else if(d.grandpa==='play-video'){if(typeof d.id!=='string' || !/^[\w-]{11}$/.test(d.id) || (d.title!==undefined && (typeof d.title!=='string' || d.title.length>200)))return false;}
     else if(d.grandpa==='visual-edit'){
       if(d.type==='ready'){if(!Number.isInteger(d.count))return false;}
       else if(d.type==='image' || d.type==='insert-image'){if(!Number.isInteger(d.id) || d.id<0)return false;}

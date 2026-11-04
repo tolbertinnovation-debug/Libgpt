@@ -2,7 +2,7 @@ import {verificationStatusMarkup} from './build-verification.js';
 import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
 import {restrictPreviewDocument} from './preview-policy.js';
-import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=code-1';
+import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=code-2';
 import {loadPreviewGuard,previewGuardReady} from './preview-guard.js';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
@@ -29,8 +29,8 @@ import { shrink } from './photo.js';
 import {backgroundActive,sameProjectSource,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile,canRetryBackgroundCreation,backgroundConnectionMessage} from './build-workspace.js?v=phase2-stage8-poll';
 import { renderMarkdown } from './markdown.js';
 import { mergeLatest } from './github-sync.js?v=github-3';
-import { isNextProject, nextRoutes, nextPreviewDocument } from './next-preview.js?v=nextprev-1';
-import { readStagedRequest, newStagePlan, stageState, stageForServer, stageAsk, planMessage, nextjsFaults, powershellFaults } from './project-stages.js?v=stages-1';
+import { isNextProject, nextRoutes, nextPreviewDocument } from './next-preview.js?v=nextprev-2';
+import { readStagedRequest, newStagePlan, stageState, stageForServer, stageAsk, planMessage, nextjsFaults, powershellFaults } from './project-stages.js?v=stages-2';
 import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materials.js?v=materials-2';
 import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
 import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
@@ -240,6 +240,23 @@ function renderThread() {
     </div>`;
   }).join('') + live + fixHint(p);
   el.thread.scrollTop = el.thread.scrollHeight;
+}
+
+/** A problem the Next.js screens preview found: shown above the preview, with a one-tap fix. */
+function showNextProblem(message) {
+  const text = String(message).replace(/\s+/g, ' ').trim().slice(0, 400);
+  if (!text || state.nextProblem === text) return;
+  state.nextProblem = text;
+  el.previewNote.hidden = false;
+  el.previewNote.innerHTML = `<strong>The preview found a problem:</strong> ${escapeHtml(text)} <button class="build-chip is-primary" type="button" data-next-fix>Ask Grandpa to fix it</button>`;
+}
+
+async function fixNextProblem() {
+  const text = state.nextProblem;
+  if (!text || isBusy()) return;
+  state.nextProblem = '';
+  ensureView('chat');
+  await changeFiles(`The screens preview found this problem: ${text}\n\nFix it (create the missing file or correct the import or code), keeping everything else as it is.`, { shown: `Fix the problem the preview found: ${text}` });
 }
 
 /* ---- Staged projects: one stage at a time, tested by the person before the next ---------------- */
@@ -518,7 +535,7 @@ function renderPreview() {
       state.editSelect=null;
     }else if(nextApp){
       // Built in the background (the code is translated first); shown only if nothing changed meanwhile.
-      document=null;
+      document=null;state.nextProblem='';
       setPreviewDocument('');
       nextPreviewDocument(p.files,{route:entry}).then(made=>{
         if(el.previewFrame.dataset.signature===signature)setPreviewDocument(restricted ? restrictPreviewDocument(made) : made);
@@ -3136,6 +3153,7 @@ export async function mount(options = {}) {
     if (event.target.closest('[data-discuss-start]')) { startFromBrief(); return; }
     if (event.target.closest('[data-show-history]')) { showHistory(); return; }
     if (event.target.closest('[data-download-zip]')) { takeAll(); return; }
+    if (event.target.closest('[data-next-fix]')) { fixNextProblem(); return; }
     if (event.target.closest('[data-stage-build]')) { buildStage(); return; }
     if (event.target.closest('[data-stage-ok]')) { stageWorks(); return; }
     if (event.target.closest('[data-stage-plan]')) { const sp = project()?.stages; if (sp) openSheet('The plan', `<div class="prose">${renderMarkdown(planMessage(sp))}</div>`); return; }
@@ -3330,6 +3348,7 @@ export async function mount(options = {}) {
       // load listener prevent forged navigation floods accumulating callbacks.
       if(pendingPreviewScroll)el.previewFrame.contentWindow.postMessage({grandpa:'scroll-to',hash:pendingPreviewScroll.hash},'*');
     }else if(data?.grandpa==='download-file' && file){downloadFile(file);}
+    else if(data?.grandpa==='next-preview-problem' && p && isNextProject(p.files) && typeof data.message==='string')showNextProblem(data.message);
     else if(data?.grandpa==='fault' && typeof data.what==='string'){deps.toast(data.what.slice(0,400));}
     else if(data?.grandpa==='play-video'){showVideoWindow(data.id,data.title);}
     else if(data?.grandpa==='server-run'){runPreviewServer(p,data,event.source);}

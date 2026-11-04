@@ -66,3 +66,16 @@ test('the third-party preview files are bundled with their licences', async () =
   const ritual = await readFile(new URL('../public/ritual.js', import.meta.url), 'utf8');
   assert.match(ritual, /nextPreviewDocument\(p\.files,\{route:entry\}\)/);
 });
+
+test('a problem the preview finds reaches Grandpa only as a short sentence, and he offers a one-tap fix', async () => {
+  const { createPreviewMessageLimiter } = await import('../public/build-preview.js');
+  const frame = {}, allow = createPreviewMessageLimiter(frame);
+  assert.equal(allow({ source: frame, origin: 'null', data: { grandpa: 'next-preview-problem', message: 'app/page.js imports "./x", but that file does not exist.' } }), true);
+  assert.equal(allow({ source: frame, origin: 'null', data: { grandpa: 'next-preview-problem', message: 'x'.repeat(601) } }), false);
+  assert.equal(allow({ source: frame, origin: 'null', data: { grandpa: 'next-preview-problem', message: 42 } }), false);
+  assert.equal(allow({ source: {}, origin: 'null', data: { grandpa: 'next-preview-problem', message: 'from another window' } }), false);
+  const ritual = await readFile(new URL('../public/ritual.js', import.meta.url), 'utf8');
+  assert.match(ritual, /data-next-fix>Ask Grandpa to fix it/);
+  const preview = await readFile(new URL('../public/next-preview.js', import.meta.url), 'utf8');
+  assert.match(preview, /\.\(\?:m\?js\|jsx\)\$\/\.exec\(b\)/, 'the preview also finds x.ts for "./x.js"');
+});

@@ -133,13 +133,15 @@ ${moduleScripts}
 export function bootNextPreview() {
   const cfg = window.__NEXT_PREVIEW, Rw = window.React, RD = window.ReactDOM;
   const root = document.getElementById('__next');
+  // Problems go to Grandpa too, so the person can ask for a fix in one tap.
+  const tell = (message) => { try { parent.postMessage({ grandpa: 'next-preview-problem', message: String(message).slice(0, 600) }, '*'); } catch {} };
   const showError = (title, detail) => {
     let box = document.getElementById('__grandpa_error');
     if (!box) { box = document.createElement('div'); box.id = '__grandpa_error'; document.body.appendChild(box); }
     box.innerHTML = '<h2></h2><p>This is what the preview found. Tell Grandpa what you see here and he will fix it.</p><pre></pre>';
     box.querySelector('h2').textContent = title;
     box.querySelector('pre').textContent = detail;
-    try { parent.postMessage({ type: 'grandpa-next-preview-error', message: `${title}: ${detail}`.slice(0, 600) }, '*'); } catch {}
+    tell(`${title}: ${detail}`);
   };
   if (cfg.errors.length) { showError('Some files could not be read', cfg.errors.join('\n')); return; }
 
@@ -201,6 +203,8 @@ export function bootNextPreview() {
       ? [norm(spec.slice(2).split('/')), norm(['src', ...spec.slice(2).split('/')])]
       : [norm([...from.split('/').slice(0, -1), ...spec.split('/')])];
     for (const b of bases) for (const e of EXTS) if (has(b + e)) return b + e;
+    // Like Next.js: "./validate.js" may name validate.ts (or .tsx, .jsx, .mjs).
+    for (const b of bases) { const m = /^(.*)\.(?:m?js|jsx)$/.exec(b); if (m) for (const e of ['.ts', '.tsx', '.jsx', '.js', '.mjs']) if (has(m[1] + e)) return m[1] + e; }
     return null;
   };
   const sampleUser = { id: 1, userId: 1, sub: '1', name: 'Preview Farmer', email: 'farmer@example.com', role: 'admin' };
@@ -398,6 +402,7 @@ export function bootNextPreview() {
       return response instanceof Response ? response : new Response(null, { status: 204 });
     } catch (error) {
       if (error instanceof Redirect) return new Response(null, { status: 307, headers: { Location: error.url } });
+      tell(`When the app called ${method} ${path}: ${error?.message || error}`);
       return new Response(JSON.stringify({ error: `Preview: ${error?.message || error}` }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
   };
