@@ -5,12 +5,20 @@ import { readFile } from 'node:fs/promises';
 import { isolatedLedger } from './support/ledger.mjs';
 
 // A stand-in for Vercel's API: a user, projects linked to GitHub, settings and deployments.
-const TOKEN = 'abcDEF1234567890ghijKL', TEAM_TOKEN = 'teamTOKEN1234567890abcd', TEAM = 'team_abc123XYZ';
+const TOKEN = 'abcDEF1234567890ghijKL', TEAM_TOKEN = 'teamTOKEN1234567890abcd', OTHER_TOKEN = 'otherTOKEN123456789abcd', TEAM = 'team_abc123XYZ';
 const seen = []; let projects = {}, deployments = {}, githubLinked = true;
 const fake = http.createServer((req, res) => {
   let raw = ''; req.on('data', (c) => { raw += c; }).on('end', () => {
     const body = raw ? JSON.parse(raw) : null; seen.push({ method: req.method, url: req.url, body, auth: req.headers.authorization });
     const json = (v, status = 200) => { res.writeHead(status, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(v)); };
+    // A token that cannot read the account or list teams, but works inside a team named by its ID.
+    if (req.headers.authorization === `Bearer ${OTHER_TOKEN}`) {
+      if (req.url === '/v2/user') return json({ error: { code: 'not_found', message: 'User not found.' } }, 404);
+      if (req.url.startsWith('/v2/teams?')) return json({ error: { code: 'forbidden', message: 'You do not have permission to list teams.' } }, 403);
+      if (req.url === '/v9/projects?limit=1') return json({ error: { code: 'forbidden', message: 'You do not have permission to access this scope.' } }, 403);
+      if (req.url === `/v9/projects?limit=1&teamId=${TEAM}`) return json({ projects: [] });
+      return json({ error: { code: 'not_found', message: 'Not found' } }, 404);
+    }
     // A team token (like Samuel's, made for the Tolbert Innovation Hub team) works only inside its team.
     if (req.headers.authorization === `Bearer ${TEAM_TOKEN}`) {
       if (req.url === '/v2/user') return json({ error: { code: 'not_found', message: 'User not found.' } }, 404);
@@ -102,4 +110,11 @@ test('a token made for a team ("User not found" for the person) works inside its
   assert.ok(seen.filter((s) => s.auth === `Bearer ${TEAM_TOKEN}` && !/^\/v2\//.test(s.url)).length >= 4, 'every project call names the team');
   assert.equal((await v.vercelStatus(TEAM_TOKEN, out.id, { teamId: TEAM })).readyState, 'READY');
   await assert.rejects(v.vercelDeploy(TEAM_TOKEN, { repo: 'tolbertinnovation-debug/Farm-AI-Doctor', env: {} }), /permission/, 'without the team, Vercel refuses (as for Samuel before this fix)');
+});
+
+test('when Vercel will not say whose token it is, its own answers are shown, and a typed Team ID gets it working', async () => {
+  await assert.rejects(v.vercelWho(OTHER_TOKEN), (e) => /Vercel answered: account: User not found\. \(not_found\); teams: You do not have permission to list teams\. \(forbidden\); projects: You do not have permission to access this scope\./.test(e.message) && /Team ID box/.test(e.message));
+  const who = await v.vercelWho(OTHER_TOKEN, { teamId: TEAM });
+  assert.deepEqual([who.teamId, who.teamName], [TEAM, TEAM]);
+  await assert.rejects(v.vercelWho(OTHER_TOKEN, { teamId: 'not a team!' }), /not a Vercel Team ID/);
 });

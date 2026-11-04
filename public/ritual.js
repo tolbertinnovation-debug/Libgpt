@@ -353,6 +353,8 @@ function showVercelSheet(message = '') {
       <ol class="sheet-note"><li>Sign in at <strong>vercel.com</strong> with your GitHub account.</li><li>Open <strong>Account Settings → Tokens</strong>, tap <strong>Create</strong>, name it "Grandpa", and copy the token.</li><li>Paste it here.</li></ol>
       <label class="sheet-note" for="vercel-token">Vercel token</label>
       <input id="vercel-token" class="pic-alt" style="display:block;width:100%" type="password" autocomplete="off" spellcheck="false" placeholder="Paste your Vercel token">
+      <label class="sheet-note" for="vercel-team">Team ID <small>(only if your projects are in a team: vercel.com → your team → Settings → General → Team ID)</small></label>
+      <input id="vercel-team" class="pic-alt" style="display:block;width:100%" type="text" autocomplete="off" spellcheck="false" placeholder="team_… (you can leave this empty)">
       <p class="sheet-note">It is kept only on this device. Grandpa sends it to Vercel with each request and does not store it.</p>
       <button class="sheet-go" type="button" data-vercel-connect>Connect Vercel</button>`);
     return;
@@ -378,9 +380,10 @@ function showVercelSheet(message = '') {
 async function connectVercel() {
   const token = String($('vercel-token')?.value || '').trim();
   if (!token) { showVercelSheet('Paste your Vercel token first.'); return; }
+  const teamId = String($('vercel-team')?.value || '').trim();
   openSheet('Put it online with Vercel', '<p class="sheet-note">Checking the token…</p>', { busy: true });
   try {
-    const who = await vercelApi('check', { token });
+    const who = await vercelApi('check', { token, teamId });
     try { localStorage.setItem(VERCEL_TOKEN_KEY, token); localStorage.setItem(VERCEL_USER_KEY, who.teamName ? `${who.teamName} (team)` : who.username || who.email || ''); localStorage.setItem(VERCEL_TEAM_KEY, who.teamId || ''); }
     catch { showVercelSheet('This browser would not keep the token (private browsing?).'); return; }
     showVercelSheet('Vercel is connected.');
