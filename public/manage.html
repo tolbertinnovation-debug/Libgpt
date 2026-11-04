@@ -10,11 +10,11 @@
 <title>Manage your website</title>
 <link rel="icon" href="/logo.png">
 <style>
-:root{--bg:#faf3e0;--raised:#fffdf7;--line:#e6d8bb;--text:#2e1f1a;--soft:#6b5346;--accent:#c77818;--good:#2f7d4f;--bad:#b3261e;--chip:#f1e4c8}
-@media (prefers-color-scheme:dark){:root{--bg:#1d1411;--raised:#2a1d18;--line:#4a372e;--text:#f6ead6;--soft:#c9b29d;--accent:#e39a3c;--good:#6fcf97;--bad:#ff8a80;--chip:#3a2a22}}
+:root{--bg:#faf3e0;--raised:#fffdf7;--line:#e6d8bb;--text:#2e1f1a;--soft:#6b5346;--accent:#a35a0c;--on-accent:#fff;--good:#2f7d4f;--bad:#b3261e;--chip:#f1e4c8}
+@media (prefers-color-scheme:dark){:root{--bg:#1d1411;--raised:#2a1d18;--line:#4a372e;--text:#f6ead6;--soft:#c9b29d;--accent:#e39a3c;--on-accent:#1d1411;--good:#6fcf97;--bad:#ff8a80;--chip:#3a2a22}}
 *{box-sizing:border-box}
 html,body{overflow-x:hidden}
-body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+@font-face{font-family:"Atkinson Hyperlegible Next";font-style:normal;font-weight:200 800;font-display:swap;src:url("/fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2") format("woff2")}@font-face{font-family:Fraunces;font-style:normal;font-weight:100 900;font-display:swap;src:url("/fonts/fraunces-latin-wght-normal.woff2") format("woff2")}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 "Atkinson Hyperlegible Next","Segoe UI",Roboto,system-ui,sans-serif}h1,h2{font-family:Fraunces,Georgia,serif;font-weight:600;letter-spacing:-.01em}
 main{max-width:640px;margin:0 auto;padding:20px 16px 64px}
 h1{font-size:1.35rem;margin:0}
 h2{font-size:1.1rem;margin:0 0 10px}
@@ -25,7 +25,7 @@ label{display:block;font-weight:600;margin:10px 0 4px}
 input,textarea,select{width:100%;font:inherit;padding:10px 12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
 textarea{min-height:64px;resize:vertical}
 button,.button{font:inherit;font-weight:600;min-height:44px;padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;justify-content:center;gap:6px}
-button.primary,a.button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary,a.button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 .table-wrap{overflow-x:auto;margin:10px 0}table.data{border-collapse:collapse;width:100%;font-size:.92rem}table.data th,table.data td{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top;white-space:nowrap}table.data td:last-child{display:flex;gap:6px}table.data td button{min-height:36px;padding:4px 10px}
 #records form{display:grid;gap:6px}#records input,#records select,#records textarea{font:inherit;min-height:44px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;background:var(--bg);color:var(--text)}#records input[type=search]{width:100%;margin-top:8px}img.thumb{object-fit:cover;border-radius:8px;display:block}.activity{list-style:none;padding:0;display:grid;gap:6px;margin:8px 0}.activity li{line-height:1.4}.invites{list-style:none;padding:0;display:grid;gap:6px}.invites li{display:flex;gap:8px;align-items:center;flex-wrap:wrap}#accounts select{min-height:40px;min-width:120px;padding:4px 8px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text);font:inherit}#accounts table.data th,#accounts table.data td{white-space:normal}#accounts table.data td:last-child{flex-wrap:wrap;min-width:200px}
 button.danger{color:var(--bad)}

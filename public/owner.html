@@ -10,10 +10,10 @@
 <title>Owner Controls</title>
 <link rel="icon" href="logo.png">
 <style>
-:root{--bg:#faf3e0;--raised:#fffdf7;--line:#e6d8bb;--text:#2e1f1a;--soft:#6b5346;--accent:#c77818;--good:#2f7d4f;--bad:#b3261e;--bar:#ead9b8}
-@media (prefers-color-scheme:dark){:root{--bg:#1d1411;--raised:#2a1d18;--line:#4a372e;--text:#f6ead6;--soft:#c9b29d;--accent:#e39a3c;--good:#6fcf97;--bad:#ff8a80;--bar:#4a372e}}
+:root{--bg:#faf3e0;--raised:#fffdf7;--line:#e6d8bb;--text:#2e1f1a;--soft:#6b5346;--accent:#a35a0c;--on-accent:#fff;--good:#2f7d4f;--bad:#b3261e;--bar:#ead9b8}
+@media (prefers-color-scheme:dark){:root{--bg:#1d1411;--raised:#2a1d18;--line:#4a372e;--text:#f6ead6;--soft:#c9b29d;--accent:#e39a3c;--on-accent:#1d1411;--good:#6fcf97;--bad:#ff8a80;--bar:#4a372e}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+@font-face{font-family:"Atkinson Hyperlegible Next";font-style:normal;font-weight:200 800;font-display:swap;src:url("/fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2") format("woff2")}@font-face{font-family:Fraunces;font-style:normal;font-weight:100 900;font-display:swap;src:url("/fonts/fraunces-latin-wght-normal.woff2") format("woff2")}body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 "Atkinson Hyperlegible Next","Segoe UI",Roboto,system-ui,sans-serif}h1,h2{font-family:Fraunces,Georgia,serif;font-weight:600;letter-spacing:-.01em}
 main{max-width:520px;margin:0 auto;padding:24px 16px 48px}
 h1{font-size:1.4rem;margin:0 0 4px}
 .lead{color:var(--soft);margin:0 0 20px}
@@ -21,7 +21,7 @@ h1{font-size:1.4rem;margin:0 0 4px}
 label{display:block;font-weight:600;margin:0 0 6px}
 input{width:100%;font:inherit;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
 button{font:inherit;font-weight:600;min-height:48px;padding:10px 16px;border-radius:10px;border:1px solid var(--line);background:var(--raised);color:var(--text);cursor:pointer;width:100%}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
 button.danger{background:var(--bad);border-color:var(--bad);color:#fff;font-size:1.1rem;min-height:64px}
 button.go{background:var(--good);border-color:var(--good);color:#fff;font-size:1.1rem;min-height:64px}
 button:disabled{opacity:.6;cursor:wait}
