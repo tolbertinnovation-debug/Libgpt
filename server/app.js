@@ -124,7 +124,7 @@ const siteFormBodies = express.text({ type: () => true, limit: '32kb' });
 // App files (Phase D3): a photo or document arrives as its own bytes, at most 2 MB.
 const appFileBodies = express.raw({ type: () => true, limit: '2100kb' });
 app.use((req, res, next) => (/^\/api\/app-db\/[a-z0-9-]+\/files$/.test(req.path) && req.method === 'POST' ? appFileBodies : req.path.startsWith('/api/site-data/') ? siteFormBodies
-  : req.path.startsWith('/api/sync/') || req.path === '/api/sites' || req.path === '/api/github/save' ? syncBodies : smallBodies)(req, res, next));
+  : req.path.startsWith('/api/sync/') || req.path === '/api/sites' || req.path === '/api/github/save' || req.path === '/api/github/create' ? syncBodies : smallBodies)(req, res, next));
 // ---- published websites on their own address (Phase 6) ---------------------
 // With SITES_HOST set (e.g. sites.libgrandpaai.com, added to the project in
 // Vercel), published sites live at https://SITES_HOST/<address>/. A separate
@@ -657,6 +657,21 @@ app.post('/api/github/save', rateLimit, requireAccess, async (req, res, next) =>
   } catch (error) {
     if (!error?.status) console.error('[github save]', error?.message || error);
     res.status(error?.status && error.status < 500 ? error.status : 502).json({ error: error?.message || 'GitHub could not be reached.', conflict: Boolean(error?.conflict) });
+  }
+});
+
+// Put a Build on GitHub as a new repository (GitHub plan G6). Private unless the person chooses public.
+app.post('/api/github/create', rateLimit, requireAccess, async (req, res) => {
+  try {
+    if (!github.githubReady()) { res.status(503).json({ error: 'GitHub is not set up on this deployment.' }); return; }
+    const token = github.tokenFrom(req);
+    if (!token) { res.status(401).json({ error: 'Not connected to GitHub yet.', connect: true }); return; }
+    const b = req.body || {};
+    if (b.confirm !== true) { res.status(400).json({ error: 'Making a GitHub repository needs your confirmation.' }); return; }
+    res.json(await github.createRepoFromBuild(token, { name: b.name, description: b.description, isPrivate: b.private !== false, files: Array.isArray(b.files) ? b.files : [] }));
+  } catch (error) {
+    if (!error?.status) console.error('[github create]', error?.message || error);
+    res.status(error?.status && error.status < 500 ? error.status : 502).json({ error: error?.message || 'GitHub could not be reached.' });
   }
 });
 

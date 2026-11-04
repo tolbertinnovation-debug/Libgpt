@@ -2368,6 +2368,8 @@ async function showGitHub() {
       <small>Connect again and approve access to your private repositories too</small></span></a>`}
     ${project()?.github ? `<button class="sheet-row" type="button" data-gh-save><span><strong>Save to GitHub</strong>
       <small>${escapeHtml(project().github.repo)} · ${escapeHtml(project().github.pr?.branch || project().github.branch)}</small></span></button>` : ''}
+    ${!project()?.github && project()?.files?.length ? `<button class="sheet-row" type="button" data-gh-create><span><strong>Put this Build on GitHub</strong>
+      <small>Make a new repository with these files (private unless you choose)</small></span></button>` : ''}
     ${project()?.github ? `<button class="sheet-row" type="button" data-gh-pull><span><strong>Get the latest from GitHub</strong>
       <small>Bring in what changed on GitHub; your own changes are kept</small></span></button>` : ''}
     <button class="sheet-row sheet-danger" type="button" data-gh="off"><span><strong>Disconnect</strong></span></button>`);
@@ -2448,6 +2450,42 @@ async function saveNowToGitHub() {
     render();
   } catch (error) {
     openSheet('Not saved', `<p class="sheet-note">${escapeHtml(error.message)}</p>${error.conflict ? '<button class="sheet-go" type="button" data-gh-pull>Get the latest from GitHub first</button><button class="sheet-row" type="button" data-gh-save><span><strong>Save as a pull request instead</strong></span></button>' : ''}`);
+  }
+}
+
+/** Put this Build on GitHub as a new repository (plan G6): a name, private or public, then one confirmed step. */
+function showCreateRepo() {
+  const p = project();
+  if (!p?.files?.length) { deps.toast('This Build has no files yet.'); return; }
+  if (p.github) { showSaveToGitHub(); return; }
+  const suggested = String(p.name || 'my-project').toLowerCase().normalize('NFKD').replace(/[^a-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'my-project';
+  openSheet('Put this Build on GitHub', `
+    <label class="sheet-note" for="gh-new-name">Repository name</label>
+    <input id="gh-new-name" class="pic-alt" style="display:block;width:100%" maxlength="100" autocomplete="off" value="${escapeHtml(suggested)}">
+    <label class="sheet-note"><input id="gh-new-private" type="checkbox" checked> Private (only you and people you invite can see it)</label>
+    <p class="sheet-note">${p.files.length} file${p.files.length === 1 ? '' : 's'} go up as the first version.${p.files.some((f) => /^readme(\.md)?$/i.test(f.path)) ? '' : ' A short README.md is added.'} Private repositories are free on GitHub.</p>
+    <button class="sheet-go" type="button" data-gh-create-go>Make the repository</button>`);
+}
+
+async function createRepoNow() {
+  const p = project();
+  if (!p || p.github) return;
+  if (isBusy()) { deps.toast('Wait until Grandpa finishes, then try again.'); return; }
+  const name = String($('gh-new-name')?.value || '').trim(), isPrivate = $('gh-new-private')?.checked !== false;
+  openSheet('Put this Build on GitHub', `<p class="sheet-note">Making ${escapeHtml(name)} on GitHub…</p>`, { busy: true });
+  try {
+    const response = await fetch('/api/github/create', { method: 'POST', headers: { 'Content-Type': 'application/json', ...deps.headers() }, body: JSON.stringify({
+      confirm: true, name, private: isPrivate, description: p.name, files: p.files.map(({ path, body }) => ({ path, body })) }) });
+    const result = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(result.error || 'GitHub would not make that repository.');
+    for (const f of result.added || []) if (!p.files.some((x) => x.path === f.path)) p.files.push({ path: f.path, body: f.body });
+    p.github = { repo: result.repo, branch: result.branch, commit: result.commit, canWrite: true, openedAt: Date.now(), savedAt: Date.now(), base: Object.fromEntries(p.files.map((f) => [f.path, sourceFingerprint([f])])) };
+    p.messages.push({ role: 'assistant', content: `Made the ${result.private ? 'private' : 'public'} repository **${result.repo}** on GitHub with this Build's files: ${result.url}\n\nFrom now on, **Save to GitHub** sends your changes there.` });
+    await persist();
+    openSheet('On GitHub', `<p class="sheet-note"><strong>${escapeHtml(result.repo)}</strong> is on GitHub (${result.private ? 'private' : 'public'}).</p><a class="sheet-go" href="${escapeHtml(result.url)}" target="_blank" rel="noopener">Open it on GitHub</a>`);
+    render();
+  } catch (error) {
+    openSheet('Not made', `<p class="sheet-note">${escapeHtml(error.message)}</p><button class="sheet-go" type="button" data-gh-create>Try again</button>`);
   }
 }
 
@@ -3105,6 +3143,8 @@ export async function mount(options = {}) {
     const repo = event.target.closest('[data-repo]');
     if (repo) { showRepoChoice(repo.dataset.repo, repo.dataset.branch, repo.dataset.canWrite === '1'); return; }
     if (event.target.closest('[data-gh-save-go]')) { saveNowToGitHub(); return; }
+    if (event.target.closest('[data-gh-create-go]')) { createRepoNow(); return; }
+    if (event.target.closest('[data-gh-create]')) { showCreateRepo(); return; }
     if (event.target.closest('[data-gh-pull-keep]')) { getLatestFromGitHub(event.target.closest('[data-gh-pull-keep]').dataset.ghPullKeep); return; }
     if (event.target.closest('[data-gh-pull]')) { getLatestFromGitHub(); return; }
     if (event.target.closest('[data-gh-save]')) { showSaveToGitHub(); return; }
