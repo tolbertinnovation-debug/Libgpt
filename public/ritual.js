@@ -2,7 +2,7 @@ import {verificationStatusMarkup} from './build-verification.js';
 import {appendBuildRequest,buildRequestBrief,isBuildResumeCommand,normalizeBuildRequests} from './build-requests.js';
 import {staticSourceReport} from './build-static.js';
 import {restrictPreviewDocument} from './preview-policy.js';
-import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=code-2';
+import {createPreviewDiagnostics,createPreviewMessageLimiter} from './build-preview.js?v=code-3';
 import {loadPreviewGuard,previewGuardReady} from './preview-guard.js';
 import { conversationWindow } from './knowledge.js';
 // Ritual Coding — the screen.
@@ -29,7 +29,7 @@ import { shrink } from './photo.js';
 import {backgroundActive,sameProjectSource,sourceFingerprint,workspaceChanges,newBackgroundIdentity,createBackgroundObserver,workingFile,canRetryBackgroundCreation,backgroundConnectionMessage} from './build-workspace.js?v=phase2-stage8-poll';
 import { renderMarkdown } from './markdown.js';
 import { mergeLatest } from './github-sync.js?v=github-3';
-import { isNextProject, nextRoutes, nextPreviewDocument } from './next-preview.js?v=nextprev-2';
+import { isNextProject, nextRoutes, nextPreviewDocument } from './next-preview.js?v=nextprev-3';
 import { readStagedRequest, newStagePlan, stageState, stageForServer, stageAsk, planMessage, nextjsFaults, powershellFaults } from './project-stages.js?v=stages-2';
 import { MOST_MATERIALS, materialFromFile, materialsNote } from './build-materials.js?v=materials-2';
 import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=phase3-1';
@@ -242,6 +242,69 @@ function renderThread() {
   el.thread.scrollTop = el.thread.scrollHeight;
 }
 
+/* ---- The person's own Neon database for the Next.js preview ---------------------------------------
+   The connection string stays on this device (browser storage, per Build). It never goes into the code, the
+   preview frame or GitHub: Grandpa's server receives it with each query, sends the query to Neon, and keeps nothing. */
+const neonKey = (p) => `grandpa-neon:${p.id}`;
+function neonUrl(p) { try { return p ? localStorage.getItem(neonKey(p)) || '' : ''; } catch { return ''; } }
+function setNeonUrl(p, url) { try { if (url) localStorage.setItem(neonKey(p), url); else localStorage.removeItem(neonKey(p)); return true; } catch { return false; } }
+function previewSecret(p) {
+  try {
+    const key = `grandpa-neon-secret:${p.id}`;
+    let secret = localStorage.getItem(key);
+    if (!secret) { secret = Array.from(crypto.getRandomValues(new Uint8Array(24)), (b) => b.toString(16).padStart(2, '0')).join(''); localStorage.setItem(key, secret); }
+    return secret;
+  } catch { return 'grandpa-preview-secret'; }
+}
+async function runPreviewQuery(url, query, params = []) {
+  const response = await fetch('/api/preview/neon', { method: 'POST', headers: { 'Content-Type': 'application/json', ...deps.headers() }, body: JSON.stringify({ url, query, params }) });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || 'Your Neon database could not be reached.');
+  return body;
+}
+async function answerPreviewQuery(frame, data) {
+  const url = neonUrl(project());
+  const reply = (message) => { try { frame?.postMessage({ grandpaReply: 'next-db', id: data.id, ...message }, '*'); } catch {} };
+  if (!url) { reply({ error: 'No Neon database is connected to this preview.' }); return; }
+  try { reply({ result: await runPreviewQuery(url, data.query, data.params) }); }
+  catch (error) { reply({ error: error.message }); }
+}
+
+function showNeonSheet(message = '') {
+  const p = project();
+  if (!p) return;
+  const url = neonUrl(p), schema = p.files.find((f) => /^(?:db|database|sql)\/schema\.sql$/i.test(f.path) || f.path === 'schema.sql');
+  openSheet('Your Neon database', `
+    ${message ? `<p class="sheet-note"><strong>${escapeHtml(message)}</strong></p>` : ''}
+    <p class="sheet-note">Paste the connection string from your Neon dashboard (Connect → copy). The preview then uses your real database: sign-up, sign-in and saved data are real.</p>
+    <label class="sheet-note" for="neon-url">Connection string</label>
+    <input id="neon-url" class="pic-alt" style="display:block;width:100%" type="password" autocomplete="off" spellcheck="false" placeholder="postgresql://user:password@ep-....neon.tech/neondb?sslmode=require" value="">
+    <p class="sheet-note">It is kept only on this device, never in your project files or on GitHub. Grandpa sends it with each preview query to reach Neon and does not store it. Tip: use a separate Neon branch for testing.</p>
+    <button class="sheet-go" type="button" data-neon-save>${url ? 'Save the new connection string' : 'Connect'}</button>
+    ${url && schema ? `<button class="sheet-row" type="button" data-neon-schema><span><strong>Create the tables</strong><small>Runs ${escapeHtml(schema.path)} on your database (like npm run db:setup)</small></span></button>` : ''}
+    ${url ? '<button class="sheet-row sheet-danger" type="button" data-neon-remove><span><strong>Stop using my Neon database</strong><small>The preview goes back to sample data</small></span></button>' : ''}`);
+}
+
+async function saveNeon() {
+  const p = project(), url = String($('neon-url')?.value || '').trim();
+  if (!p) return;
+  if (!/^postgres(?:ql)?:\/\/[^@\s]+@[^\s/]+\.neon\.tech\/\S+$/i.test(url)) { showNeonSheet('That does not look like a Neon connection string. It starts with postgresql:// and has .neon.tech in it.'); return; }
+  openSheet('Your Neon database', '<p class="sheet-note">Checking the connection…</p>', { busy: true });
+  try { await runPreviewQuery(url, 'select 1 as ok'); }
+  catch (error) { showNeonSheet(error.message); return; }
+  if (!setNeonUrl(p, url)) { showNeonSheet('This browser would not keep the connection string (private browsing?).'); return; }
+  showNeonSheet('Connected. The preview now uses your real Neon database.');
+  renderPreview();
+}
+
+async function runNeonSchema() {
+  const p = project(), url = neonUrl(p), schema = p?.files.find((f) => /^(?:db|database|sql)\/schema\.sql$/i.test(f.path) || f.path === 'schema.sql');
+  if (!url || !schema) return;
+  openSheet('Your Neon database', `<p class="sheet-note">Running ${escapeHtml(schema.path)}…</p>`, { busy: true });
+  try { await runPreviewQuery(url, schema.body); showNeonSheet(`The tables in ${schema.path} are ready.`); el.previewFrame.dataset.signature = ''; renderPreview(); }
+  catch (error) { showNeonSheet(`${schema.path} did not run: ${error.message}`); }
+}
+
 /** A problem the Next.js screens preview found: shown above the preview, with a one-tap fix. */
 function showNextProblem(message) {
   const text = String(message).replace(/\s+/g, ' ').trim().slice(0, 400);
@@ -302,7 +365,7 @@ async function buildStage(extra = '') {
   const left = plan.nextjs ? nextjsFaults(p.files) : [];
   p.messages.push({ role: 'assistant', content: left.length
     ? `Stage ${s.number} is written, but the project check still found ${left.length === 1 ? 'a problem' : `${left.length} problems`}:\n\n${left.map((f) => `- ${f}`).join('\n')}\n\nTell me "fix these" and I will, or test it and tell me what you see.`
-    : `Stage ${s.number} of ${s.total} is built and the project check passed ✓ (files, imports, packages, settings and secrets).${plan.nextjs ? ' Open **Preview** to see the screens (the database, sign-in and AI use sample data there). The real test, with your own database, is on your computer: follow the steps above.' : ''}\n\nWhen it works, tap **It works**. If not, tell me what happened.` });
+    : `Stage ${s.number} of ${s.total} is built and the project check passed ✓ (files, imports, packages, settings and secrets).${plan.nextjs ? ' Open **Preview** to see the screens (with sample data, or tap **Use my real Neon database** there to try it with your own database). The real test, with your own database, is on your computer: follow the steps above.' : ''}\n\nWhen it works, tap **It works**. If not, tell me what happened.` });
   await persist();
   render();
 }
@@ -512,7 +575,8 @@ function renderPreview() {
   const restricted=state.restrictedPreview===true;
   const notice=[look.why || look.warn,previewLoads.notice,restricted?'Restricted preview blocks external resources, forms and popups. Page self-navigation can bypass resource restrictions. CPU/memory are not limited.':''].filter(Boolean).join(' ');
   el.previewNote.hidden = !notice;
-  el.previewNote.textContent = notice;
+  el.previewNote.textContent = nextApp && neonUrl(p) ? notice.replace(look.why, 'Preview with your real Neon database: sign-up, sign-in and saved data are real. AI uses sample answers.') : notice;
+  if (nextApp) { const b = document.createElement('button'); b.type = 'button'; b.className = 'build-chip'; b.dataset.neon = ''; b.textContent = neonUrl(p) ? 'Neon connected · change' : 'Use my real Neon database'; el.previewNote.append(' ', b); }
   el.previewFrame.setAttribute('sandbox',restricted?'allow-scripts':'allow-scripts allow-forms allow-modals allow-popups');
   el.previewFrame.setAttribute('referrerpolicy',restricted?'no-referrer':'strict-origin-when-cross-origin');
   if(restricted)el.previewFrame.setAttribute('allow',"camera 'none'; microphone 'none'; geolocation 'none'; payment 'none'; usb 'none'; display-capture 'none'");
@@ -523,7 +587,7 @@ function renderPreview() {
   if(state.followAgent && remoteRunning(p) && /\.html?$/i.test(active) && p.files.some(file=>file.path===active))state.previewPath=active;
   const entry=nextApp ? (String(state.previewPath || '').startsWith('/') ? state.previewPath : '/') : p.files.some(f=>f.path===state.previewPath) ? state.previewPath : '';
   const editing=state.editMode && look.can;
-  const signature=`${p.id}:${sourceFingerprint(p.files)}:${entry}:${restricted}:${editing?'edit':'view'}`;
+  const signature=`${p.id}:${sourceFingerprint(p.files)}:${entry}:${restricted}:${editing?'edit':'view'}${nextApp && neonUrl(p) ? ':neon' : ''}`;
   if(el.previewFrame.dataset.signature!==signature || !sameProjectSource(el.previewFrame.sourceSnapshot,p.files)){
     previewLoads.notice='';
     let document='';
@@ -537,7 +601,7 @@ function renderPreview() {
       // Built in the background (the code is translated first); shown only if nothing changed meanwhile.
       document=null;state.nextProblem='';
       setPreviewDocument('');
-      nextPreviewDocument(p.files,{route:entry}).then(made=>{
+      nextPreviewDocument(p.files,{route:entry,realDb:Boolean(neonUrl(p)),secret:previewSecret(p)}).then(made=>{
         if(el.previewFrame.dataset.signature===signature)setPreviewDocument(restricted ? restrictPreviewDocument(made) : made);
       },error=>{if(el.previewFrame.dataset.signature===signature){el.previewNote.hidden=false;el.previewNote.textContent=`The screens preview could not start: ${error.message || error}`;}});
     }else document=look.can ? previewDocument(p.files,entry) : '';
@@ -3154,6 +3218,7 @@ export async function mount(options = {}) {
     if (event.target.closest('[data-show-history]')) { showHistory(); return; }
     if (event.target.closest('[data-download-zip]')) { takeAll(); return; }
     if (event.target.closest('[data-next-fix]')) { fixNextProblem(); return; }
+    if (event.target.closest('[data-neon]')) { showNeonSheet(); return; }
     if (event.target.closest('[data-stage-build]')) { buildStage(); return; }
     if (event.target.closest('[data-stage-ok]')) { stageWorks(); return; }
     if (event.target.closest('[data-stage-plan]')) { const sp = project()?.stages; if (sp) openSheet('The plan', `<div class="prose">${renderMarkdown(planMessage(sp))}</div>`); return; }
@@ -3305,6 +3370,9 @@ export async function mount(options = {}) {
     const repo = event.target.closest('[data-repo]');
     if (repo) { showRepoChoice(repo.dataset.repo, repo.dataset.branch, repo.dataset.canWrite === '1'); return; }
     if (event.target.closest('[data-gh-save-go]')) { saveNowToGitHub(); return; }
+    if (event.target.closest('[data-neon-save]')) { saveNeon(); return; }
+    if (event.target.closest('[data-neon-schema]')) { runNeonSchema(); return; }
+    if (event.target.closest('[data-neon-remove]')) { const p = project(); if (p) { setNeonUrl(p, ''); closeSheet(); renderPreview(); deps.toast('The preview uses sample data again.'); } return; }
     if (event.target.closest('[data-gh-pages-go]')) { turnOnPagesNow(); return; }
     if (event.target.closest('[data-gh-pages-publish]')) { closeSheet(); showWebPublish(); return; }
     if (event.target.closest('[data-gh-pages]')) { showPages(); return; }
@@ -3349,6 +3417,7 @@ export async function mount(options = {}) {
       if(pendingPreviewScroll)el.previewFrame.contentWindow.postMessage({grandpa:'scroll-to',hash:pendingPreviewScroll.hash},'*');
     }else if(data?.grandpa==='download-file' && file){downloadFile(file);}
     else if(data?.grandpa==='next-preview-problem' && p && isNextProject(p.files) && typeof data.message==='string')showNextProblem(data.message);
+    else if(data?.grandpa==='next-db' && p && isNextProject(p.files))answerPreviewQuery(event.source,data);
     else if(data?.grandpa==='fault' && typeof data.what==='string'){deps.toast(data.what.slice(0,400));}
     else if(data?.grandpa==='play-video'){showVideoWindow(data.id,data.title);}
     else if(data?.grandpa==='server-run'){runPreviewServer(p,data,event.source);}
