@@ -1,0 +1,11 @@
+Third-party code used by the Next.js screens preview (public/next-preview.js). All MIT licensed.
+
+react 18.3.1 (umd/react.production.min.js) and react-dom 18.3.1 (umd/react-dom.production.min.js)
+  Copyright (c) Meta Platforms, Inc. and affiliates. MIT License. https://github.com/facebook/react
+@tailwindcss/browser 4.1.13 (dist/index.global.js, saved as tailwind-browser.js)
+  Copyright (c) Tailwind Labs, Inc. MIT License. https://github.com/tailwindlabs/tailwindcss
+sucrase 3.35.0 with its dependencies (lines-and-columns, ts-interface-checker, @jridgewell/gen-mapping,
+@jridgewell/sourcemap-codec, @jridgewell/set-array, @jridgewell/trace-mapping, @jridgewell/resolve-uri),
+bundled into sucrase.mjs with esbuild. MIT Licenses. https://github.com/alangpierce/sucrase
+
+To rebuild these files: node scripts/vendor-next-preview.mjs (needs network access to the npm registry).
