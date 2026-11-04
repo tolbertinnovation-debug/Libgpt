@@ -67,6 +67,17 @@ const loadDbVendor = () => (dbVendor ||= Promise.all(['bcryptjs.min.js', 'jose.i
   .catch((error) => { dbVendor = null; throw error; }));
 const loadSucrase = () => (sucrase ||= import('./vendor/next-preview/sucrase.mjs').catch((error) => { sucrase = null; throw error; }));
 
+/**
+ * In the preview frame, setting window.location (or calling location.assign/replace/reload) would leave the preview
+ * and start it over at its first page, forgetting the sign-in. Those calls go to the preview's own router instead.
+ */
+export function keepInPreview(code) {
+  return String(code)
+    .replace(/(?<![\w$.])(?:(?:window|document|globalThis)\.)?location\.(?:assign|replace)\s*\(/g, '__previewGo(')
+    .replace(/(?<![\w$.])(?:(?:window|document|globalThis)\.)?location\.reload\s*\(/g, '__previewReload(')
+    .replace(/(?<!(?:const|let|var)\s+)(?<![\w$.])(?:(?:window|document|globalThis)\.)?location(?:\.href)?\s*=(?![=>])\s*/g, '__previewGoTo = ');
+}
+
 /** Each source file as plain JavaScript (CommonJS shape), plus what could not be read. */
 export function compileModules(files, transform) {
   const modules = {}, errors = [];
@@ -77,6 +88,7 @@ export function compileModules(files, transform) {
         transforms: /\.tsx?$/i.test(f.path) ? ['typescript', 'jsx', 'imports'] : ['jsx', 'imports'],
         jsxPragma: '__h', jsxFragmentPragma: '__F', production: true, filePath: f.path,
       }).code;
+      modules[f.path] = keepInPreview(modules[f.path]);
     } catch (error) {
       errors.push(`${f.path}: ${String(error?.message || error).split('\n')[0]}`);
     }
@@ -184,7 +196,8 @@ export function bootNextPreview() {
   const historyStack = [];
   const split = (href) => { const u = new URL(String(href), 'http://preview.local' + routeState.path); return { path: u.pathname.replace(/\/+$/, '') || '/', search: u.search }; };
   const navigate = (href, replace = false) => {
-    const next = split(href);
+    // Every visit draws the page afresh (server components run again), as a page load does in Next.js.
+    const next = { ...split(href), visit: (routeState.visit || 0) + 1 };
     if (!replace) historyStack.push(routeState);
     routeState = next;
     listeners.forEach((fn) => fn());
@@ -272,6 +285,33 @@ export function bootNextPreview() {
   const neonSql = () => { const sql = (strings, ...values) => Promise.resolve(sqlRows(Array.isArray(strings) ? strings.join('?') : strings)); sql.query = (text) => Promise.resolve(sqlRows(text)); sql.unsafe = (t) => t; sql.transaction = async () => []; return sql; };
   class PgPool { query(text) { return Promise.resolve({ rows: sqlRows(text?.text || text), rowCount: 0 }); } connect() { return Promise.resolve({ query: (t) => this.query(t), release() {} }); } end() { return Promise.resolve(); } on() {} }
   const cookieJar = new Map();
+  // "name=value; Path=/; Max-Age=0" into the jar (a past expiry or Max-Age=0 signs out).
+  const takeCookie = (line) => {
+    const [pair, ...attrs] = String(line).split(';');
+    const at = pair.indexOf('=');
+    if (at < 1) return;
+    const name = pair.slice(0, at).trim(), value = pair.slice(at + 1).trim();
+    const gone = attrs.some((a) => /^\s*max-age\s*=\s*-?0\s*$/i.test(a) || (/^\s*expires\s*=/i.test(a) && Date.parse(a.split('=').slice(1).join('=')) < Date.now()));
+    if (gone || value === '') cookieJar.delete(name); else cookieJar.set(name, value);
+  };
+  const takeCookies = (headers) => {
+    if (!headers) return;
+    const each = (name, value) => { if (/^set-cookie$/i.test(String(name))) for (const line of Array.isArray(value) ? value : String(value).split(/,(?=\s*[^;,=\s]+=)/)) takeCookie(line); };
+    if (typeof headers.forEach === 'function' && !Array.isArray(headers)) headers.forEach((value, name) => each(name, value));
+    else if (Array.isArray(headers)) headers.forEach(([name, value]) => each(name, value));
+    else Object.entries(headers).forEach(([name, value]) => each(name, value));
+  };
+  // Browsers drop Set-Cookie from responses made in a page, so it is read here first.
+  const RealResponse = window.Response;
+  window.Response = class Response extends RealResponse {
+    constructor(body, init) { super(body, init); try { takeCookies(init?.headers); } catch {} }
+    static json(data, init) { try { takeCookies(init?.headers); } catch {} return RealResponse.json(data, init); }
+    static redirect(url, status) { return new RealResponse(null, { status: status || 302, headers: { Location: String(url) } }); }
+  };
+  for (const method of ['set', 'append']) {
+    const real = Headers.prototype[method];
+    Headers.prototype[method] = function (name, value) { if (/^set-cookie$/i.test(String(name))) { try { takeCookie(value); } catch {} } return real.call(this, name, value); };
+  }
   // response.cookies.set(...) in route handlers keeps the cookie for the preview's later requests.
   const withCookies = (response) => {
     response.cookies = {
@@ -308,7 +348,7 @@ export function bootNextPreview() {
     'next/link': () => ({ __esModule: true, default: Link }),
     'next/image': () => ({ __esModule: true, default: Image }),
     'next/navigation': () => ({
-      useRouter: () => ({ push: (h) => navigate(hrefText(h)), replace: (h) => navigate(hrefText(h), true), back: () => { const prev = historyStack.pop(); if (prev) { routeState = prev; listeners.forEach((fn) => fn()); } }, forward() {}, refresh: () => listeners.forEach((fn) => fn()), prefetch() {} }),
+      useRouter: () => ({ push: (h) => navigate(hrefText(h)), replace: (h) => navigate(hrefText(h), true), back: () => { const prev = historyStack.pop(); if (prev) { routeState = prev; listeners.forEach((fn) => fn()); } }, forward() {}, refresh: () => window.__previewReload(), prefetch() {} }),
       usePathname: () => useRoute().path,
       useSearchParams: () => new URLSearchParams(useRoute().search),
       useParams: () => useRoute().params,
@@ -455,13 +495,37 @@ export function bootNextPreview() {
       request.nextUrl = new URL(request.url);
       request.cookies = cookies();
       const response = await handler(request, { params: both(params) });
-      return response instanceof Response ? response : new Response(null, { status: 204 });
+      return response instanceof RealResponse ? response : new RealResponse(null, { status: 204 });
     } catch (error) {
       if (error instanceof Redirect) return new Response(null, { status: 307, headers: { Location: error.url } });
       tell(`When the app called ${method} ${path}: ${error?.message || error}`);
       return new Response(JSON.stringify({ error: `Preview: ${error?.message || error}` }), { status: 500, headers: { 'Content-Type': 'application/json' } });
     }
   };
+
+  /* window.location = '/dashboard' and location.reload() in the app's code (rewritten when it is compiled) */
+  Object.defineProperty(window, '__previewGoTo', { configurable: true, set: (href) => { const target = String(href ?? ''); if (internal(target)) navigate(target); else if (target) window.open(target, '_blank'); }, get: () => `http://preview.local${routeState.path}${routeState.search}` });
+  window.__previewGo = (href) => { window.__previewGoTo = href; };
+  window.__previewReload = () => { routeState = { ...routeState, visit: (routeState.visit || 0) + 1 }; listeners.forEach((fn) => fn()); };
+
+  /* A form that posts straight to the app's own route (<form action="/api/login" method="post">) is sent to the
+     route here, and its answer is followed (a redirect, or the page it was on), instead of leaving the preview. */
+  document.addEventListener('submit', async (e) => {
+    const form = e.target;
+    if (e.defaultPrevented || !(form instanceof HTMLFormElement)) return;
+    const action = form.getAttribute('action') || '';
+    if (action && !internal(action)) return;
+    e.preventDefault();
+    const method = (form.getAttribute('method') || 'GET').toUpperCase();
+    const data = new FormData(form, e.submitter || undefined);
+    const target = action || `${routeState.path}${routeState.search}`;
+    if (method === 'GET') { navigate(`${target.split('?')[0]}?${new URLSearchParams([...data].map(([k, v]) => [k, String(v)]))}`); return; }
+    const response = await window.fetch(target, { method, body: data });
+    const location = response.headers.get('Location');
+    if (location) navigate(location);
+    else if (response.ok && /^\/api\//.test(target)) listeners.forEach((fn) => fn());
+    else if (!response.ok) { const text = await response.text().catch(() => ''); tell(`The form sent to ${target} got ${response.status}: ${text.slice(0, 200)}`); }
+  });
 
   /* Links that are plain <a href="/..."> (not next/link) stay inside the preview too */
   document.addEventListener('click', (e) => {
@@ -476,8 +540,9 @@ export function bootNextPreview() {
 
   function App() {
     const [, setTick] = Rw.useState(0);
-    Rw.useEffect(() => { const fn = () => setTick((n) => n + 1); listeners.add(fn); return () => listeners.delete(fn); }, []);
     const { path, search } = routeState;
+    // A redirect thrown while the first page renders moves routeState before this subscribes: catch up then.
+    Rw.useEffect(() => { const fn = () => setTick((n) => n + 1); listeners.add(fn); if (`${routeState.path}${routeState.search}` !== `${path}${search}`) fn(); return () => listeners.delete(fn); }, []);
     const page = cfg.routes.pages.find((r) => match(r.pattern, path));
     const params = page ? match(page.pattern, path) : {};
     const searchParams = Object.fromEntries(new URLSearchParams(search));
@@ -496,7 +561,7 @@ export function bootNextPreview() {
       showError('This page could not start', `${error?.message || error}`);
       return null;
     }
-    return Rw.createElement(RouteContext.Provider, { value: { path, search, params } }, Rw.createElement(Boundary, { key: path + search }, tree));
+    return Rw.createElement(RouteContext.Provider, { value: { path, search, params } }, Rw.createElement(Boundary, { key: `${path}${search}#${routeState.visit || 0}` }, tree));
   }
 
   // The root layout draws <html> and <body>; inside the preview those become plain boxes.

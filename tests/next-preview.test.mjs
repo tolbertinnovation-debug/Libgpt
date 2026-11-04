@@ -79,3 +79,22 @@ test('a problem the preview finds reaches Grandpa only as a short sentence, and 
   const preview = await readFile(new URL('../public/next-preview.js', import.meta.url), 'utf8');
   assert.match(preview, /\.\(\?:m\?js\|jsx\)\$\/\.exec\(b\)/, 'the preview also finds x.ts for "./x.js"');
 });
+
+test('code that would leave the preview (window.location, assign, replace, reload) stays inside it', async () => {
+  const { keepInPreview } = await import('../public/next-preview.js');
+  const cases = {
+    'window.location.href = "/dashboard";': '__previewGoTo = "/dashboard";',
+    'location = next;': '__previewGoTo = next;',
+    'window.location.assign("/a")': '__previewGo("/a")',
+    'location.replace(u)': '__previewGo(u)',
+    'window.location.reload()': '__previewReload()',
+    'const location = res.headers.get("x")': 'const location = res.headers.get("x")',
+    'obj.location = 5': 'obj.location = 5',
+    'if (location.href == x) y()': 'if (location.href == x) y()',
+    'router.location.assign(1)': 'router.location.assign(1)',
+  };
+  for (const [from, to] of Object.entries(cases)) assert.equal(keepInPreview(from), to, from);
+  const preview = await readFile(new URL('../public/next-preview.js', import.meta.url), 'utf8');
+  assert.match(preview, /Browsers drop Set-Cookie from responses made in a page/);
+  assert.match(preview, /document\.addEventListener\('submit'/, 'forms posting to the app\'s own routes stay in the preview');
+});
