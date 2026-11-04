@@ -27,17 +27,33 @@ async function call(token, path, { method = 'GET', body, fetchImpl = fetch, team
  * Who the token belongs to. A token made for a team (Vercel asks for its scope when it is created) cannot read the
  * personal account ("User not found"), so its team is found instead and used for every later request.
  */
-export async function vercelWho(rawToken, { fetchImpl } = {}) {
-  const token = cleanToken(rawToken);
+export async function vercelWho(rawToken, { fetchImpl, teamId: rawTeam = '' } = {}) {
+  const token = cleanToken(rawToken), given = String(rawTeam || '').trim();
   if (!token) throw fail('That does not look like a Vercel token. Copy it from vercel.com → Account Settings → Tokens.');
+  const said = [];
+  const note = (where, error) => { said.push(`${where}: ${error.message}${error.code ? ` (${error.code})` : ''}`); if (error.status === 401) throw error; };
+  // A Team ID or team URL name typed by the person (vercel.com → Settings → General) is tried first.
+  if (given) {
+    if (!/^(?:team_[A-Za-z0-9]{6,60}|[a-z0-9][a-z0-9-]{0,62})$/.test(given)) throw fail('That is not a Vercel Team ID. It starts with team_ (Settings → General on vercel.com).');
+    try {
+      const team = await call(token, `/v2/teams/${encodeURIComponent(given)}`, { fetchImpl });
+      if (cleanTeam(team.id)) return { username: team.slug || '', name: team.name || team.slug || '', email: '', teamId: team.id, teamName: team.name || team.slug || '', teams: [{ id: team.id, slug: team.slug || '', name: team.name || '' }] };
+    } catch (error) { note(`team ${given}`, error); }
+    if (cleanTeam(given)) {
+      try { await call(token, '/v9/projects?limit=1', { fetchImpl, teamId: given }); return { username: given, name: given, email: '', teamId: given, teamName: given, teams: [{ id: given, slug: '', name: given }] }; }
+      catch (error) { note(`projects in ${given}`, error); }
+    }
+  }
   let user = null, teams = [];
-  try { user = (await call(token, '/v2/user', { fetchImpl })).user || null; }
-  catch (error) { if (error.status === 401) throw error; }
+  try { user = (await call(token, '/v2/user', { fetchImpl })).user || null; } catch (error) { note('account', error); }
   try { teams = ((await call(token, '/v2/teams?limit=20', { fetchImpl })).teams || []).map((t) => ({ id: t.id, slug: t.slug || '', name: t.name || t.slug || '' })).filter((t) => cleanTeam(t.id)); }
-  catch (error) { if (error.status === 401) throw error; }
-  if (!user && !teams.length) throw fail('Vercel accepted the token but shows no account or team for it. Make a new token with scope "Full Account" (or your team) at vercel.com → Account Settings → Tokens.', 401);
-  const team = user ? null : teams[0];
-  return { username: user?.username || team?.slug || '', name: user?.name || team?.name || '', email: user?.email || '', teamId: team?.id || '', teamName: team?.name || '', teams };
+  catch (error) { note('teams', error); }
+  if (user) return { username: user.username || '', name: user.name || '', email: user.email || '', teamId: '', teamName: '', teams };
+  if (teams.length) return { username: teams[0].slug, name: teams[0].name, email: '', teamId: teams[0].id, teamName: teams[0].name, teams };
+  // Some tokens can list projects without reading the account or its teams: that is enough to deploy.
+  try { await call(token, '/v9/projects?limit=1', { fetchImpl }); return { username: '', name: 'your Vercel account', email: '', teamId: '', teamName: '', teams: [] }; }
+  catch (error) { note('projects', error); }
+  throw fail(`Vercel would not say which account this token belongs to. Vercel answered: ${said.join('; ')}. If your projects are in a team, paste its Team ID (vercel.com → your team → Settings → General) in the Team ID box and connect again; or make a new token with scope "Full Account".`, 400);
 }
 
 /**
