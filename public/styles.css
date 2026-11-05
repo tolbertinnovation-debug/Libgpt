@@ -4217,3 +4217,17 @@ body {
   .build-chip, .take-btn, .build-view { min-height: 44px; }
   .build-name { min-height: 36px; }
 }
+
+/* ---- Progress strip ("Needs attention · 6 files saved · Details · Plan · Resume"): one slim row ---- */
+#build-plan { padding: 6px 12px; }
+#build-plan .agent-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; min-height: 0; }
+#build-plan .agent-spark { flex: none; margin: 0; align-self: center; font-size: var(--text-sm); line-height: 1; }
+#build-plan .agent-caption { flex: 1 1 0; min-width: 0; display: flex; flex-wrap: nowrap; align-items: baseline; gap: 6px; padding: 0; white-space: nowrap; overflow: hidden; font-size: var(--text-xs); }
+#build-plan .agent-caption strong { display: inline; flex: none; font-size: var(--text-xs); }
+#build-plan .agent-caption > span { display: block; flex: 1 1 auto; min-width: 0; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-faint); -webkit-line-clamp: unset; }
+#build-plan .agent-caption > span::before { content: '· '; }
+#build-plan .agent-details { flex: none; order: 2; min-width: 0; }
+#build-plan .agent-details > summary { min-height: 32px; padding: 0 4px; font-size: var(--text-xs); }
+#build-plan .agent-details[open] { order: 10; flex: 1 1 100%; }
+#build-plan .agent-quick-action { order: 3; flex: none; display: flex; gap: 6px; margin: 0; }
+#build-plan .agent-quick-action button { min-height: 32px; padding: 0 12px; border-radius: 999px; font-size: var(--text-xs); line-height: 1; }
