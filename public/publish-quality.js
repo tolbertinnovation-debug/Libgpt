@@ -1,7 +1,7 @@
 // The quality check before publishing (Phase G): accessibility, speed, security
 // and search, read straight from the project's files. Free, instant, and run on
 // the phone; nothing is changed by it.
-import { mapElements } from './visual-edit.js?v=kit-1';
+import { mapElements } from './visual-edit.js?v=kit-2';
 
 const ATTRS = /([^\s"'<>\/=]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
 const SAFE_FRAMES = /^https:\/\/(?:www\.)?(?:youtube(?:-nocookie)?\.com|player\.vimeo\.com|(?:www\.)?openstreetmap\.org|(?:www\.)?google\.com\/maps|maps\.google\.com)\//i;
