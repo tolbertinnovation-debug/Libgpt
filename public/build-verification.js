@@ -13,5 +13,5 @@ export function projectVerificationStatus(project={}){
  ];
 }
 export function verificationStatusMarkup(project,escape){
- return '<details class="verification-status"><summary>Verification · source only</summary><dl tabindex="0" aria-label="Project verification status">'+projectVerificationStatus(project).map(row=>`<dt>${escape(row.label)}</dt><dd>${escape(row.status)}</dd>`).join('')+'</dl><p>Generated files, source reviews and preview messages do not prove that an application works. Simulated results are not real execution.</p></details>';
+ return '<details class="verification-status"><summary><svg class="verification-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.4 8.4 8 9 4.6-.6 8-4 8-9V6l-8-3Z"/></svg>Verification · source only</summary><dl tabindex="0" aria-label="Project verification status">'+projectVerificationStatus(project).map(row=>`<dt>${escape(row.label)}</dt><dd>${escape(row.status)}</dd>`).join('')+'</dl><p>Generated files, source reviews and preview messages do not prove that an application works. Simulated results are not real execution.</p></details>';
 }
