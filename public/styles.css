@@ -4180,3 +4180,40 @@ body {
 .build-item-chev { margin-left: auto; width: 16px; height: 16px; fill: none; stroke: var(--text-faint); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
 .build-menu-more[open] .build-item-chev { transform: rotate(180deg); }
 .build-menu-more .build-item:not(summary) { padding-left: 20px; }
+
+/* ---- Build screen polish, step 6: verification bar, Changes, final touches ------------------------ */
+.verification-status { padding: 0 12px; background: var(--bg-raised); color: var(--text-soft); }
+.verification-status summary { display: flex; align-items: center; gap: 8px; min-height: 40px; list-style: none; font-weight: 600; color: var(--text-soft); }
+.verification-status summary::-webkit-details-marker { display: none; }
+.verification-status summary::after { content: ''; margin-left: auto; width: 7px; height: 7px; border-right: 2px solid var(--text-faint); border-bottom: 2px solid var(--text-faint); transform: rotate(45deg) translateY(-2px); transition: transform .15s; }
+.verification-status[open] summary::after { transform: rotate(-135deg) translateY(-2px); }
+.verification-status[open] { padding-bottom: 10px; color: var(--text); }
+.verification-icon { flex: none; width: 16px; height: 16px; fill: none; stroke: var(--green); stroke-width: 1.8; stroke-linejoin: round; }
+
+.changes-head { padding: 16px; }
+.changes-head h3 { font-family: var(--font-display); font-size: var(--text-lg); font-weight: 600; letter-spacing: -.01em; }
+#workspace-changes { padding: 8px 12px 16px; display: grid; gap: 8px; }
+.file-change { border: 1px solid var(--border); border-radius: 14px; background: var(--bg-raised); overflow: hidden; }
+.file-change summary { min-height: 52px; padding: 8px 12px; gap: 10px; font-size: var(--text-sm); }
+.file-change summary::-webkit-details-marker { display: none; }
+.file-change summary:hover { background: var(--bg-hover); }
+.file-change summary strong { font-family: var(--font); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.change-kind { flex: none; min-width: 64px; text-align: center; border: 0; border-radius: 999px; padding: 3px 8px; font-size: var(--text-xs); font-weight: 700; }
+.change-kind.is-added { background: color-mix(in srgb, var(--green) 14%, transparent); color: var(--green); }
+.change-kind.is-modified { background: color-mix(in srgb, var(--gold) 20%, transparent); color: var(--gold-deep); }
+.change-kind.is-deleted { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
+[data-theme="dark"] .change-kind.is-modified { color: var(--gold); }
+.change-stats { font-size: var(--text-xs); }
+.change-stats .is-add { color: var(--green); }
+.change-stats .is-del { color: var(--red); }
+.change-chev { flex: none; width: 16px; height: 16px; fill: none; stroke: var(--text-faint); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
+.file-change[open] .change-chev { transform: rotate(180deg); }
+.file-change .change-code { border-top: 1px solid var(--border); }
+.workspace-empty { margin: 24px auto; max-width: 32ch; text-align: center; color: var(--text-soft); }
+.workspace-empty strong { display: block; color: var(--text); font-size: var(--text-base); margin-bottom: 4px; }
+
+/* Tap targets: everything you can press in the Build screen is at least 44px tall on a phone */
+@media (max-width: 600px) {
+  .build-chip, .take-btn, .build-view { min-height: 44px; }
+  .build-name { min-height: 36px; }
+}
