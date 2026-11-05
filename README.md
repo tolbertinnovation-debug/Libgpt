@@ -1,5 +1,9 @@
 # Grandpa AI
 
+**Farm Doctor:** A sick crop or animal? Tap **Farm Doctor** on the home screen (or in the side menu), say what it is, what you see, since when and how many, and add a photo. Grandpa's farming helper answers in the same clear shape every time: what it most likely is and how sure he is, what else it could be, what to do now (cheapest and safest first), how to keep it from spreading, when to call the county agriculture officer or a vet, and which photo would settle it. See [Farm Doctor](#farm-doctor).
+
+**Ritual Coding:** Grandpa builds websites and apps from a sentence. Switch to **Build**, say what you want, and he plans it, writes the files, checks them and shows a live preview. Edit the code yourself in **Files**, compare in **Changes**, publish to `sites.libgrandpaai.com`, save to GitHub, or put a Next.js app online with Vercel. Big requests are built one tested stage at a time (Next.js + Neon + Tailwind), with a real database in the preview. See [Ritual Coding](#ritual-coding).
+
 **Spending controls:** Every paid AI feature reserves its cost in one persistent ledger before calling OpenAI and settles against real usage. The approved policy is $0.50 per day in total ($0.20 for coding) with 2 calls at a time. Visitors see a friendly message when a limit is reached, and the operator can pause or adjust limits. Tests run automatically on every pull request. See [spending controls](docs/budget-controls.md).
 
 **Complete business plans:** Ask for a business plan in one sentence and get a complete one: 17 sections from executive summary to appendices, with SWOT, marketing budget, organisation chart, risk table, startup costs, 3-year projections, cash flow and break-even. Every projection is labelled and built from stated assumptions. See [document creation](docs/document-creation.md#complete-business-plans-from-one-prompt).
@@ -38,7 +42,10 @@
 
 A chat application in the shape of the Grandpa AI platform described in the project
 dossier: a village-elder assistant that answers in Liberian English, by typing or by
-voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API.
+voice, and works on a 2G connection. The model behind it is **Meta's Model API**: Muse Spark
+answers everyday chat and Muse Wonder takes the questions that need careful thinking.
+OpenAI is optional: it is switched off on the live site and can be switched back on (see
+[Optional: OpenAI](#optional-openai)).
 
 ---
 
@@ -46,6 +53,8 @@ voice, and works on a 2G connection. The model behind it is OpenAI's ChatGPT API
 
 | Feature | How it works here |
 | --- | --- |
+| **Farm Doctor** | A short form for a sick crop or animal — crop or animal, which one, what you see, since when, how many, where, and a photo — turned into one clear question for the farming helper. The answer always has the same headings, says how sure Grandpa is, puts cheap and safe steps first, never gives a dose from memory for anything that can poison, and says when to get the extension officer or a vet. |
+| **Ritual Coding** | Build mode: describe a website or app in your own words and Grandpa plans it, writes the files, checks them and shows a preview. Files, Changes, Publish, Save to GitHub, Vercel, and staged Next.js + Neon + Tailwind projects with a real database in the preview. |
 | **Interactive Storyteller** | A complete folktale or factual historical account, on a theme you pick — Wisdom, Bravery, Community, Cleverness, Tradition. The beginning, development and ending arrive together, followed by the lesson or historical significance. |
 | **Ancestral names** | Suggestions by people, day of birth, birth order and child, each with its meaning — and a standing instruction to give two names it is sure of rather than five it is not, plus advice to ask an elder of the family before settling. |
 | **Recipes** | Palava sauce, dumboy, pepper soup and the rest: ingredients from a Liberian market, steps you can follow, the story behind the dish, and a grandmother's tip. |
@@ -102,17 +111,22 @@ the box you type into, which told a reader nothing except to be careful, forever
 
 ## Running it
 
-You need **Node.js 20.9 or newer** and an OpenAI API key.
+You need **Node.js 20.9 or newer** and a **Meta Model API key** (from
+[dev.meta.ai](https://dev.meta.ai)).
 
 ```bash
 npm install
-npm run setup     # asks for your key and writes .env for you
+cp .env.example .env    # then put your key on the META_API_KEY= line
 npm start
 ```
 
+The line in `.env` should look like `META_API_KEY=your-key` — no quotes, no spaces
+around the `=`. The key is read on the server only and never reaches a browser.
+
 Open <http://localhost:3000>.
 
-`npm run setup` prompts for the key and saves it to `.env` — you never have to open
+**Optional OpenAI key** (only if you switch OpenAI back on, see below):
+`npm run setup` prompts for the OpenAI key and saves it to `.env` — you never have to open
 a hidden file in an editor. **Nothing appears on screen while you paste the key**;
 that is deliberate, so it does not end up in your terminal scrollback. Press Enter
 when you have pasted it, and the script confirms with a masked version
@@ -142,17 +156,33 @@ All of it is in `.env` (see `.env.example`):
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `OPENAI_API_KEY` | — | Required. Your key from <https://platform.openai.com/api-keys>. |
+| `META_API_KEY` | — | Required. Your Meta Model API key from <https://dev.meta.ai>. (`MODEL_API_KEY` and the older `LLAMA_API_KEY` also work.) |
+| `META_BASE_URL` | `https://api.meta.ai/v1` | Meta's Model API address. Change it only if you use a compatible gateway. |
+| `META_MODEL` | `muse-spark-1.3` | The everyday model: chat, titles, summaries and Build. |
+| `META_DEEP_MODEL` | `muse-wonder-1.0` | Meta's strongest model, used when the person taps **Think**. |
+| `LLAMA_MODE` | `all` | `all`: every text chat turn goes to Meta. `everyday`: Meta for everyday chat, OpenAI for its tools. `backup`: Meta only when OpenAI cannot answer. |
+| `OPENAI_OFF` | on when hosted on Vercel | OpenAI switched off: Meta is the only brain. Set `OPENAI_OFF=false` to switch OpenAI back on. |
+| `PORT` | `3000` | Port to listen on. |
+| `RATE_LIMIT_PER_MINUTE` | `30` | Requests allowed per IP per minute. `0` disables the limit. |
+| `ACCESS_CODE` | *(blank)* | When set, visitors must enter this code before they can chat. Leave blank locally; set it on any public address. |
+| `ACCESS_CODE_ROUND` | *(blank)* | Change it to anything to make **everybody** enter the code again — including people already using the site — without changing the code itself. An ordinary redeploy turns nobody out. |
+
+#### Optional: OpenAI
+
+OpenAI is **off on the live site** (see `OPENAI_OFF` above). While it is off, reading aloud
+uses the phone's own free voice and the OpenAI-only extras (web research, PDF page
+reading, Live Talk, OpenAI voices and pictures) are paused. To switch it back on, set
+`OPENAI_OFF=false` and add these:
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | — | Your key from <https://platform.openai.com/api-keys>. `npm run setup` can write it for you. |
 | `OPENAI_MODEL` | `gpt-4o-mini` | Last-resort model, used only when the account's model list cannot be read. Normally the server chooses per task — see below. |
 | `OPENAI_TITLE_MODEL` | `gpt-4o-mini` | Same, for naming conversations. |
 | `MODEL_FAST` | *(automatic)* | Pin the model used for short, high-volume work: naming a conversation, a quiz question. |
 | `MODEL_BALANCED` | *(automatic)* | Pin the model used for ordinary conversation, recipes and names. |
 | `MODEL_DEEP` | *(automatic)* | Pin the model used for folktales and the storytelling persona. |
 | `OPENAI_BASE_URL` | `https://api.openai.com/v1` | Point at a compatible gateway if you use one. |
-| `PORT` | `3000` | Port to listen on. |
-| `RATE_LIMIT_PER_MINUTE` | `30` | Requests allowed per IP per minute. `0` disables the limit. |
-| `ACCESS_CODE` | *(blank)* | When set, visitors must enter this code before they can chat. Leave blank locally; set it on any public address. |
-| `ACCESS_CODE_ROUND` | *(blank)* | Change it to anything to make **everybody** enter the code again — including people already using the site — without changing the code itself. An ordinary redeploy turns nobody out. |
 | `ENABLE_REAL_VOICE` | `true` | Grandpa's own voice instead of the phone's robot. See below. |
 | `OPENAI_VOICE_MODEL` | `gpt-4o-mini-tts` | The only family that takes an instruction about *how* to say it. |
 | `VOICE_CHARS_PER_HOUR` | `60000` | A ceiling across the whole deployment — roughly 150 spoken answers an hour. |
@@ -170,6 +200,45 @@ touch — and, worse, would look like your account's limit when it was really ou
 Until a key is configured, or if that listing fails, a small fallback list is shown
 and the picker says so. If a model is refused anyway, the error names it and quotes
 OpenAI's own wording rather than replacing it.
+
+### Farm Doctor
+
+A farmer taps **Farm Doctor** (the 🌱 card on the home screen, or the side menu) and fills
+in a short form: crop or animal, which one, what they see, since when, how many, where
+(optional), and a photo if they have one. The form becomes one clear question that
+starts with "Farm Doctor check", so it always goes to the farming helper in its own
+new conversation, easy to find again in History.
+
+Grandpa answers under the same headings every time:
+
+1. **What it most likely is**, and how sure he is (*Sure*, *Fairly sure* or *Not sure*)
+2. **It could also be**, and the one sign that tells them apart
+3. **What to do now**, cheapest and safest first; any medicine or chemical is named by kind, with "follow the label", never a dose from memory
+4. **Keep it from spreading**
+5. **When to get help** — the county agriculture extension officer or a vet, and always for sudden deaths, bleeding, or sicknesses that can pass to people
+6. **A better photo would help**, saying exactly which photo would settle it
+
+Liberian crops and animals come first in his thinking. The form lives in
+`public/farm-doctor.js` and the answer shape in `server/farm-doctor.js`.
+
+### Ritual Coding
+
+Switch the top toggle to **Build**. Say what you want in your own words ("a website
+for my shop in Monrovia") and Grandpa plans it, writes the files, checks them and
+shows a preview:
+
+- **Chat** — talk about what to build or change; each saved change shows as one short line you can open.
+- **Files** — every file with its type; open one to read or edit the code.
+- **Preview** — the site running in the browser, including Next.js screens.
+- **Changes** — what changed since the start of the task, file by file.
+- **Publish** — put it on the web at `sites.libgrandpaai.com`.
+- **⋮ menu** — new build, earlier versions, download, Save to GitHub (straight to the main branch by default), and for Next.js projects Vercel and Neon.
+
+Big requests ("build FarmDoctor step by step with Next.js, Neon and Tailwind") are
+split into numbered stages. Each stage is built, then you test it before the next one
+starts, with a Windows PowerShell guide for running it on your own computer. Connect
+your own Neon database and the preview uses it for real sign-up and sign-in. Keys and
+connection strings stay on your device or in your own accounts, never in the code.
 
 ### A model for each job
 
