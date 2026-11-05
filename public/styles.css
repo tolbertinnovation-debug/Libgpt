@@ -4263,3 +4263,9 @@ body {
 /* Quotes and code in answers */
 .prose blockquote { margin: .8rem 0; padding: .6rem .9rem; border-left: 3px solid var(--gold); border-radius: 0 10px 10px 0; background: color-mix(in srgb, var(--gold) 8%, transparent); color: var(--text); }
 .prose pre { border-radius: 12px; }
+
+/* Preview "Edit": a clear, easy-to-tap button with a pencil, not a faint label */
+#preview-edit { display: inline-flex; align-items: center; justify-content: center; gap: 4px; min-height: 44px; min-width: 64px; padding: 0 12px; border: 1.5px solid var(--gold); border-radius: 12px; background: color-mix(in srgb, var(--gold) 14%, var(--bg-raised)); color: var(--text); font-weight: 700; font-size: var(--text-sm); opacity: 1; }
+#preview-edit[aria-pressed="false"]::before { content: '✎'; font-size: var(--text-base); line-height: 1; }
+#preview-edit[aria-pressed="true"] { background: var(--green); border-color: var(--green); color: #fff; }
+#preview-edit[aria-pressed="true"]::before { content: '✓'; }
