@@ -156,6 +156,7 @@ function render() {
   const p = project();
   if (!p) return;
   el.nameText.textContent = p.name;
+  renderBuildStatus(p);
   const verificationPanel=$('build-verification'),verificationMarkup=verificationStatusMarkup(p,escapeHtml);if(verificationPanel && verificationPanel.verificationMarkup!==verificationMarkup){const open=verificationPanel.querySelector('details')?.open===true;verificationPanel.innerHTML=verificationMarkup;verificationPanel.querySelector('details').open=open;verificationPanel.verificationMarkup=verificationMarkup;}
   renderPlan(currentRun());
   renderThread();
@@ -164,6 +165,18 @@ function render() {
   renderWorkspaceChanges();
   renderPublishButton();
   if (state.view === 'preview') renderPreview();
+}
+
+/** The one-line status under the build's name: working, live, saved, or nothing yet. */
+function renderBuildStatus(p) {
+  const box = $('build-status'), text = $('build-status-text');
+  if (!box || !text) return;
+  const count = builtFiles(p).length, busy = isBusy();
+  const status = busy ? 'busy' : p.publish?.url ? 'live' : count ? 'saved' : 'empty';
+  const words = { busy: 'Grandpa is working…', live: `Live on the web · ${count} ${count === 1 ? 'file' : 'files'}`,
+    saved: `${count} ${count === 1 ? 'file' : 'files'} · saved on this device`, empty: 'Nothing built yet' }[status];
+  if (text.textContent !== words) text.textContent = words;
+  box.dataset.status = status;
 }
 
 /** The Publish button in the Build header: Publish, Update (changes not on the web yet) or Live ✓. */
@@ -1966,7 +1979,7 @@ function showProjectPlan(){
 function renderWorkspaceChanges(){
  const p=project();if(!p)return;
  const changes=workspaceChanges((p.backgroundConflict?p.backgroundSource:p.backgroundBase) || p.versions?.at(-1)?.files || [],p.files);
- if($('changes-count'))$('changes-count').textContent=String(changes.length);
+ if($('changes-count')){$('changes-count').textContent=String(changes.length);$('changes-count').hidden=!changes.length;}
  if($('workspace-file-count'))$('workspace-file-count').textContent=`${p.files.length} ${p.files.length===1?'file':'files'}`;
  const connectionMessage=backgroundConnectionMessage(backgroundConnections.get(p));
  const progress=$('workspace-progress-state');if(progress)progress.textContent=connectionMessage?'Status unconfirmed':progress.dataset.taskLabel;

@@ -4032,3 +4032,40 @@ body {
 .farm-doctor-photo-state { margin: 0; color: var(--green); font-weight: 600; }
 .farm-doctor-error { margin: 0; color: var(--red); font-weight: 600; }
 .farm-doctor-go { margin-top: 6px; font: inherit; font-weight: 700; font-size: var(--text-md); padding: 14px 18px; min-height: 48px; border-radius: 999px; border: 0; background: var(--gold); color: #241612; cursor: pointer; }
+
+/* ---- Build screen polish, step 1: header and tabs ------------------------------------------------ */
+.build-title { grid-column: 1; grid-row: 1; min-width: 0; display: grid; gap: 1px; align-content: center; }
+.build-title .build-name { justify-self: start; max-width: 100%; padding: 2px 6px; margin-left: -6px; font-family: var(--font-display); font-size: var(--text-md); font-weight: 600; letter-spacing: -.01em; }
+.build-status { display: flex; align-items: center; gap: 6px; margin: 0; min-width: 0; font-size: var(--text-xs); color: var(--text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.build-status > span:last-child { overflow: hidden; text-overflow: ellipsis; }
+.build-status-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--text-faint); }
+.build-status[data-status="saved"] .build-status-dot { background: var(--green); }
+.build-status[data-status="live"] .build-status-dot { background: var(--green); box-shadow: 0 0 0 3px color-mix(in srgb, var(--green) 22%, transparent); }
+.build-status[data-status="busy"] .build-status-dot { background: var(--gold); animation: build-status-pulse 1.2s ease-in-out infinite; }
+.build-status[data-status="busy"] { color: var(--text); }
+@keyframes build-status-pulse { 50% { opacity: .35; transform: scale(.8); } }
+@media (prefers-reduced-motion: reduce) { .build-status[data-status="busy"] .build-status-dot { animation: none; } }
+
+.build-bar { background: var(--bg-raised); align-items: center; }
+.build-views { background: var(--bg); border: 1px solid var(--border); border-radius: 12px; padding: 3px; gap: 2px; }
+.build-view { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 40px; border: 1px solid transparent; border-radius: 9px; color: var(--text-soft); transition: background .15s, color .15s; }
+.build-view:hover { color: var(--text); }
+.build-view.is-on { background: var(--bg-raised); color: var(--text); border-color: var(--border); box-shadow: 0 1px 2px rgba(0,0,0,.06), 0 2px 6px rgba(0,0,0,.04); }
+.build-view:focus-visible { outline: 2px solid var(--gold); outline-offset: 1px; }
+.build-view-icon { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.build-view.is-on .build-view-icon { color: var(--gold-deep, var(--gold)); }
+.build-view-count, #changes-count { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 6px; margin: 0; border-radius: 999px; background: var(--gold); color: #201412; font-size: var(--text-xs); font-weight: 700; line-height: 1; opacity: 1; }
+#changes-count[hidden] { display: none; }
+
+.build-publish-btn { min-height: 40px; padding: 0 16px; font-size: var(--text-sm); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+.build-publish-btn.is-live::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+#build-menu-btn { width: 44px; height: 44px; border-radius: 12px; }
+
+@media (max-width: 440px) {
+  .build-view { gap: 4px; padding-left: 2px; padding-right: 2px; }
+  .build-view-icon { width: 14px; height: 14px; }
+  .build-view-count, #changes-count { min-width: 18px; height: 18px; padding: 0 5px; margin-left: -2px; }
+}
+@media (max-width: 360px) { .build-view-icon { display: none; } }
+[data-theme="dark"] .build-view.is-on { box-shadow: 0 1px 2px rgba(0,0,0,.4); }
+[data-theme="dark"] .build-view.is-on .build-view-icon { color: var(--gold); }
