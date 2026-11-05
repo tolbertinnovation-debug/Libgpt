@@ -48,9 +48,9 @@ const $ = (id) => document.getElementById(id);
 // Said the way somebody would actually say it, and each one is a whole site
 // rather than a single file — because a whole site is what comes back.
 const STARTERS = [
-  'Make a website for my shop in Monrovia. I sell rice, oil and pepper. My number is 0770-000-000.',
-  'Build me a site for my tailoring business, with a page of my work and a page to contact me.',
-  'A website for my school: the classes we teach, the fees, and where to find us.',
+  { icon: '🛒', title: 'A shop website', say: 'Make a website for my shop in Monrovia. I sell rice, oil and pepper. My number is 0770-000-000.' },
+  { icon: '🧵', title: 'A business with a portfolio', say: 'Build me a site for my tailoring business, with a page of my work and a page to contact me.' },
+  { icon: '🏫', title: 'A school website', say: 'A website for my school: the classes we teach, the fees, and where to find us.' },
 ];
 
 const state = {
@@ -223,7 +223,7 @@ function renderThread() {
   if (!has) {
     if (!el.starters.childElementCount) {
       el.starters.innerHTML = STARTERS
-        .map((s) => `<button class="build-starter" type="button">${escapeHtml(s)}</button>`)
+        .map((s) => `<button class="build-starter" type="button" data-say="${escapeHtml(s.say)}"><span class="build-starter-icon" aria-hidden="true">${s.icon}</span><span class="build-starter-text"><strong>${escapeHtml(s.title)}</strong><span>${escapeHtml(s.say)}</span></span><svg class="build-starter-go" viewBox="0 0 24 24" aria-hidden="true"><path d="m9 6 6 6-6 6"/></svg></button>`)
         .join('');
     }
     return;
@@ -3401,7 +3401,7 @@ export async function mount(options = {}) {
     if (event.target.closest('#plan-resume')) {const p=project();if(p?.team){if(p.background && deps.backgroundAvailable)await startBackgroundBuild(p.team.asked,true);else await buildTheWholeThing(p.team.asked,true);}return;}
 
     const starter = event.target.closest('.build-starter');
-    if (starter) { send(starter.textContent.trim()); return; }
+    if (starter) { send(starter.dataset.say || starter.textContent.trim()); return; }
     if (event.target.closest('[data-discuss-start]')) { startFromBrief(); return; }
     if (event.target.closest('[data-show-history]')) { showHistory(); return; }
     if (event.target.closest('[data-download-zip]')) { takeAll(); return; }
