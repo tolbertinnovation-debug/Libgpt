@@ -36,12 +36,12 @@ import { summarize, searchProject, SEARCH_QUESTION } from './build-summary.js?v=
 import { snapshot, visualFaults } from './build-look.js?v=phase4-1';
 import { historyEntries, compareFiles } from './build-history.js?v=phase5-1';
 import { SECTIONS, KIT_FILES, ensureKitLinks } from './build-sections.js?v=kit-1';
-import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js?v=quality-3';
+import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js?v=quality-4';
 import { wantsApp, markApp } from './build-app.js?v=app-1';
 import { kindLine } from './build-recipes.js?v=kind-1';
 import { designIssues } from './build-data-check.js?v=code-1';
-import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, replacePlayer, creditsPage, linkCredits } from './build-media.js?v=media-3';
-import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=kit-1';
+import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, replacePlayer, creditsPage, linkCredits } from './build-media.js?v=media-4';
+import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=kit-2';
 
 const $ = (id) => document.getElementById(id);
 

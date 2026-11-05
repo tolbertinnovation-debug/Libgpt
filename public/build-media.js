@@ -1,7 +1,7 @@
 // Videos and free photographs in a website's files: YouTube players, empty
 // places waiting for a video, and the photo credits page. Pure functions on
 // the project's text, used by Build (and by the server for the YouTube id).
-import { mapElements } from './visual-edit.js?v=kit-1';
+import { mapElements } from './visual-edit.js?v=kit-2';
 
 /** The video id in any YouTube link: watch, youtu.be, shorts, embed or live. */
 export function youtubeId(link) {

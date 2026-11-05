@@ -129,6 +129,10 @@ export const EDITOR_SCRIPT = `(() => {
     + 'img[data-gp-img]{outline:2px dashed rgba(26,115,232,.6);outline-offset:2px;cursor:pointer}'
     + '#gp-bar{position:fixed;left:50%;bottom:10px;transform:translateX(-50%);z-index:2147483647;display:none;flex-wrap:wrap;justify-content:center;max-width:calc(100% - 16px);gap:4px;padding:4px;background:#1f2937;border-radius:10px;box-shadow:0 4px 14px rgba(0,0,0,.25)}#gp-bar button{all:unset;color:#fff;font:600 15px/1 system-ui,sans-serif;min-width:36px;height:34px;display:grid;place-items:center;border-radius:7px;cursor:pointer}#gp-bar button:active{background:#374151}';
   style.textContent += 'body{padding-bottom:70px !important}';
+  // The page's scripts are paused while editing, so anything they would have finished stays half-done: loading
+  // spinners never stop and pictures that fade in stay invisible. Hide the spinners and show the pictures.
+  style.textContent += '.spinner,.loader,.loading-spinner,[class*="spinner-"],[class*="-spinner"],[class*="loader-"],[class*="-loader"],[class~="loading"]::before,[class~="loading"]::after,[class*="is-loading"]::before,[class*="is-loading"]::after{display:none !important}'
+    + 'img[data-gp-img]{opacity:1 !important;visibility:visible !important;filter:none !important}';
   document.head.appendChild(style);
   const editable = (el) => el.matches(TEXT) && el.textContent.trim() && [...el.children].every((child) => INLINE.test(child.tagName) && !child.querySelector('div,p,section,ul,ol,img,table'));
   let count = 0;
@@ -200,7 +204,10 @@ export const EDITOR_SCRIPT = `(() => {
   }, true);
   document.addEventListener('click', (event) => {
     if (event.target.closest('#gp-bar') || event.target.closest('#gp-part')) return;
-    const picture = event.target.closest('img[data-gp-img]');
+    // A picture can sit under something else (a loading spinner, a caption box, a tint): a tap anywhere on the
+    // picture that is not on editable text still opens the picture options.
+    const onText = event.target.closest('[data-gp-text]');
+    const picture = event.target.closest('img[data-gp-img]') || (!onText && document.elementsFromPoint ? document.elementsFromPoint(event.clientX, event.clientY).find((el) => el.matches && el.matches('img[data-gp-img]')) : null);
     if (picture) { event.preventDefault(); finish(); selectPart(null); say({ type: 'image', id: Number(picture.getAttribute('data-gp')), scroll: scrollY }); return; }
     const target = event.target.closest('[data-gp-text]');
     if (!target && !editing) { event.preventDefault(); selectPart(movable(event.target)); return; }
