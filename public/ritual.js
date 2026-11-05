@@ -1113,7 +1113,15 @@ function editPage(p, entry = state.previewPath) {
 
 async function startEditing() {
   const p = project();
-  if (!p || isBusy()) { deps.toast('Wait for the current work to finish, then edit.'); return; }
+  // Only real work (Grandpa writing, publishing, a build on the server) holds editing back. The automatic page
+  // checks after a save do not: on a slow connection they can take a long time, and Edit seemed to do nothing.
+  const working = state.streaming || ritualRun?.running || state.publishing || backgroundActions.has(p?.id) || remoteRunning(p);
+  if (!p || working) {
+    const why = 'Wait until Grandpa finishes, then tap Edit again.';
+    deps.toast(why);
+    if (el.previewNote) { el.previewNote.hidden = false; el.previewNote.textContent = why; }
+    return;
+  }
   state.editMode = true;
   state.editScroll = 0;
   state.editSession = { changes: 0, versionsBefore: (p.versions || []).length, pages: new Set() };
