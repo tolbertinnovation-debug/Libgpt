@@ -14,7 +14,7 @@
 <meta property="og:type" content="website">
 <link rel="preload" href="fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/fraunces-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=ux-1">
+<link rel="stylesheet" href="styles.css?v=ux-3">
 </head>
 <body>
 
@@ -293,10 +293,10 @@
         <div class="build-pane is-on" id="pane-chat" role="tabpanel" aria-labelledby="view-chat">
           <div class="build-thread" id="build-thread" aria-live="polite"></div>
           <div class="build-empty" id="build-empty">
+            <span class="build-empty-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.5 2.5-2.4-.6-.6-2.4 2.5-2.5Z"/></svg></span>
             <h2>What do you want to build?</h2>
-            <p>Say it the way you would say it to a person. Grandpa works out the pieces,
-               creates a plan and saves your files as it works. Follow the task, inspect the
-               code, and preview the result in one workspace.</p>
+            <p>Say it in your own words. Grandpa plans it, builds it and shows you a preview.</p>
+            <p class="build-starters-label">Or start from an idea</p>
             <div class="build-starters" id="build-starters"></div>
           </div>
         </div>
@@ -896,6 +896,6 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<script type="module" src="app.js?v=ux-1"></script>
+<script type="module" src="app.js?v=ux-3"></script>
 </body>
 </html>
