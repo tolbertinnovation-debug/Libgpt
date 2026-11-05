@@ -658,6 +658,18 @@ function renderTake() {
   el.takeOne.hidden = !state.openPath;
 }
 
+/** A short, coloured label for a file's kind in the Files list. */
+function fileType(path) {
+  const ext = (path.match(/\.([a-z0-9]+)$/i)?.[1] || '').toLowerCase();
+  if (/^html?$/.test(ext)) return { kind: 'page', label: 'HTML' };
+  if (ext === 'css') return { kind: 'style', label: 'CSS' };
+  if (/^(m?js|jsx|ts|tsx)$/.test(ext)) return { kind: 'script', label: ext === 'mjs' ? 'JS' : ext.toUpperCase() };
+  if (/^(png|jpe?g|gif|webp|svg|ico|avif)$/.test(ext)) return { kind: 'picture', label: 'IMG' };
+  if (/^(json|sql|ya?ml|toml|env|csv)$/.test(ext)) return { kind: 'data', label: ext.slice(0, 4).toUpperCase() };
+  if (/^(md|txt)$/.test(ext)) return { kind: 'text', label: ext === 'md' ? 'MD' : 'TXT' };
+  return { kind: 'other', label: (ext || 'FILE').slice(0, 4).toUpperCase() };
+}
+
 function renderTree() {
   const p = project();
   const query=$('build-file-search')?.value.trim().toLowerCase() || '';
@@ -667,10 +679,14 @@ function renderTree() {
       + 'and the files he writes will appear here.</p>';
     return;
   }
-  el.tree.innerHTML = files.map((f) => `
+  el.tree.innerHTML = files.map((f) => {
+    const cut = f.path.lastIndexOf('/'), name = f.path.slice(cut + 1), folder = cut > 0 ? f.path.slice(0, cut) : '';
+    const type = fileType(f.path);
+    return `
     <button class="tree-file ${workingFile(p.team)===f.path?'agent-editing':''} ${f.path === state.openPath ? 'is-on' : ''}" type="button" data-open="${escapeHtml(f.path)}">
-      ${escapeHtml(f.path)}
-    </button>`).join('');
+      <span class="tree-type is-${type.kind}" aria-hidden="true">${type.label}</span><span class="tree-name">${escapeHtml(name)}</span>${folder ? `<span class="tree-folder">${escapeHtml(folder)}</span>` : ''}
+    </button>`;
+  }).join('');
 }
 
 function renderEditor() {
@@ -679,9 +695,10 @@ function renderEditor() {
   const active=workingFile(p.team);
   if(state.followAgent && active && remoteRunning(p) && p.files.some(file=>file.path===active))state.openPath=active;
   const file = p.files.find((f) => f.path === state.openPath);
+  el.editorInput.closest('.build-editor')?.classList.toggle('is-empty', !file);
   if (!file) {
     if($('editor-lines'))$('editor-lines').textContent='';
-    el.editorPath.textContent = p.files.length ? 'Pick a file' : 'No file open';
+    el.editorPath.textContent = p.files.length ? 'No file open' : 'No files yet';
     el.editorInput.value = '';
     el.editorInput.disabled = true;
     el.editorPaint.innerHTML = '';
