@@ -14,7 +14,7 @@
 <meta property="og:type" content="website">
 <link rel="preload" href="fonts/atkinson-hyperlegible-next-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="fonts/fraunces-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
-<link rel="stylesheet" href="styles.css?v=ux-4">
+<link rel="stylesheet" href="styles.css?v=ux-5">
 </head>
 <body>
 
@@ -272,17 +272,25 @@
         </button>
 
         <div class="build-menu" id="build-menu" role="menu" hidden>
-          <button class="build-item" id="build-commands" type="button" role="menuitem">Commands & shortcuts</button>
-          <button class="build-item" id="build-new" type="button" role="menuitem">New build</button>
-          <button class="build-item" id="build-share" type="button" role="menuitem">Save as one page, to share</button>
-          <button class="build-item" id="build-download" type="button" role="menuitem">Download the files</button>
-          <button class="build-item" id="build-history" type="button" role="menuitem">Go back to an earlier version…</button>
+          <p class="build-menu-label" aria-hidden="true">Project</p>
+          <button class="build-item" id="build-new" type="button" role="menuitem"><svg class="build-item-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>New build</span></button>
+          <button class="build-item" id="build-history" type="button" role="menuitem"><svg class="build-item-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.6L4 8.7"/><path d="M4 4v4.7h4.7M12 8v4l3 2"/></svg><span>Go back to an earlier version…</span></button>
+          <button class="build-item" id="build-check" type="button" role="menuitem"><svg class="build-item-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12 4 4 10-10"/></svg><span>Check website</span></button>
           <div class="build-sep" role="separator"></div>
-          <button class="build-item" id="build-check" type="button" role="menuitem">Check website</button>
-          <button class="build-item" id="build-publish" type="button" role="menuitem">Publish website</button>
-          <button class="build-item" id="build-guardrails" type="button" role="menuitem">Agent guardrails</button>
-          <button class="build-item" id="build-ai-test" type="button" role="menuitem">Check live AI connection</button>
-          <button class="build-item" id="build-github" type="button" role="menuitem">Connect GitHub</button>
+          <p class="build-menu-label" aria-hidden="true">Share</p>
+          <button class="build-item" id="build-publish" type="button" role="menuitem"><svg class="build-item-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.6 3.8 5.6 3.8 9s-1.3 6.4-3.8 9c-2.5-2.6-3.8-5.6-3.8-9S9.5 5.6 12 3Z"/></svg><span>Publish website</span></button>
+          <button class="build-item" id="build-share" type="button" role="menuitem"><svg class="build-item-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h8l4 4v14H6V3Z"/><path d="M14 3v4h4"/></svg><span>Save as one page, to share</span></button>
+          <button class="build-item" id="build-download" type="button" role="menuitem"><svg class="build-item-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12M7 11l5 5 5-5M4 20h16"/></svg><span>Download the files</span></button>
+          <div class="build-sep" role="separator"></div>
+          <p class="build-menu-label" aria-hidden="true">Connect</p>
+          <button class="build-item" id="build-github" type="button" role="menuitem"><svg class="build-item-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 19c-4 1.3-4-2-6-2.5M15 21v-3.5c0-1 .1-1.4-.5-2 2.8-.3 5.5-1.4 5.5-6a4.6 4.6 0 0 0-1.3-3.2 4.2 4.2 0 0 0-.1-3.2s-1.1-.3-3.5 1.3a12 12 0 0 0-6.2 0C6.5 2.8 5.4 3.1 5.4 3.1a4.2 4.2 0 0 0-.1 3.2A4.6 4.6 0 0 0 4 9.5c0 4.6 2.7 5.7 5.5 6-.6.6-.6 1.2-.5 2V21"/></svg><span>Connect GitHub</span></button>
+          <button class="build-item" id="build-vercel" type="button" role="menuitem" hidden><svg class="build-item-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4 21 20H3L12 4Z"/></svg><span>Vercel (put it online)</span></button>
+          <button class="build-item" id="build-neon" type="button" role="menuitem" hidden><svg class="build-item-icon" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v12c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/></svg><span>Neon database</span></button>
+          <details class="build-menu-more"><summary class="build-item"><svg class="build-item-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg><span>Advanced</span><svg class="build-item-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+          <button class="build-item" id="build-commands" type="button" role="menuitem"><svg class="build-item-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg><span>Commands &amp; shortcuts</span></button>
+          <button class="build-item" id="build-guardrails" type="button" role="menuitem"><svg class="build-item-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 5 3.4 8.4 8 9 4.6-.6 8-4 8-9V6l-8-3Z"/></svg><span>Agent guardrails</span></button>
+          <button class="build-item" id="build-ai-test" type="button" role="menuitem"><svg class="build-item-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0M12 19.5h.01"/></svg><span>Check live AI connection</span></button>
+          </details>
         </div>
       </div>
 
@@ -901,6 +909,6 @@
 
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
-<script type="module" src="app.js?v=ux-4"></script>
+<script type="module" src="app.js?v=ux-5"></script>
 </body>
 </html>

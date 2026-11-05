@@ -3454,7 +3454,13 @@ export async function mount(options = {}) {
       const open = el.menu.hidden;
       el.menu.hidden = !open;
       $('build-menu-btn').setAttribute('aria-expanded', String(open));
-      if (open) $('build-history').disabled = !(project()?.versions || []).length;
+      if (open) {
+        $('build-history').disabled = !(project()?.versions || []).length;
+        // Vercel and Neon belong to Next.js projects; other builds publish on Grandpa's own hosting.
+        const nextApp = Boolean(project()?.stages?.nextjs);
+        $('build-vercel').hidden = !nextApp; $('build-neon').hidden = !nextApp;
+        $('build-github').querySelector('span').textContent = project()?.github ? 'GitHub' : 'Connect GitHub';
+      }
       return;
     }
 
@@ -3470,7 +3476,7 @@ export async function mount(options = {}) {
     }
 
     const item = event.target.closest('.build-item');
-    if (!item) return;
+    if (!item || item.tagName === 'SUMMARY') return; // "Advanced" only opens its group
     el.menu.hidden = true;
     $('build-menu-btn').setAttribute('aria-expanded', 'false');
 
@@ -3483,6 +3489,8 @@ export async function mount(options = {}) {
     if (item.id === 'build-publish') publishNow();
     if (item.id === 'build-ai-test') testBuildAI();
     if (item.id === 'build-guardrails') showGuardrails();
+    if (item.id === 'build-vercel') showVercelSheet();
+    if (item.id === 'build-neon') showNeonSheet();
   });
 
   // Typing in a file saves it, quietly and immediately — a Save button is one
