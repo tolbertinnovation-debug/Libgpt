@@ -121,6 +121,7 @@ export function setMode(mode) {
     render();
   }
   deps.onMode(state.mode);
+  if (building && project()) syncComposerHint(project());
   document.dispatchEvent(new CustomEvent('ritual:busy',{detail:building && isBusy()}));
   if(building)watchBackground();
 }
@@ -157,6 +158,7 @@ function render() {
   if (!p) return;
   el.nameText.textContent = p.name;
   renderBuildStatus(p);
+  syncComposerHint(p);
   const verificationPanel=$('build-verification'),verificationMarkup=verificationStatusMarkup(p,escapeHtml);if(verificationPanel && verificationPanel.verificationMarkup!==verificationMarkup){const open=verificationPanel.querySelector('details')?.open===true;verificationPanel.innerHTML=verificationMarkup;verificationPanel.querySelector('details').open=open;verificationPanel.verificationMarkup=verificationMarkup;}
   renderPlan(currentRun());
   renderThread();
@@ -165,6 +167,14 @@ function render() {
   renderWorkspaceChanges();
   renderPublishButton();
   if (state.view === 'preview') renderPreview();
+}
+
+/** Once something is built, the typing box itself says what to do next (no extra line of text above it). */
+function syncComposerHint(p) {
+  const input = $('composer-input');
+  if (!input || state.mode !== 'build') return;
+  const want = builtFiles(p).length ? 'Say what to fix or change…' : 'Say what you want to build…';
+  if (input.placeholder !== want) input.placeholder = want;
 }
 
 /** The one-line status under the build's name: working, live, saved, or nothing yet. */
@@ -563,7 +573,7 @@ function fixHint(p) {
   const gh = p.github ? githubChanges(p) : null;
   const ghCount = gh ? gh.changed.length + gh.added.length + gh.deleted.length : 0;
   const githubChip = ghCount ? `<button class="build-chip is-primary" type="button" data-gh-save>Save ${ghCount} change${ghCount === 1 ? '' : 's'} to GitHub</button>` : '';
-  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-brief-note">Tell me anything to fix or change, in your own words — for example "the menu does not open" or "make the header green".</p><div class="build-chips">${githubChip}${publishChip}${photoChip}${chips}${policyChip}${versions}</div></div>`;
+  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-next-label">What next?</p><div class="build-chips">${githubChip}${publishChip}${photoChip}${chips}${policyChip}${versions}</div></div>`;
 }
 
 function proposalHtml(files, index, applied, checked, receipt) {
@@ -596,6 +606,22 @@ function proposalHtml(files, index, applied, checked, receipt) {
         ? (p.stages?.nextjs ? '<p class="proposal-done">Project check passed (files, imports, packages, settings and secrets). Test it on your computer.</p>' : '<p class="proposal-done">Preview checks passed. Test the buttons and forms before publishing.</p>')
         : '';
 
+  if (applied && !changed) return '<p class="receipt-same">No file changes: these files already match your build.</p>';
+  if (applied) {
+    const real = shape.filter((f) => f.kind !== 'same');
+    const names = real.map((f) => f.path.split('/').pop());
+    const shown = names.slice(0, 2).join(', ') + (names.length > 2 ? ` +${names.length - 2} more` : '');
+    const faults = Array.isArray(checked) && checked.length;
+    const status = checked === 'checking' ? '<span class="receipt-check is-checking">Checking…</span>'
+      : faults ? `<span class="receipt-check is-bad">${checked.length === 1 ? '1 problem' : `${checked.length} problems`}</span>`
+      : Array.isArray(checked) ? '<span class="receipt-check is-ok">Checks passed</span>' : '';
+    const note = p.stages?.nextjs ? 'Saved on this device. Project check covers files, imports, packages, settings and secrets: test it on your computer.'
+      : 'Saved on this device. Test the buttons and forms before publishing.';
+    return `<details class="proposal is-applied receipt">
+      <summary><span class="receipt-icon" aria-hidden="true">✓</span><span class="receipt-text"><strong>${real.length} file${real.length === 1 ? '' : 's'} saved</strong><span class="receipt-files">${escapeHtml(shown)}</span></span>${status}<svg class="receipt-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+      <div class="receipt-body">${rows}<p class="receipt-note">${note}</p></div>
+    </details>${faults || checked === 'checking' ? after : ''}`;
+  }
   return `<div class="proposal ${applied ? 'is-applied' : ''}">
     <h4>${applied ? changed ? 'These files were saved' : 'No file changes returned' : `${files.length} file${files.length === 1 ? '' : 's'} to save`}</h4>
     ${rows}
