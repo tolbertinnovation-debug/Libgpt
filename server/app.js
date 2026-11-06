@@ -85,7 +85,7 @@ import { cleanSummary } from '../public/chat-summary.js';
 import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULES, realtimeSpeak, pcmToWav, advancedSpeechMicroUsd } from './realtime.js';
 import { realtimeVoice } from '../public/voice-cast.js';
 import { createMemorySyncStore, createPostgresSyncStore, validSyncId } from './sync-store.js';
-import { backupWorthy, buildEffort, completeLlama, everydayForLlama, llamaConfig, llamaMicroUsd, llamaMode, metaPlan, streamLlama } from './llama.js';
+import { backupWorthy, buildEffort, completeLlama, everydayForLlama, llamaConfig, llamaMicroUsd, llamaMode, metaPlan, streamLlama, taskSize } from './llama.js';
 import { metaImage, metaTranscribe, wavSeconds, META_IMAGE_MICRO_USD, META_TRANSCRIBE_MICRO_USD_PER_SECOND } from './meta-media.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1272,7 +1272,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
             researched = true;
             send('start', { model: metaModel(), spoken, searched: true, dropped, saw: metaSees, thought: plan().long });
             let found = { notes: '', sources: [], count: 0 };
-            try { found = await gatherResearch(routedQuestion, { deep: depth === 'thorough', links: (routedQuestion.match(/https:\/\/[^\s<>"')]+/g) || []) }); }
+            try { found = await gatherResearch(routedQuestion, { deep: depth === 'thorough' || taskSize(routedQuestion) === 'large', links: (routedQuestion.match(/https:\/\/[^\s<>"')]+/g) || []) }); }
             catch (error) { console.error('[research] FAILED', error?.message); }
             if (!found.count) {
               send('notice', { message: 'Grandpa looked it up but found nothing on it in his news and reference sources, so this answer is from what he already knows.' });

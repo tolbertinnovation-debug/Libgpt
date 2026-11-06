@@ -67,6 +67,13 @@ numbered notes:
   papers first), BBC News Africa, GDELT's worldwide news search, Wikipedia, and ExchangeRate-API for today's
   dollar rates. The best 3 matching stories (5 for thorough answers) are read in full; a link the person
   pasted is read first.
+- **Questions with parts** ("rice prices in Monrovia and how to store rice") are split by `subQuestions()` and each
+  part is searched on its own, at the same time; a short follow-on part ("What are the costs?") keeps the topic.
+  Each story is listed once, under the part it matches best. Large questions (and "thorough") read more: up to 6
+  stories in full.
+- **Dated and checked:** every note says how old it is ("today", "5 days old", "3 months old"; Wikipedia is marked
+  as a reference article). Meta is told to answer every part, say where sources agree, give both sides where they
+  differ (never averaging numbers), prefer the newest, and end a big answer with what is still not clear.
 - **Speed:** about 4–6 seconds. Every source has its own time limit and anything slow or busy is left out.
   Feeds and pages are kept for 10 minutes, so the next question does not fetch them again.
 - **Safety:** only public `https` addresses are read (no raw IPs, local names, odd ports, or hosts that
