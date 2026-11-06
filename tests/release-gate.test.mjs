@@ -89,3 +89,23 @@ test('opaque validated bitmap bytes remain signed but do not consume text review
  assert.equal(gate.verify(result.approvalToken,[...files,{...image,body:image.body.replace('AAAA','BBBB')}]),false);
  assert.ok(qaFaults(plan,[...files,{...image,body:'data:image/png;base64,YWJj'}]).some(f=>f.includes('bitmap')));
 });
+test('the official kit is named, not re-read, so a full site fits under the hard size limit', async () => {
+ const { readFileSync } = await import('node:fs');
+ const kit = ['grandpa-kit.css', 'grandpa-kit.js', 'grandpa-app.js'].map((name) => ({ path: `assets/${name}`, body: readFileSync(new URL(`../public/kit/${name}`, import.meta.url), 'utf8') }));
+ const sent = [];
+ const gate = createReleaseGate({ secret, chooseModel: async () => 'test-model', complete: async ({ messages }) => {
+  sent.push(messages.reduce((n, m) => n + String(m.content).length, 0));
+  return JSON.stringify(messages[0].content.includes('independent Reviewer') ? { approved: true, summary: 'Source checked.', faults: [], repairs: [] } : { passed: true, summary: 'Evidence checked.', faults: [] });
+ } });
+ const pages = Array.from({ length: 10 }, (_, i) => ({ path: i ? `page${i}.html` : 'index.html', body: `<!doctype html><html><head><title>P${i}</title></head><body><h1>Page ${i}</h1>${'<p>Real words for this shop.</p>'.repeat(120)}</body></html>` }));
+ const sitePlan = { ...plan, tasks: [{ agent: 'pages', files: pages.map((p) => p.path) }], pages: pages.map((p) => ({ path: p.path, title: p.path })) };
+ const result = await gate.evaluate({ asked: 'Build a shop', plan: sitePlan, files: [...pages, ...kit] });
+ assert.ok(sent.length >= 2, 'the reviewers were asked');
+ assert.ok(Math.max(...sent) < 180_000, `largest request ${Math.max(...sent)} characters`);
+ assert.equal(gate.verify(result.approvalToken, [...pages, ...kit]), result.approved, 'the token still covers the real kit bytes');
+ // A changed kit copy is reviewed in full, never trusted.
+ const changed = [...pages, { ...kit[0], body: kit[0].body + '\n/* edited */' }, kit[1], kit[2]];
+ sent.length = 0;
+ await gate.evaluate({ asked: 'Build a shop', plan: sitePlan, files: changed });
+ assert.ok(!sent.length || Math.max(...sent) > 37_000, 'the edited stylesheet travels in full');
+});
