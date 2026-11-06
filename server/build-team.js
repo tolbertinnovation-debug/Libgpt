@@ -4,6 +4,7 @@ import { charterText, normalizeStack } from './agent-charters.js';
 import { requirementPrompt, missingRequirements, carryMissingRequirements } from './build-requirements.js';
 import { DESIGN_STANDARD, KIT_GUIDE, APP_STANDARD, designRules } from './design-standard.js';
 import { chooseRecipe, recipeGuide, projectKind, kindLine } from '../public/build-recipes.js';
+import { creativeDirection } from '../public/build-direction.js';
 
 export const TEAM_AGENTS = Object.freeze(['design', 'pages', 'interactions', 'content', 'backend', 'cloud']);
 const LEGACY_TEAM_AGENTS = ['design', 'pages', 'interactions', 'content'];
@@ -101,7 +102,7 @@ export function workerInstruction(plan, agent, brief = '', targetPath = '') {
   return [charterText(agent),
     `You are the ${agent} specialist on an engineering team with a separate Architect, Reviewer, Security, QA/DevOps and Approver.`,
     `Original request: ${brief}`, `Project: ${plan.title}. ${plan.summary}`,
-    ['backend', 'cloud'].includes(agent) ? '' : `${kindLine(projectKind(brief))}\n\n${designRules(projectKind(brief))}\n\n${KIT_GUIDE}\n\n${recipeGuide(chooseRecipe(brief), projectKind(brief))}`,
+    ['backend', 'cloud'].includes(agent) ? '' : `${kindLine(projectKind(brief))}\n\n${designRules(projectKind(brief))}\n\n${KIT_GUIDE}\n\n${recipeGuide(chooseRecipe(brief), projectKind(brief))}${creativeDirection(brief, chooseRecipe(brief), projectKind(brief)) ? `\n\n${creativeDirection(brief, chooseRecipe(brief), projectKind(brief))}` : ''}`,
     plan.stack ? `Technology stack (use exactly this): frontend ${plan.stack.frontend}; backend ${plan.stack.backend}; database ${plan.stack.database}; infrastructure ${plan.stack.infrastructure}; languages ${plan.stack.languages.join(', ')}.` : '',
     `Acceptance requirements: ${plan.requirements.join('\n')}`,
     `Shared contract:\n${plan.contract}`, `Pages/navigation:\n${JSON.stringify(plan.pages)}`,
@@ -161,7 +162,9 @@ export async function generateTeamPlan({asked,model,complete,signal,requirements
   const carried=requirementPrompt(requirements);
   const kind=projectKind(asked);
   const recipe=recipeGuide(chooseRecipe(asked),kind);
-  const messages=[{role:'system',content:teamPlanPrompt(kind)},{role:'user',content:`${carried?`${asked}\n\n${carried}`:asked}\n\n${kindLine(kind)}\n${recipe}`}];
+  // The plan's pages and sections follow the creative direction, so the plan and the builders agree.
+  const direction=creativeDirection(asked,chooseRecipe(asked),kind);
+  const messages=[{role:'system',content:teamPlanPrompt(kind)},{role:'user',content:`${carried?`${asked}\n\n${carried}`:asked}\n\n${kindLine(kind)}\n${recipe}${direction?`\n\n${direction}`:''}`}];
   let invalid='';
   for(let attempt=0;attempt<2;attempt++){
     if(signal?.aborted)throw new DOMException('Planning stopped','AbortError');

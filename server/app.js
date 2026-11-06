@@ -43,6 +43,7 @@ import { checkSchema, cleanRecord, cleanQuery, cleanSummary as cleanAppSummary, 
 import { createMemoryAppUsers, createPostgresAppUsers } from './app-users.js';
 import { searchPhotos, fetchPhoto, youtubeInfo, searchWords, searchVideos } from './media-search.js';
 import { chooseRecipe, RECIPES, projectKind } from '../public/build-recipes.js';
+import { creativeDirection } from '../public/build-direction.js';
 import { LOOK_PROMPT, readLook, readSnapshot } from './build-look.js';
 import {
   DEFAULT_LANGUAGE,
@@ -979,6 +980,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
   let searched = !building && Boolean(reader) && !llamaAll
     && !carryingOn
     && (req.body?.search === true || (research !== 'off' && needsLookingUp(routedQuestion, new Date(), research === 'always')));
+  const firstAsked = () => String((Array.isArray(req.body?.messages) ? req.body.messages : []).find((m) => m?.role === 'user' && typeof m.content === 'string')?.content || '').slice(0, 4000);
   const askedText = () => (Array.isArray(req.body?.messages) ? req.body.messages : []).filter((m) => m?.role === 'user' && typeof m.content === 'string').map((m) => m.content).join('\n').slice(0, 12000);
   const buildingPrompt = () => [
     // Only told it can draw where it really can.
@@ -990,6 +992,9 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       recipe: chooseRecipe(askedText()),
       // App or website, as the person said (the "Make:" line from the conversation card wins).
       kind: projectKind(askedText()),
+      // A brand-new website gets its creative direction from the first request (an existing one keeps its look).
+      // ("New" = no web page yet: the kit files and the person's own photos are there from the start.)
+      direction: project.kept.some((file) => /\.html?$/i.test(file.path || '')) ? '' : creativeDirection(firstAsked(), chooseRecipe(askedText()), projectKind(askedText())),
     }),
     '',
     // Phase 3: what the site is (worked out from its files in the browser), so
