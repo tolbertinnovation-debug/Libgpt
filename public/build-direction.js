@@ -58,6 +58,17 @@ const BLUEPRINT = {
 };
 for (const kind of ['blog', 'media', 'docs']) BLUEPRINT[kind] = BLUEPRINT.general;
 
+// A compact model home page in the kit's real premium markup, so builders copy correct structure instead of guessing.
+export const PREMIUM_EXAMPLE = `<header class="gk-header"><a class="gk-brand" href="index.html">Name</a><button class="gk-nav-toggle" aria-label="Menu">☰</button><nav class="gk-nav">…pages…</nav></header>
+<main>
+<section class="gk-split"><div class="gk-split-text"><p class="gk-eyebrow">Place · what it is</p><h1>Specific headline that names the result</h1><p class="gk-lead">One sentence on why here.</p><p><a class="gk-btn" href="#contact">Primary</a> <a class="gk-btn is-ghost" href="#offer">Secondary</a></p><ul class="gk-trust"><li>Fact one</li><li>Fact two</li><li>Fact three</li></ul></div><figure class="gk-split-media"><img src="…" alt="What the photo shows" width="1200" height="900"><div class="gk-float">★ 4.9 · real proof</div></figure></section>
+<section class="gk-section" id="offer"><div class="gk-container"><div class="gk-section-head"><p class="gk-eyebrow">What we offer</p><h2>Clear section heading</h2><p class="gk-lead">One line.</p></div><div class="gk-bento"><article class="gk-card is-wide"><img src="…" alt="…" width="1200" height="800"><h3>Main offer</h3><p>…</p></article><article class="gk-card"><h3>…</h3><p>…</p></article><article class="gk-card"><h3>…</h3><p>…</p></article></div></div></section>
+<section class="gk-section"><div class="gk-container gk-feature-rows"><div class="gk-feature-row"><img src="…" alt="…" width="1200" height="800"><div><h3>The story</h3><p>…</p></div></div></div></section>
+<section class="gk-section"><div class="gk-container gk-testimonials"><figure class="gk-quote"><blockquote>Short, specific quote.</blockquote><figcaption>Name <small>Role</small></figcaption></figure></div></section>
+<section class="gk-cta-band"><div><h2>Ask for the action</h2><p>One line.</p></div><a class="gk-btn" href="#contact">Primary</a></section>
+</main>
+<footer class="gk-footer-cols"><div class="gk-footer-grid">…contact · pages · hours…</div><p class="gk-footer-bottom">© year Name</p></footer>`;
+
 /** A small, stable number from text: the same request always gets the same direction. */
 const seed = (text) => [...String(text)].reduce((sum, ch) => (sum * 31 + ch.charCodeAt(0)) >>> 0, 7);
 
@@ -96,6 +107,9 @@ export function creativeDirection(text = '', recipe = null, kind = 'website') {
 - Photographs: ${IMAGERY[type] || IMAGERY.general}.
 - Home page, in this order:
 ${(BLUEPRINT[type] || BLUEPRINT.general).map((section, index) => `  ${index + 1}. ${section}`).join('\n')}
+- Structure to copy for the home page (fill every … with real content; add the other sections from the order above in the same style):
+${PREMIUM_EXAMPLE}
+- Every page: the viewport meta, a real <title> and <meta name="description">, exactly one <h1>, then <h2> section headings; every <img> has alt, width and height.
 - Other pages use the same header, footer, section heading blocks (gk-section-head) and spacing as the home page.
 - Words: specific and local, never filler. Headlines name the place or the result ("Fresh jollof in Sinkor, ready in 20 minutes"), not generic slogans ("Welcome to our website"). Prices in Liberian dollars (L$) or US$ as the person gave them. Use only the phone numbers, addresses and names the person gave; where one is missing write a clear placeholder like "Your phone number" so it is never invented.`;
 }

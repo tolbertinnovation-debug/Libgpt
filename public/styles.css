@@ -4092,6 +4092,12 @@ body {
 .receipt-check.is-ok { background: color-mix(in srgb, var(--green) 14%, transparent); color: var(--green); }
 .receipt-check.is-bad { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
 .receipt-check.is-checking { background: var(--bg-hover); color: var(--text-soft); }
+.receipt-design { flex: none; padding: 3px 9px; border-radius: 999px; font-size: var(--text-xs); font-weight: 600; white-space: nowrap; }
+.receipt-design.is-good { background: color-mix(in srgb, var(--green) 14%, transparent); color: var(--green); }
+.design-polish { margin: 8px 0 0; padding: 10px 12px; border: 1px solid var(--border); border-radius: 12px; font-size: var(--text-sm); color: var(--text-soft); }
+.design-polish p { margin: 0 0 6px; color: var(--text); }
+.design-polish ul { margin: 0 0 10px; padding-left: 18px; }
+.design-polish li { margin: 2px 0; }
 .receipt-chev { flex: none; width: 18px; height: 18px; fill: none; stroke: var(--text-faint); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
 .receipt[open] .receipt-chev { transform: rotate(180deg); }
 .receipt-body { padding: 4px 12px 12px; border-top: 1px solid var(--border); }
