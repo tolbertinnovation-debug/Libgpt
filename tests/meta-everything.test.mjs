@@ -111,7 +111,7 @@ test('with OpenAI off, Build, stories, documents, pictures and chat tools all ru
   assert.ok(chatBody.tools.some((entry) => entry.function.name === 'create_image'));
   assert.equal(chatBody.tools.some((entry) => entry.function.name === 'search_web'), false, 'no web search on Meta');
   assert.equal(chatBody.tools.some((entry) => entry.function.name === 'think_carefully'), false, 'no slow second pass on Meta');
-  assert.equal(chatBody.reasoning_effort, 'low');
+  assert.equal(chatBody.reasoning_effort, 'minimal', 'a short, simple ask ("Send me one") is answered at once');
   assert.match(chat, /event: action\ndata: \{"type":"image","prompt":"Liberian farmers planting rice"\}/);
 
   assert.deepEqual(openaiRequests, [], 'nothing ever reached OpenAI');
@@ -132,4 +132,30 @@ test('pacing: quick answers to small questions, a proper think on large tasks, M
   assert.equal(build.model, 'muse-spark-1.3');
   assert.equal(build.reasoning_effort, 'high');
   assert.equal('meta_effort' in build, false);
+});
+
+test('small tasks are answered quickly, large tasks are thought through (chat and Build)', async () => {
+  const { metaPlan, taskSize, buildEffort } = await import('../server/llama.js');
+  const { tierFor } = await import('../server/models.js');
+  const plan = (asked) => metaPlan({ config: META, tier: tierFor('chat', { asked }), asked });
+  // Small: answered at once.
+  assert.equal(taskSize('What is the capital of Liberia?'), 'small');
+  assert.equal(plan('What is the capital of Liberia?').effort, 'minimal');
+  assert.equal(plan('Good morning Grandpa').effort, 'minimal');
+  // A short ask with a big word: a proper think, not the longest.
+  assert.equal(plan('Tell me a story').effort, 'medium');
+  // Large: thought through.
+  assert.equal(taskSize('Write a complete business plan for my rice shop in Monrovia'), 'large');
+  assert.deepEqual(plan('Write a complete business plan for my rice shop in Monrovia'), { model: 'muse-spark-1.3', effort: 'high', long: true });
+  assert.equal(taskSize('1. Price list\n2. Opening hours\n3. Delivery areas\n4. Contact form'), 'large');
+  assert.equal(plan('x'.repeat(400)).effort, 'high');
+  // Normal: a brief think.
+  assert.equal(taskSize('How can I keep my cassava fresh for longer after I harvest it, and should I dry some of it?'), 'normal');
+  // Build: a new site or a big change thinks properly; a small change is quick.
+  assert.equal(buildEffort({ asked: 'Make a website for my shop', hasFiles: false }), 'high');
+  assert.equal(buildEffort({ asked: 'Make the header green', hasFiles: true }), 'low');
+  assert.equal(buildEffort({ asked: 'Add a new page for our delivery prices', hasFiles: true }), 'high');
+  assert.equal(buildEffort({ asked: 'Change the phone number on every page and make the buttons a little bigger please', hasFiles: true }), 'high');
+  assert.equal(buildEffort({ asked: 'Change the phone number to 0886-123-456 and make the buttons bigger please, and rounder too', hasFiles: true }), 'medium');
+  assert.equal(buildEffort({ asked: 'Make the header green', hasFiles: true, stage: true }), 'high');
 });

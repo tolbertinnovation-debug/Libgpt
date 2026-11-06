@@ -59,14 +59,20 @@ Still off, because Meta has no equivalent: live web research.
 
 Muse models always reason before answering, so `metaPlan()` in `server/llama.js` decides how long:
 
+Each request is sized from its words by `taskSize()`: **small** (one short, simple ask), **large** (over 320
+characters, four or more lines, three or more questions or list items, or big work by name: "business plan",
+"complete", "step by step", "compare", "report"…) or **normal**.
+
 | The question | Model | Thinking |
 | --- | --- | --- |
-| A greeting, a quick question, anything spoken | Muse Spark | minimal |
+| A greeting, a small simple question ("What do goats eat?"), anything spoken | Muse Spark | minimal |
 | An ordinary question | Muse Spark | low |
-| One that needs reasoning (money, sums, a choice) | Muse Spark | medium |
-| A large task (a long request, a story, a plan, "thorough") | Muse Spark | high |
+| One that needs reasoning (money, sums, a choice), or a short ask with a big word ("tell me a story") | Muse Spark | medium |
+| A large task (a long request, a plan, a report, "thorough") | Muse Spark | high |
 | The person tapped **Think** | Muse Wonder | medium |
-| A Build | Muse Spark | high |
+| A new Build, a Build stage, or a big change (a new page, a login, a redesign) | Muse Spark | high |
+| A normal change to an existing Build | Muse Spark | medium |
+| A small change to an existing Build ("make the header green") | Muse Spark | low |
 
 Whenever the thinking is medium or more, the chat shows "Thinking it through…" until the first words arrive.
 

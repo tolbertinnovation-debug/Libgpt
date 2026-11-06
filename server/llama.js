@@ -155,13 +155,48 @@ export function everydayForLlama({ question = '', building = false, searched = f
  * asks Grandpa to Think. Returns { model, effort, long } (long: show
  * "Thinking it through…" while he works).
  */
-export function metaPlan({ config = llamaConfig(), thinking = '', tier = '', depth = '', spoken = false, carryingOn = false } = {}) {
+export function metaPlan({ config = llamaConfig(), thinking = '', tier = '', depth = '', spoken = false, carryingOn = false, asked = '' } = {}) {
+  const size = taskSize(asked);
   if (thinking === 'medium') return { model: config.deepModel, effort: 'medium', long: true };
   if (carryingOn) return { model: config.model, effort: 'low', long: false };
   if (spoken || tier === 'fast') return { model: config.model, effort: 'minimal', long: false };
-  if (tier === 'deep' || depth === 'thorough') return { model: config.model, effort: 'high', long: true };
-  if (thinking || depth === 'detailed') return { model: config.model, effort: 'medium', long: true };
+  if (depth === 'thorough' || (tier === 'deep' && size !== 'small')) return { model: config.model, effort: 'high', long: true };
+  // A short ask with a big word in it ("tell me a story", "what is a budget?"): a proper think, not the longest.
+  if (tier === 'deep') return { model: config.model, effort: 'medium', long: true };
+  if (thinking || depth === 'detailed' || size === 'large') return { model: config.model, effort: 'medium', long: true };
+  // A small, simple question is answered at once.
+  if (size === 'small') return { model: config.model, effort: 'minimal', long: false };
   return { model: config.model, effort: 'low', long: false };
+}
+
+// Words that say a request is big work, whatever its length.
+const BIG_TASK = /\b(?:business plan|marketing plan|lesson plan|plan for|full|complete|whole|entire|detailed|in detail|step by step|essay|report|proposal|research|analy[sz]e|compare|comparison|strategy|pros and cons|budget|projections?|curriculum|every|all the)\b/i;
+
+/**
+ * How big a request is, from its words: 'small' (one short, simple ask), 'large' (long, in many parts,
+ * or big work by name) or 'normal'. Small tasks get a quick answer; large ones are thought through.
+ */
+export function taskSize(asked = '') {
+  const question = String(asked || '').trim();
+  if (!question) return 'normal';
+  const lines = question.split(/\n+/).filter((line) => line.trim()).length;
+  const asks = (question.match(/\?/g) || []).length;
+  const listed = (question.match(/^\s*(?:\d+[.)]|[-*•])\s+/gm) || []).length;
+  if (question.length > 320 || lines >= 4 || asks >= 3 || listed >= 3 || BIG_TASK.test(question)) return 'large';
+  if (question.length <= 90 && lines === 1 && asks <= 1) return 'small';
+  return 'normal';
+}
+
+/**
+ * How long Meta thinks before writing a Build. A new website or a large request is thought through
+ * properly; a small change to an existing one ("make the header green") is done quickly.
+ */
+export function buildEffort({ asked = '', hasFiles = false, stage = false } = {}) {
+  if (!hasFiles || stage) return 'high';
+  const question = String(asked || '');
+  const size = taskSize(question);
+  if (size === 'large' || /\b(?:add|new|create|build)\b.{0,24}\b(?:page|pages|section|feature|login|sign[- ]?in|database|form|shop|cart|checkout|dashboard|app)\b|\b(?:rebuild|redesign|from scratch|start over)\b/i.test(question)) return 'high';
+  return size === 'small' ? 'low' : 'medium';
 }
 
 /** One short, complete Llama answer (titles, summaries). */
