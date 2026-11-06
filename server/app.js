@@ -1279,9 +1279,10 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
             try { found = await gatherResearch(routedQuestion, { report: deepResearch, deep: depth === 'thorough' || taskSize(routedQuestion) === 'large', onProgress: (message) => send('progress', { message }), links: (routedQuestion.match(/https:\/\/[^\s<>"')]+/g) || []) }); }
             catch (error) { console.error('[research] FAILED', error?.message); }
             if (!found.count) {
-              send('notice', { message: 'Grandpa looked it up but found nothing on it in his news and reference sources, so this answer is from what he already knows.' });
-              // Nothing was found, so the answer is not marked as looked up.
+              // Nothing was found, so the answer is not marked as looked up. Said quietly in the answer's place
+              // (not a pop-up) until he starts writing; the answer itself says what could not be checked today.
               send('start', { model: metaModel(), spoken, searched: false, dropped, saw: metaSees, thought: plan().long });
+              send('progress', { message: 'No fresh news on this in the papers today — answering from what I know…' });
               return false;
             }
             for (const item of found.sources) if (!sources.some((s) => s.url === item.url)) sources.push(item);
