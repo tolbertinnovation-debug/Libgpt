@@ -1173,7 +1173,7 @@ body {
 }
 
 /* Kept for the look-it-up row, which the app also marks with a class. */
-.look-btn.is-on { font-weight: 600; }
+.look-btn.is-on, .deep-btn.is-on { font-weight: 600; }
 
 .stop-btn { background: var(--red); }
 .stop-btn:hover { background: #a91f1f; }
