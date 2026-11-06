@@ -53,7 +53,27 @@ listening (voice typing) use `config.voiceKey`, which is the OpenAI key even whi
 Nothing else can use it. `OPENAI_VOICE=off` turns the voice off too, and then listening goes to
 Meta's Muse Voice Transcribe and the phone's own voice reads aloud.
 
-Still off, because Meta has no equivalent: live web research.
+Live research runs on Meta too, with Grandpa's own free research (`server/research.js`, below).
+
+## Research on Meta (free sources, no key)
+
+OpenAI's web tool is not available on Meta, so the server does the looking up itself and hands Meta
+numbered notes:
+
+- **When:** the question plainly needs fresh facts (`needsLookingUp` in `server/search.js`: news, "today",
+  prices, rates, laws, a date this year…), the person asked for research, or Meta asks for it by calling
+  `search_web` while answering.
+- **Sources** (no key, no account, no cost): the news feeds of FrontPage Africa and The New Dawn (Liberian
+  papers first), BBC News Africa, GDELT's worldwide news search, Wikipedia, and ExchangeRate-API for today's
+  dollar rates. The best 3 matching stories (5 for thorough answers) are read in full; a link the person
+  pasted is read first.
+- **Speed:** about 4–6 seconds. Every source has its own time limit and anything slow or busy is left out.
+  Feeds and pages are kept for 10 minutes, so the next question does not fetch them again.
+- **Safety:** only public `https` addresses are read (no raw IPs, local names, odd ports, or hosts that
+  resolve to private or cloud-metadata addresses). Pages are cut to plain text and size-capped, and the notes
+  tell Meta they are data, never instructions.
+- **The answer** cites the notes as [1], [2]… with the paper and date, says where sources disagree, and says
+  plainly when the search found nothing. The sources appear under the answer ("Where this was read").
 
 ## Pacing: quick answers, a proper think on large tasks
 
@@ -86,14 +106,14 @@ OpenAI back on. While it is off:
   OpenAI fallback. If Llama fails, the chat says "Grandpa could not answer just
   now. Please try again in a moment.";
 - reading aloud uses the phone's own free voice;
-- PDF page reading, Live Talk, web research, documents, Library stories and
-  Build are paused. Pictures, photos and voice typing run on Meta (above).
+- PDF page reading, Live Talk, documents, Library stories and Build are paused
+  (web research runs on Grandpa's own free research instead, above). Pictures, photos and voice typing run on Meta (above).
 
 ## Modes (`LLAMA_MODE`)
 - **`all`** (the default, owner's choice, to save OpenAI credit). Every text
   chat turn goes to Llama, including hard questions, stories and questions that
-  would have been researched. Web research is an OpenAI tool, so it isn't used;
-  Grandpa answers from what he knows. Chat titles and long-chat summaries also
+  would have been researched. OpenAI's web tool isn't used; questions that need
+  fresh facts are looked up with Grandpa's own free research instead (above). Chat titles and long-chat summaries also
   go to Llama. When Llama answers, Grandpa points people to "Create an image
   of…" rather than a picture tool.
 - **`everyday`.** OpenAI keeps its tools (pictures, documents, memory),

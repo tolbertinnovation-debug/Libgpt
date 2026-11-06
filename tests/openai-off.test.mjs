@@ -37,6 +37,8 @@ test('with OpenAI off: chat runs on Llama, no OpenAI request is ever made, and O
       return new Response(`data: ${JSON.stringify({ choices: [{ delta: { content: 'Llama here.' }, finish_reason: 'stop' }] })}\n\ndata: [DONE]\n\n`);
     }
     if (target.includes('openai.com')) { openaiRequests.push(target); return new Response('{}', { status: 500 }); }
+    // Grandpa's own research (server/research.js) never reaches the real web in tests: every source is down here.
+    if (/frontpageafrica|thenewdawn|bbci|gdeltproject|wikipedia|er-api/.test(target)) return new Response('down', { status: 503 });
     return original(url, options);
   };
   const { default: app } = await import('../server/app.js');

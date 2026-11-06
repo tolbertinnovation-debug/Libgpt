@@ -170,8 +170,10 @@ All of it is in `.env` (see `.env.example`):
 #### Optional: OpenAI
 
 OpenAI is **off on the live site** (see `OPENAI_OFF` above). While it is off, reading aloud
-uses the phone's own free voice and the OpenAI-only extras (web research, PDF page
-reading, Live Talk, OpenAI voices and pictures) are paused. To switch it back on, set
+uses the phone's own free voice and the OpenAI-only extras (PDF page reading, Live Talk,
+OpenAI voices and pictures) are paused. Live research still works: Grandpa looks things up in free
+sources himself (Liberian papers, BBC Africa, GDELT, Wikipedia, exchange rates); see
+[research on Meta](docs/llama-backup.md#research-on-meta-free-sources-no-key). To switch it back on, set
 `OPENAI_OFF=false` and add these:
 
 | Variable | Default | Purpose |
