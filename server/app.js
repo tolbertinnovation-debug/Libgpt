@@ -80,6 +80,7 @@ import {generateFreshStory,StoryGenerationError} from './stories.js';
 import {imageRequest} from './image-options.js';
 import { memoryContext } from '../public/memory.js';
 import { chatTools, toolActions, FOLLOWUPS_PROMPT, HISTORY_PROMPT, isHistoryQuestion } from './chat-tools.js';
+import { gatherResearch } from './research.js';
 import { cleanSummary } from '../public/chat-summary.js';
 import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULES, realtimeSpeak, pcmToWav, advancedSpeechMicroUsd } from './realtime.js';
 import { realtimeVoice } from '../public/voice-cast.js';
@@ -1222,6 +1223,9 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     if (earlier) savedMemory.push({ role: 'user', content: 'SUMMARY OF EARLIER IN THIS CONVERSATION\n'
       + 'The oldest messages are not shown here. These notes were written from them; the messages below and the person\'s latest corrections take precedence.\n'
       + earlier });
+    // Research notes for this turn (server/research.js), placed right after the system message.
+    let researchNotes = '';
+    const withNotes = (conversation) => (researchNotes ? [conversation[0], { role: 'system', content: researchNotes }, ...conversation.slice(1)] : conversation);
     const opening = () => (carryingOn
       ? [
         { role: 'system', content: system },
@@ -1260,9 +1264,43 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       if (llamaConfig().ready && everydayForLlama({ question: routedQuestion, building, searched, photo: Boolean(photo) && !metaSees, document: Boolean(document),
         thinking, tier: tierFor('chat', routing), carryingOn, openaiOff: config.openaiOff })) {
         try {
-          send('start', { model: metaModel(), spoken, searched: false, dropped, saw: metaSees, thought: plan().long });
-          // No web search on Meta, and no think_carefully: a second, slower pass is not worth the wait.
-          await runBackup(opening(), budget, offered.filter((entry) => !['search_web', 'think_carefully'].includes(entry.function.name)));
+          // Grandpa's own research on Meta (server/research.js): free sources, read on this server, handed to Meta as
+          // numbered notes. Done first when the question plainly needs fresh facts, or when Meta asks for it (search_web).
+          let researched = false;
+          const lookItUp = async () => {
+            if (researched || photo || document) return false;
+            researched = true;
+            send('start', { model: metaModel(), spoken, searched: true, dropped, saw: metaSees, thought: plan().long });
+            let found = { notes: '', sources: [], count: 0 };
+            try { found = await gatherResearch(routedQuestion, { deep: depth === 'thorough', links: (routedQuestion.match(/https:\/\/[^\s<>"')]+/g) || []) }); }
+            catch (error) { console.error('[research] FAILED', error?.message); }
+            if (!found.count) {
+              send('notice', { message: 'Grandpa looked it up but found nothing on it in his news and reference sources, so this answer is from what he already knows.' });
+              // Nothing was found, so the answer is not marked as looked up.
+              send('start', { model: metaModel(), spoken, searched: false, dropped, saw: metaSees, thought: plan().long });
+              return false;
+            }
+            for (const item of found.sources) if (!sources.some((s) => s.url === item.url)) sources.push(item);
+            system = promptFor('notes');
+            searched = true;
+            researchNotes = found.notes;
+            return true;
+          };
+          const wantsLookUp = !building && !carryingOn && research !== 'off' && !photo && !document
+            && (req.body?.search === true || needsLookingUp(routedQuestion, new Date(), research === 'always'));
+          if (wantsLookUp) await lookItUp();
+          else send('start', { model: metaModel(), spoken, searched: false, dropped, saw: metaSees, thought: plan().long });
+          // No think_carefully on Meta (a second, slower pass is not worth the wait). search_web is offered while he has
+          // not looked anything up yet, so he can decide a question needs it.
+          const metaTools = offered.filter((entry) => !['search_web', 'think_carefully'].includes(entry.function.name));
+          const canSearch = !researched && !building && !carryingOn && !spoken && research !== 'off' && !photo && !document;
+          await runBackup(withNotes(opening()), budget, canSearch ? [...metaTools, ...chatTools({ pictures: false, documents: false, search: true })] : metaTools);
+          const asked = actions.find((action) => action.type === 'search');
+          if (asked && !answer.trim() && !controller.signal.aborted) {
+            actions = actions.filter((action) => action !== asked);
+            await lookItUp();
+            await runBackup(withNotes(opening()), budget, metaTools);
+          }
           usedBackup = true;
           answeredByLlama = true;
           model = metaModel();
@@ -1331,7 +1369,8 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       await run([
         { role: 'system', content: searched ? system.replace(SEARCH_PROMPT,
           'Use the research and citations already present in the answer above. Continue the same answer without claiming a new search or inventing new sources.') : system },
-        ...opening().slice(1),
+        // Grandpa's own research notes stay in front of him while he carries on.
+        ...withNotes(opening()).slice(1),
         { role: 'assistant', content: answer },
         // A turn cut off mid-file needs different words from one cut off
         // mid-sentence: it has a fence to close, and prose in the middle of

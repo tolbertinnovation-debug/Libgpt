@@ -8,6 +8,7 @@ import {
   DEFAULT_REGISTER, liberianVoice, registerCatalogue, registerFor,
 } from './liberian.js';
 import { NO_SEARCH_PROMPT, SEARCH_PROMPT } from './search.js';
+import { RESEARCH_NOTES_PROMPT } from './research.js';
 import { depthInstructions } from '../public/knowledge.js';
 
 const BASE = `You are Grandpa AI, an African-centred conversational assistant built by Tolbert Innovation Hub in Monrovia, Liberia.
@@ -361,7 +362,8 @@ export function buildSystemPrompt({
     QUALITY_PROMPT,
     // Whether he can find things out is the difference between a refusal and
     // an answer, so it is stated outright rather than left to be inferred.
-    searched ? SEARCH_PROMPT : `WHAT YOU CANNOT KNOW\n${NO_SEARCH_PROMPT}`,
+    // 'notes': Grandpa's own research (server/research.js) was gathered for this turn.
+    searched === 'notes' ? RESEARCH_NOTES_PROMPT : searched ? SEARCH_PROMPT : `WHAT YOU CANNOT KNOW\n${NO_SEARCH_PROMPT}`,
     `WHO IS SPEAKING\n${s.prompt}`,
     `TONE\n${t.prompt}`,
     `TODAY'S ROLE — ${p.label.toUpperCase()}\n${p.prompt}`,
