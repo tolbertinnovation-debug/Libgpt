@@ -1681,7 +1681,8 @@ app.post('/api/build/team-review', rateLimit, requireAccess, runtime.middleware(
     if(typeof updates !== 'string' || updates.length>6000)throw new TypeError('The latest change must be no more than 6,000 characters.');
     plan = normalizeTeamPlan(req.body?.plan);
     faults = teamProjectFaults(plan, req.body?.files, req.body?.faults || []);
-    project = fitProject(req.body.files, 180_000);
+    // Under the governance hard limit (180,000 characters) together with the prompt, brief and plan.
+    project = fitProject(req.body.files, 160_000);
     if (project.dropped.length) faults.push(`Source could not be completely reviewed: ${project.dropped.join(', ')}. Keep this build unapproved until all source can be inspected.`);
   } catch (error) {
     res.status(400).json({error:error.message}); return;
