@@ -706,13 +706,22 @@ const siteName = (url) => {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return ''; }
 };
 
-function sourceList(items) {
+function sourceList(items, how = null, index = -1) {
   const links = (items || []).filter((s) => /^https?:\/\//i.test(s?.url || ''));
   if (!links.length) return '';
-  return `<div class="sources"><span class="sources-label">Where this was read</span>${links
-    .map((s) => `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer"`
-      + ` title="${escapeHtml(s.title || s.url)}">${escapeHtml(s.title || siteName(s.url) || 'Source')}</a>`)
-    .join('')}</div>`;
+  // Numbered like the [1], [2] in the answer, so a fact can be traced to its paper.
+  const chips = links.map((s, n) => `<a href="${escapeHtml(s.url)}" target="_blank" rel="noopener noreferrer"`
+    + ` title="${escapeHtml(s.url)}"><span class="source-num">${n + 1}</span>${escapeHtml(s.title || siteName(s.url) || 'Source')}</a>`).join('');
+  // How Grandpa found it (his own research on Meta): what was searched, how much was read, when.
+  const when = how?.at ? new Date(how.at) : null;
+  const found = how ? `<details class="research-how"><summary>How I found this</summary><ul>
+      ${Array.isArray(how.parts) && how.parts.length > 1 ? `<li>Split your question into ${how.parts.length} parts and searched each: ${how.parts.map((part) => `“${escapeHtml(part)}”`).join(', ')}.</li>` : ''}
+      ${Array.isArray(how.searched) && how.searched.length ? `<li>Searched ${escapeHtml(how.searched.join(', '))}.</li>` : ''}
+      <li>Found ${Number(how.count) || links.length} ${Number(how.count) === 1 ? 'source' : 'sources'}${Number(how.read) ? ` and read ${Number(how.read)} ${Number(how.read) === 1 ? 'article' : 'articles'} in full` : ''}${how.deep ? ' (deep research)' : ''}.</li>
+      ${when && !Number.isNaN(when.getTime()) ? `<li>Looked up ${escapeHtml(when.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' }))}.</li>` : ''}
+    </ul></details>` : '';
+  const again = index >= 0 && !state.streaming ? `<button class="research-again" type="button" data-recheck="${index}">↻ Check again for the latest</button>` : '';
+  return `<div class="sources"><span class="sources-label">Where this was read</span>${chips}</div>${found || again ? `<div class="research-tools">${found}${again}</div>` : ''}`;
 }
 
 // Grandpa offers to remember; nothing is saved until the person taps Yes.
@@ -786,7 +795,7 @@ function renderThread() {
             ${imageCard(message.image,index)}
             ${documentCard(message.document,index)}
             ${message.taskBrief ? taskBriefCard(message.taskBrief,index,Boolean(message.documentQuestions)) : ''}
-            ${sourceList(message.sources)}
+            ${sourceList(message.sources, message.research, index === lastAiIndex() ? index : -1)}
             ${message.memoryOffer ? memoryOfferCard(message.memoryOffer, index) : ''}
             ${index === lastAiIndex() && shown(message).followups.length ? followupChips(shown(message).followups, shown(message).offers) : ''}
             ${messageActions(index, message.content)}
@@ -915,6 +924,7 @@ async function streamReply(chat, hooks = {}) {
   let sawTheEnd = false;
   let searched = false;     // this answer was read off the web, not remembered
   let sources = [];         // and these are the pages it was read from
+  let research = null;      // and how it was looked up (Grandpa's own research)
   const actions = [];       // tools Grandpa chose: a picture, a document, a memory to offer
 
   // A long conversation is shortened rather than refused. What was left behind
@@ -1008,6 +1018,7 @@ async function streamReply(chat, hooks = {}) {
           if (!text) target.innerHTML = `<span class="thinking"><span></span><span></span><span></span></span> <span class="thinking-note research-progress">${escapeHtml(payload.message)}</span>`;
         } else if (event === 'sources' && Array.isArray(payload.items)) {
           sources = payload.items;
+          if (payload.how && typeof payload.how === 'object') research = payload.how;
         } else if (event === 'action' && ['image', 'document', 'memory'].includes(payload.type)) {
           if (!actions.some((action) => action.type === payload.type)) actions.push(payload);
         } else if (event === 'delta' && payload.text) {
@@ -1089,6 +1100,7 @@ async function streamReply(chat, hooks = {}) {
   if (text.trim()) {
     chat.messages.push({
       role: 'assistant', content: text, searched, sources, unfinished,
+      ...(research && sources.length ? { research } : {}),
       ...(sending?.dropped ? { trimmed: sending.dropped } : {}),
       ...(split.followups.length && !hooks.spoken && !stopped ? { followups: split.followups, ...(split.offers ? { offers: true } : {}) } : {}),
       ...(offer && !hooks.spoken ? { memoryOffer: offer.text.trim().slice(0, 600) } : {}),
@@ -3687,6 +3699,9 @@ el.thread.addEventListener('click', async (event) => {
     return;
   }
 
+  // Check again: the same question, looked up afresh for the latest.
+  const recheck = event.target.closest('[data-recheck]');
+  if (recheck && !state.streaming) { setLookItUp(true); regenerate(Number(recheck.dataset.recheck)); return; }
   const again = event.target.closest('[data-regen]');
   if (again) regenerate(Number(again.dataset.regen));
 });
