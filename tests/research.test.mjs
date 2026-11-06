@@ -150,6 +150,14 @@ test('chat on Meta looks a news question up first, answers from the notes and sh
   assert.match(deep, /event: progress\ndata: \{"message":"Checking \d+ sources? against each other…"\}/);
   const site = await (await original(`${base}/api/config`)).json();
   assert.equal(site.liveNews, true, 'the Look it up and Deep research buttons show on Meta');
+
+  // Nothing found anywhere: a quiet line in the answer's place, not a pop-up, and no looked-up mark.
+  clearResearchCache();
+  metaReply = () => ({ choices: [{ delta: { content: 'I could not check today\'s price.' }, finish_reason: 'stop' }] });
+  const empty = await post({ messages: [{ role: 'user', content: 'What is the latest news on the cocoa harvest in Nimba today?' }] });
+  assert.match(empty, /event: progress\ndata: \{"message":"No fresh news on this in the papers today — answering from what I know…"\}/);
+  assert.doesNotMatch(empty, /event: notice/);
+  assert.match(empty, /event: done\ndata: \{[^\n]*"searched":false/);
 });
 
 test('deep research is asked for in words, or with the button', () => {
