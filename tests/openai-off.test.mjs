@@ -77,6 +77,8 @@ test('with OpenAI off: chat runs on Llama, no OpenAI request is ever made, and O
   await (await post('/api/chat', { messages: [{ role: 'user', content: 'Good morning Grandpa' }], research: 'off' })).text();
   assert.equal(efforts.at(-1), 'minimal', 'a greeting is answered at once');
   await (await post('/api/chat', { messages: [{ role: 'user', content: 'What do goats eat?' }], research: 'off' })).text();
+  assert.equal(efforts.at(-1), 'minimal', 'a small, simple question is answered at once');
+  await (await post('/api/chat', { messages: [{ role: 'user', content: 'My goats are eating less this week and one of them sleeps a lot. What should I give them to eat?' }], research: 'off' })).text();
   assert.equal(efforts.at(-1), 'low', 'an ordinary question after a brief thought');
   await (await post('/api/chat', { messages: [{ role: 'user', content: 'Should I take a loan of 50000 LD at 10% a month?' }], research: 'off', think: true })).text();
   assert.equal(metaModels.at(-1), 'muse-wonder-1.0', 'Think asks Muse Wonder');

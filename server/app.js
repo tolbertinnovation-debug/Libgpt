@@ -84,7 +84,7 @@ import { cleanSummary } from '../public/chat-summary.js';
 import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULES, realtimeSpeak, pcmToWav, advancedSpeechMicroUsd } from './realtime.js';
 import { realtimeVoice } from '../public/voice-cast.js';
 import { createMemorySyncStore, createPostgresSyncStore, validSyncId } from './sync-store.js';
-import { backupWorthy, completeLlama, everydayForLlama, llamaConfig, llamaMicroUsd, llamaMode, metaPlan, streamLlama } from './llama.js';
+import { backupWorthy, buildEffort, completeLlama, everydayForLlama, llamaConfig, llamaMicroUsd, llamaMode, metaPlan, streamLlama } from './llama.js';
 import { metaImage, metaTranscribe, wavSeconds, META_IMAGE_MICRO_USD, META_TRANSCRIBE_MICRO_USD_PER_SECOND } from './meta-media.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -1139,8 +1139,8 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
         maxTokens: room,
         temperature,
         reasoningEffort: searched ? '' : thinking,
-        // On Meta, writing a whole build is a large task: think it through properly.
-        metaEffort: building ? 'high' : '',
+        // On Meta: a new website or a large request is thought through properly; a small change is quick.
+        metaEffort: building ? buildEffort({ asked: routedQuestion, hasFiles: project.kept.length > 0, stage: Boolean(req.body?.stage) }) : '',
         signal: controller.signal,
         onFinish: (reason) => { stopped = reason; },
         tools,
@@ -1170,7 +1170,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     let usedBackup = false;
     // Quick answers to small questions, a proper think on large tasks, and Muse
     // Wonder when the person asks Grandpa to Think (see metaPlan in llama.js).
-    const plan = () => metaPlan({ thinking, tier: tierFor('chat', routing), depth, spoken, carryingOn });
+    const plan = () => metaPlan({ thinking, tier: tierFor('chat', routing), depth, spoken, carryingOn, asked: routedQuestion });
     const metaModel = () => plan().model;
     const metaEffort = () => plan().effort;
     const runBackup = async (conversation, room = budget, tools = []) => {
