@@ -109,6 +109,8 @@ test('chat on Meta looks a news question up first, answers from the notes and sh
   assert.match(sent.messages[0].content, /YOU LOOKED THIS UP/, 'and the rule to answer from them');
   assert.doesNotMatch(sent.messages[0].content, /No web results have been retrieved/);
   assert.match(reply, /"searched":true/, 'the reader is told it was looked up');
+  assert.doesNotMatch(reply, /Live research is unavailable/, 'no false "research is unavailable" notice on Meta');
+  assert.match(reply, /event: done\ndata: \{[^\n]*"searched":true/, 'the finished answer keeps its looked-up mark and its sources');
   assert.match(reply, /event: sources\ndata: \{"items":\[\{"url":"https:\/\/frontpageafricaonline\.com\/rice-prices-climb\/"/);
   // "How I found this": what was searched, how much was read, and when.
   const how = JSON.parse(reply.match(/event: sources\ndata: (.*)\n/)[1]).how;
@@ -188,4 +190,19 @@ test('a question with several parts is searched part by part, with each source d
   assert.equal(searched.filter((url) => /\/feed\/$|rss\.xml$/.test(url)).length, 3, 'each of the three feeds is fetched once, for both parts');
   assert.match(RESEARCH_NOTES_PROMPT, /answer every part, in order/);
   assert.match(RESEARCH_NOTES_PROMPT, /never average them into one number/);
+});
+
+test('Wikipedia articles that are not about the question are left out', async () => {
+  clearResearchCache();
+  const fetcher = async (url) => {
+    const target = String(url);
+    if (target.includes('list=search')) return Response.json({ query: { search: [{ title: 'William Tolbert' }, { title: 'Rice production in Liberia' }] } });
+    if (target.includes('prop=extracts')) return Response.json({ query: { pages: [
+      { title: 'William Tolbert', fullurl: 'https://en.wikipedia.org/wiki/William_Tolbert', extract: 'William Tolbert was the 20th president of Liberia. His body was moved to Monrovia.' },
+      { title: 'Rice production in Liberia', fullurl: 'https://en.wikipedia.org/wiki/Rice_production_in_Liberia', extract: 'Rice is the staple food; the price of imported rice is set in Monrovia.' },
+    ] } });
+    return new Response('busy', { status: 429 });
+  };
+  const found = await gatherResearch('What is the price of rice in Monrovia', { fetcher, lookup: publicLookup });
+  assert.deepEqual(found.sources.map((source) => source.url), ['https://en.wikipedia.org/wiki/Rice_production_in_Liberia']);
 });

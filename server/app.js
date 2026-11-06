@@ -1085,7 +1085,8 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     // about nothing would have no idea why.
     if (photoRefused) send('notice', { message: photoRefused });
     if (dropped) send('notice', { message: `${dropped} earlier messages were left out of this request; your latest question was kept whole.` });
-    if (!reader && (req.body?.search === true || (research !== 'off' && needsLookingUp(routedQuestion, new Date(), research === 'always')))) {
+    // Only when nothing can look it up: on Meta, Grandpa's own research (server/research.js) does.
+    if (!reader && !llamaAll && (req.body?.search === true || (research !== 'off' && needsLookingUp(routedQuestion, new Date(), research === 'always')))) {
       send('notice', { message: 'Live research is unavailable on this account right now. This answer will use existing knowledge; current details cannot be verified.' });
     }
 
@@ -1286,6 +1287,8 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
             for (const item of found.sources) if (!sources.some((s) => s.url === item.url)) sources.push(item);
             system = promptFor('notes') + (deepResearch ? `\n\n${REPORT_PROMPT}` : '');
             searched = true;
+            // It really was looked up: the answer keeps its "looked up" mark and its sources when it is done.
+            didSearch = true;
             researchNotes = found.notes;
             researchHow = { ...found.how, count: found.count, deep: deepResearch };
             return true;

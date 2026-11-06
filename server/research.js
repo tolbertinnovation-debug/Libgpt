@@ -143,7 +143,11 @@ export async function searchWikipedia(question, { fetcher = fetch, limit = 2 } =
   const titles = (found.query?.search || []).map((hit) => hit.title).slice(0, limit);
   if (!titles.length) return [];
   const pages = JSON.parse(await fetchText(`${api}&action=query&prop=extracts|info&inprop=url&exintro=1&explaintext=1&exlimit=${titles.length}&titles=${encodeURIComponent(titles.join('|'))}`, { fetcher, accept: 'application/json' }));
-  return (pages.query?.pages || []).filter((page) => page.extract).map((page) => ({
+  // Only articles that are about the question: Wikipedia's search returns its best guess even when nothing fits
+  // ("price of rice in Monrovia" finds a president and a rice project in Indonesia).
+  const strong = words.filter((word) => !WEAK.has(word)).length;
+  const about = (page) => matchScore({ title: String(page.title || ''), text: String(page.extract || '').slice(0, 1500) }, words) >= (strong >= 2 ? 2.5 : 1.5);
+  return (pages.query?.pages || []).filter((page) => page.extract && about(page)).map((page) => ({
     title: `${page.title} (Wikipedia)`, url: page.fullurl || `https://en.wikipedia.org/wiki/${encodeURIComponent(page.title.replace(/ /g, '_'))}`,
     date: page.touched || null, text: String(page.extract).replace(/\s+/g, ' ').slice(0, 1500), source: 'Wikipedia', liberian: false,
   }));
