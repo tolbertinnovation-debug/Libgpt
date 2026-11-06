@@ -28,11 +28,12 @@ import { recipeGuide, kindLine } from '../public/build-recipes.js';
  * pointing at images that never arrive — the exact shape of failure this
  * whole area has already been bitten by once.
  */
-export const buildPrompt = ({pictures=false,runtime='static',recipe=null,kind='website'}={}) => {
+export const buildPrompt = ({pictures=false,runtime='static',recipe=null,kind='website',direction=''}={}) => {
   let prompt=pictures?BUILD_PROMPT:BUILD_PROMPT.replace(/\nPICTURES\n[\s\S]*?\nWHAT TO BUILD WITH/,'\nWHAT TO BUILD WITH');
   // An app gets the app rules and a website the website rules: the person said which (see projectKind).
   const what=kind==='app'?`WHAT YOU ARE MAKING: ${kindLine('app')} The person asked for an app, so make an app and nothing like a website. Where the rules above say website or page, read app and screen.`:`WHAT YOU ARE MAKING: ${kindLine('website')}`;
-  prompt=`${prompt}\n\n${what}\n\n${designRules(kind)}\n\n${KIT_GUIDE}${recipe ? `\n\n${recipeGuide(recipe,kind)}` : ''}`;
+  // A new website also gets its creative direction (public/build-direction.js): one brand, chosen before building.
+  prompt=`${prompt}\n\n${what}\n\n${designRules(kind)}\n\n${KIT_GUIDE}${recipe ? `\n\n${recipeGuide(recipe,kind)}` : ''}${direction ? `\n\n${direction}` : ''}`;
   if(runtime==='nextjs')return prompt.replace(/WHAT TO BUILD WITH\n[\s\S]*?\nQUALITY REQUIREMENTS/,`${NEXTJS_GUIDE}\n\nQUALITY REQUIREMENTS`)
     .replace(/\nEXPLAINING\n[\s\S]*?\nWHEN IT IS BROKEN/,`\n${NEXTJS_EXPLAINING}\n\nWHEN IT IS BROKEN`)
     .split(`\n\n${what}`)[0]+`\n\nWHAT YOU ARE MAKING: a real ${kind==='website'?'website':'web app'} as a Next.js project the person runs on their own computer and can put on GitHub or Vercel. Make it look finished: clear headings, roomy spacing, one brand colour, friendly empty states, and big touch targets on phones.`;
