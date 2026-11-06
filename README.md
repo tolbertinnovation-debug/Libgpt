@@ -241,7 +241,8 @@ director picks one art direction from your words: a tested colour set, fonts, th
 style, the home page sections in order, and a model page in the Grandpa Kit 18 premium
 pieces. After every save a free **design score** (0–100, no AI cost) checks how finished it
 looks (apps get their own check: top bar, tab bar, screens, labelled fields, empty states). Under 85 it lists what is missing in plain words, and **Polish the design** fixes it
-— only when you tap it.
+— only when you tap it. A brand-new website or app that scores under 85 is polished once
+automatically before you look (one extra build request, never more).
 **Try another style** (in What next?) switches the colours and fonts of the whole website in one
 tap, free and undoable; the same sheet has one-tap improvements such as *Add customer reviews*.
 To measure design quality, open **/benchmark.html** while signed in: it builds 15 typical

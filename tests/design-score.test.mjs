@@ -87,3 +87,15 @@ test('a rough app is told what makes it feel unfinished, in plain words', () => 
   assert.ok(result.tips.every((tip) => !/[<>{}]|gk-/.test(tip)));
   assert.match(polishRequest(result.issues, 'app'), /real installed phone app.*Keep every screen, feature, record/s);
 });
+
+test('Grandpa polishes a weak new build once, with exactly one extra request, before the person looks', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const ritual = await readFile(new URL('../public/ritual.js', import.meta.url), 'utf8');
+  const fn = ritual.slice(ritual.indexOf('export async function selfPolish'), ritual.indexOf('async function checkAfterSaving'));
+  assert.match(ritual, /export const SELF_POLISH_BELOW = 85;/);
+  assert.match(fn, /p\.selfPolished \|\| p\.stages \|\| isBusy\(\)/, 'once per project, never for staged projects or while busy');
+  assert.match(fn, /design\.score >= SELF_POLISH_BELOW/);
+  assert.match(fn, /repairsLeft: 0, look: false, readsLeft: 0/, 'no automatic repair, phone look or file reads on this pass');
+  assert.match(ritual, /p\.team\?\.status!=='stopped'\)await selfPolish\(p\)/, 'after a team build');
+  assert.match(ritual, /job\.status==='approved' && p===project\(\)\)await selfPolish\(p\)/, 'after a cloud build');
+});
