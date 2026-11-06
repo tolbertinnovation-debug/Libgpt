@@ -244,6 +244,9 @@ looks. Under 85 it lists what is missing in plain words, and **Polish the design
 — only when you tap it.
 **Try another style** (in What next?) switches the colours and fonts of the whole website in one
 tap, free and undoable; the same sheet has one-tap improvements such as *Add customer reviews*.
+To measure design quality, open **/benchmark.html** while signed in: it builds 15 typical
+websites from one sentence each (normal paid Build requests, only after you confirm) and
+scores them for free, with a summary to copy.
 
 Big requests ("build FarmDoctor step by step with Next.js, Neon and Tailwind") are
 split into numbered stages. Each stage is built, then you test it before the next one
