@@ -30,8 +30,8 @@ test('a light brand colour that cannot carry white text is flagged', () => {
   assert.match(result.issues[0], /too light/);
 });
 
-test('apps and projects without pages are not scored', () => {
-  assert.equal(scoreDesign([{ path: 'index.html', body: '<body class="gk-app"></body>' }]).scored, false);
+test('projects without pages are not scored; apps get the app score', () => {
+  assert.equal(scoreDesign([{ path: 'index.html', body: '<body class="gk-app"></body>' }]).kind, 'app');
   assert.equal(scoreDesign([{ path: 'app.js', body: 'x' }]).scored, false);
   assert.equal(scoreDesign([{ path: 'index.html', body: premium }, { path: '404.html', body: '<p>gone</p>' }, css]).score, 100);
 });
@@ -52,10 +52,10 @@ test('the creative direction carries the model page that would itself score well
 test('the Build receipt shows the score and a Polish button only when asked for', async () => {
   const { readFile } = await import('node:fs/promises');
   const ritual = await readFile(new URL('../public/ritual.js', import.meta.url), 'utf8');
-  assert.match(ritual, /import \{ scoreDesign, polishRequest \} from '\.\/design-score\.js\?v=score-1'/);
+  assert.match(ritual, /import \{ scoreDesign, polishRequest \} from '\.\/design-score\.js\?v=score-2'/);
   assert.match(ritual, /turn\.design = scoreDesign\(p\.files\)/);
   assert.match(ritual, /data-polish=/);
-  assert.match(ritual, /send\(polishRequest\(turn\.design\.issues\)\)/);
+  assert.match(ritual, /send\(polishRequest\(turn\.design\.issues, turn\.design\.kind\)\)/);
 });
 
 test('the person sees short plain tips, the builder gets the exact points', () => {
@@ -64,4 +64,26 @@ test('the person sees short plain tips, the builder gets the exact points', () =
   assert.ok(result.tips.every((tip) => !/[<>{}]|gk-|\.html/.test(tip)), result.tips.join(' | '));
   assert.equal(new Set(result.tips).size, result.tips.length);
   assert.ok(result.issues.some((issue) => /gk-split/.test(issue)));
+});
+
+const goodApp = `<!doctype html><html lang="en"><head><meta name="viewport" content="width=device-width, initial-scale=1"><title>Shop Stock</title><link rel="stylesheet" href="assets/grandpa-kit.css"><style>:root{--brand:#166534;--accent:#eab308}</style><script src="assets/grandpa-app.js" defer></script><script src="app.js" defer></script></head>
+<body class="gk-app"><header class="gk-app-bar"><button data-app-back aria-label="Back"><svg></svg></button><h1 data-app-title>Stock</h1></header>
+<main class="gk-app-main"><section data-screen="home" data-title="Stock"><ul class="gk-list"></ul><div class="gk-empty">No items yet.</div><button class="gk-fab" aria-label="Add item">+</button></section>
+<section data-screen="add" data-title="Add" hidden><label for="name">Name</label><input id="name"><label>Price <input type="number"></label></section><section data-screen="settings" data-title="Settings" hidden></section></main>
+<nav class="gk-appbar"><a href="#home">Stock</a><a href="#add">Add</a><a href="#settings">Settings</a></nav></body></html>`;
+
+test('a finished app following the app standard scores high', () => {
+  const result = scoreDesign([{ path: 'index.html', body: goodApp }, { path: 'app.js', body: 'function removeItem(id){ if (confirm("Delete?")) App.db.remove(id); }' }]);
+  assert.equal(result.kind, 'app');
+  assert.equal(result.score, 100, result.issues.join(' | '));
+});
+
+test('a rough app is told what makes it feel unfinished, in plain words', () => {
+  const rough = '<html><body class="gk-app"><h1>Stock</h1><button><svg></svg></button><input placeholder="Name"><ul class="gk-list"></ul></body></html>';
+  const result = scoreDesign([{ path: 'index.html', body: rough }, { path: 'app.js', body: 'alert("saved"); function deleteItem(){}' }]);
+  assert.ok(result.score < 40, `score ${result.score}`);
+  const tips = result.tips.join(' | ');
+  for (const words of ['top bar', 'tab bar', 'More than one screen', 'Name every icon button', 'label on every form field', 'nothing saved yet', 'browser pop-ups', 'Ask before deleting']) assert.ok(tips.includes(words), words);
+  assert.ok(result.tips.every((tip) => !/[<>{}]|gk-/.test(tip)));
+  assert.match(polishRequest(result.issues, 'app'), /real installed phone app.*Keep every screen, feature, record/s);
 });

@@ -28,5 +28,5 @@ test('the page uses the browser\'s own sign-in and asks before spending', async 
   assert.match(js, /localStorage\.getItem\(CODE_KEY\)/);
   assert.match(js, /confirm\(`Build \$\{left\.length\}/);
   assert.match(html, /<meta name="robots" content="noindex">/);
-  assert.match(html, /benchmark\.js\?v=bench-1/);
+  assert.match(html, /benchmark\.js\?v=bench-2/);
 });

@@ -77,3 +77,11 @@ test('Kit 18 premium sections are in the kit and in the builders\' guide', async
   assert.match(css, /\.gk-split-media img\{[^}]*height:auto;aspect-ratio:4\/3/);
   assert.match(css, /\.gk-feature-row>img\{[^}]*height:auto;aspect-ratio:3\/2/);
 });
+
+test('the trust row ticks follow the brand colour, not a fixed green', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const css = await readFile(new URL('../public/kit/grandpa-kit.css', import.meta.url), 'utf8');
+  const rule = css.match(/\.gk-trust li::before\{[^}]*\}/)[0];
+  assert.match(rule, /color:var\(--brand\)/);
+  assert.doesNotMatch(rule, /%23[0-9a-f]{6}/i);
+});

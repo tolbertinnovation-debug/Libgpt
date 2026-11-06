@@ -40,7 +40,7 @@ import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js
 import { wantsApp, markApp } from './build-app.js?v=app-1';
 import { kindLine } from './build-recipes.js?v=kind-1';
 import { designIssues } from './build-data-check.js?v=code-1';
-import { scoreDesign, polishRequest } from './design-score.js?v=score-1';
+import { scoreDesign, polishRequest } from './design-score.js?v=score-2';
 import { STYLE_NAMES, currentStyle, canRestyle, restyle, IMPROVEMENTS } from './build-style.js?v=style-1';
 import { PALETTES } from './build-direction.js?v=score-1';
 import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, replacePlayer, creditsPage, linkCredits } from './build-media.js?v=media-4';
@@ -625,7 +625,7 @@ function proposalHtml(files, index, applied, checked, receipt, design) {
     const designChip = scored && design.score >= 85 ? `<span class="receipt-design is-good" title="Design score: how finished the website looks">Design ${design.score}</span>` : '';
     const latest = p.messages.findLastIndex((m) => m.design?.scored) === index;
     const polish = scored && latest && design.score < 85 && design.issues.length ? `<div class="design-polish">
-        <p><strong>Design ${design.score}/100.</strong> To look premium and finished, it needs:</p>
+        <p><strong>Design ${design.score}/100.</strong> ${design.kind === 'app' ? 'To feel like a real phone app' : 'To look premium and finished'}, it needs:</p>
         <ul>${(design.tips || design.issues).slice(0, 4).map((tip) => `<li>${escapeHtml(tip)}</li>`).join('')}</ul>
         ${design.polished ? '' : `<button class="build-chip is-primary" type="button" data-polish="${index}">Polish the design</button>`}
       </div>` : '';
@@ -1101,7 +1101,7 @@ async function unpublishFromWeb() {
 
 /* ---- The Grandpa Kit ----------------------------------------------------- */
 /** Add the shared design kit to a project once, so builders can use its sections and effects. */
-const KIT_VERSION = 'Grandpa Kit 18';
+const KIT_VERSION = 'Grandpa Kit 19';
 async function ensureKit(p) {
   // An older kit is replaced by the current one (only the kit ever changes the kit).
   const kit = (p?.files || []).filter((f) => isKitFile(f.path));
@@ -1109,7 +1109,7 @@ async function ensureKit(p) {
   if (!p || (kit.length === paths.length && kit.every((f) => String(f.body).startsWith(`/* ${KIT_VERSION} `)))) return true;
   try {
     const bodies = await Promise.all(paths.map(async (path) => {
-      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-18`);
+      const response = await fetch(`/kit/${path.split('/').pop()}?v=kit-19`);
       if (!response.ok) throw new Error('kit');
       return response.text();
     }));
@@ -3490,7 +3490,7 @@ export async function mount(options = {}) {
     if (event.target.closest('[data-create-photos]')) { const p = project(); if (!isBusy()) createPhotos(p); return; }
     if (event.target.closest('[data-style-open]')) { showStyles(); return; }
     const polishBtn = event.target.closest('[data-polish]');
-    if (polishBtn) { const turn = project()?.messages[Number(polishBtn.dataset.polish)]; if (turn?.design && !isBusy()) { turn.design.polished = true; persist(); send(polishRequest(turn.design.issues)); } return; }
+    if (polishBtn) { const turn = project()?.messages[Number(polishBtn.dataset.polish)]; if (turn?.design && !isBusy()) { turn.design.polished = true; persist(); send(polishRequest(turn.design.issues, turn.design.kind)); } return; }
     const fixEdits = event.target.closest('[data-fix-edits]');
     if (fixEdits) { fixAfterEdits(Number(fixEdits.dataset.fixEdits)); return; }
     const undo = event.target.closest('[data-undo]');
