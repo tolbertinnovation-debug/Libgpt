@@ -236,6 +236,13 @@ shows a preview:
 - **Publish** — put it on the web at `sites.libgrandpaai.com`.
 - **⋮ menu** — new build, earlier versions, download, Save to GitHub (straight to the main branch by default), and for Next.js projects Vercel and Neon.
 
+**Premium websites from one sentence.** Before a new website is built, Grandpa's creative
+director picks one art direction from your words: a tested colour set, fonts, the photo
+style, the home page sections in order, and a model page in the Grandpa Kit 18 premium
+pieces. After every save a free **design score** (0–100, no AI cost) checks how finished it
+looks. Under 85 it lists what is missing in plain words, and **Polish the design** fixes it
+— only when you tap it.
+
 Big requests ("build FarmDoctor step by step with Next.js, Neon and Tailwind") are
 split into numbered stages. Each stage is built, then you test it before the next one
 starts, with a Windows PowerShell guide for running it on your own computer. Connect

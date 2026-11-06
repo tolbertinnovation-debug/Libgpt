@@ -40,6 +40,7 @@ import { qualityReport, qualityRequest, bigPictures } from './publish-quality.js
 import { wantsApp, markApp } from './build-app.js?v=app-1';
 import { kindLine } from './build-recipes.js?v=kind-1';
 import { designIssues } from './build-data-check.js?v=code-1';
+import { scoreDesign, polishRequest } from './design-score.js?v=score-1';
 import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, replacePlayer, creditsPage, linkCredits } from './build-media.js?v=media-4';
 import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=kit-2';
 
@@ -251,7 +252,7 @@ function renderThread() {
       return `<div class="build-turn build-turn-you">${turn.attached ? attachedHtml(p, turn.attached) : escapeHtml(turn.content)}</div>`;
     }
     const proposal = turn.proposal
-      ? proposalHtml(turn.proposal, index, turn.applied, turn.checked, turn.changeReceipt)
+      ? proposalHtml(turn.proposal, index, turn.applied, turn.checked, turn.changeReceipt, turn.design)
       : '';
     const stepLabel = turn.step ? `<p class="build-step-label">${escapeHtml(turn.step)}</p>` : '';
     const todo = turn.todo ? todoHtml(turn.todo, index === latestUndo) : '';
@@ -576,7 +577,7 @@ function fixHint(p) {
   return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-next-label">What next?</p><div class="build-chips">${githubChip}${publishChip}${photoChip}${chips}${policyChip}${versions}</div></div>`;
 }
 
-function proposalHtml(files, index, applied, checked, receipt) {
+function proposalHtml(files, index, applied, checked, receipt, design) {
   const p = project();
   const shape = applied ? receipt || files.map(f=>({path:f.path,kind:"saved"})) : describeChanges(p.files, files);
   const changed = shape.some(f=>f.kind!=="same");
@@ -615,12 +616,22 @@ function proposalHtml(files, index, applied, checked, receipt) {
     const status = checked === 'checking' ? '<span class="receipt-check is-checking">Checking…</span>'
       : faults ? `<span class="receipt-check is-bad">${checked.length === 1 ? '1 problem' : `${checked.length} problems`}</span>`
       : Array.isArray(checked) ? '<span class="receipt-check is-ok">Checks passed</span>' : '';
+    // The free design score (no model): how finished the website looks. Below 85 it says what is weak and offers
+    // one tap to polish it; Grandpa only spends a model call when the person asks.
+    const scored = design?.scored && Array.isArray(checked) && !faults;
+    const designChip = scored && design.score >= 85 ? `<span class="receipt-design is-good" title="Design score: how finished the website looks">Design ${design.score}</span>` : '';
+    const latest = p.messages.findLastIndex((m) => m.design?.scored) === index;
+    const polish = scored && latest && design.score < 85 && design.issues.length ? `<div class="design-polish">
+        <p><strong>Design ${design.score}/100.</strong> To look premium and finished, it needs:</p>
+        <ul>${(design.tips || design.issues).slice(0, 4).map((tip) => `<li>${escapeHtml(tip)}</li>`).join('')}</ul>
+        ${design.polished ? '' : `<button class="build-chip is-primary" type="button" data-polish="${index}">Polish the design</button>`}
+      </div>` : '';
     const note = p.stages?.nextjs ? 'Saved on this device. Project check covers files, imports, packages, settings and secrets: test it on your computer.'
       : 'Saved on this device. Test the buttons and forms before publishing.';
     return `<details class="proposal is-applied receipt">
-      <summary><span class="receipt-icon" aria-hidden="true">✓</span><span class="receipt-text"><strong>${real.length} file${real.length === 1 ? '' : 's'} saved</strong><span class="receipt-files">${escapeHtml(shown)}</span></span>${status}<svg class="receipt-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
+      <summary><span class="receipt-icon" aria-hidden="true">✓</span><span class="receipt-text"><strong>${real.length} file${real.length === 1 ? '' : 's'} saved</strong><span class="receipt-files">${escapeHtml(shown)}</span></span>${status}${designChip}<svg class="receipt-chev" viewBox="0 0 24 24" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></summary>
       <div class="receipt-body">${rows}<p class="receipt-note">${note}</p></div>
-    </details>${faults || checked === 'checking' ? after : ''}`;
+    </details>${faults || checked === 'checking' ? after : ''}${polish}`;
   }
   return `<div class="proposal ${applied ? 'is-applied' : ''}">
     <h4>${applied ? changed ? 'These files were saved' : 'No file changes returned' : `${files.length} file${files.length === 1 ? '' : 's'} to save`}</h4>
@@ -2463,6 +2474,7 @@ async function checkAfterSaving(turn) {
   renderThread();
   try {
     turn.checked = await faultsIn(p.files);
+    try { turn.design = scoreDesign(p.files); } catch { turn.design = null; }
   } catch {
     // A check that falls over must not look like a build that failed.
     turn.checked = ['The preview check could not finish. Retry checking before publishing.'];
@@ -3441,6 +3453,8 @@ export async function mount(options = {}) {
     if (event.target.closest('[data-web-publish]')) { showWebPublish(); return; }
     if (event.target.closest('[data-gh-save]')) { showSaveToGitHub(); return; }
     if (event.target.closest('[data-create-photos]')) { const p = project(); if (!isBusy()) createPhotos(p); return; }
+    const polishBtn = event.target.closest('[data-polish]');
+    if (polishBtn) { const turn = project()?.messages[Number(polishBtn.dataset.polish)]; if (turn?.design && !isBusy()) { turn.design.polished = true; persist(); send(polishRequest(turn.design.issues)); } return; }
     const fixEdits = event.target.closest('[data-fix-edits]');
     if (fixEdits) { fixAfterEdits(Number(fixEdits.dataset.fixEdits)); return; }
     const undo = event.target.closest('[data-undo]');
