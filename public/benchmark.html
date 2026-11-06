@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Design benchmark · Grandpa AI</title>
+<style>
+  :root { --bg: #fbf6ea; --card: #fffdf7; --text: #2b1d17; --soft: #6b5a4e; --line: #e6d8bc; --brand: #e07b00; --good: #4e7d3f; --bad: #c62828; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #17100e; --card: #221715; --text: #f4ece0; --soft: #c4b3a2; --line: #3a2a25; --good: #7fa86a; --bad: #ef8a80; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+  h1 { font-size: 1.6rem; margin: 0 0 8px; }
+  p { color: var(--soft); margin: 0 0 16px; }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0; }
+  button { min-height: 44px; padding: 0 18px; border-radius: 999px; border: 1px solid var(--line); background: var(--card); color: var(--text); font: inherit; font-weight: 600; cursor: pointer; }
+  button.primary { background: var(--brand); border-color: var(--brand); color: #1d1206; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { min-height: 1.5em; font-weight: 600; color: var(--text); }
+  ol { list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 8px; }
+  li { display: flex; gap: 12px; align-items: flex-start; padding: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; }
+  li small { display: block; color: var(--soft); }
+  .score { flex: none; width: 48px; text-align: center; font-weight: 800; font-size: 1.1rem; padding: 4px 0; border-radius: 8px; }
+  .good { color: var(--good); } .weak { color: var(--bad); } .none { color: var(--soft); }
+  pre { white-space: pre-wrap; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; font-size: .9rem; user-select: all; }
+  a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <p><a href="/">← Back to Grandpa</a></p>
+  <h1>Design benchmark</h1>
+  <p>Grandpa builds 15 typical websites from one sentence each, then scores how finished and premium each one looks (free, no AI). Each build is one normal Build request (about $0.10 each on Meta). Use it after changes to see whether websites got better.</p>
+  <div class="actions">
+    <button class="primary" id="run" type="button">Run the test builds</button>
+    <button id="stop" type="button" hidden>Stop</button>
+    <button id="copy" type="button">Copy the summary</button>
+    <button id="clear" type="button">Clear results</button>
+  </div>
+  <p id="status" role="status"></p>
+  <ol id="results"></ol>
+  <pre id="summary"></pre>
+</main>
+<script type="module">import { start } from './benchmark.js?v=bench-1'; start();</script>
+</body>
+</html>
