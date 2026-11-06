@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { keywords, parseFeed, matchScore, safeToRead, pageText, gatherResearch, clearResearchCache, RESEARCH_NOTES_PROMPT } from '../server/research.js';
+import { keywords, parseFeed, matchScore, safeToRead, pageText, gatherResearch, clearResearchCache, subQuestions, age, RESEARCH_NOTES_PROMPT } from '../server/research.js';
 import { isolatedLedger } from './support/ledger.mjs';
 
 const FEED = `<?xml version="1.0"?><rss><channel>
@@ -66,7 +66,7 @@ test('research gathers numbered notes from feeds, the article and Wikipedia, mar
   // Nothing found anywhere: no notes, so Grandpa says he found nothing.
   clearResearchCache();
   const nothing = await gatherResearch('What are rice prices in Liberia today?', { fetcher: async () => new Response('down', { status: 503 }), lookup: publicLookup });
-  assert.deepEqual(nothing, { notes: '', sources: [], count: 0 });
+  assert.deepEqual(nothing, { notes: '', sources: [], count: 0, parts: ['What are rice prices in Liberia today?'] });
 });
 
 test('chat on Meta looks a news question up first, answers from the notes and shows the sources', async (t) => {
@@ -129,4 +129,37 @@ test('chat on Meta looks a news question up first, answers from the notes and sh
   metaReply = () => ({ choices: [{ delta: { content: 'Morning!' }, finish_reason: 'stop' }] });
   await post({ messages: [{ role: 'user', content: 'Good morning Grandpa' }] });
   assert.ok(!metaBodies.some((body) => (body.messages || []).some((m) => /^RESEARCH NOTES/.test(m.content || ''))));
+});
+
+test('a question with several parts is searched part by part, with each source dated and aged', async () => {
+  assert.deepEqual(subQuestions('What is the price of rice in Monrovia and how should I store rice in the rainy season?'),
+    ['What is the price of rice in Monrovia', 'how should I store rice in the rainy season?']);
+  assert.deepEqual(subQuestions('Compare cassava and rice farming in Bong County. What are the costs? Which sells better?'),
+    ['Compare cassava and rice farming in Bong County', 'What are the costs (cassava rice farming)', 'Which sells better (cassava rice farming)'], 'short follow-on parts keep the topic');
+  assert.deepEqual(subQuestions('1. Fuel prices in Liberia\n2. Rice prices\n3. Exchange rate today'), ['Fuel prices in Liberia', 'Rice prices', 'Exchange rate today'], 'list items stand alone');
+  assert.deepEqual(subQuestions('What is the latest news on the economy in Liberia?'), ['What is the latest news on the economy in Liberia?']);
+  const now = new Date('2026-11-06T09:00:00Z');
+  assert.equal(age('2026-11-06T01:00:00Z', now), 'today');
+  assert.equal(age('2026-11-05T22:00:00Z', now), 'yesterday', 'calendar days, not hours');
+  assert.equal(age('2026-11-01T10:00:00Z', now), '5 days old');
+  assert.equal(age('2026-08-01T00:00:00Z', now), '3 months old');
+
+  clearResearchCache();
+  const storage = `<rss><channel><item><title>How to Store Rice Through the Rainy Season</title><link>https://www.thenewdawnliberia.com/store-rice/</link><pubDate>Sun, 01 Nov 2026 08:00:00 +0000</pubDate><description>Keep rice dry and off the floor during the rainy season.</description></item></channel></rss>`;
+  const searched = [];
+  const fetcher = async (url) => {
+    const target = String(url);
+    searched.push(target);
+    if (target.includes('frontpageafricaonline.com/feed')) return new Response(FEED);
+    if (target.includes('thenewdawnliberia.com/feed')) return new Response(storage);
+    return new Response('busy', { status: 429 });
+  };
+  const found = await gatherResearch('What is the price of rice in Monrovia and how should I store rice in the rainy season?', { fetcher, lookup: publicLookup, now });
+  assert.equal(found.parts.length, 2);
+  assert.match(found.notes, /The question has 2 parts, each searched on its own:\nPart 1: What is the price of rice in Monrovia\nPart 2: how should I store rice in the rainy season\?/);
+  assert.match(found.notes, /\(for part 1\) \[\d\] FrontPage Africa — "Liberia: Rice Prices Climb Again in Monrovia Markets" — 05 Nov 2026 \(yesterday\)/);
+  assert.match(found.notes, /\(for part 2\) \[\d\] The New Dawn — "How to Store Rice Through the Rainy Season" — 01 Nov 2026 \(5 days old\)/);
+  assert.equal(searched.filter((url) => /\/feed\/$|rss\.xml$/.test(url)).length, 3, 'each of the three feeds is fetched once, for both parts');
+  assert.match(RESEARCH_NOTES_PROMPT, /answer every part, in order/);
+  assert.match(RESEARCH_NOTES_PROMPT, /never average them into one number/);
 });
