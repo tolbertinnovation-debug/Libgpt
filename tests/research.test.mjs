@@ -110,6 +110,11 @@ test('chat on Meta looks a news question up first, answers from the notes and sh
   assert.doesNotMatch(sent.messages[0].content, /No web results have been retrieved/);
   assert.match(reply, /"searched":true/, 'the reader is told it was looked up');
   assert.match(reply, /event: sources\ndata: \{"items":\[\{"url":"https:\/\/frontpageafricaonline\.com\/rice-prices-climb\/"/);
+  // "How I found this": what was searched, how much was read, and when.
+  const how = JSON.parse(reply.match(/event: sources\ndata: (.*)\n/)[1]).how;
+  assert.ok(how.searched.includes('FrontPage Africa') && how.searched.includes('Wikipedia'));
+  assert.equal(how.read, 1, 'the article was read in full');
+  assert.ok(how.count >= 1 && !Number.isNaN(Date.parse(how.at)));
 
   // Meta can decide by itself that a question needs looking up (search_web), and then answers from the notes.
   clearResearchCache();

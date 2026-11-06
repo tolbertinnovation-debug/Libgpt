@@ -271,9 +271,12 @@ export async function gatherResearch(question, { fetcher = fetch, lookup, now = 
   if (reading.length) say(`Reading ${reading.length} ${reading.length === 1 ? 'article' : 'articles'} in full…`);
   await Promise.all(reading.map(async (item) => {
     const full = await within(readPage(item.url, { fetcher, lookup, limit: deep ? 3500 : 2200 }), deep ? 6000 : 3500, '');
-    if (full.length > item.text.length) item.text = full;
+    if (full.length > item.text.length) { item.text = full; item.readInFull = true; }
   }));
   const found = [...pasted, ...rates, ...gathered].filter((item) => item.text || item.title);
+  // Where it looked, for "How I found this" under the answer.
+  const searched = [...NEWS_FEEDS.map((feed) => feed.name), 'GDELT world news', 'Wikipedia', ...(rates.length ? ['ExchangeRate-API'] : []), ...(links.length ? ['the page you shared'] : [])];
+  const how = { parts, searched, read: reading.filter((item) => item.readInFull).length + pasted.length, at: now.toISOString() };
   if (!found.length) return { notes: '', sources: [], count: 0, parts };
   say(`Checking ${found.length} ${found.length === 1 ? 'source' : 'sources'} against each other…`);
   // A Wikipedia page's date is only when it was last edited, so it is shown as a reference, not as news.
@@ -284,7 +287,7 @@ export async function gatherResearch(question, { fetcher = fetch, lookup, now = 
     ...(several ? [`The question has ${parts.length} parts, each searched on its own:\n${parts.map((part, index) => `Part ${index + 1}: ${part}`).join('\n')}`] : []),
     ...found.map((item, index) => (several && item.part !== undefined ? `(for part ${item.part + 1}) ` : '') + entry(item, index)),
   ].join('\n\n');
-  return { notes, sources: found.map((item) => ({ url: item.url, title: [item.source, item.source === 'Wikipedia' ? '' : day(item.date)].filter((part) => part && part !== 'date not given').join(' · ') || item.title })), count: found.length, parts };
+  return { notes, sources: found.map((item) => ({ url: item.url, title: [item.source, item.source === 'Wikipedia' ? '' : day(item.date)].filter((part) => part && part !== 'date not given').join(' · ') || item.title })), count: found.length, parts, how };
 }
 
 /** How to answer from the notes. Replaces the "you cannot look anything up" rule for this turn. */

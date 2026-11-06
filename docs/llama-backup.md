@@ -82,6 +82,9 @@ numbered notes:
   Wikipedia…", "Reading 6 articles in full…", "Checking 9 sources against each other…").
 - **The buttons:** **Search the web** and **Deep research** show whenever Meta is set up (`liveNews` is now true
   on Meta, not only with OpenAI's web tool).
+- **Under the answer:** numbered source chips (matching the [1], [2] in the answer, with paper and date), a
+  fold-out **How I found this** (the parts searched, the sources searched, how many articles were read in full,
+  and when), and **Check again for the latest**, which asks the same question again with a fresh lookup.
 - **Speed:** about 4–6 seconds (deep research up to about 18). Every source has its own time limit and anything slow or busy is left out.
   Feeds and pages are kept for 10 minutes, so the next question does not fetch them again.
 - **Safety:** only public `https` addresses are read (no raw IPs, local names, odd ports, or hosts that

@@ -1227,7 +1227,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
       + 'The oldest messages are not shown here. These notes were written from them; the messages below and the person\'s latest corrections take precedence.\n'
       + earlier });
     // Research notes for this turn (server/research.js), placed right after the system message.
-    let researchNotes = '';
+    let researchNotes = '', researchHow = null;
     const withNotes = (conversation) => (researchNotes ? [conversation[0], { role: 'system', content: researchNotes }, ...conversation.slice(1)] : conversation);
     const opening = () => (carryingOn
       ? [
@@ -1287,6 +1287,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
             system = promptFor('notes') + (deepResearch ? `\n\n${REPORT_PROMPT}` : '');
             searched = true;
             researchNotes = found.notes;
+            researchHow = { ...found.how, count: found.count, deep: deepResearch };
             return true;
           };
           const wantsLookUp = !building && !carryingOn && research !== 'off' && !photo && !document
@@ -1384,7 +1385,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
 
     // Where he read it. Sent before "done" so the browser has them by the time
     // it files the answer away.
-    if (sources.length) send('sources', { items: sources });
+    if (sources.length) send('sources', { items: sources, ...(researchHow ? { how: researchHow } : {}) });
     for (const action of actions) send('action', action);
 
     // A turn that was sent to search but never searched has no business
@@ -1407,7 +1408,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
   } catch (error) {
     if (timedOut && !res.destroyed) {
       if (answer.trim()) {
-        if (sources.length) send('sources', { items: sources });
+        if (sources.length) send('sources', { items: sources, ...(researchHow ? { how: researchHow } : {}) });
         send('notice', { message: 'This part reached the response time limit. Choose Continue to keep going.' });
         send('done', { truncated: true, searched: didSearch });
       } else {
@@ -1420,7 +1421,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
         error instanceof OpenAIError || governanceError(error) ? error.message : 'Something went wrong reaching the AI. Try again.';
       if (!(error instanceof OpenAIError) && !governanceError(error)) console.error('[chat]', error);
       if (answer.trim()) {
-        if (sources.length) send('sources', { items: sources });
+        if (sources.length) send('sources', { items: sources, ...(researchHow ? { how: researchHow } : {}) });
         send('notice', { message: `${message} Your partial answer is saved; choose Continue to finish.` });
         send('done', { truncated: true, searched: didSearch });
       } else send('error', { message });

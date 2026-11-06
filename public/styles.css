@@ -4269,3 +4269,13 @@ body {
 #preview-edit[aria-pressed="false"]::before { content: '✎'; font-size: var(--text-base); line-height: 1; }
 #preview-edit[aria-pressed="true"] { background: var(--green); border-color: var(--green); color: #fff; }
 #preview-edit[aria-pressed="true"]::before { content: '✓'; }
+
+/* ---- Research: numbered source chips, How I found this, Check again ------------------------------ */
+.sources a { display: inline-flex; align-items: center; gap: 6px; min-height: 30px; padding: 2px 10px 2px 4px; background: var(--bg-raised); }
+.source-num { display: inline-grid; place-items: center; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 999px; background: color-mix(in srgb, var(--gold) 18%, var(--bg-raised)); color: var(--text); font-weight: 700; font-size: var(--text-xs); line-height: 1; }
+.research-tools { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 12px; margin-top: 8px; font-size: var(--text-xs); }
+.research-how { flex: 1 1 220px; min-width: 0; color: var(--text-soft); }
+.research-how > summary { cursor: pointer; min-height: 32px; display: inline-flex; align-items: center; font-weight: 600; color: var(--text-soft); }
+.research-how ul { margin: 4px 0 0; padding-left: 18px; line-height: 1.5; }
+.research-again { min-height: 32px; padding: 0 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-raised); color: var(--text); font: inherit; font-size: var(--text-xs); font-weight: 600; cursor: pointer; }
+.research-again:hover { background: var(--bg-hover); }
