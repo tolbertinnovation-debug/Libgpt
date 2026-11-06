@@ -17,6 +17,8 @@ export const DESIGN_STANDARD = `DESIGN STANDARD (every website must look profess
 DESIGN RULES (what separates professional from amateur)
 - One system: colours, sizes and spacing come only from tokens. Use the kit's type scale (font-size: var(--step-0) for text … var(--step-5) for the hero title) and 8px spacing scale (var(--s-2) 8px … var(--s-9) 96px) instead of random pixel values.
 - Colour 60-30-10: about 60% neutral surfaces, 30% secondary (tints like var(--brand-50), var(--brand-100), dark sections), 10% brand/accent for buttons, links and highlights. Text always meets WCAG AA contrast (4.5:1; 3:1 for large headings).
+- Brand colours: set them once as :root { --brand: …; --accent: …; } using exactly those two names (not --primary or repeated hex codes) and use var(--brand) / var(--accent) everywhere; the kit, the style switcher and the design check read only these.
+- Headings on every page, inner pages too: one <h1>, an <h2> for every section, <h3> only for items (cards, dishes, services, people) inside a section that has its <h2>. Never jump from <h1> to <h3>.
 - Typography: at most two fonts (choose a kit pairing with data-gk-fonts), body 16–18px with line-height 1.6, text lines 60–75 characters (max-width: 65ch), headings tight (line-height 1.1–1.2) with a clear size difference between levels.
 - Hierarchy: each section has an eyebrow label (<p class="gk-eyebrow">), one heading, one short lead sentence, the content, and at most one primary button; the hero has one primary and one secondary action.
 - Rhythm: generous, consistent section padding (var(--space)); alternate section backgrounds; align everything to the container; the same corner radius and shadow everywhere.

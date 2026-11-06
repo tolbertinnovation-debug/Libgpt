@@ -72,3 +72,14 @@ test('a new website build gets the creative direction; an existing one keeps its
   const edit = bodies.filter((b) => b.stream).at(-1).messages[0].content;
   assert.doesNotMatch(edit, /CREATIVE DIRECTION/, 'an existing site keeps its own look');
 });
+
+test('the builders are told the two rules the benchmark found most often missed', async () => {
+  const { creativeDirection } = await import('../public/build-direction.js');
+  const { DESIGN_STANDARD } = await import('../server/design-standard.js');
+  const brief = creativeDirection('A restaurant in Sinkor', { id: 'restaurant' });
+  for (const text of [brief, DESIGN_STANDARD]) {
+    assert.match(text, /exactly (?:these|those) two names/);
+    assert.match(text, /Never jump from <h1> to <h3>/);
+    assert.match(text, /inner pages too/);
+  }
+});
