@@ -182,6 +182,8 @@ app.use((req, res, next) => {
   res.status(404).set({ 'Content-Type': 'text/html; charset=utf-8', 'X-Content-Type-Options': 'nosniff' })
     .send('<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Websites made with Grandpa AI</title><body style="font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:90vh;text-align:center;padding:24px"><div><h1>Websites made with Grandpa AI</h1><p>Open a website with its full address, for example sites…/mama-kitchen/.</p></div>');
 });
+// Short addresses for Grandpa's own pages, so typing them without ".html" works.
+app.get(['/benchmark', '/benchmark/'], (req, res) => res.redirect(301, `/benchmark.html${req.originalUrl.slice(req.path.length)}`));
 app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: '1h' }));
 
 // ---- simple per-IP rate limit -------------------------------------------
@@ -3498,5 +3500,12 @@ app.delete('/api/build/jobs/:id',rateLimit,requireAccess,requireBackground,async
 mountDocumentRoutes(app, { rateLimit, requireAccess, governed: runtime.governed('documents','generate'), complete, chooseModel: pickModel,
   parseConversation: readConversation, readPhoto: photoFrom, photosLeft,
   reservePhoto: () => photoTimes.push(Date.now()), canSeeWith, config });
+
+// Anything else is a page that does not exist: say so, with a way home, instead of an empty white page.
+app.use((req, res) => {
+  if (req.method !== 'GET' && req.method !== 'HEAD') { res.status(404).json({ error: 'Not found.' }); return; }
+  if (/^\/api\//.test(req.path)) { res.status(404).json({ error: 'Not found.' }); return; }
+  res.status(404).type('html').send(notFoundPage('There is no page at this address. <a href="/">Open Grandpa AI</a>.'));
+});
 
 export default app;
