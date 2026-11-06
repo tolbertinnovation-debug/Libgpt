@@ -2087,6 +2087,7 @@ async function applyBackgroundJob(p,job){
  }
  // The photographs the finished pages ask for.
  if(wasRunning && !remoteRunning(p) && !conflict && p===project())await createPhotos(p);
+ if(wasRunning && !remoteRunning(p) && !conflict && job.status==='approved' && p===project())await selfPolish(p);
 }
 function watchBackground(){
  const p=project();backgroundObserver?.stop();
@@ -2450,6 +2451,7 @@ async function buildTheWholeThing(asked, resume=false, {automaticRelease=true,me
   }
   // The photographs the new pages ask for, before anything is published.
   if(p===project() && !deps.backgroundAvailable)await createPhotos(p);
+  if(p===project() && p.team?.status!=='stopped')await selfPolish(p);
   if(automaticRelease && p.automation && p.team?.status==='approved' && p===project())await publishProject({automatic:true});
 }
 
@@ -2466,6 +2468,25 @@ async function buildTheWholeThing(asked, resume=false, {automaticRelease=true,me
  * in an off-screen iframe. Project resources can still request the network.
  * AI repairs are a separate, explicitly requested and governed operation.
  */
+/**
+ * Grandpa checks his own new website before the person looks: when the free design score of a just-built
+ * project is under 85, he polishes it once (one normal build request, approved by the owner as a running cost).
+ * Once per project, never for staged projects, never when a check already found problems.
+ */
+export const SELF_POLISH_BELOW = 85;
+export async function selfPolish(p = project()) {
+  if (!p || p !== project() || p.selfPolished || p.stages || isBusy()) return false;
+  let design;
+  try { design = scoreDesign(builtFiles(p)); } catch { return false; }
+  if (!design.scored || design.score >= SELF_POLISH_BELOW || !design.issues.length) return false;
+  p.selfPolished = { at: Date.now(), before: design.score };
+  p.messages.push({ role: 'assistant', content: `Design check: **${design.score}/100**. Before you look, I'm polishing it once so it looks ${design.kind === 'app' ? 'like a real phone app' : 'premium and finished'}: ${design.tips.slice(0, 3).map((tip) => tip.charAt(0).toLowerCase() + tip.slice(1)).join('; ')}.`, selfPolish: true });
+  await persist();
+  renderThread();
+  // Exactly one extra model call: no automatic repair or phone look on this pass (the person can still ask).
+  return changeFiles(polishRequest(design.issues, design.kind), { shown: '', label: '', repairsLeft: 0, look: false, readsLeft: 0 });
+}
+
 async function checkAfterSaving(turn) {
   const p = project();
   turn.checked = 'checking';
