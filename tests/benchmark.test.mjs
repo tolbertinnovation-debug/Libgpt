@@ -30,3 +30,18 @@ test('the page uses the browser\'s own sign-in and asks before spending', async 
   assert.match(html, /<meta name="robots" content="noindex">/);
   assert.match(html, /benchmark\.js\?v=bench-2/);
 });
+
+test('the short address opens the benchmark and unknown pages say so instead of a blank page', async () => {
+  Object.assign(process.env, { ACCESS_CODE: '', RATE_LIMIT_PER_MINUTE: '0' });
+  const { default: app } = await import('../server/app.js');
+  const server = app.listen(0, '127.0.0.1'); await new Promise((resolve) => server.once('listening', resolve));
+  try {
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const short = await fetch(`${base}/benchmark`, { redirect: 'manual' });
+    assert.equal(short.status, 301); assert.equal(short.headers.get('location'), '/benchmark.html');
+    const missing = await fetch(`${base}/no-such-page`);
+    assert.equal(missing.status, 404); assert.match(await missing.text(), /Page not found[\s\S]*href="\/"/);
+    assert.equal((await fetch(`${base}/api/no-such-route`)).status, 404);
+    assert.equal((await fetch(`${base}/benchmark.html`)).status, 200);
+  } finally { server.closeAllConnections(); server.close(); }
+});
