@@ -242,6 +242,8 @@ style, the home page sections in order, and a model page in the Grandpa Kit 18 p
 pieces. After every save a free **design score** (0–100, no AI cost) checks how finished it
 looks. Under 85 it lists what is missing in plain words, and **Polish the design** fixes it
 — only when you tap it.
+**Try another style** (in What next?) switches the colours and fonts of the whole website in one
+tap, free and undoable; the same sheet has one-tap improvements such as *Add customer reviews*.
 
 Big requests ("build FarmDoctor step by step with Next.js, Neon and Tailwind") are
 split into numbered stages. Each stage is built, then you test it before the next one

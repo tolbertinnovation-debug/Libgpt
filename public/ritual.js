@@ -41,6 +41,8 @@ import { wantsApp, markApp } from './build-app.js?v=app-1';
 import { kindLine } from './build-recipes.js?v=kind-1';
 import { designIssues } from './build-data-check.js?v=code-1';
 import { scoreDesign, polishRequest } from './design-score.js?v=score-1';
+import { STYLE_NAMES, currentStyle, canRestyle, restyle, IMPROVEMENTS } from './build-style.js?v=style-1';
+import { PALETTES } from './build-direction.js?v=score-1';
 import { youtubeId, pendingVideos, placeVideo, dropVideoPlace, playersIn, settlePlayers, unplaceVideo, replacePlayer, creditsPage, linkCredits } from './build-media.js?v=media-4';
 import { annotate, editingDocument, replaceInner, cleanInner, elementCount, readAttributes, setAttributes, sizePicture, removeElement, insertAfter, pictureTag, PICTURE_SIZES, moveElement, duplicateElement, mapElements } from './visual-edit.js?v=kit-2';
 
@@ -570,11 +572,12 @@ function fixHint(p) {
   const pages = builtFiles(p).filter((f) => /\.html?$/i.test(f.path) && !/^data:/.test(f.body || ''));
   const policyChip = pages.length && !pages.some((f) => /(^|\/)(privacy|privacy-policy)\.html?$/i.test(f.path))
     ? `<button class="build-chip" type="button" data-discuss-say="${escapeHtml(POLICY_REQUEST)}">Add privacy, terms and refund pages</button>` : '';
+  const styleChip = !p.stages && canRestyle(builtFiles(p)) ? '<button class="build-chip" type="button" data-style-open>Try another style</button>' : '';
   const photoChip = photos ? `<button class="build-chip" type="button" data-create-photos>Add the ${photos === 1 ? 'photograph' : `${photos} photographs`} this site needs</button>` : '';
   const gh = p.github ? githubChanges(p) : null;
   const ghCount = gh ? gh.changed.length + gh.added.length + gh.deleted.length : 0;
   const githubChip = ghCount ? `<button class="build-chip is-primary" type="button" data-gh-save>Save ${ghCount} change${ghCount === 1 ? '' : 's'} to GitHub</button>` : '';
-  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-next-label">What next?</p><div class="build-chips">${githubChip}${publishChip}${photoChip}${chips}${policyChip}${versions}</div></div>`;
+  return `<div class="build-turn build-turn-ai build-fix-hint"><p class="build-next-label">What next?</p><div class="build-chips">${githubChip}${publishChip}${styleChip}${photoChip}${chips}${policyChip}${versions}</div></div>`;
 }
 
 function proposalHtml(files, index, applied, checked, receipt, design) {
@@ -2517,6 +2520,38 @@ function openSheet(title, html, {busy=false}={}) {
 
 const closeSheet = () => { el.sheet.removeAttribute('aria-busy');el.sheet.hidden = true; sheetVersion += 1; clearTimeout(publicationTimer); };
 
+/** The free style switcher and the one-tap improvements. */
+function showStyles() {
+  const p = project();
+  if (!p || !canRestyle(p.files)) return;
+  const now = currentStyle(p.files);
+  const swatches = Object.keys(PALETTES).map((name) => `<button class="style-swatch" type="button" data-style-pick="${name}" aria-pressed="${name === now}">
+      <span class="style-dots" aria-hidden="true"><span style="background:${PALETTES[name].brand}"></span><span style="background:${PALETTES[name].accent}"></span></span>
+      <span>${escapeHtml(STYLE_NAMES[name])}</span></button>`).join('');
+  const asks = IMPROVEMENTS.map(([label], i) => `<button class="build-chip" type="button" data-improve="${i}">${escapeHtml(label)}</button>`).join('');
+  openSheet('Style and improvements', `<p class="sheet-note">Tap a style to change the colours and fonts at once. It is free, your words and pictures stay, and you can undo it.</p>
+    <div class="style-grid">${swatches}</div>
+    <p class="sheet-note">Or ask Grandpa to improve the design (each one is a normal Grandpa request):</p>
+    <div class="build-chips style-asks">${asks}</div>`);
+}
+
+async function pickStyle(name) {
+  const p = project();
+  if (!p || isBusy()) { deps.toast('Finish the current work first.'); return; }
+  const changes = restyle(p.files, name);
+  if (!changes.length) { deps.toast('This website already uses that style.'); return; }
+  const versionsBefore = (p.versions || []).length;
+  applyChanges(p, changes, `Before: the ${STYLE_NAMES[name]} style`);
+  const turn = { role: 'assistant', content: `Changed the style to **${STYLE_NAMES[name]}**: new colours and fonts on every page. Your words and pictures are the same.`,
+    applied: true, proposal: changes, changeReceipt: changes.map((f) => ({ path: f.path, kind: 'modified', delta: 0 })), undoAt: p.versions?.[versionsBefore]?.at, checked: [] };
+  try { turn.design = scoreDesign(p.files); } catch { turn.design = null; }
+  p.messages.push(turn);
+  await persist();
+  closeSheet();
+  render();
+  renderPreview();
+}
+
 async function checkWebsite() {
   const p=project();
   if(!p?.files.length) {deps.toast('Build a website first.');return;}
@@ -3453,6 +3488,7 @@ export async function mount(options = {}) {
     if (event.target.closest('[data-web-publish]')) { showWebPublish(); return; }
     if (event.target.closest('[data-gh-save]')) { showSaveToGitHub(); return; }
     if (event.target.closest('[data-create-photos]')) { const p = project(); if (!isBusy()) createPhotos(p); return; }
+    if (event.target.closest('[data-style-open]')) { showStyles(); return; }
     const polishBtn = event.target.closest('[data-polish]');
     if (polishBtn) { const turn = project()?.messages[Number(polishBtn.dataset.polish)]; if (turn?.design && !isBusy()) { turn.design.polished = true; persist(); send(polishRequest(turn.design.issues)); } return; }
     const fixEdits = event.target.closest('[data-fix-edits]');
@@ -3546,6 +3582,10 @@ export async function mount(options = {}) {
 
   el.sheet.addEventListener('click', async (event) => {
     if (event.target.closest('[data-check-stop]')) {manualCheck?.abort();return;}
+    const stylePick = event.target.closest('[data-style-pick]');
+    if (stylePick) { await pickStyle(stylePick.dataset.stylePick); return; }
+    const improve = event.target.closest('[data-improve]');
+    if (improve) { const ask = IMPROVEMENTS[Number(improve.dataset.improve)]; if (ask && !isBusy()) { closeSheet(); send(ask[1]); } return; }
     if(event.target.closest('[data-team-start]')){closeSheet();const p=project();await buildTheWholeThing(`Complete and independently review the existing ${p.name} project for release. Preserve its current content and working features.`,false,{automaticRelease:false});return;}
     if(event.target.closest('[data-architecture-download]')){downloadArchitecture();return;}
     if(event.target.closest('[data-auto-release-off]')){project().automation=false;await persist();deps.toast('Automatic releases paused.');return;}
