@@ -102,14 +102,14 @@ export function creativeDirection(text = '', recipe = null, kind = 'website') {
   const palette = PALETTES[name];
   return `CREATIVE DIRECTION (from Grandpa's creative director: follow it exactly, so every page looks like one designed brand)
 - Feel: ${palette.feel}.
-- Colours (tested for readable text): in your own stylesheet set :root { --brand: ${palette.brand}; --accent: ${palette.accent}; } — unless the person named their own brand colours, which always win. Use the kit tints (--brand-50, --brand-100) for alternate sections and one .is-dark section for contrast.
+- Colours (tested for readable text): in your own stylesheet set :root { --brand: ${palette.brand}; --accent: ${palette.accent}; } — unless the person named their own brand colours, which always win (then put those in --brand and --accent). Use exactly these two names, never --primary, --main-color or hex codes repeated in rules: the kit, the style switcher and the design check read only --brand and --accent, and everything else uses var(--brand) / var(--accent). Use the kit tints (--brand-50, --brand-100) for alternate sections and one .is-dark section for contrast.
 - Style and fonts: <html lang="en" data-gk-style="${palette.style}" data-gk-fonts="${palette.fonts}">.
 - Photographs: ${IMAGERY[type] || IMAGERY.general}.
 - Home page, in this order:
 ${(BLUEPRINT[type] || BLUEPRINT.general).map((section, index) => `  ${index + 1}. ${section}`).join('\n')}
 - Structure to copy for the home page (fill every … with real content; add the other sections from the order above in the same style):
 ${PREMIUM_EXAMPLE}
-- Every page: the viewport meta, a real <title> and <meta name="description">, exactly one <h1>, then <h2> section headings; every <img> has alt, width and height.
+- Every page (inner pages too: menu, services, gallery, contact, about): the viewport meta, a real <title> and <meta name="description">, exactly one <h1>, then an <h2> for every section (inside gk-section-head); card, dish, service and team-member titles are <h3> only inside a section that has its <h2>. Never jump from <h1> to <h3>. Every <img> has alt, width and height.
 - Other pages use the same header, footer, section heading blocks (gk-section-head) and spacing as the home page.
 - Words: specific and local, never filler. Headlines name the place or the result ("Fresh jollof in Sinkor, ready in 20 minutes"), not generic slogans ("Welcome to our website"). Prices in Liberian dollars (L$) or US$ as the person gave them. Use only the phone numbers, addresses and names the person gave; where one is missing write a clear placeholder like "Your phone number" so it is never invented.`;
 }
