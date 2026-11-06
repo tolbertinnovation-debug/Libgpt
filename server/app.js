@@ -80,7 +80,7 @@ import {generateFreshStory,StoryGenerationError} from './stories.js';
 import {imageRequest} from './image-options.js';
 import { memoryContext } from '../public/memory.js';
 import { chatTools, toolActions, FOLLOWUPS_PROMPT, HISTORY_PROMPT, isHistoryQuestion } from './chat-tools.js';
-import { gatherResearch } from './research.js';
+import { gatherResearch, asksForDeepResearch, REPORT_PROMPT } from './research.js';
 import { cleanSummary } from '../public/chat-summary.js';
 import { createRealtimeSecret, pickRealtimeModel, recentContext, LIVE_VOICE_RULES, realtimeSpeak, pcmToWav, advancedSpeechMicroUsd } from './realtime.js';
 import { realtimeVoice } from '../public/voice-cast.js';
@@ -448,7 +448,8 @@ app.get('/api/config', async (_req, res) => {
     // True only when a model that can actually read the web is on this
     // account. Promising live news the key cannot fetch would be the same
     // lie the feature exists to stop.
-    liveNews: Boolean(await lookupModel()),
+    // Live research: OpenAI's web tool, or Grandpa's own free research when chat runs on Meta (server/research.js).
+    liveNews: Boolean(await lookupModel()) || (llamaConfig().ready && llamaMode(process.env, { openaiOff: config.openaiOff }) !== 'backup'),
     knowledge: { research: true, depths: ['auto', 'detailed', 'thorough'], contextChars: 120_000, questionChars: QUESTION_CHARS },
     // Whether a recording can be sent here to be turned into words. When this
     // is false the page falls back to the browser's own speech recognition,
@@ -949,6 +950,8 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
   const research = researchMode(req.body?.research);
   const think = req.body?.think === true || depth === 'thorough';
   const routing = { persona, asked: routedQuestion, think, spoken };
+  // Deep research: the Deep research button, or asked for in words ("research cassava export markets").
+  const deepResearch = !spoken && !building && (req.body?.deepResearch === true || asksForDeepResearch(routedQuestion));
   const reader = await lookupModel(building || tierFor('chat', routing) === 'deep');
 
   // A photograph on this turn. Checked here rather than trusted, and counted
@@ -1171,7 +1174,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
     let usedBackup = false;
     // Quick answers to small questions, a proper think on large tasks, and Muse
     // Wonder when the person asks Grandpa to Think (see metaPlan in llama.js).
-    const plan = () => metaPlan({ thinking, tier: tierFor('chat', routing), depth, spoken, carryingOn, asked: routedQuestion });
+    const plan = () => metaPlan({ thinking, tier: tierFor('chat', routing), depth: deepResearch ? 'thorough' : depth, spoken, carryingOn, asked: routedQuestion });
     const metaModel = () => plan().model;
     const metaEffort = () => plan().effort;
     const runBackup = async (conversation, room = budget, tools = []) => {
@@ -1272,7 +1275,7 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
             researched = true;
             send('start', { model: metaModel(), spoken, searched: true, dropped, saw: metaSees, thought: plan().long });
             let found = { notes: '', sources: [], count: 0 };
-            try { found = await gatherResearch(routedQuestion, { deep: depth === 'thorough' || taskSize(routedQuestion) === 'large', links: (routedQuestion.match(/https:\/\/[^\s<>"')]+/g) || []) }); }
+            try { found = await gatherResearch(routedQuestion, { report: deepResearch, deep: depth === 'thorough' || taskSize(routedQuestion) === 'large', onProgress: (message) => send('progress', { message }), links: (routedQuestion.match(/https:\/\/[^\s<>"')]+/g) || []) }); }
             catch (error) { console.error('[research] FAILED', error?.message); }
             if (!found.count) {
               send('notice', { message: 'Grandpa looked it up but found nothing on it in his news and reference sources, so this answer is from what he already knows.' });
@@ -1281,13 +1284,13 @@ app.post('/api/chat', rateLimit, requireAccess, runtime.middleware('builder','ge
               return false;
             }
             for (const item of found.sources) if (!sources.some((s) => s.url === item.url)) sources.push(item);
-            system = promptFor('notes');
+            system = promptFor('notes') + (deepResearch ? `\n\n${REPORT_PROMPT}` : '');
             searched = true;
             researchNotes = found.notes;
             return true;
           };
           const wantsLookUp = !building && !carryingOn && research !== 'off' && !photo && !document
-            && (req.body?.search === true || needsLookingUp(routedQuestion, new Date(), research === 'always'));
+            && (req.body?.search === true || deepResearch || needsLookingUp(routedQuestion, new Date(), research === 'always'));
           if (wantsLookUp) await lookItUp();
           else send('start', { model: metaModel(), spoken, searched: false, dropped, saw: metaSees, thought: plan().long });
           // No think_carefully on Meta (a second, slower pass is not worth the wait). search_web is offered while he has

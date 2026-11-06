@@ -192,6 +192,7 @@ const el = {
   input: $('composer-input'),
   foot: $('composer-foot'),
   look: $('look-btn'),
+  deep: $('deep-btn'),
   send: $('send-btn'),
   stop: $('stop-btn'),
   mic: $('mic-btn'),
@@ -944,6 +945,7 @@ async function streamReply(chat, hooks = {}) {
         // Asked for outright. The server works out for itself when a question
         // needs looking up; this is for when it guesses wrong.
         search: state.lookItUp === true,
+        deepResearch: state.deepResearch === true,
         depth: answerDepth(state.prefs.answerDepth),
         research: researchMode(state.prefs.research),
         continue: chat.messages.at(-2)?.unfinished === true,
@@ -1001,6 +1003,9 @@ async function streamReply(chat, hooks = {}) {
           else unmarkLookedUp(target);
           // Thinking first takes a few seconds before the first word; say so.
           if (payload.thought && !text) target.innerHTML = '<span class="thinking"><span></span><span></span><span></span></span> <span class="thinking-note">Thinking it through…</span>';
+        } else if (event === 'progress' && payload.message) {
+          // What the research is doing right now: searching, reading, checking. Shown until the first words arrive.
+          if (!text) target.innerHTML = `<span class="thinking"><span></span><span></span><span></span></span> <span class="thinking-note research-progress">${escapeHtml(payload.message)}</span>`;
         } else if (event === 'sources' && Array.isArray(payload.items)) {
           sources = payload.items;
         } else if (event === 'action' && ['image', 'document', 'memory'].includes(payload.type)) {
@@ -1107,6 +1112,7 @@ async function streamReply(chat, hooks = {}) {
   // One question at a time, both of them: each is a decision about the thing
   // being asked, not a mode to be left on and forgotten about spending money.
   setLookItUp(false);
+  setDeepResearch(false);
   setThinkHarder(false);
 
   if (!chat.titled && chat.messages.length >= 2) nameConversation(chat);
@@ -1301,6 +1307,15 @@ function updateSendState() {
  * So there is also a button. It is off by default, because a search costs more
  * than an answer, and it turns itself off again after the question it was
  * meant for. */
+/** Deep research for the next question only: more sources, more reading, and a report. */
+function setDeepResearch(on) {
+  state.deepResearch = Boolean(on) && Boolean(state.catalogue.liveNews);
+  if (!el.deep) return;
+  el.deep.setAttribute('aria-pressed', String(state.deepResearch));
+  el.deep.classList.toggle('is-on', state.deepResearch);
+  el.deep.title = state.deepResearch ? 'This one gets deep research and a report' : 'Deep research: more sources and a report';
+}
+
 function setLookItUp(on) {
   state.lookItUp = Boolean(on) && Boolean(state.catalogue.liveNews);
   el.look.setAttribute('aria-pressed', String(state.lookItUp));
@@ -2931,6 +2946,14 @@ el.setRoom.addEventListener('change', () => {
   el.setRoomHint.textContent = roomHint();
 });
 
+el.deep?.addEventListener('click', () => {
+  setDeepResearch(!state.deepResearch);
+  if (state.deepResearch) toast('Deep research is on for your next question: Grandpa will read more sources and write a report.');
+  sounds.tap();
+  showMore(false);
+  el.input.focus();
+});
+
 el.look.addEventListener('click', () => {
   setLookItUp(!state.lookItUp);
   sounds.tap();
@@ -3997,7 +4020,9 @@ async function boot() {
     // can actually read the web. A button that cannot do what it says is
     // worse than no button.
     el.look.hidden = !config.liveNews;
+    if (el.deep) el.deep.hidden = !config.liveNews;
     setLookItUp(false);
+    setDeepResearch(false);
     setThinkHarder(false);
 
     // Likewise the camera: only where this key has a model that can look.

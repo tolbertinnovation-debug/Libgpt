@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { keywords, parseFeed, matchScore, safeToRead, pageText, gatherResearch, clearResearchCache, subQuestions, age, RESEARCH_NOTES_PROMPT } from '../server/research.js';
+import { keywords, parseFeed, matchScore, safeToRead, pageText, gatherResearch, clearResearchCache, subQuestions, age, RESEARCH_NOTES_PROMPT, REPORT_PROMPT, asksForDeepResearch } from '../server/research.js';
 import { isolatedLedger } from './support/ledger.mjs';
 
 const FEED = `<?xml version="1.0"?><rss><channel>
@@ -129,6 +129,27 @@ test('chat on Meta looks a news question up first, answers from the notes and sh
   metaReply = () => ({ choices: [{ delta: { content: 'Morning!' }, finish_reason: 'stop' }] });
   await post({ messages: [{ role: 'user', content: 'Good morning Grandpa' }] });
   assert.ok(!metaBodies.some((body) => (body.messages || []).some((m) => /^RESEARCH NOTES/.test(m.content || ''))));
+
+  // Deep research (the button): progress is shown while it works, the answer is a report, and Meta thinks it through.
+  clearResearchCache();
+  metaBodies.length = 0;
+  metaReply = () => ({ choices: [{ delta: { content: '## Summary\nRice is up [1].' }, finish_reason: 'stop' }] });
+  const deep = await post({ messages: [{ role: 'user', content: 'Rice prices in Liberia' }], deepResearch: true });
+  const deepBody = metaBodies.filter((body) => body.stream).at(-1);
+  assert.match(deepBody.messages[0].content, /DEEP RESEARCH REPORT/);
+  assert.equal(deepBody.reasoning_effort, 'high', 'deep research is thought through');
+  assert.match(deep, /event: progress\ndata: \{"message":"Searching Liberian papers, world news and Wikipedia…"\}/);
+  assert.match(deep, /event: progress\ndata: \{"message":"Reading 1 article in full…"\}/);
+  assert.match(deep, /event: progress\ndata: \{"message":"Checking \d+ sources? against each other…"\}/);
+  const site = await (await original(`${base}/api/config`)).json();
+  assert.equal(site.liveNews, true, 'the Look it up and Deep research buttons show on Meta');
+});
+
+test('deep research is asked for in words, or with the button', () => {
+  for (const asked of ['Research cassava export markets for Liberia', 'Please research rice prices', 'Do deep research on fuel prices', 'I want you to research in depth the cocoa trade'])
+    assert.equal(asksForDeepResearch(asked), true, asked);
+  for (const asked of ['What is research?', 'Tell me about researchers in Liberia', 'Good morning']) assert.equal(asksForDeepResearch(asked), false, asked);
+  for (const heading of ['## Summary', '## Key findings', '## The numbers', '## Where sources agree and differ', '## What is still not clear', '## Sources']) assert.ok(REPORT_PROMPT.includes(heading), heading);
 });
 
 test('a question with several parts is searched part by part, with each source dated and aged', async () => {

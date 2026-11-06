@@ -74,7 +74,15 @@ numbered notes:
 - **Dated and checked:** every note says how old it is ("today", "5 days old", "3 months old"; Wikipedia is marked
   as a reference article). Meta is told to answer every part, say where sources agree, give both sides where they
   differ (never averaging numbers), prefer the newest, and end a big answer with what is still not clear.
-- **Speed:** about 4–6 seconds. Every source has its own time limit and anything slow or busy is left out.
+- **Deep research:** the **Deep research** item in the composer's + menu (one question only), or asking in words
+  ("research cassava export markets", "do deep research on fuel prices"). It reads the most (up to 8 stories per
+  part, 8 in full), thinks at the highest setting, and writes a report: Summary, Key findings, The numbers (a
+  table), Where sources agree and differ, What is still not clear, Sources.
+- **Progress:** while it works the chat shows what it is doing ("Searching Liberian papers, world news and
+  Wikipedia…", "Reading 6 articles in full…", "Checking 9 sources against each other…").
+- **The buttons:** **Search the web** and **Deep research** show whenever Meta is set up (`liveNews` is now true
+  on Meta, not only with OpenAI's web tool).
+- **Speed:** about 4–6 seconds (deep research up to about 18). Every source has its own time limit and anything slow or busy is left out.
   Feeds and pages are kept for 10 minutes, so the next question does not fetch them again.
 - **Safety:** only public `https` addresses are read (no raw IPs, local names, odd ports, or hosts that
   resolve to private or cloud-metadata addresses). Pages are cut to plain text and size-capped, and the notes
