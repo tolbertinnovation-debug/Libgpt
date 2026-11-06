@@ -2,7 +2,7 @@
 // design score. The owner runs it from their own signed-in browser (it uses the access code already saved there),
 // so no key or code ever leaves their device. Each build is one normal paid Build request; nothing runs on its own.
 import { filesFrom } from './build.js?v=kit-4';
-import { scoreDesign } from './design-score.js?v=score-1';
+import { scoreDesign } from './design-score.js?v=score-2';
 
 export const PROMPTS = Object.freeze([
   'A website for my restaurant in Sinkor that sells jollof rice, fufu and pepper soup, with delivery',
